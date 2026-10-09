@@ -1,0 +1,25 @@
+name: elder-v1-evaluation
+comparators:
+  - option-a-through-shared-compiler
+  - prior-planner-reference-where-reproducible
+metrics:
+  - normalized_welfare_return
+  - raw_welfare_flow
+  - prior_cohort_qol
+  - survival_and_distress
+  - food_water_clothing_housing_service
+  - field_operation_and_capital
+  - herd_retention_growth_and_slaughter
+  - plant_animal_aquatic_receipts
+  - reserves
+  - material_and_tool_constraints
+  - trade_deliveries
+  - immigration_and_emigration
+  - movement_and_abandonment
+  - fission_and_daughter_viability
+  - compiler_intervention_rates
+heldout_rules:
+  freeze_before_training: true
+  no_checkpoint_selection_on_heldout: true
+  continue_beyond_normal_horizon: true
+  split_by_world_and_trajectory_before_snapshot_selection: true

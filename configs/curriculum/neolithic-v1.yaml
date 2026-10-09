@@ -1,0 +1,43 @@
+name: neolithic-elder-v1
+simulator_manifest: configs/simulator/elder-v1.yaml
+partition_key: [world_seed, trajectory_family]
+partitions:
+  - train
+  - development
+  - heldout
+stages:
+  - id: 0
+    name: adapter-actuation-smoke
+    movement: false
+    outcome_claim: none
+  - id: 1
+    name: retention-and-development
+    movement: false
+  - id: 2
+    name: permanence-and-mobility
+    movement: true
+  - id: 3
+    name: mixed-subsistence-and-external-flows
+    systems: [fishing, trade, immigration, taming, fission]
+  - id: 4
+    name: long-horizon-generalization
+    extended_continuation: true
+minimum_training_seeds_for_claim: 3
+snapshot_strata:
+  - settlement_permanence
+  - retained_field_capital
+  - herd_pressure_relative_to_support
+  - aquatic_opportunity
+  - realized_food_receipt_mix
+  - service_security
+  - reserves
+  - labor_scale
+  - material_and_tool_constraints
+  - contact_and_trade_exposure
+  - movement_opportunity
+  - fission_exit_opportunity
+  - recent_fission_parent
+challenge_cases:
+  - issue-41-fishing-first-or-fresh-matched-equivalent
+  - option-a-a-through-i-development-only
+  - fission-reward-adversarial

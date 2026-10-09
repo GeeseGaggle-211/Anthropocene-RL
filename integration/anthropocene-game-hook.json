@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "trainingRepository": "GeeseGaggle-211/Anthropocene-RL",
+  "trainingRepositoryUrl": "https://github.com/GeeseGaggle-211/Anthropocene-RL",
+  "simulatorRepository": "GeeseGaggle-211/Anthropocene",
+  "simulatorBranch": "feature/elder-rl-scaffold",
+  "simulatorCommit": "81bae49d71b23c32d956991601546d3cb2064ad7",
+  "observationSchemaVersion": 1,
+  "actionSchemaVersion": 1,
+  "environmentSchemaVersion": 1,
+  "tensorFeatureCount": 512,
+  "relationship": "manifest-pin-not-submodule",
+  "status": "skeleton"
+}

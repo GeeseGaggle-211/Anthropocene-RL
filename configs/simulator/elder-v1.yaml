@@ -1,0 +1,16 @@
+name: elder-v1-native-handoff
+repository: GeeseGaggle-211/Anthropocene
+repository_url: https://github.com/GeeseGaggle-211/Anthropocene
+branch: feature/elder-rl-scaffold
+commit: 81bae49d71b23c32d956991601546d3cb2064ad7
+project: Tools/ElderRL/Anthropocene.ElderRL.csproj
+observation_schema_version: 1
+action_schema_version: 1
+environment_schema_version: 1
+tensor_feature_count: 512
+required_commands:
+  - schema
+  - reset-smoke
+  - step-smoke
+  - replay-smoke
+contract_status: native-ready
