@@ -7,6 +7,21 @@ This repository is a **client of the authoritative C# simulation**. It must not
 reimplement Anthropocene economics, ecology, trade, immigration, fission, or
 resolution logic in Python.
 
+## Normative design authority
+
+The Google Drive document **Anthropocene AI/RL Training Concept — Neolithic
+Curriculum and Scalable Agent Architecture** is the normative specification for
+RL architecture, observation semantics, reward semantics, curriculum, evaluation
+gates, and future scale-out.
+
+Repository code, YAML, manifests, README files, and tests are implementations or
+reproducibility records of that specification. They do **not** override it. If
+the repository and the design document disagree, treat the document as correct
+unless the document is explicitly revised; change the implementation to conform.
+
+Canonical design document:
+https://docs.google.com/document/d/1rZjIo7NMrxn3OQzGFHJI2QAZN7rauHgSCm-nbMNUCT0/edit
+
 ## Native simulator contract
 
 The initial Elder-v1 scaffold handoff is pinned to:
@@ -19,12 +34,13 @@ The initial Elder-v1 scaffold handoff is pinned to:
 - environment schema: `1`
 - tensor width: `512`
 
-The source of truth is `configs/simulator/elder-v1.yaml`.
+`configs/simulator/elder-v1.yaml` is the reproducibility pin for this native
+handoff. It is not the design source of truth.
 
-The native scaffold is implementation-ready, but the learner contract is still
-blocked on normalization-v1 and the five native observation-semantic fixes in
-`docs/SECTION_34_GATES.md`. Do not interpret the pinned commit as approval to
-begin serious training against the current observation semantics.
+The native scaffold is implementation-ready. The normalization-v1 **design
+policy is approved in the design document**, but serious training remains blocked
+until the native observation-semantic plumbing is updated to match that policy
+and the still-open section-34 adapter decisions are locked.
 
 ## Scope of this skeleton
 
@@ -43,13 +59,14 @@ Not implemented yet:
 
 - C#↔Python transport;
 - the Gymnasium `reset`/`step` adapter;
-- section-34 normalization transforms;
+- normalization-v1 transforms and frozen normalization manifest;
+- the native C# observation-semantic fixes specified in design section 34;
 - PPO action distributions, GAE/discount semantics, or training loop;
 - snapshot-bank generation;
 - runtime export/inference integration.
 
-Those remain blocked on the open section-34 decisions and the native observation
-semantic fixes recorded in `docs/SECTION_34_GATES.md`.
+See `docs/SECTION_34_GATES.md` for the implementation blockers mirrored from
+the design document.
 
 ## Setup
 
