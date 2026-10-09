@@ -1,5 +1,19 @@
 # Repository boundary
 
+## Normative specification
+
+The Google Drive document **Anthropocene AI/RL Training Concept — Neolithic
+Curriculum and Scalable Agent Architecture** is normative.
+
+Canonical design document:
+https://docs.google.com/document/d/1rZjIo7NMrxn3OQzGFHJI2QAZN7rauHgSCm-nbMNUCT0/edit
+
+This repository and the `Anthropocene` game repository implement that document.
+A repository manifest records what code was run; it does not define what the RL
+system ought to mean. When code/configuration conflicts with the design document,
+the default resolution is to change the code/configuration to match the document,
+not to rewrite the document to match the implementation.
+
 ## Invariant
 
 The Python repository is a client of Anthropocene's native simulation. It may
@@ -27,7 +41,7 @@ environment/adapter context and must not be reconstructed from normalized neural
 features.
 
 The concrete Python step-envelope type is intentionally deferred until the
-section-34 transport/action contract is locked.
+remaining section-34 transport/action contract is locked.
 
 ## Promotion boundary
 
