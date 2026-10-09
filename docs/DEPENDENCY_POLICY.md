@@ -9,6 +9,11 @@
   work; it is not installed for the first adapter smoke by default.
 - `export` adds ONNX tooling for eventual promoted runtime actors.
 
+Gymnasium is pinned to `1.2.2` because the pinned Ray `2.59.0` RLlib extra
+requires that exact version. Stable-Baselines3 `2.9.0` supports the same
+Gymnasium major range. Upgrade these as one tested compatibility set rather than
+advancing Gymnasium independently.
+
 The first cloud setup must resolve and commit `uv.lock`. Accelerator-specific
 PyTorch/JAX installation remains environment-specific and must not be encoded as
 a universal local dependency.
