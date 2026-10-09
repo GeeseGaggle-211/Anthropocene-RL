@@ -1,5 +1,5 @@
 name: elder-ppo-v1
-status: blocked-on-section-34
+status: blocked-on-adapter-contract-and-native-observation-plumbing
 network:
   actor_hidden: [256, 256]
   critic_hidden: [256, 256]
@@ -14,7 +14,7 @@ action_heads:
   categorical:
     - movement_candidate
 movement_enabled_for_initial_smoke: null
-normalization_schema: pending-normalization-v1
+normalization_schema: normalization-v1-design-locked-implementation-pending
 open_decisions:
   - initial_smoke_movement
   - bounded_continuous_distribution
