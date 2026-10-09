@@ -14,8 +14,10 @@ required_commands:
   - step-smoke
   - replay-smoke
 native_scaffold_status: ready
+normalization_design_status: locked
+native_observation_semantics_status: update-required
 adapter_status: blocked
 training_status: blocked
 blocking_contracts:
-  - normalization-v1
-  - native-observation-red-fixes
+  - native-observation-semantic-plumbing
+  - section-34-adapter-contract
