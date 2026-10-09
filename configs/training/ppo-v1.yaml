@@ -13,9 +13,10 @@ action_heads:
     - field_development_share
   categorical:
     - movement_candidate
-movement_enabled_for_initial_smoke: false
+movement_enabled_for_initial_smoke: null
 normalization_schema: pending-normalization-v1
 open_decisions:
+  - initial_smoke_movement
   - bounded_continuous_distribution
   - masked_categorical_distribution
   - sampled_vs_accepted_action_semantics

@@ -37,7 +37,15 @@ snapshot_strata:
   - movement_opportunity
   - fission_exit_opportunity
   - recent_fission_parent
-challenge_cases:
-  - issue-41-fishing-first-or-fresh-matched-equivalent
+
+# These are already-consumed implementation/regression evidence and must not be
+# relabeled as unseen held-out evaluation.
+development_regressions:
   - option-a-a-through-i-development-only
-  - fission-reward-adversarial
+  - existing-issue-41-fishing-first-diagnostics
+
+# Generate/freeze fresh instances before training so final challenge evaluation
+# is genuinely unseen.
+heldout_challenges:
+  - fresh-matched-fishing-first
+  - fresh-fission-reward-adversarial

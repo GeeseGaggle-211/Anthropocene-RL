@@ -1,3 +1,12 @@
+"""Learner-visible observation tensor types.
+
+`EncodedObservation` is only the fixed-width neural tensor plus its presence
+mask. It is deliberately not the full environment-step envelope: action masks,
+agent-local physical delta-t, trusted action metadata, schema/replay identities,
+and interventions belong to the adapter/environment context once that contract
+is locked.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

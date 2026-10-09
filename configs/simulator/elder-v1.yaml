@@ -13,4 +13,9 @@ required_commands:
   - reset-smoke
   - step-smoke
   - replay-smoke
-contract_status: native-ready
+native_scaffold_status: ready
+adapter_status: blocked
+training_status: blocked
+blocking_contracts:
+  - normalization-v1
+  - native-observation-red-fixes
