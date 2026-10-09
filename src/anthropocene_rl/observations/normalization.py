@@ -1,7 +1,11 @@
-"""Normalization-v1 placeholder.
+"""Normalization-v1 interface.
 
-Implementation is intentionally blocked until the section-34 Yellow approvals
-and Red semantic fixes are resolved. No running inference normalizer is allowed.
+The normalization *design* is normative in section 34 of the Anthropocene RL
+design document: semantic/reference-relative Stage 1, monotonic Stage 2, tanh
+soft saturation, and frozen training-partition calibration.
+
+Implementation remains intentionally incomplete until the native C# observation
+plumbing matches those semantics. No running inference normalizer is allowed.
 """
 
 from __future__ import annotations
