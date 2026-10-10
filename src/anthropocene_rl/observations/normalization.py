@@ -7,9 +7,9 @@ with the checkpoint. Inference never updates running statistics.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 
@@ -105,10 +105,13 @@ class NormalizationManifest:
         payload = asdict(self)
         payload["scales"] = list(self.scales)
         payload["kinds"] = list(self.kinds)
-        Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        Path(path).write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     @classmethod
-    def load(cls, path: str | Path) -> "NormalizationManifest":
+    def load(cls, path: str | Path) -> NormalizationManifest:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         payload["scales"] = tuple(float(value) for value in payload["scales"])
         payload["kinds"] = tuple(str(value) for value in payload["kinds"])
@@ -143,7 +146,7 @@ class SemanticNormalizerV2:
         observations: Iterable[EncodedObservation],
         *,
         partition_id: str,
-    ) -> "SemanticNormalizerV2":
+    ) -> SemanticNormalizerV2:
         batch = list(observations)
         if not batch:
             raise ValueError("Cannot fit normalization on an empty partition")
