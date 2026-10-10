@@ -7,7 +7,11 @@ import math
 import numpy as np
 
 
-def discounted_interval_reward(welfare_rate: float, elapsed_years: float, horizon_years: float) -> float:
+def discounted_interval_reward(
+    welfare_rate: float,
+    elapsed_years: float,
+    horizon_years: float,
+) -> float:
     if elapsed_years < 0:
         raise ValueError("Elapsed physical time cannot be negative")
     if math.isinf(horizon_years):
@@ -27,7 +31,11 @@ def physical_gamma(elapsed_years: float, horizon_years: float) -> float:
     return math.exp(-elapsed_years / horizon_years)
 
 
-def physical_lambda(elapsed_years: float, lambda_ref: float, reference_years: float) -> float:
+def physical_lambda(
+    elapsed_years: float,
+    lambda_ref: float,
+    reference_years: float,
+) -> float:
     if not (0.0 <= lambda_ref <= 1.0):
         raise ValueError("lambda_ref must be in [0,1]")
     if elapsed_years < 0 or reference_years <= 0:
