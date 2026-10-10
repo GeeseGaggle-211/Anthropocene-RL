@@ -1,23 +1,27 @@
 name: elder-v1-evaluation
+simulator_manifest: configs/simulator/elder-v2.yaml
 comparators:
   - option-a-through-shared-compiler
   - prior-planner-reference-where-reproducible
 metrics:
-  - normalized_welfare_return
-  - raw_welfare_flow
+  - undiscounted_parent_local_person_qol_welfare
+  - discounted_training_return
   - prior_cohort_qol
   - survival_and_distress
   - food_water_clothing_housing_service
-  - field_operation_and_capital
+  - field_operation_intensity_and_capital
   - herd_retention_growth_and_slaughter
   - plant_animal_aquatic_receipts
   - reserves
   - material_and_tool_constraints
-  - trade_deliveries
+  - trade_deliveries_and_realized_utility
   - immigration_and_emigration
   - movement_and_abandonment
   - fission_and_daughter_viability
   - compiler_intervention_rates
+  - action_entropy_and_saturation
+  - technology_regime_adaptation_latency
+  - long_run_welfare_regret
 heldout_rules:
   freeze_before_training: true
   no_checkpoint_selection_on_heldout: true

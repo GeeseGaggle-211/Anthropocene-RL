@@ -1,16 +1,16 @@
 {
-  "schema": 1,
+  "schema": 2,
   "trainingRepository": "GeeseGaggle-211/Anthropocene-RL",
   "trainingRepositoryUrl": "https://github.com/GeeseGaggle-211/Anthropocene-RL",
   "designAuthority": "Anthropocene AI/RL Training Concept — Neolithic Curriculum and Scalable Agent Architecture",
   "designAuthorityUrl": "https://docs.google.com/document/d/1rZjIo7NMrxn3OQzGFHJI2QAZN7rauHgSCm-nbMNUCT0/edit",
   "simulatorRepository": "GeeseGaggle-211/Anthropocene",
-  "simulatorBranch": "feature/elder-rl-scaffold",
-  "simulatorCommit": "81bae49d71b23c32d956991601546d3cb2064ad7",
-  "observationSchemaVersion": 1,
+  "simulatorCommit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "observationSchemaVersion": 2,
   "actionSchemaVersion": 1,
-  "environmentSchemaVersion": 1,
+  "environmentSchemaVersion": 2,
+  "criticSidecarSchemaVersion": 1,
   "tensorFeatureCount": 512,
   "relationship": "manifest-pin-not-submodule",
-  "status": "skeleton-doc-authoritative"
+  "status": "elder-v2-ppo-bringup"
 }

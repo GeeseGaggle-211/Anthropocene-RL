@@ -1,5 +1,5 @@
 name: neolithic-elder-v1
-simulator_manifest: configs/simulator/elder-v1.yaml
+simulator_manifest: configs/simulator/elder-v2.yaml
 partition_key: [world_seed, trajectory_family]
 partitions:
   - train
@@ -7,19 +7,23 @@ partitions:
   - heldout
 stages:
   - id: 0
-    name: adapter-actuation-smoke
+    name: adapter-and-optimizer-smoke
     movement: false
     outcome_claim: none
   - id: 1
     name: retention-and-development
     movement: false
   - id: 2
+    name: technology-regime-adaptation
+    movement: false
+    counterfactual_q_k: [0.4, 0.5, 0.8]
+  - id: 3
     name: permanence-and-mobility
     movement: true
-  - id: 3
+  - id: 4
     name: mixed-subsistence-and-external-flows
     systems: [fishing, trade, immigration, taming, fission]
-  - id: 4
+  - id: 5
     name: long-horizon-generalization
     extended_continuation: true
 minimum_training_seeds_for_claim: 3
@@ -37,15 +41,13 @@ snapshot_strata:
   - movement_opportunity
   - fission_exit_opportunity
   - recent_fission_parent
-
-# These are already-consumed implementation/regression evidence and must not be
-# relabeled as unseen held-out evaluation.
+  - institutional_memory_maturity
+  - technology_frontier_transition
 development_regressions:
   - option-a-a-through-i-development-only
   - existing-issue-41-fishing-first-diagnostics
-
-# Generate/freeze fresh instances before training so final challenge evaluation
-# is genuinely unseen.
+  - disclosed-investment-payback-technology-stress
 heldout_challenges:
   - fresh-matched-fishing-first
   - fresh-fission-reward-adversarial
+  - unseen-frontier-magnitude-or-unlock-timing

@@ -1,7 +1,28 @@
-"""Version constants mirrored from the pinned native Elder contract."""
+"""Frozen native-v2 contract identifiers and tensor offsets."""
 
-OBSERVATION_SCHEMA_VERSION = 1
+from __future__ import annotations
+
+SIMULATOR_REPOSITORY = "GeeseGaggle-211/Anthropocene"
+SIMULATOR_COMMIT = "5559961164d6f9da8e6d20c1dc563ecec3eb04b7"
+
+OBSERVATION_SCHEMA_VERSION = 2
 ACTION_SCHEMA_VERSION = 1
-ENVIRONMENT_SCHEMA_VERSION = 1
+ENVIRONMENT_SCHEMA_VERSION = 2
+CRITIC_SIDECAR_SCHEMA_VERSION = 1
 TENSOR_FEATURE_COUNT = 512
-SIMULATOR_COMMIT = "81bae49d71b23c32d956991601546d3cb2064ad7"
+
+CONTINUOUS_HEAD_NAMES = (
+    "retained_field_operation",
+    "retained_herd_fraction",
+    "development_budget",
+    "field_development_share",
+)
+
+FIELD_RETENTION_MASK_OFFSET = 80
+HERD_RETENTION_MASK_OFFSET = 81
+FIELD_DEVELOPMENT_MASK_OFFSET = 82
+HERD_DEVELOPMENT_MASK_OFFSET = 83
+
+MOVEMENT_ENABLED_OFFSET = 480
+MOVEMENT_CANDIDATE_MASK_OFFSET = 482
+MOVEMENT_CANDIDATE_COUNT = 8
