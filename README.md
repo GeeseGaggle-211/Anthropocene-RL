@@ -1,122 +1,87 @@
 # Anthropocene-RL
 
-Training, evaluation, dataset, and model-export tooling for the learned agents in
+Training and evaluation tooling for learned institutional agents in
 [Anthropocene](https://github.com/GeeseGaggle-211/Anthropocene).
 
-This repository is a **client of the authoritative C# simulation**. It must not
-reimplement Anthropocene economics, ecology, trade, immigration, fission, or
-resolution logic in Python.
-
-## Normative design authority
-
 The Google Drive document **Anthropocene AI/RL Training Concept — Neolithic
-Curriculum and Scalable Agent Architecture** is the normative specification for
-RL architecture, observation semantics, reward semantics, curriculum, evaluation
-gates, and future scale-out.
+Curriculum and Scalable Agent Architecture** is normative. This repository is a
+client of the authoritative C# simulation and never reimplements its economics,
+ecology, trade, migration, fission or demography.
 
-Repository code, YAML, manifests, README files, and tests are implementations or
-reproducibility records of that specification. They do **not** override it. If
-the repository and the design document disagree, treat the document as correct
-unless the document is explicitly revised; change the implementation to conform.
+## Frozen Elder v2 handoff
 
-Canonical design document:
-https://docs.google.com/document/d/1rZjIo7NMrxn3OQzGFHJI2QAZN7rauHgSCm-nbMNUCT0/edit
+The first PPO bring-up pins:
 
-## Native simulator contract
+- simulator commit `5559961164d6f9da8e6d20c1dc563ecec3eb04b7`;
+- observation schema 2;
+- action schema 1;
+- environment/replay schema 2;
+- critic-sidecar schema 1;
+- tensor width 512.
 
-The initial Elder-v1 scaffold handoff is pinned to:
+See `configs/simulator/elder-v2.yaml`.
 
-- repository: `GeeseGaggle-211/Anthropocene`
-- branch: `feature/elder-rl-scaffold`
-- commit: `81bae49d71b23c32d956991601546d3cb2064ad7`
-- observation schema: `1`
-- action schema: `1`
-- environment schema: `1`
-- tensor width: `512`
+## Implemented bring-up surface
 
-`configs/simulator/elder-v1.yaml` is the reproducibility pin for this native
-handoff. It is not the design source of truth.
+- frozen schema-v2 observation/presence model;
+- semantic normalization-v2 with fit/freeze/serialize manifests;
+- persistent JSON-lines process transport;
+- learner-owned C# bridge compiled from the pinned native simulation sources;
+- Gymnasium single-Elder adapter;
+- separate 512 -> 256 -> 256 PyTorch actor and critic;
+- tanh-squashed Gaussian active continuous heads;
+- native structural masking with zero likelihood/entropy for inactive heads;
+- masked categorical movement support;
+- requested-action PPO likelihood under native repairs;
+- physical-time interval discount and GAE utilities;
+- a minimal PPO optimizer and CI mechanics smoke.
 
-The native scaffold is implementation-ready. The normalization-v1 **design
-policy is approved in the design document**, but serious training remains blocked
-until the native observation-semantic plumbing is updated to match that policy
-and the still-open section-34 adapter decisions are locked.
-
-## Scope of this skeleton
-
-Included now:
-
-- a framework-neutral Python core plus optional Gymnasium v1 adapter,
-  PyTorch training, baseline, distributed/MARL, and export dependencies;
-- a versioned simulator manifest and repository boundary;
-- package/module structure for transport, environment, normalization, policy,
-  training, evaluation, datasets, and export;
-- bootstrap and contract-check command stubs;
-- initial curriculum/evaluation manifests from the design document;
-- CI for Python structure and contract-manifest checks.
-
-Not implemented yet:
-
-- C#↔Python transport;
-- the Gymnasium `reset`/`step` adapter;
-- normalization-v1 transforms and frozen normalization manifest;
-- the native C# observation-semantic fixes specified in design section 34;
-- PPO action distributions, GAE/discount semantics, or training loop;
-- snapshot-bank generation;
-- runtime export/inference integration.
-
-See `docs/SECTION_34_GATES.md` for the implementation blockers mirrored from
-the design document.
+The initial optimizer smoke keeps movement disabled. H=400 and lambda_ref=0.95
+are provisional debug settings in config, not final design decisions.
 
 ## Setup
 
-Use `uv` and Python 3.12:
+Python 3.11-3.13 and `uv`:
 
 ```bash
 uv sync --extra dev --extra adapter --extra training
 uv run anthropocene-rl check-manifest
+uv run anthropocene-rl ppo-smoke
 ```
 
-Distributed/MARL packages are deliberately optional:
+PyTorch is pinned to 2.14.1 for the first reproducible bring-up.
 
-```bash
-uv sync --extra dev --extra distributed
-```
+## Native checkout and bridge
 
-The first cloud bootstrap should generate and commit `uv.lock` after resolving
-against the selected platform. Do not hand-edit a lockfile.
-
-## Simulator checkout
-
-The harness supports either:
-
-1. a sibling/local checkout supplied through `ANTHROPOCENE_SIM_ROOT`; or
-2. a private clone at the exact commit in the simulator manifest.
-
-No Git submodule is used. Every training manifest records an exact simulator
-commit and schema set.
+Use an exact sibling/local checkout:
 
 ```bash
 export ANTHROPOCENE_SIM_ROOT=../Anthropocene
-uv run anthropocene-rl check-simulator
+uv run python scripts/bootstrap_simulator.py --root "$ANTHROPOCENE_SIM_ROOT"
+uv run anthropocene-rl check-simulator --root "$ANTHROPOCENE_SIM_ROOT"
+uv run anthropocene-rl adapter-smoke
 ```
 
-## Repository boundary
+If `ANTHROPOCENE_SIM_ROOT` is omitted, bootstrap creates a detached checkout
+under `.simulator/Anthropocene`.
 
-`Anthropocene` owns:
+The bridge protocol is learner-owned but compiles the pinned C# simulation
+source files directly. It exposes only `schema/reset/step/close`; all physical
+and legal behavior remains in `NativeElderEnvironment`.
 
-- world truth and deterministic physics;
-- native Elder observation/action/environment contracts;
-- Reset/Step, replay, masks, interventions, and reward calculation;
-- eventually, the promoted runtime actor and Unity inference integration.
+## What is still experimental
 
-`Anthropocene-RL` owns:
+Before any gameplay-performance claim:
 
-- learner-side transforms and normalization;
-- framework-neutral transport clients and learner adapters;
-- the Gymnasium v1 adapter without making Gymnasium the authoritative contract;
-- training algorithms and experiment configs;
-- snapshot-bank manifests and partitions;
-- evaluation, checkpoints, and candidate model exports.
+1. run/archive native regressions on the exact SHA;
+2. construct and freeze the training/development/held-out snapshot bank;
+3. fit normalization on the train partition;
+4. run the real tiny-snapshot PPO overfit gate;
+5. benchmark native workers and batching;
+6. compare H=400 versus H=800;
+7. run the q_k/technology-regime MLP adaptation sandbox;
+8. optionally test the privileged critic;
+9. enable movement only after the fixed-location loop is healthy.
 
-See `docs/REPOSITORY_BOUNDARY.md`.
+GRU, Transformer, online gameplay SGD, later-era goods encoders, sparse
+event-time multi-agent inference and RLlib scale-out remain deferred.

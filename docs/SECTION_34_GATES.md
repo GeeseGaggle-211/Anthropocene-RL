@@ -1,58 +1,65 @@
-# Section 34 implementation gates
+# Section 34 / 42 learner bring-up gates
 
-This file mirrors implementation status from the normative Google Drive design
-document. If this file and the design document disagree, the design document
-wins and this file must be corrected.
+The Google Drive design document is normative. This file records the current
+implementation status in Anthropocene-RL.
 
-## Approved normalization defaults
+## Frozen native boundary
 
-The normalization-v1 design is locked at the policy level:
+The learner pins `GeeseGaggle-211/Anthropocene` at
+`5559961164d6f9da8e6d20c1dc563ecec3eb04b7`:
 
-- Stage 1: semantic/reference-relative representation wherever defensible;
-- Stage 2: monotonic compression using log-ratio, asinh, log1p, or affine
-  mapping according to semantic class;
-- Stage 3: tanh as the primary soft-saturation function;
-- robust tanh scale calibration from the frozen training partition;
-- explicit absolute population scale plus relative herd intensity;
-- capability Experience retained only when threshold-relative and nonredundant;
-- commodity stock/need/capacity/flows expressed per capita and per physical
-  decision horizon rather than divided blindly by LocalNeed;
-- long-range contact distance expressed relative to local movement scale;
-- ExpectedStayerGain uses signed asinh/tanh;
-- binary masks/presence flags remain binary;
-- no running inference normalizer.
+- observation schema 2;
+- action schema 1;
+- environment/replay schema 2;
+- critic-sidecar schema 1;
+- tensor width 512.
 
-## Native observation-semantic plumbing required before serious training
+Native v2 already implements the observation/time/memory/reward fixes. Do not
+recreate them in Python.
 
-The design choices are resolved; implementation is still pending in the native
-C# observation layer:
+## Settled v1 learner contract
 
-- use agent-local physical delta-t = current decision time - previous decision
-  time; convert deficit/contact/trend timing away from turn-count/global-age
-  semantics;
-- remove planner-derived `Commodity.MarginalValue` from the policy input;
-- populate fission exit opportunity with bounded `ExitOpportunityPressure`,
-  not `DaughterGain`;
-- expose realized signed migration flow/pressure rather than a fabricated
-  forward-looking `RelativeAttractiveness` field;
-- expose fishing management intensity q directly and a separate normalized
-  required-maintenance labor burden; do not expose action-dependent build labor
-  as a pre-decision fact;
-- replace mixed-good `RecentTradeValue` with realized trade utility in the
-  common person-QoL-year numeraire, normalized per capita per physical year;
-  preserve at least net utility and, where schema space permits, gross trade
-  intensity.
+- separate 512 -> 256 -> 256 actor and critic MLPs;
+- active continuous heads use `a=(tanh(z)+1)/2` with transformed-density
+  log-probability;
+- native structural bits determine field retention, herd retention, field
+  Development and herd Development availability;
+- Development budget is active when either Development channel exists;
+- field Development share is active only when both channels exist;
+- inactive continuous heads contribute zero policy log-probability and entropy
+  and use the native canonical value;
+- movement is a masked categorical over stay plus seven candidate rows;
+- PPO likelihood is attached to the bounded requested action; native
+  accepted/realized actions are outcomes;
+- movement is disabled in the first optimizer smoke;
+- the training-only native frontier sidecar is excluded from the baseline
+  actor/critic and is an optional later asymmetric-critic ablation.
 
-## Adapter decisions still open
+## Normalization-v2
 
-- four bounded continuous action distributions;
-- masked movement distribution;
-- PPO likelihood when the native compiler repairs an action;
-- physical-time discount and GAE semantics;
-- C#/Python process and batching protocol;
-- activation and initialization;
-- serialized normalization/checkpoint manifest;
-- movement-disabled first smoke versus full hybrid bring-up.
+Normalization is fit only from the frozen training partition and serialized with
+the checkpoint. The implementation performs semantic reference scaling, then
+log1p/asinh/bounded transforms, then frozen per-feature tanh scales for
+unbounded features. Binary masks remain binary. There is no running inference
+normalizer.
 
-Do not implement PPO around the old observation semantics simply because the
-Python skeleton can already represent a 512-float tensor.
+## Physical-time credit
+
+The native simulator emits welfare rate, undiscounted interval welfare and
+elapsed years. The learner owns discounting and GAE. H=400 is a provisional
+mechanics-smoke setting only. H=400 versus H=800, lambda_ref, rollout length and
+bootstrap conventions remain explicit experiments after the loop is healthy.
+
+## Still required before a serious campaign
+
+- run and archive native schema/reset/step/replay and focused Elder regressions
+  on the exact simulator SHA;
+- build/freeze the training/development/held-out snapshot bank;
+- fit and archive normalization-v2 on the training partition;
+- run the persistent bridge and Gym adapter against real snapshot bytes;
+- pass the tiny-snapshot PPO mechanics gate;
+- benchmark environment throughput and decide worker/batching counts;
+- freeze checkpoint contents and experiment manifests.
+
+GRU, Transformer, online gameplay SGD, the sparse event scheduler, later-era
+goods encoders and multi-agent RLlib scale-out remain deliberately deferred.

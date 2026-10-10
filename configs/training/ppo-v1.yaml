@@ -1,26 +1,48 @@
 name: elder-ppo-v1
-status: blocked-on-adapter-contract-and-native-observation-plumbing
+status: mechanics-bringup
+simulator_manifest: configs/simulator/elder-v2.yaml
 network:
   actor_hidden: [256, 256]
   critic_hidden: [256, 256]
   shared_trunk: false
   recurrent: false
+  activation: tanh
 action_heads:
   continuous:
-    - retained_field_operation
-    - retained_herd_fraction
-    - development_budget
-    - field_development_share
+    distribution: tanh-squashed-gaussian
+    heads:
+      - retained_field_operation
+      - retained_herd_fraction
+      - development_budget
+      - field_development_share
+    inactive_log_probability: 0
+    inactive_entropy: 0
   categorical:
-    - movement_candidate
-movement_enabled_for_initial_smoke: null
-normalization_schema: normalization-v1-design-locked-implementation-pending
-open_decisions:
-  - initial_smoke_movement
-  - bounded_continuous_distribution
-  - masked_categorical_distribution
-  - sampled_vs_accepted_action_semantics
-  - physical_time_discount_and_gae
-  - csharp_python_transport
-  - activation_and_initialization
-  - checkpoint_manifest
+    movement_candidate:
+      distribution: masked-categorical
+      candidates: 8
+movement_enabled_for_initial_smoke: false
+sampled_action_semantics: requested-bounded-action
+native_repairs_are_environment_outcomes: true
+normalization_schema: elder-normalization-v2
+physical_time_credit:
+  status: provisional-for-smoke
+  e_fold_horizon_years: 400
+  lambda_ref: 0.95
+  lambda_reference_years: 20
+  compare_after_smoke_years: [400, 800]
+optimizer:
+  learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.01
+  max_grad_norm: 0.5
+  epochs: 4
+  minibatch_size: 64
+open_experiments:
+  - final_physical_discount_and_lambda
+  - initial_log_std_and_entropy_schedule
+  - privileged_critic_ablation
+  - movement_enablement
+  - ema_ablation
+  - gru_promotion_gate

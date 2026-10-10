@@ -1,4 +1,4 @@
-name: Python skeleton checks
+name: Python Elder v2 checks
 
 on:
   pull_request:
@@ -13,11 +13,12 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.3"
-      - run: uv sync --extra dev
+      - run: uv sync --extra dev --extra adapter --extra training
       - run: uv run ruff check .
       - run: uv run pytest
       - run: uv run anthropocene-rl check-manifest
+      - run: uv run anthropocene-rl ppo-smoke
 
-  # Cross-private-repository simulator checks require a read token or GitHub App
-  # installation that can access GeeseGaggle-211/Anthropocene. Add that job only
-  # after the credential path is selected; do not embed a personal token here.
+  # Cross-private-repository simulator/bridge checks require a credential that
+  # can read GeeseGaggle-211/Anthropocene. The local bootstrap/check commands
+  # enforce the exact SHA until that GitHub Actions credential path is selected.

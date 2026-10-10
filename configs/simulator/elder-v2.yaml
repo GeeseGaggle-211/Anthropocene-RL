@@ -1,0 +1,19 @@
+name: elder-v2-native-handoff
+repository: GeeseGaggle-211/Anthropocene
+repository_url: https://github.com/GeeseGaggle-211/Anthropocene
+commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+project: Tools/ElderRL/Anthropocene.ElderRL.csproj
+observation_schema_version: 2
+action_schema_version: 1
+environment_schema_version: 2
+critic_sidecar_schema_version: 1
+tensor_feature_count: 512
+required_commands:
+  - schema
+  - reset-smoke
+  - step-smoke
+  - replay-smoke
+native_scaffold_status: frozen-for-ppo-handoff
+normalization_design_status: locked-v2
+adapter_status: active
+training_status: mechanics-smoke
