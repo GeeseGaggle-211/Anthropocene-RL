@@ -69,19 +69,22 @@ The bridge protocol is learner-owned but compiles the pinned C# simulation
 source files directly. It exposes only `schema/reset/step/close`; all physical
 and legal behavior remains in `NativeElderEnvironment`.
 
+Exact-SHA schema/reset/step/replay results, 143 focused Elder assertions, and a
+persistent bridge Reset/Step run against real `SaveCodec` bytes are archived in
+`evidence/elder-v2-handoff/`.
+
 ## What is still experimental
 
 Before any gameplay-performance claim:
 
-1. run/archive native regressions on the exact SHA;
-2. construct and freeze the training/development/held-out snapshot bank;
-3. fit normalization on the train partition;
-4. run the real tiny-snapshot PPO overfit gate;
-5. benchmark native workers and batching;
-6. compare H=400 versus H=800;
-7. run the q_k/technology-regime MLP adaptation sandbox;
-8. optionally test the privileged critic;
-9. enable movement only after the fixed-location loop is healthy.
+1. construct and freeze the training/development/held-out snapshot bank;
+2. fit normalization on the train partition;
+3. run the real tiny-snapshot PPO overfit gate;
+4. benchmark native workers and batching;
+5. compare H=400 versus H=800;
+6. run the q_k/technology-regime MLP adaptation sandbox;
+7. optionally test the privileged critic;
+8. enable movement only after the fixed-location loop is healthy.
 
 GRU, Transformer, online gameplay SGD, later-era goods encoders, sparse
 event-time multi-agent inference and RLlib scale-out remain deferred.

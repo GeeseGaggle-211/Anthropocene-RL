@@ -1,0 +1,60 @@
+{
+  "archivedAtUtc": "2026-10-10T16:23:28Z",
+  "dotnetSdkVersion": "8.0.425",
+  "learnerCommit": "33a655cee76a7bfa3eb8667388c1889e104daac4",
+  "native": {
+    "commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+    "repository": "GeeseGaggle-211/Anthropocene",
+    "worktreeClean": true
+  },
+  "schema": {
+    "actionSchemaVersion": 1,
+    "buildHash": "1789245fd8eb4c559f7b2ac8cca293fb",
+    "command": "schema",
+    "criticSidecarSchemaVersion": 1,
+    "environmentSchemaVersion": 2,
+    "exitCode": 0,
+    "institutionalMemoryStorageSchemaVersion": 1,
+    "observationSchemaVersion": 2,
+    "simulatorVersion": "world-7/generator-14/elder-2",
+    "tensorFeatureCount": 512
+  },
+  "resetSmoke": {
+    "buildHash": "1789245fd8eb4c559f7b2ac8cca293fb",
+    "command": "reset-smoke",
+    "configurationHash": "FED64615D6B7A5F137F8DD697D9C85AF672B7977979EE34ABB61FC2C055E1BF7",
+    "controlledCampId": 1,
+    "controlledPlayer": 0,
+    "exitCode": 0,
+    "initialStateFingerprint": "0B4932217B5E4CB08F3FBAB95743DAD7903DCB383E549370AE68FEFE827A95D2",
+    "seed": 9301,
+    "status": "PASS"
+  },
+  "stepSmoke": {
+    "command": "step-smoke",
+    "elapsedYears": 20.0,
+    "exitCode": 0,
+    "requestedAcceptedRealizedRecorded": true,
+    "scalarReward": 2389.1413955744815,
+    "seed": 9301,
+    "stateFingerprint": "EC3829526B7CB1D2A99355A2D5332A3433EF8BED51D22F2089C6FC6AD2C8845A",
+    "status": "PASS",
+    "terminated": false,
+    "truncated": false
+  },
+  "replaySmoke": {
+    "command": "replay-smoke",
+    "exitCode": 0,
+    "finalFingerprint": "050A3F6B6BE8C8837889E003F4F51582BD28160DCA22D17A5B96E8A2B69BCAA8",
+    "initialFingerprint": "0B4932217B5E4CB08F3FBAB95743DAD7903DCB383E549370AE68FEFE827A95D2",
+    "seed": 9301,
+    "status": "PASS",
+    "steps": 3
+  },
+  "focusedElderRegressions": {
+    "assertions": 143,
+    "command": "--elder-rl-only",
+    "exitCode": 0,
+    "status": "PASS"
+  }
+}

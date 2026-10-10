@@ -50,13 +50,17 @@ elapsed years. The learner owns discounting and GAE. H=400 is a provisional
 mechanics-smoke setting only. H=400 versus H=800, lambda_ref, rollout length and
 bootstrap conventions remain explicit experiments after the loop is healthy.
 
+## Completed native handoff validation
+
+The exact-SHA schema/reset/step/replay commands, 143 focused Elder assertions,
+and a persistent Gym/bridge Reset/Step run against actual native `SaveCodec`
+snapshot bytes pass. Their hashes, fingerprints and selected learner commit are
+archived under `evidence/elder-v2-handoff/`.
+
 ## Still required before a serious campaign
 
-- run and archive native schema/reset/step/replay and focused Elder regressions
-  on the exact simulator SHA;
 - build/freeze the training/development/held-out snapshot bank;
 - fit and archive normalization-v2 on the training partition;
-- run the persistent bridge and Gym adapter against real snapshot bytes;
 - pass the tiny-snapshot PPO mechanics gate;
 - benchmark environment throughput and decide worker/batching counts;
 - freeze checkpoint contents and experiment manifests.

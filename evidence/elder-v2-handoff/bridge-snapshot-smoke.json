@@ -1,0 +1,41 @@
+{
+  "archivedAtUtc": "2026-10-10T16:23:28Z",
+  "bridgeAssembly": {
+    "nativeBuildHash": "9edeac65b1da416b877ed768b02173c7",
+    "sha256": "6FFC5C7482DEA77A254E63F1A27142B3C6E2E20B8F29433F0E29F4FAC451CAC4"
+  },
+  "deterministicResetReplay": true,
+  "firstResetFingerprint": "0B4932217B5E4CB08F3FBAB95743DAD7903DCB383E549370AE68FEFE827A95D2",
+  "firstStepFingerprint": "EC3829526B7CB1D2A99355A2D5332A3433EF8BED51D22F2089C6FC6AD2C8845A",
+  "learnerCommit": "33a655cee76a7bfa3eb8667388c1889e104daac4",
+  "nativeCommit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "observationShape": [512],
+  "observationsFinite": true,
+  "repeatedFirstStepFingerprint": "EC3829526B7CB1D2A99355A2D5332A3433EF8BED51D22F2089C6FC6AD2C8845A",
+  "requestedAcceptedRealizedDistinct": true,
+  "rewards": [
+    2389.1413955744815,
+    2389.1413955744815,
+    2389.1413955744815
+  ],
+  "sameProcessAcrossResetStepResetStep": true,
+  "schema": {
+    "actionSchemaVersion": 1,
+    "criticSidecarSchemaVersion": 1,
+    "environmentSchemaVersion": 2,
+    "observationSchemaVersion": 2,
+    "simulatorVersion": "world-7/generator-14/elder-2",
+    "tensorFeatureCount": 512
+  },
+  "secondResetFingerprint": "0B4932217B5E4CB08F3FBAB95743DAD7903DCB383E549370AE68FEFE827A95D2",
+  "snapshot": {
+    "bytes": 7934,
+    "file": "native-fixture-9301.snapshot",
+    "format": "Anthropocene SaveCodec",
+    "provenance": "exact native ElderRL fixture seed 9301",
+    "sha256": "7E6E5E4B1AA2398BE694449758525FC6B20D17A9A09DA64589EC6FC51BE812AA"
+  },
+  "status": "PASS",
+  "terminated": [false, false, false],
+  "truncated": [false, true, false]
+}
