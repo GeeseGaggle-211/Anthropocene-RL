@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from anthropocene_rl.contracts import (
     ACTION_SCHEMA_VERSION,
@@ -31,7 +32,7 @@ class EncodedObservation:
     present: tuple[bool, ...]
 
     @classmethod
-    def from_native(cls, payload: Mapping[str, Any]) -> "EncodedObservation":
+    def from_native(cls, payload: Mapping[str, Any]) -> EncodedObservation:
         values = tuple(float(value) for value in _pick(payload, "Values", "values"))
         present = tuple(bool(value) for value in _pick(payload, "Present", "present"))
         result = cls(values=values, present=present)
@@ -56,7 +57,9 @@ class StructuralActionMask:
     movement_candidates: tuple[bool, ...]
 
     @classmethod
-    def from_observation(cls, observation: EncodedObservation) -> "StructuralActionMask":
+    def from_observation(
+        cls, observation: EncodedObservation
+    ) -> StructuralActionMask:
         values = observation.values
         movement = tuple(
             values[MOVEMENT_CANDIDATE_MASK_OFFSET + index] > 0.5
@@ -80,7 +83,9 @@ class StructuralActionMask:
     def development_split_active(self) -> bool:
         return self.field_development and self.herd_development
 
-    def canonicalize_continuous(self, values: Sequence[float]) -> tuple[float, float, float, float]:
+    def canonicalize_continuous(
+        self, values: Sequence[float]
+    ) -> tuple[float, float, float, float]:
         if len(values) != 4:
             raise ValueError("Expected four Elder continuous controls")
         field_retention = float(values[0]) if self.field_retention else 0.0
