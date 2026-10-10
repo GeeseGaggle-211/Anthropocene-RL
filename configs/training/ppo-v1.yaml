@@ -10,6 +10,10 @@ network:
 action_heads:
   continuous:
     distribution: tanh-squashed-gaussian
+    mean_transform: 5*tanh(raw/5)
+    log_std_bounds: [-5.0, 0.5]
+    bounded_action_dtype: float64
+    entropy_estimator: deterministic-gauss-hermite-8
     heads:
       - retained_field_operation
       - retained_herd_fraction

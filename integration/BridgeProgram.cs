@@ -114,8 +114,8 @@ namespace Anthropocene.RLBridge
                                 step.TrainingCriticSidecar,
                                 step.Events
                             },
-                            tensor = ElderObservationSchema.Encode(
-                                step.Observation)
+                            tensor = step.Observation == null ? null :
+                                ElderObservationSchema.Encode(step.Observation)
                         });
                         continue;
                     }

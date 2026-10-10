@@ -9,6 +9,9 @@ from torch import Tensor, nn
 
 from anthropocene_rl.contracts import TENSOR_FEATURE_COUNT
 from anthropocene_rl.policies.distributions import (
+    MAX_ABS_MEAN,
+    MAX_LOG_STD,
+    MIN_LOG_STD,
     HybridActionSample,
     evaluate_hybrid,
     sample_hybrid,
@@ -56,8 +59,9 @@ class ElderActor(nn.Module):
 
     def parameters_for(self, observation: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         hidden = self.backbone(observation)
-        mean = self.continuous_mean(hidden)
-        log_std = self.log_std.clamp(-5.0, 2.0)
+        raw_mean = self.continuous_mean(hidden)
+        mean = MAX_ABS_MEAN * torch.tanh(raw_mean / MAX_ABS_MEAN)
+        log_std = self.log_std.clamp(MIN_LOG_STD, MAX_LOG_STD)
         movement = self.movement_logits(hidden)
         return mean, log_std, movement
 

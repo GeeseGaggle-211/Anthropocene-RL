@@ -49,12 +49,15 @@ def generalized_advantage_estimate(
     next_values: np.ndarray,
     elapsed_years: np.ndarray,
     terminated: np.ndarray,
+    truncated: np.ndarray | None = None,
     *,
     horizon_years: float,
     lambda_ref: float,
     lambda_reference_years: float = 20.0,
 ) -> tuple[np.ndarray, np.ndarray]:
-    arrays = (rewards, values, next_values, elapsed_years, terminated)
+    if truncated is None:
+        truncated = np.zeros_like(terminated, dtype=bool)
+    arrays = (rewards, values, next_values, elapsed_years, terminated, truncated)
     length = len(rewards)
     if any(len(array) != length for array in arrays):
         raise ValueError("GAE arrays must have equal lengths")
@@ -69,7 +72,8 @@ def generalized_advantage_estimate(
         )
         bootstrap = 0.0 if bool(terminated[index]) else float(next_values[index])
         delta = float(rewards[index]) + gamma * bootstrap - float(values[index])
-        carry = delta + gamma * lam * (0.0 if bool(terminated[index]) else carry)
+        episode_end = bool(terminated[index]) or bool(truncated[index])
+        carry = delta + gamma * lam * (0.0 if episode_end else carry)
         advantages[index] = carry
     returns = advantages + values.astype(np.float64)
     return advantages, returns

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import subprocess
 import threading
+from collections import deque
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
@@ -41,6 +43,13 @@ class JsonLineProcessTransport:
             bufsize=1,
         )
         self._lock = threading.Lock()
+        self._stderr_lines: deque[str] = deque(maxlen=200)
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr,
+            name="elder-bridge-stderr",
+            daemon=True,
+        )
+        self._stderr_thread.start()
 
     def schema(self) -> dict[str, Any]:
         return self._request({"op": "schema"})
@@ -53,31 +62,40 @@ class JsonLineProcessTransport:
 
     def close(self) -> None:
         if self._process.poll() is not None:
+            self._stderr_thread.join(timeout=1)
             return
         try:
             self._request({"op": "close"})
         finally:
-            if self._process.poll() is None:
-                self._process.terminate()
             try:
                 self._process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self._process.kill()
-                self._process.wait(timeout=5)
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=5)
+            self._stderr_thread.join(timeout=1)
 
     def _request(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         with self._lock:
             if self._process.poll() is not None:
-                stderr = self._process.stderr.read() if self._process.stderr is not None else ""
-                raise RuntimeError(f"Elder bridge exited early: {stderr.strip()}")
+                raise RuntimeError(f"Elder bridge exited early: {self._stderr_tail()}")
             if self._process.stdin is None or self._process.stdout is None:
                 raise RuntimeError("Elder bridge pipes are unavailable")
-            self._process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
+            self._process.stdin.write(
+                json.dumps(
+                    payload,
+                    separators=(",", ":"),
+                    default=_json_default,
+                )
+                + "\n"
+            )
             self._process.stdin.flush()
             line = self._process.stdout.readline()
             if not line:
-                stderr = self._process.stderr.read() if self._process.stderr is not None else ""
-                raise RuntimeError(f"Elder bridge closed stdout: {stderr.strip()}")
+                raise RuntimeError(f"Elder bridge closed stdout: {self._stderr_tail()}")
             response = json.loads(line)
             if not isinstance(response, dict):
                 raise RuntimeError("Elder bridge returned a non-object response")
@@ -87,8 +105,23 @@ class JsonLineProcessTransport:
                 raise RuntimeError(f"{error_type}: {message}")
             return response
 
+    def _drain_stderr(self) -> None:
+        if self._process.stderr is None:
+            return
+        for line in self._process.stderr:
+            self._stderr_lines.append(line.rstrip())
+
+    def _stderr_tail(self) -> str:
+        return "\n".join(self._stderr_lines).strip() or "no stderr output"
+
     def __enter__(self) -> JsonLineProcessTransport:
         return self
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+
+def _json_default(value: object) -> str:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return base64.b64encode(bytes(value)).decode("ascii")
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")

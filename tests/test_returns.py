@@ -35,3 +35,26 @@ def test_terminal_gae_does_not_bootstrap() -> None:
     )
     assert np.allclose(advantages, [0.75])
     assert np.allclose(returns, [1.0])
+
+
+def test_truncation_bootstraps_but_cuts_episode_carry() -> None:
+    rewards = np.array([0.0, 1.0])
+    values = np.array([0.0, 0.0])
+    next_values = np.array([0.25, 0.0])
+    elapsed = np.array([20.0, 20.0])
+    terminated = np.array([False, False])
+    truncated = np.array([True, False])
+    advantages, _ = generalized_advantage_estimate(
+        rewards,
+        values,
+        next_values,
+        elapsed,
+        terminated,
+        truncated,
+        horizon_years=400.0,
+        lambda_ref=0.95,
+    )
+    assert np.allclose(
+        advantages,
+        [physical_gamma(20.0, 400.0) * 0.25, 1.0],
+    )

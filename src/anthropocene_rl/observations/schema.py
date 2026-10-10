@@ -15,6 +15,7 @@ from anthropocene_rl.contracts import (
     HERD_RETENTION_MASK_OFFSET,
     MOVEMENT_CANDIDATE_COUNT,
     MOVEMENT_CANDIDATE_MASK_OFFSET,
+    OBSERVATION_SCHEMA_VERSION,
     TENSOR_FEATURE_COUNT,
 )
 
@@ -33,6 +34,9 @@ class EncodedObservation:
 
     @classmethod
     def from_native(cls, payload: Mapping[str, Any]) -> EncodedObservation:
+        schema_version = int(_pick(payload, "SchemaVersion", "schemaVersion"))
+        if schema_version != OBSERVATION_SCHEMA_VERSION:
+            raise ValueError(f"Unexpected Elder observation schema version: {schema_version}")
         values = tuple(float(value) for value in _pick(payload, "Values", "values"))
         present = tuple(bool(value) for value in _pick(payload, "Present", "present"))
         result = cls(values=values, present=present)
@@ -57,9 +61,7 @@ class StructuralActionMask:
     movement_candidates: tuple[bool, ...]
 
     @classmethod
-    def from_observation(
-        cls, observation: EncodedObservation
-    ) -> StructuralActionMask:
+    def from_observation(cls, observation: EncodedObservation) -> StructuralActionMask:
         values = observation.values
         movement = tuple(
             values[MOVEMENT_CANDIDATE_MASK_OFFSET + index] > 0.5
@@ -83,9 +85,7 @@ class StructuralActionMask:
     def development_split_active(self) -> bool:
         return self.field_development and self.herd_development
 
-    def canonicalize_continuous(
-        self, values: Sequence[float]
-    ) -> tuple[float, float, float, float]:
+    def canonicalize_continuous(self, values: Sequence[float]) -> tuple[float, float, float, float]:
         if len(values) != 4:
             raise ValueError("Expected four Elder continuous controls")
         field_retention = float(values[0]) if self.field_retention else 0.0

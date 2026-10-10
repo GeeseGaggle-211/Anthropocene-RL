@@ -16,6 +16,18 @@ def test_tensor_width_validation() -> None:
         EncodedObservation((0.0,) * 511, (False,) * 512).validate()
 
 
+def test_native_tensor_requires_exact_schema_version() -> None:
+    payload = {
+        "SchemaVersion": 2,
+        "Values": [0.0] * 512,
+        "Present": [True] * 512,
+    }
+    assert len(EncodedObservation.from_native(payload).values) == 512
+    payload["SchemaVersion"] = 1
+    with pytest.raises(ValueError, match="schema version"):
+        EncodedObservation.from_native(payload)
+
+
 def test_structural_mask_canonicalizes_field_only_development() -> None:
     values = [0.0] * 512
     values[80] = 1.0

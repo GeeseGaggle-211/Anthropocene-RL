@@ -7,6 +7,13 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from anthropocene_rl.contracts import (
+    ACTION_SCHEMA_VERSION,
+    CRITIC_SIDECAR_SCHEMA_VERSION,
+    ENVIRONMENT_SCHEMA_VERSION,
+    OBSERVATION_SCHEMA_VERSION,
+    TENSOR_FEATURE_COUNT,
+)
 from anthropocene_rl.env.transport import ElderTransport
 from anthropocene_rl.observations.normalization import SemanticNormalizerV2
 from anthropocene_rl.observations.schema import (
@@ -42,6 +49,12 @@ class AnthropoceneElderEnv(_BaseEnv):
         self.transport = transport
         self.reset_request = dict(reset_request)
         self.normalizer = normalizer
+        try:
+            self._bridge_schema = transport.schema()
+            _validate_bridge_schema(self._bridge_schema)
+        except Exception:
+            transport.close()
+            raise
         self.observation_space = spaces.Box(
             low=-1.0 if normalizer is not None else -np.inf,
             high=1.0 if normalizer is not None else np.inf,
@@ -69,6 +82,8 @@ class AnthropoceneElderEnv(_BaseEnv):
         if options:
             payload.update(options)
         response = self.transport.reset(payload)
+        result = _mapping(response, "result", "Result")
+        _validate_reset_contract(result, self._bridge_schema)
         raw = _encoded(response)
         self._raw = raw
         return self._observation(raw), _info(response, raw)
@@ -99,14 +114,28 @@ class AnthropoceneElderEnv(_BaseEnv):
             field_development_share=bounded[3],
             movement_candidate=movement_index - 1,
         )
+        previous_raw = self._raw
         response = self.transport.step(directive.to_native())
-        raw = _encoded(response)
-        self._raw = raw
         result = _mapping(response, "result", "Result")
         reward = float(_value(result, "ScalarReward", "scalarReward"))
         terminated = bool(_value(result, "Terminated", "terminated"))
         truncated = bool(_value(result, "Truncated", "truncated"))
-        return self._observation(raw), reward, terminated, truncated, _info(response, raw)
+        tensor = response.get("tensor", response.get("Tensor"))
+        terminal_observation_missing = tensor is None
+        if terminal_observation_missing:
+            if not terminated:
+                raise ValueError("Native bridge omitted a non-terminal observation")
+            raw = previous_raw
+        else:
+            if not isinstance(tensor, Mapping):
+                raise TypeError("Expected native tensor mapping")
+            raw = EncodedObservation.from_native(tensor)
+
+        info = _info(response, raw)
+        if terminal_observation_missing:
+            info["terminal_observation_missing"] = True
+        self._raw = None if terminated or truncated else raw
+        return self._observation(raw), reward, terminated, truncated, info
 
     def close(self) -> None:
         self.transport.close()
@@ -142,3 +171,42 @@ def _value(mapping: Mapping[str, Any], *names: str) -> Any:
         if name in mapping:
             return mapping[name]
     raise KeyError(f"Missing required native field; tried {names!r}")
+
+
+def _validate_bridge_schema(schema: Mapping[str, Any]) -> None:
+    expected = {
+        "observationSchemaVersion": OBSERVATION_SCHEMA_VERSION,
+        "actionSchemaVersion": ACTION_SCHEMA_VERSION,
+        "environmentSchemaVersion": ENVIRONMENT_SCHEMA_VERSION,
+        "criticSidecarSchemaVersion": CRITIC_SIDECAR_SCHEMA_VERSION,
+        "tensorFeatureCount": TENSOR_FEATURE_COUNT,
+    }
+    mismatches = {
+        key: (schema.get(key), value) for key, value in expected.items() if schema.get(key) != value
+    }
+    if mismatches:
+        raise ValueError(f"Native bridge schema mismatch: {mismatches}")
+    simulator_version = schema.get("simulatorVersion")
+    if not isinstance(simulator_version, str) or not simulator_version:
+        raise ValueError("Native bridge omitted simulatorVersion")
+
+
+def _validate_reset_contract(
+    result: Mapping[str, Any],
+    bridge_schema: Mapping[str, Any],
+) -> None:
+    expected = (
+        (("ObservationSchemaVersion", "observationSchemaVersion"), OBSERVATION_SCHEMA_VERSION),
+        (("ActionSchemaVersion", "actionSchemaVersion"), ACTION_SCHEMA_VERSION),
+        (("EnvironmentSchemaVersion", "environmentSchemaVersion"), ENVIRONMENT_SCHEMA_VERSION),
+    )
+    mismatches: dict[str, tuple[Any, int]] = {}
+    for names, wanted in expected:
+        actual = _value(result, *names)
+        if actual != wanted:
+            mismatches[names[0]] = (actual, wanted)
+    if mismatches:
+        raise ValueError(f"Native reset schema mismatch: {mismatches}")
+    simulator_version = _value(result, "SimulatorVersion", "simulatorVersion")
+    if simulator_version != bridge_schema["simulatorVersion"]:
+        raise ValueError("Native reset simulator version changed after handshake")

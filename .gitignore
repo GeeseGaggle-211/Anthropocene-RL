@@ -8,6 +8,8 @@ __pycache__/
 htmlcov/
 build/
 dist/
+bin/
+obj/
 *.egg-info/
 artifacts/
 checkpoints/
