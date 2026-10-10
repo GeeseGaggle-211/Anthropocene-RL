@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 
@@ -27,7 +27,7 @@ _BaseEnv = gym.Env if gym is not None else object
 
 
 class AnthropoceneElderEnv(_BaseEnv):
-    metadata = {"render_modes": []}
+    metadata: ClassVar[dict[str, list[str]]] = {"render_modes": []}
 
     def __init__(
         self,
