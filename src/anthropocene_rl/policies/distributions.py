@@ -40,7 +40,8 @@ def structural_head_mask(observation: Tensor) -> Tensor:
 
 
 def movement_mask(observation: Tensor) -> Tensor:
-    mask = observation[..., MOVEMENT_CANDIDATE_MASK_OFFSET : MOVEMENT_CANDIDATE_MASK_OFFSET + 8] > 0.5
+    start = MOVEMENT_CANDIDATE_MASK_OFFSET
+    mask = observation[..., start : start + 8] > 0.5
     if torch.any(~mask[..., 0]):
         raise ValueError("Native movement mask must always permit explicit stay")
     return mask
@@ -53,9 +54,15 @@ def canonicalize_continuous(observation: Tensor, sampled: Tensor) -> Tensor:
     field_dev = observation[..., FIELD_DEVELOPMENT_MASK_OFFSET] > 0.5
     herd_dev = observation[..., HERD_DEVELOPMENT_MASK_OFFSET] > 0.5
     result = sampled.clone()
-    result[..., 0] = torch.where(active[..., 0], result[..., 0], torch.zeros_like(result[..., 0]))
-    result[..., 1] = torch.where(active[..., 1], result[..., 1], torch.zeros_like(result[..., 1]))
-    result[..., 2] = torch.where(active[..., 2], result[..., 2], torch.zeros_like(result[..., 2]))
+    result[..., 0] = torch.where(
+        active[..., 0], result[..., 0], torch.zeros_like(result[..., 0])
+    )
+    result[..., 1] = torch.where(
+        active[..., 1], result[..., 1], torch.zeros_like(result[..., 1])
+    )
+    result[..., 2] = torch.where(
+        active[..., 2], result[..., 2], torch.zeros_like(result[..., 2])
+    )
     canonical_split = torch.where(
         field_dev & ~herd_dev,
         torch.ones_like(result[..., 3]),
@@ -83,13 +90,22 @@ def sample_hybrid(
     continuous = canonicalize_continuous(observation, raw_continuous)
     active = structural_head_mask(observation)
     dim_log_prob = _squashed_log_prob(normal, latent)
-    continuous_log_prob = (dim_log_prob * active.to(dim_log_prob.dtype)).sum(dim=-1)
-    continuous_entropy = ((-dim_log_prob) * active.to(dim_log_prob.dtype)).sum(dim=-1)
+    continuous_log_prob = (
+        dim_log_prob * active.to(dim_log_prob.dtype)
+    ).sum(dim=-1)
+    continuous_entropy = (
+        (-dim_log_prob) * active.to(dim_log_prob.dtype)
+    ).sum(dim=-1)
 
     legal = movement_mask(observation)
-    masked_logits = movement_logits.masked_fill(~legal, torch.finfo(movement_logits.dtype).min)
+    floor = torch.finfo(movement_logits.dtype).min
+    masked_logits = movement_logits.masked_fill(~legal, floor)
     categorical = Categorical(logits=masked_logits)
-    movement_index = torch.argmax(masked_logits, dim=-1) if deterministic else categorical.sample()
+    movement_index = (
+        torch.argmax(masked_logits, dim=-1)
+        if deterministic
+        else categorical.sample()
+    )
     log_prob = continuous_log_prob + categorical.log_prob(movement_index)
     entropy = continuous_entropy + categorical.entropy()
     return HybridActionSample(continuous, movement_index, log_prob, entropy)
@@ -124,6 +140,8 @@ def evaluate_hybrid(
 
 def _squashed_log_prob(normal: Normal, latent: Tensor) -> Tensor:
     # a=(tanh(z)+1)/2, therefore da/dz=.5*(1-tanh(z)^2).
-    log_one_minus_tanh_sq = 2.0 * (math.log(2.0) - latent - F.softplus(-2.0 * latent))
+    log_one_minus_tanh_sq = 2.0 * (
+        math.log(2.0) - latent - F.softplus(-2.0 * latent)
+    )
     log_det = math.log(0.5) + log_one_minus_tanh_sq
     return normal.log_prob(latent) - log_det
