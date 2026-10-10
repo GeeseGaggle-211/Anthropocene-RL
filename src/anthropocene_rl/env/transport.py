@@ -87,7 +87,7 @@ class JsonLineProcessTransport:
                 raise RuntimeError(f"{error_type}: {message}")
             return response
 
-    def __enter__(self) -> "JsonLineProcessTransport":
+    def __enter__(self) -> JsonLineProcessTransport:
         return self
 
     def __exit__(self, *_: object) -> None:
