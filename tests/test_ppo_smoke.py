@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("torch")
 
-from anthropocene_rl.training.smoke import run_ppo_smoke  # noqa: E402
+from anthropocene_rl.training.smoke import run_ppo_smoke
 
 
 def test_ppo_mechanics_smoke_is_finite() -> None:
