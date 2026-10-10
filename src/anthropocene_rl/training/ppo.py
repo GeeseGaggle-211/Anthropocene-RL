@@ -127,6 +127,9 @@ class PPOTrainer:
                     "clip_fraction": float(clip_fraction.detach()),
                 }
 
-        if not metrics or any(not torch.isfinite(torch.tensor(value)) for value in metrics.values()):
+        finite = all(
+            torch.isfinite(torch.tensor(value)) for value in metrics.values()
+        )
+        if not metrics or not finite:
             raise RuntimeError("PPO update produced non-finite diagnostics")
         return metrics
