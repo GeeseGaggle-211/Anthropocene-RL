@@ -44,3 +44,12 @@ change is considered.
 
 See `generation/audit.json`, `generation/coverage.md`,
 `generation/generation-summary.json`, and `normalization-promotion-audit.json`.
+
+## Durable storage
+
+The scope-safe bank is published at
+`gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-normalization-v3-scope-safe/2026-10-12-manifest-1cfabbc6/manifest.json`.
+Its 64,798,720-byte shard was independently re-fetched from GCS in 4 MiB range
+requests, matched the content SHA-256, materialized a named snapshot, and passed
+a 300-record cache audit. Provider MD5, CRC32C, generation, and immutable custom
+SHA-256 metadata are recorded in `gcs-storage-audit.json`.
