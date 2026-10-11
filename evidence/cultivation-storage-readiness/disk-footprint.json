@@ -8,16 +8,16 @@
       "mib": 5.756
     },
     {
-      "bytes": 110939171,
-      "files": 23,
+      "bytes": 154348898,
+      "files": 32,
       "label": "checkpoints",
-      "mib": 105.8
+      "mib": 147.199
     },
     {
-      "bytes": 1244399,
-      "files": 26,
+      "bytes": 1806597,
+      "files": 36,
       "label": "artifacts",
-      "mib": 1.187
+      "mib": 1.723
     },
     {
       "bytes": 3795534,

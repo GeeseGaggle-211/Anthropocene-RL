@@ -1,0 +1,123 @@
+{
+  "aggregate_deterministic_sha256": "2bc2b73866f4fc110bd33550559f61fa1029beebecf05b07b312dfec4e5e4d73",
+  "aggregate_file_sha256": "5014420bccbbb56bb79e212fac5cb5f453197bd152cdcbd0fcac64f5df4c10e9",
+  "aggregate_gates": {
+    "actor_motion_replicates_per_snapshot": true,
+    "all_contract_and_safety_gates": true,
+    "all_on_policy_critic_fits_converge": true,
+    "all_ppo_updates_stable": true,
+    "complete_three_by_three_matrix": true,
+    "fixed_policy_outcomes_do_not_regress": true,
+    "positive_return_signal_replicates": true
+  },
+  "architecture_recommendation": "retain-separate-feedforward-mlp",
+  "learner_commit": "ebeb54fbae2730934dd976d0749e426ac5d7c8a7",
+  "matrix": {
+    "families": [
+      "F01",
+      "F03",
+      "F13"
+    ],
+    "run_count": 9,
+    "runs": [
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "3138f95ccb04c2ba04075446649cc0c572b779438bcb3d2e1abc8ec86ced3c6a",
+        "diagnostics_file_sha256": "e8e2642639f4f9db2bab4b2fa13f27e7de5d63672ea402fa5c0bd1fe21a8b3e4",
+        "diagnostics_sha256": "6e90f0b4212d5e92c0f8198dfdb50244f7886b61841ec9c374dd889fd9f40ee5",
+        "scenario_family": "F01",
+        "seed": 1701,
+        "snapshot_id": "f01-21001-f01-young-low-q-d0-f8067a545ec2",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "63d53df4efca041e28d9553a2c5a61722aba1c231914d486658422b235928a32",
+        "diagnostics_file_sha256": "419f04f9037b931c20fb348f99cb362e4d480c709fa6e0f4c3943d5cd5249d65",
+        "diagnostics_sha256": "49d405a64846cbf62efbff249a8194e49398f9c692926453b2e6414f9e3f7446",
+        "scenario_family": "F01",
+        "seed": 1901,
+        "snapshot_id": "f01-21001-f01-young-low-q-d0-f8067a545ec2",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "83d8ad0fb08e10c2b4362cb57fc717464841761c1a36a0a0f77bfb429ac19e35",
+        "diagnostics_file_sha256": "6f882b0f74f9b2fd97b9ab71838902b32e204b5c708bc3548c87ec6b47ca2953",
+        "diagnostics_sha256": "b1429516c8ac60c7e15575a2eec039b1659a5194a748d6d656a5118e913ea8d0",
+        "scenario_family": "F01",
+        "seed": 2101,
+        "snapshot_id": "f01-21001-f01-young-low-q-d0-f8067a545ec2",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "4202e70a05f7472850fcb9a1d52e1142d881fdfbb4befce5ad10ef09963d17fb",
+        "diagnostics_file_sha256": "4b7a06e4f736a17016f2dd44a83e010f1e5b9202d7c4fc3883a61c30a1889895",
+        "diagnostics_sha256": "5a98801753f5b93ca27e7025cbfb0453d1f863f175403e974ded8a220768dbdd",
+        "scenario_family": "F03",
+        "seed": 1701,
+        "snapshot_id": "f03-21005-f03-expensive-high-q-d0-066eb27b48e6",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "ccdbb1324ee5d08c56b55d84befe5f3e1863f28b33815286551a009792a58f14",
+        "diagnostics_file_sha256": "86d2b75ade4412848d0f0c6dea283836d0ef0b102ba283e3c7366a85f1c516c3",
+        "diagnostics_sha256": "f0faa940b984eafecaf1e576495dad930a4b008aca90508ca019211dc18e44af",
+        "scenario_family": "F03",
+        "seed": 1901,
+        "snapshot_id": "f03-21005-f03-expensive-high-q-d0-066eb27b48e6",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "34a0a459e67955e7da5b887648a9f80c99cff9b0b9328cd92cc017dcc703adff",
+        "diagnostics_file_sha256": "d6cfeefcc9713233530430e22c5ee926626608a1e8d33202724949f6c86a0515",
+        "diagnostics_sha256": "18e966753bb53a42c4503d19729a8c669cabeb85a778f52d7599750bb55f4390",
+        "scenario_family": "F03",
+        "seed": 2101,
+        "snapshot_id": "f03-21005-f03-expensive-high-q-d0-066eb27b48e6",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "bbd49bc8e34f3dd6acf221d70e9393b47d03d033f71bc34c82b49800605c16bd",
+        "diagnostics_file_sha256": "8464d1d5d1a51d11c728073d48fe6e2a9f32e45451a7b26c0f176476e9921cea",
+        "diagnostics_sha256": "7a7e165dc3efce43619b5f9ffdaf2a41094d9797079b0d872812f5d515ed6659",
+        "scenario_family": "F13",
+        "seed": 1701,
+        "snapshot_id": "f13-21020-f13-amenity-cultivation-d0-0adf856ee91c",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "a869322a9fefbb3b774a3704b3bb9fa87c13b933fffc268fd5fa15baa126448a",
+        "diagnostics_file_sha256": "ef0e69f165928c57ae2add8c0edc4aabb9e3b308846e89facfca1a0c8ac61c6e",
+        "diagnostics_sha256": "d532f311e3502b74f604267aac8879e9e8d25536c9d6c1d9c6ef75abbb9bfbc7",
+        "scenario_family": "F13",
+        "seed": 1901,
+        "snapshot_id": "f13-21020-f13-amenity-cultivation-d0-0adf856ee91c",
+        "status": "PASS"
+      },
+      {
+        "checkpoint_bytes": 4823303,
+        "checkpoint_sha256": "eaf2a55d91170322da3e9063a95dfcd9c1edb68d4c3312683527d5cad7d6f4d7",
+        "diagnostics_file_sha256": "2f8e0d5d31799f60e99862d5bae21eb014625c941ff3e65c87d59c13e3d1d78c",
+        "diagnostics_sha256": "e2fcd32fce8e6ab917e869b70f0d3d73a4184fc8db5e612b2a0600a6ca7659c0",
+        "scenario_family": "F13",
+        "seed": 2101,
+        "snapshot_id": "f13-21020-f13-amenity-cultivation-d0-0adf856ee91c",
+        "status": "PASS"
+      }
+    ],
+    "seeds": [
+      1701,
+      1901,
+      2101
+    ]
+  },
+  "native_simulator_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "scope": "independent-artifact-integrity-and-gate-verification",
+  "status": "PASS"
+}

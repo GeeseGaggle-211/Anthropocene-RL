@@ -2,6 +2,9 @@
 
 Recorded 2026-10-11 on branch `feature/cultivation-pilot-readiness`.
 
+Storage implementation and clean-checkout rerun commit:
+`ebeb54fbae2730934dd976d0749e426ac5d7c8a7`.
+
 ## Frozen identities and readiness result
 
 - Preserved readiness learner commit: `33a88006ba9f55f80c47a69b91331009973a75ac`
@@ -17,6 +20,15 @@ manifest, snapshot, and bridge identities, and confirms every per-run and
 aggregate gate. Actor motion replicates in at least two of three seeds for each
 snapshot. The evidence recommends retaining the separate feed-forward actor
 and critic; it does not justify a GRU, Transformer, or privileged critic.
+
+The complete matrix was then rerun from a clean checkout at implementation
+commit `ebeb54fbae2730934dd976d0749e426ac5d7c8a7`. It passed 9/9 again in
+217.75 seconds with aggregate deterministic SHA-256
+`2bc2b73866f4fc110bd33550559f61fa1029beebecf05b07b312dfec4e5e4d73`
+and aggregate file SHA-256
+`5014420bccbbb56bb79e212fac5cb5f453197bd152cdcbd0fcac64f5df4c10e9`.
+`cultivation-readiness-post-storage-verification.json` independently verifies
+that rerun and its nine new checkpoints.
 
 ## Google Drive round trip
 
@@ -45,7 +57,7 @@ not an architecture blocker.
 ## Disk footprint
 
 `disk-footprint.json` records 6,035,379 bytes (5.756 MiB) of Stage-0 blobs,
-110,939,171 bytes (105.800 MiB) of checkpoints, 1,244,399 bytes (1.187 MiB) of
+154,348,898 bytes (147.199 MiB) of checkpoints, 1,806,597 bytes (1.723 MiB) of
 artifacts, the learner C# build caches, and the frozen simulator checkout/cache.
 After full Drive sync, all 6,035,379 Stage-0 blob bytes are safely reclaimable.
 The 5 GiB LRU ceiling bounds future local snapshot storage; checkpoints remain
@@ -76,6 +88,12 @@ anthropocene-rl adapter-smoke --dotnet <unity-dotnet>
 
 python scripts/audit_cultivation_readiness.py --output evidence/cultivation-storage-readiness/cultivation-readiness-verification.json
 # PASS; 9/9 diagnostics and checkpoints independently verified
+
+anthropocene-rl cultivation-readiness --dotnet <unity-dotnet> --run-directory artifacts/cultivation-readiness-ebeb54f-runs --checkpoint-directory checkpoints/cultivation-readiness-ebeb54f --diagnostics artifacts/cultivation-readiness-ebeb54f.json
+# PASS; clean implementation commit; 9/9 in 217.75 seconds
+
+python scripts/audit_cultivation_readiness.py --aggregate artifacts/cultivation-readiness-ebeb54f.json --run-directory artifacts/cultivation-readiness-ebeb54f-runs --checkpoint-directory checkpoints/cultivation-readiness-ebeb54f --learner-sha ebeb54fbae2730934dd976d0749e426ac5d7c8a7 --output evidence/cultivation-storage-readiness/cultivation-readiness-post-storage-verification.json
+# PASS; new aggregate and all nine checkpoints independently re-hashed
 
 python scripts/build_cultivation_pilot_plan.py
 # PLAN_READY_NOT_GENERATED; 240 requested snapshots / 200 worlds
