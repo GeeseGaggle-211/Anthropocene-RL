@@ -57,6 +57,9 @@ class _TerminalTransport:
             "tensor": None,
         }
 
+    def verify_replay(self) -> dict[str, Any]:
+        return {"ok": True, "steps": 1, "finalStateFingerprint": "abc"}
+
     def close(self) -> None:
         self.closed = True
 
@@ -72,5 +75,6 @@ def test_terminal_step_preserves_reward_when_native_has_no_observation() -> None
     assert terminated
     assert not truncated
     assert info["terminal_observation_missing"] is True
+    assert env.verify_replay()["steps"] == 1
     with pytest.raises(RuntimeError, match="reset"):
         env.step({"continuous": np.full(4, 0.5), "movement_index": 0})

@@ -7,11 +7,13 @@ the simulation C# files from the exact checkout pinned by
 - `schema`
 - `reset`
 - `step`
+- `verify_replay`
 - `close`
 
-No simulation rule is implemented here. Reset/Step delegate directly to
-`NativeElderEnvironment`; tensor encoding delegates to
-`ElderObservationSchema`.
+No simulation rule is implemented here. Reset/Step and replay verification
+delegate directly to `NativeElderEnvironment`; tensor encoding delegates to
+`ElderObservationSchema`. Step responses also expose non-authoritative wall
+time measured immediately around the native `Step` call for local profiling.
 
 Build the bridge after preparing the simulator checkout:
 

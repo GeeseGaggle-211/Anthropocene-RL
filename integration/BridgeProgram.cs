@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Text.Json;
 using Anthropocene.Simulation;
 
@@ -94,7 +95,10 @@ namespace Anthropocene.RLBridge
                             .Deserialize<ElderDirective>(Json);
                         if (directive == null)
                             throw new ArgumentException("directive is null");
+                        long started = Stopwatch.GetTimestamp();
                         var step = environment.Step(directive);
+                        double nativeStepSeconds = Stopwatch.GetElapsedTime(
+                            started).TotalSeconds;
                         Write(new
                         {
                             ok = true,
@@ -112,10 +116,32 @@ namespace Anthropocene.RLBridge
                                 Realized = step.Decision?.Realized,
                                 Interventions = step.Decision?.Interventions,
                                 step.TrainingCriticSidecar,
-                                step.Events
+                                step.Events,
+                                NativeStepSeconds = nativeStepSeconds
                             },
                             tensor = step.Observation == null ? null :
                                 ElderObservationSchema.Encode(step.Observation)
+                        });
+                        continue;
+                    }
+                    if (op == "verify_replay")
+                    {
+                        if (environment == null)
+                            throw new InvalidOperationException(
+                                "reset must precede replay verification");
+                        NativeElderEnvironment.VerifyReplay(
+                            environment.ReplayLog);
+                        Write(new
+                        {
+                            ok = true,
+                            op,
+                            steps = environment.ReplayLog.Steps.Count,
+                            finalStateFingerprint = environment.ReplayLog.Steps
+                                .Count == 0 ?
+                                environment.ReplayLog.InitialStateFingerprint :
+                                environment.ReplayLog.Steps[
+                                    environment.ReplayLog.Steps.Count - 1]
+                                    .PostStepFingerprint
                         });
                         continue;
                     }

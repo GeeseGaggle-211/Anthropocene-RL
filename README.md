@@ -34,7 +34,10 @@ See `configs/simulator/elder-v2.yaml`.
 - masked categorical movement support;
 - requested-action PPO likelihood under native repairs;
 - physical-time interval discount and GAE utilities;
-- a minimal PPO optimizer and CI mechanics smoke.
+- a minimal PPO optimizer and CI mechanics smoke;
+- a real movement-disabled one-snapshot PPO overfit gate with checkpoint parity,
+  replay validation, and native/policy/update timing;
+- a fixed-semantics 1/2/4/8 native-environment throughput benchmark.
 
 The initial optimizer smoke keeps movement disabled. H=400 and lambda_ref=0.95
 are provisional debug settings in config, not final design decisions.
@@ -66,8 +69,8 @@ If `ANTHROPOCENE_SIM_ROOT` is omitted, bootstrap creates a detached checkout
 under `.simulator/Anthropocene`.
 
 The bridge protocol is learner-owned but compiles the pinned C# simulation
-source files directly. It exposes only `schema/reset/step/close`; all physical
-and legal behavior remains in `NativeElderEnvironment`.
+source files directly. It exposes only `schema/reset/step/verify_replay/close`;
+all physical and legal behavior remains in `NativeElderEnvironment`.
 
 Exact-SHA schema/reset/step/replay results, 143 focused Elder assertions, and a
 persistent bridge Reset/Step run against real `SaveCodec` bytes are archived in
@@ -109,14 +112,32 @@ The Stage-0 normalization artifact is explicitly provisional. It is fitted from
 TRAIN reset observations and short legal TRAIN calibration rollouts only; the
 DEVELOPMENT and HELDOUT samples appear solely in post-fit diagnostics.
 
+## Real one-snapshot mechanics gate
+
+After restoring the gitignored Stage-0 blobs and building the bridge against the
+frozen native SHA, run:
+
+```bash
+uv run anthropocene-rl overfit-one-snapshot
+uv run anthropocene-rl benchmark-native-throughput \
+  --checkpoint checkpoints/stage0-one-snapshot.pt
+```
+
+The overfit command chooses a simple cultivation-only F01/F02 TRAIN snapshot by
+default, freezes its matching provisional normalizer, keeps movement disabled,
+and writes deterministic gate diagnostics plus a complete reloadable checkpoint.
+`--device` accepts `cpu` or `cuda`; CPU remains the default. The throughput
+command measures the same snapshot class with 1, 2, 4, and 8 persistent native
+processes and does not alter training semantics.
+
 ## What is still experimental
 
 Before any gameplay-performance claim:
 
 1. expand the diagnostic Stage-0 bank into the 200-500-state pilot bank;
 2. fit and freeze the final campaign normalizer on the pilot TRAIN partition;
-3. run the real tiny-snapshot PPO overfit gate;
-4. benchmark native workers and batching;
+3. promote the real tiny-snapshot PPO gate from diagnostic to campaign settings;
+4. use the measured native-worker scaling to select pilot hardware and batching;
 5. compare H=400 versus H=800;
 6. run the q_k/technology-regime MLP adaptation sandbox;
 7. optionally test the privileged critic;

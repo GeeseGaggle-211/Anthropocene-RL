@@ -108,6 +108,58 @@ def main() -> int:
     audit_bank.add_argument("--coverage-markdown", type=Path)
     audit_bank.add_argument("--no-stage0-coverage", action="store_true")
     audit_bank.add_argument("--skip-blob-verification", action="store_true")
+    overfit = sub.add_parser("overfit-one-snapshot")
+    overfit.add_argument("--manifest", type=Path, default=Path(
+        "datasets/manifests/elder-v2-stage0-v1.json"
+    ))
+    overfit.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
+    overfit.add_argument("--normalizer", type=Path, default=Path(
+        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
+    ))
+    overfit.add_argument("--bridge-dll", type=Path, default=Path(
+        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
+    ))
+    overfit.add_argument("--dotnet", default="dotnet")
+    overfit.add_argument("--snapshot-id")
+    overfit.add_argument("--checkpoint", type=Path, default=Path(
+        "checkpoints/stage0-one-snapshot.pt"
+    ))
+    overfit.add_argument("--diagnostics", type=Path, default=Path(
+        "artifacts/stage0-one-snapshot-overfit.json"
+    ))
+    overfit.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    overfit.add_argument("--seed", type=int, default=1701)
+    overfit.add_argument("--updates", type=int, default=12)
+    overfit.add_argument("--episodes-per-update", type=int, default=4)
+    overfit.add_argument("--episode-steps", type=int, default=8)
+    overfit.add_argument("--horizon-years", type=float, default=400.0)
+    overfit.add_argument("--lambda-ref", type=float, default=0.95)
+    overfit.add_argument("--lambda-reference-years", type=float, default=20.0)
+    overfit.add_argument("--reward-scale", type=float, default=0.001)
+    overfit.add_argument("--learning-rate", type=float, default=1e-3)
+    overfit.add_argument("--ppo-epochs", type=int, default=8)
+    overfit.add_argument("--minibatch-size", type=int, default=64)
+    throughput = sub.add_parser("benchmark-native-throughput")
+    throughput.add_argument("--manifest", type=Path, default=Path(
+        "datasets/manifests/elder-v2-stage0-v1.json"
+    ))
+    throughput.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
+    throughput.add_argument("--normalizer", type=Path, default=Path(
+        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
+    ))
+    throughput.add_argument("--bridge-dll", type=Path, default=Path(
+        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
+    ))
+    throughput.add_argument("--dotnet", default="dotnet")
+    throughput.add_argument("--snapshot-id")
+    throughput.add_argument("--checkpoint", type=Path)
+    throughput.add_argument("--workers", default="1,2,4,8")
+    throughput.add_argument("--transitions-per-environment", type=int, default=8)
+    throughput.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    throughput.add_argument("--seed", type=int, default=1701)
+    throughput.add_argument("--diagnostics", type=Path, default=Path(
+        "artifacts/stage0-native-throughput.json"
+    ))
     args = parser.parse_args()
 
     if args.command == "check-manifest":
@@ -154,6 +206,59 @@ def main() -> int:
         )
         print(json.dumps(report.model_dump(mode="json"), sort_keys=True))
         return 0 if report.passed else 1
+    if args.command == "overfit-one-snapshot":
+        from anthropocene_rl.training.overfit import OverfitConfig, run_one_snapshot_overfit
+        from anthropocene_rl.training.ppo import PPOConfig
+
+        diagnostics = run_one_snapshot_overfit(
+            bridge_dll=args.bridge_dll,
+            dotnet=args.dotnet,
+            manifest_path=args.manifest,
+            blob_root=args.blob_root,
+            normalizer_path=args.normalizer,
+            snapshot_id=args.snapshot_id,
+            checkpoint_path=args.checkpoint,
+            diagnostics_path=args.diagnostics,
+            config=OverfitConfig(
+                seed=args.seed,
+                device=args.device,
+                updates=args.updates,
+                episodes_per_update=args.episodes_per_update,
+                episode_steps=args.episode_steps,
+                horizon_years=args.horizon_years,
+                lambda_ref=args.lambda_ref,
+                lambda_reference_years=args.lambda_reference_years,
+                reward_scale=args.reward_scale,
+            ),
+            ppo_config=PPOConfig(
+                learning_rate=args.learning_rate,
+                entropy_coefficient=0.0,
+                epochs=args.ppo_epochs,
+                minibatch_size=args.minibatch_size,
+            ),
+        )
+        print(json.dumps(diagnostics, sort_keys=True))
+        return 0 if diagnostics["status"] == "PASS" else 1
+    if args.command == "benchmark-native-throughput":
+        from anthropocene_rl.training.overfit import benchmark_native_throughput
+
+        worker_counts = tuple(int(value) for value in args.workers.split(","))
+        diagnostics = benchmark_native_throughput(
+            bridge_dll=args.bridge_dll,
+            dotnet=args.dotnet,
+            manifest_path=args.manifest,
+            blob_root=args.blob_root,
+            normalizer_path=args.normalizer,
+            snapshot_id=args.snapshot_id,
+            checkpoint_path=args.checkpoint,
+            worker_counts=worker_counts,
+            transitions_per_environment=args.transitions_per_environment,
+            seed=args.seed,
+            device_name=args.device,
+            diagnostics_path=args.diagnostics,
+        )
+        print(json.dumps(diagnostics, sort_keys=True))
+        return 0 if diagnostics["status"] == "PASS" else 1
     raise AssertionError("unreachable")
 
 

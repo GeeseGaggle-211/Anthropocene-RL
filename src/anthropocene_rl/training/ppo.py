@@ -71,6 +71,7 @@ class PPOTrainer:
         count = batch.observations.shape[0]
         minibatch = min(self.config.minibatch_size, count)
         metrics: dict[str, float] = {}
+        continuous_head_gradient_max = [0.0] * 4
 
         for _ in range(self.config.epochs):
             order = torch.randperm(count, device=batch.observations.device)
@@ -107,6 +108,22 @@ class PPOTrainer:
 
                 self.optimizer.zero_grad(set_to_none=True)
                 loss.backward()
+                mean_weight_grad = self.model.actor.continuous_mean.weight.grad
+                mean_bias_grad = self.model.actor.continuous_mean.bias.grad
+                log_std_grad = self.model.actor.log_std.grad
+                if (
+                    mean_weight_grad is None
+                    or mean_bias_grad is None
+                    or log_std_grad is None
+                ):
+                    raise RuntimeError("Continuous actor head gradients are missing")
+                for head in range(4):
+                    continuous_head_gradient_max[head] = max(
+                        continuous_head_gradient_max[head],
+                        float(torch.max(torch.abs(mean_weight_grad[head])).detach()),
+                        float(torch.abs(mean_bias_grad[head]).detach()),
+                        float(torch.abs(log_std_grad[head]).detach()),
+                    )
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     self.config.max_grad_norm,
@@ -132,4 +149,10 @@ class PPOTrainer:
         )
         if not metrics or not finite:
             raise RuntimeError("PPO update produced non-finite diagnostics")
+        metrics.update(
+            {
+                f"continuous_head_{head}_grad_max": value
+                for head, value in enumerate(continuous_head_gradient_max)
+            }
+        )
         return metrics

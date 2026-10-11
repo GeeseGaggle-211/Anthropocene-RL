@@ -67,12 +67,30 @@ provisional TRAIN-only normalization evidence is under
 content-addressed. This is an integration diagnostic, not the final campaign
 bank or final normalizer.
 
+## Implemented one-snapshot mechanics gate
+
+`anthropocene-rl overfit-one-snapshot` now runs the existing masked hybrid actor,
+critic, physical-time reward/GAE, and PPO optimizer against one real
+cultivation-only TRAIN snapshot through a persistent native bridge. Movement is
+disabled. The gate checks critic return fit, deterministic actor movement,
+inactive-head gradient inertness, legal likelihood support, separate
+requested/accepted/realized channels, intervention trends, finite normalized
+observations, checkpoint/reload parity, and native replay. It is explicitly not
+a gameplay-performance test.
+
+The checkpoint includes model and optimizer state, all RNG states, the frozen
+normalizer, run configuration, snapshot/manifest identities, simulator and
+schema identities, and the runtime bridge digest. Native Step, policy inference,
+PPO update, and end-to-end timing are reported separately. A companion
+`benchmark-native-throughput` command compares 1, 2, 4, and 8 persistent native
+environments without changing the action or reset semantics.
+
 ## Still required before a serious campaign
 
 - expand/freeze the 200-500-state pilot snapshot bank;
 - fit and archive the final normalization-v2 scales on pilot TRAIN only;
-- pass the tiny-snapshot PPO mechanics gate;
-- benchmark environment throughput and decide worker/batching counts;
+- archive the local tiny-snapshot gate and throughput results used for the pilot
+  hardware decision;
 - freeze checkpoint contents and experiment manifests.
 
 GRU, Transformer, online gameplay SGD, the sparse event scheduler, later-era

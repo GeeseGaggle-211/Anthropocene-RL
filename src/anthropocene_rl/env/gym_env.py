@@ -140,6 +140,9 @@ class AnthropoceneElderEnv(_BaseEnv):
     def close(self) -> None:
         self.transport.close()
 
+    def verify_replay(self) -> dict[str, Any]:
+        return self.transport.verify_replay()
+
     def _observation(self, raw: EncodedObservation) -> np.ndarray:
         values = raw.values if self.normalizer is None else self.normalizer.transform(raw)
         return np.asarray(values, dtype=np.float32)

@@ -17,5 +17,7 @@ for line in sys.stdin:
 """
     with JsonLineProcessTransport([sys.executable, "-u", "-c", script]) as transport:
         response = transport.reset({"Snapshot": b"\x00\xffnative"})
+        replay = transport.verify_replay()
     encoded = response["request"]["request"]["Snapshot"]
     assert encoded == base64.b64encode(b"\x00\xffnative").decode("ascii")
+    assert replay["request"] == {"op": "verify_replay"}
