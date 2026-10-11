@@ -40,8 +40,9 @@ See `configs/simulator/elder-v2.yaml`.
 - a three-snapshot by three-seed cultivation-readiness matrix with aggregate
   convergence and stability gates;
 - a fixed-semantics 1/2/4/8 native-environment throughput benchmark.
-- a pluggable immutable snapshot store with Google Drive durability and a
-  bounded local content cache.
+- a pluggable immutable snapshot store with legacy Google Drive durability;
+- a sharded local/GCS dataset store with bounded concurrent resumable uploads,
+  restart journals, authoritative run manifests, and checksum-keyed caches.
 
 The initial optimizer smoke keeps movement disabled. H=400 and lambda_ref=0.95
 are provisional debug settings in config, not final design decisions.
@@ -117,6 +118,10 @@ TRAIN reset observations and short legal TRAIN calibration rollouts only; the
 DEVELOPMENT and HELDOUT samples appear solely in post-fit diagnostics.
 
 ## Durable snapshot storage
+
+Large machine-consumed training datasets now use the GCS shard path documented
+in [`docs/GCS_DATASET_STORE.md`](docs/GCS_DATASET_STORE.md). The Drive path below
+remains available during validation and for small, human-facing artifacts.
 
 Git remains authoritative for manifests and provenance. Large immutable
 SaveCodec payloads live in Google Drive under content-addressed keys such as
