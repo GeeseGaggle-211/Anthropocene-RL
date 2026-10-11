@@ -27,6 +27,15 @@ def _activation(name: str) -> type[nn.Module]:
 
 
 class _Backbone(nn.Module):
+    """Baseline hidden MLP without runtime layer normalization.
+
+    Inputs are expected to use the frozen observation normalization-v2 transform,
+    while tanh bounds each post-activation hidden value. Linear pre-activations can
+    still grow and saturate tanh during training, so LayerNorm remains a
+    diagnostic-triggered ablation if optimization metrics show instability or
+    saturation; it is intentionally not part of the baseline architecture.
+    """
+
     def __init__(self, *, activation: str = "tanh") -> None:
         super().__init__()
         act = _activation(activation)
