@@ -120,6 +120,40 @@ def main() -> int:
     prune_store = snapshot_store_commands.add_parser("prune")
     _add_snapshot_store_arguments(prune_store)
     prune_store.add_argument("--max-local-gb", type=float, required=True)
+    dataset = sub.add_parser("dataset")
+    dataset_commands = dataset.add_subparsers(dest="dataset_command", required=True)
+    pack_dataset = dataset_commands.add_parser("pack")
+    pack_dataset.add_argument("--snapshot-manifest", type=Path, required=True)
+    pack_dataset.add_argument("--blob-root", type=Path, required=True)
+    pack_dataset.add_argument("--staging-root", type=Path, default=Path("datasets/staging"))
+    pack_dataset.add_argument("--dataset-id", required=True)
+    pack_dataset.add_argument("--run-id", required=True)
+    pack_dataset.add_argument("--target-shard-mib", type=int, default=64)
+    pack_dataset.add_argument("--anthropocene-branch")
+    pack_dataset.add_argument("--training-commit")
+    publish_dataset = dataset_commands.add_parser("publish")
+    publish_dataset.add_argument("--manifest", type=Path, required=True)
+    publish_dataset.add_argument(
+        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
+    )
+    list_datasets = dataset_commands.add_parser("list")
+    list_datasets.add_argument("--dataset-id", required=True)
+    list_datasets.add_argument(
+        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
+    )
+    fetch_dataset = dataset_commands.add_parser("fetch-record")
+    fetch_dataset.add_argument("manifest")
+    fetch_dataset.add_argument("record_id")
+    fetch_dataset.add_argument(
+        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
+    )
+    fetch_dataset.add_argument("--cache-root", type=Path)
+    verify_dataset = dataset_commands.add_parser("verify")
+    verify_dataset.add_argument("manifest")
+    verify_dataset.add_argument(
+        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
+    )
+    verify_dataset.add_argument("--cache-root", type=Path)
     generate_bank = sub.add_parser("generate-snapshot-bank")
     generate_bank.add_argument("--config", type=Path, required=True)
     generate_bank.add_argument("--manifest", type=Path, required=True)
@@ -338,6 +372,72 @@ def main() -> int:
             result = manager.status(check_remote=not args.offline)
         else:
             raise AssertionError("unreachable snapshot-store command")
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["status"] == "PASS" else 1
+    if args.command == "dataset":
+        from anthropocene_rl.datasets.object_store import (
+            DatasetPublisher,
+            DatasetStoreConfig,
+            build_object_store,
+        )
+        from anthropocene_rl.datasets.shards import (
+            discover_runs,
+            load_dataset_reader,
+            pack_snapshot_bank,
+        )
+
+        if args.dataset_command == "pack":
+            pack_result = pack_snapshot_bank(
+                snapshot_manifest_path=args.snapshot_manifest,
+                blob_root=args.blob_root,
+                staging_root=args.staging_root,
+                dataset_id=args.dataset_id,
+                run_id=args.run_id,
+                target_shard_bytes=args.target_shard_mib * 1024**2,
+                anthropocene_git_branch=args.anthropocene_branch,
+                training_git_commit=args.training_commit,
+            )
+            payload = {
+                **asdict(pack_result),
+                "manifest_path": str(pack_result.manifest_path),
+            }
+            print(json.dumps(payload, default=str, sort_keys=True))
+            return 0
+        config = DatasetStoreConfig.load(args.config)
+        store = build_object_store(config)
+        if args.dataset_command == "publish":
+            result = DatasetPublisher(config, store).publish(args.manifest)
+        elif args.dataset_command == "list":
+            result = {
+                "status": "PASS",
+                "dataset_id": args.dataset_id,
+                "runs": discover_runs(store, args.dataset_id),
+            }
+        elif args.dataset_command in ("fetch-record", "verify"):
+            cache_root = args.cache_root or Path(config.cache_root)
+            reader = load_dataset_reader(
+                args.manifest,
+                store=store,
+                cache_root=cache_root,
+            )
+            if args.dataset_command == "fetch-record":
+                path = reader.materialize_record(args.record_id)
+                result = {
+                    "status": "PASS",
+                    "record_id": args.record_id,
+                    "path": path.as_posix(),
+                    "cache": reader.cache_statistics(),
+                }
+            else:
+                for record_id in reader.record_ids():
+                    reader.read_record(record_id)
+                result = {
+                    "status": "PASS",
+                    "records": len(reader.record_ids()),
+                    "cache": reader.cache_statistics(),
+                }
+        else:
+            raise AssertionError("unreachable dataset command")
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] == "PASS" else 1
     if args.command == "generate-snapshot-bank":

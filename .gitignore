@@ -15,6 +15,9 @@ artifacts/
 checkpoints/
 runs/
 datasets/blobs/
+datasets/cache/
+datasets/remote/
+datasets/staging/
 .simulator/
 .env
 

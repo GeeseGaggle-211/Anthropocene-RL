@@ -1,0 +1,14 @@
+config_schema_version: dataset-store-v1
+backend: local
+storage_class: STANDARD
+prefix: ""
+local_root: datasets/remote
+staging_root: datasets/staging
+cache_root: datasets/cache
+target_shard_mib: 64
+upload_workers: 4
+max_pending_uploads: 8
+upload_attempts: 3
+initial_backoff_seconds: 0.01
+resumable_chunk_mib: 16
+request_timeout_seconds: 120
