@@ -137,6 +137,7 @@ def main() -> int:
     overfit.add_argument("--lambda-reference-years", type=float, default=20.0)
     overfit.add_argument("--reward-scale", type=float, default=0.001)
     overfit.add_argument("--learning-rate", type=float, default=1e-3)
+    overfit.add_argument("--actor-learning-rate", type=float, default=3e-4)
     overfit.add_argument("--ppo-epochs", type=int, default=8)
     overfit.add_argument("--minibatch-size", type=int, default=64)
     overfit.add_argument("--target-kl", type=float, default=0.05)
@@ -172,6 +173,7 @@ def main() -> int:
     readiness.add_argument("--lambda-reference-years", type=float, default=20.0)
     readiness.add_argument("--reward-scale", type=float, default=0.001)
     readiness.add_argument("--learning-rate", type=float, default=1e-3)
+    readiness.add_argument("--actor-learning-rate", type=float, default=3e-4)
     readiness.add_argument("--ppo-epochs", type=int, default=8)
     readiness.add_argument("--minibatch-size", type=int, default=64)
     readiness.add_argument("--target-kl", type=float, default=0.05)
@@ -268,6 +270,7 @@ def main() -> int:
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
+                actor_learning_rate=args.actor_learning_rate,
                 entropy_coefficient=0.0,
                 epochs=args.ppo_epochs,
                 minibatch_size=args.minibatch_size,
@@ -333,6 +336,7 @@ def main() -> int:
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
+                actor_learning_rate=args.actor_learning_rate,
                 entropy_coefficient=0.0,
                 epochs=args.ppo_epochs,
                 minibatch_size=args.minibatch_size,

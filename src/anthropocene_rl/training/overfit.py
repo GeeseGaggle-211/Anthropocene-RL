@@ -88,6 +88,7 @@ class OverfitConfig:
     reward_scale: float = 0.001
     minimum_critic_improvement: float = 0.50
     minimum_mean_critic_improvement: float = 0.40
+    maximum_well_fit_critic_mse: float = 0.05
     minimum_actor_shift: float = 0.02
     minimum_actor_direction_consistency: float = 0.50
     maximum_intervention_rate_increase: float = 0.25
@@ -111,6 +112,8 @@ class OverfitConfig:
             raise ValueError("minimum_critic_improvement must be in [0,1)")
         if not 0 <= self.minimum_mean_critic_improvement < 1:
             raise ValueError("minimum_mean_critic_improvement must be in [0,1)")
+        if self.maximum_well_fit_critic_mse <= 0:
+            raise ValueError("maximum_well_fit_critic_mse must be positive")
         if self.minimum_actor_shift <= 0:
             raise ValueError("minimum_actor_shift must be positive")
         if not 0 <= self.minimum_actor_direction_consistency <= 1:
@@ -654,7 +657,10 @@ def run_one_snapshot_overfit(
     gates = {
         "critic_return_fit": (
             mean_critic_improvement >= config.minimum_mean_critic_improvement
-            and final_critic_improvement >= config.minimum_critic_improvement
+            and (
+                final_critic_improvement >= config.minimum_critic_improvement
+                or post_update_mse[-1] <= config.maximum_well_fit_critic_mse
+            )
             and post_fit_progress >= config.minimum_critic_improvement
         ),
         "actor_moved_consistently": (
@@ -731,6 +737,7 @@ def run_one_snapshot_overfit(
             "required_mean_improvement_fraction": (
                 config.minimum_mean_critic_improvement
             ),
+            "well_fit_mse_threshold": config.maximum_well_fit_critic_mse,
         },
         "actor": {
             "active_heads": active_heads,

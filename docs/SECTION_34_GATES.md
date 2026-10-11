@@ -89,7 +89,9 @@ The hardened gate samples only structurally active Gaussian heads, aggregates
 PPO diagnostics over every minibatch, and recomputes KL, clip fraction, entropy,
 and value MSE over the full rollout after each update. A target-KL stop freezes
 further actor changes for that rollout while allowing the separate critic to
-finish its scheduled value-fitting epochs. Checkpoint verification restores RNG
+finish its scheduled value-fitting epochs. The actor and critic use distinct
+optimizer parameter groups so the actor can take the conservative 3e-4 step
+while the one-snapshot critic uses 1e-3. Checkpoint verification restores RNG
 and optimizer state and proves the next stochastic policy sample and next PPO
 update are bit-exact, rather than checking deterministic inference alone.
 

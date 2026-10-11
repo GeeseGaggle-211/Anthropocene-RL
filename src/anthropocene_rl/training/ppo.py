@@ -13,6 +13,7 @@ from anthropocene_rl.policies.elder_mlp import ElderActorCritic
 @dataclass(frozen=True)
 class PPOConfig:
     learning_rate: float = 3e-4
+    actor_learning_rate: float | None = 3e-4
     clip_ratio: float = 0.2
     value_coefficient: float = 0.5
     entropy_coefficient: float = 0.01
@@ -57,9 +58,24 @@ class PPOTrainer:
     ) -> None:
         self.model = model
         self.config = config or PPOConfig()
+        actor_learning_rate = (
+            self.config.learning_rate
+            if self.config.actor_learning_rate is None
+            else self.config.actor_learning_rate
+        )
+        if actor_learning_rate <= 0 or self.config.learning_rate <= 0:
+            raise ValueError("Actor and critic learning rates must be positive")
         self.optimizer = torch.optim.Adam(
-            model.parameters(),
-            lr=self.config.learning_rate,
+            (
+                {
+                    "params": model.actor.parameters(),
+                    "lr": actor_learning_rate,
+                },
+                {
+                    "params": model.critic.parameters(),
+                    "lr": self.config.learning_rate,
+                },
+            ),
             eps=1e-5,
         )
 
