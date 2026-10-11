@@ -1,8 +1,9 @@
 # Cultivation open-economy pilot v1
 
 This directory freezes the first 300-snapshot, fixed-location cultivation
-campaign before PPO training. The Google Drive RL design document remains the
-normative architecture; these files record the concrete campaign instance.
+campaign and its TRAIN-only normalization. The Google Drive RL design document
+remains the normative agent architecture, while GCS is the durable storage
+backend for machine-consumed datasets and runs.
 
 ## Frozen identities
 
@@ -39,19 +40,13 @@ diagnostics and did not contribute to fitted scales. See
 
 ## Durable storage
 
-- Drive folder: `Anthropocene / RL Snapshot Banks / Elder v2 / Stage0 and Pilot Banks`
-- Folder ID: `1BtKChDAhEpJOWdeEiJyfnowuuN7y_GSN`
-- Object naming: `sha256/<first2>/<full-sha>.snapshot`
-- Local cache ceiling: 5 GiB, LRU
-
-The post-freeze sync passed: 288 objects deduplicated and 12 newly uploaded.
-All 300 manifest records carry Drive identity, byte count, MD5, and provider
-SHA-256 metadata without changing the canonical manifest identity. Local blobs
-remain an evictable verified cache; pruning refuses to remove the sole copy.
-Drive advanced the 12 new provider-version strings after upload finalization;
-the strict first live audit caught them, a metadata-only sync reconciled them,
-and the final live audit verified 300/300 with zero invalid or unrecoverable
-objects.
+The bank is published at
+`gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-v1/2026-10-11-manifest-9d33a9e5/manifest.json`.
+Its content-addressed 64,706,560-byte shard passed provider checksum and local
+SHA-256 validation. A cold readback followed by a full warm audit verified all
+300 records with zero misses. The local cache ceiling is 5 GiB with LRU
+eviction. The former Drive copy is retained as historical redundancy, not the
+primary machine-training path.
 
 ## Training declaration
 
@@ -61,7 +56,7 @@ discount horizon, actor LR 3e-4, critic LR 1e-3, target KL 0.05, and the
 Option-A-through-shared-compiler baseline. DEVELOPMENT selects checkpoints;
 HELDOUT is evaluated only after selection.
 
-The generated PPO results, per-seed learning curves, checkpoint hashes,
-baseline comparisons, throughput, and go/no-go assessment are added at the
-next clean evidence boundary. Checkpoint bytes and snapshot bytes remain
-gitignored.
+The campaign is complete and the aggregate result is NO-GO. Per-seed learning
+curves, checkpoint hashes, baseline comparisons, throughput, and rectification
+assessment are in `evidence/cultivation-ppo-pilot-v1/`. Checkpoint and snapshot
+bytes remain gitignored and are durable in GCS.

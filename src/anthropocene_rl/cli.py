@@ -133,26 +133,18 @@ def main() -> int:
     pack_dataset.add_argument("--training-commit")
     publish_dataset = dataset_commands.add_parser("publish")
     publish_dataset.add_argument("--manifest", type=Path, required=True)
-    publish_dataset.add_argument(
-        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
-    )
+    publish_dataset.add_argument("--config", type=Path, default=Path("configs/storage/gcs-v1.yaml"))
     list_datasets = dataset_commands.add_parser("list")
     list_datasets.add_argument("--dataset-id", required=True)
-    list_datasets.add_argument(
-        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
-    )
+    list_datasets.add_argument("--config", type=Path, default=Path("configs/storage/gcs-v1.yaml"))
     fetch_dataset = dataset_commands.add_parser("fetch-record")
     fetch_dataset.add_argument("manifest")
     fetch_dataset.add_argument("record_id")
-    fetch_dataset.add_argument(
-        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
-    )
+    fetch_dataset.add_argument("--config", type=Path, default=Path("configs/storage/gcs-v1.yaml"))
     fetch_dataset.add_argument("--cache-root", type=Path)
     verify_dataset = dataset_commands.add_parser("verify")
     verify_dataset.add_argument("manifest")
-    verify_dataset.add_argument(
-        "--config", type=Path, default=Path("configs/storage/gcs-v1.yaml")
-    )
+    verify_dataset.add_argument("--config", type=Path, default=Path("configs/storage/gcs-v1.yaml"))
     verify_dataset.add_argument("--cache-root", type=Path)
     generate_bank = sub.add_parser("generate-snapshot-bank")
     generate_bank.add_argument("--config", type=Path, required=True)
@@ -181,6 +173,18 @@ def main() -> int:
         "--normalizer",
         type=Path,
         default=Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json"),
+    )
+    overfit.add_argument(
+        "--dataset-manifest",
+        default=(
+            "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-stage0/"
+            "gcs-smoke-20261011/manifest.json"
+        ),
+    )
+    overfit.add_argument(
+        "--dataset-store-config",
+        type=Path,
+        default=Path("configs/storage/gcs-v1.yaml"),
     )
     overfit.add_argument(
         "--bridge-dll",
@@ -222,6 +226,18 @@ def main() -> int:
         "--normalizer",
         type=Path,
         default=Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json"),
+    )
+    readiness.add_argument(
+        "--dataset-manifest",
+        default=(
+            "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-stage0/"
+            "gcs-smoke-20261011/manifest.json"
+        ),
+    )
+    readiness.add_argument(
+        "--dataset-store-config",
+        type=Path,
+        default=Path("configs/storage/gcs-v1.yaml"),
     )
     readiness.add_argument(
         "--bridge-dll",
@@ -270,6 +286,18 @@ def main() -> int:
         default=Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json"),
     )
     throughput.add_argument(
+        "--dataset-manifest",
+        default=(
+            "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-stage0/"
+            "gcs-smoke-20261011/manifest.json"
+        ),
+    )
+    throughput.add_argument(
+        "--dataset-store-config",
+        type=Path,
+        default=Path("configs/storage/gcs-v1.yaml"),
+    )
+    throughput.add_argument(
         "--bridge-dll",
         type=Path,
         default=Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"),
@@ -302,6 +330,19 @@ def main() -> int:
         "--snapshot-store-config",
         type=Path,
         default=Path("configs/storage/google-drive-v1.yaml"),
+    )
+    pilot.add_argument(
+        "--dataset-manifest",
+        default=(
+            "gs://anthropocene-rl-datasets-508912/datasets/"
+            "elder-v2-cultivation-pilot-v1/"
+            "2026-10-11-manifest-9d33a9e5/manifest.json"
+        ),
+    )
+    pilot.add_argument(
+        "--dataset-store-config",
+        type=Path,
+        default=Path("configs/storage/gcs-v1.yaml"),
     )
     pilot.add_argument(
         "--bridge-dll",
@@ -419,6 +460,7 @@ def main() -> int:
                 args.manifest,
                 store=store,
                 cache_root=cache_root,
+                max_cache_bytes=config.max_cache_bytes,
             )
             if args.dataset_command == "fetch-record":
                 path = reader.materialize_record(args.record_id)
@@ -491,6 +533,8 @@ def main() -> int:
             manifest_path=args.manifest,
             blob_root=args.blob_root,
             normalizer_path=args.normalizer,
+            dataset_manifest=args.dataset_manifest,
+            dataset_store_config=args.dataset_store_config,
             snapshot_id=args.snapshot_id,
             checkpoint_path=args.checkpoint,
             diagnostics_path=args.diagnostics,
@@ -526,6 +570,8 @@ def main() -> int:
             manifest_path=args.manifest,
             blob_root=args.blob_root,
             normalizer_path=args.normalizer,
+            dataset_manifest=args.dataset_manifest,
+            dataset_store_config=args.dataset_store_config,
             snapshot_id=args.snapshot_id,
             checkpoint_path=args.checkpoint,
             worker_counts=worker_counts,
@@ -555,6 +601,8 @@ def main() -> int:
             manifest_path=args.manifest,
             blob_root=args.blob_root,
             normalizer_path=args.normalizer,
+            dataset_manifest=args.dataset_manifest,
+            dataset_store_config=args.dataset_store_config,
             snapshot_ids=snapshot_ids,
             seeds=seeds,
             run_directory=args.run_directory,
@@ -594,6 +642,8 @@ def main() -> int:
             blob_root=args.blob_root,
             normalizer_path=args.normalizer,
             snapshot_store_config=args.snapshot_store_config,
+            dataset_manifest=args.dataset_manifest,
+            dataset_store_config=args.dataset_store_config,
             evidence_directory=args.evidence_directory,
             checkpoint_directory=args.checkpoint_directory,
             config=PilotConfig(

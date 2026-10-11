@@ -29,13 +29,12 @@ class DatasetStoreConfig(StrictModel):
     project: str | None = None
     bucket: str | None = None
     location: str | None = None
-    storage_class: Literal["STANDARD", "NEARLINE", "COLDLINE", "ARCHIVE"] = (
-        "STANDARD"
-    )
+    storage_class: Literal["STANDARD", "NEARLINE", "COLDLINE", "ARCHIVE"] = "STANDARD"
     prefix: str = ""
     local_root: str = "datasets/remote"
     staging_root: str = "datasets/staging"
     cache_root: str = "datasets/cache"
+    max_cache_gib: float = Field(default=5.0, gt=0)
     target_shard_mib: int = Field(default=64, ge=1)
     upload_workers: int = Field(default=4, ge=1, le=32)
     max_pending_uploads: int = Field(default=8, ge=1, le=128)
@@ -57,6 +56,10 @@ class DatasetStoreConfig(StrictModel):
     @property
     def target_shard_bytes(self) -> int:
         return self.target_shard_mib * 1024**2
+
+    @property
+    def max_cache_bytes(self) -> int:
+        return int(self.max_cache_gib * 1024**3)
 
     @classmethod
     def load(cls, path: str | Path = DEFAULT_DATASET_STORE_CONFIG) -> Self:
@@ -208,9 +211,7 @@ class GcsObjectStore:
         try:
             from google.cloud import storage  # type: ignore[import-untyped]
         except ImportError as error:
-            raise RuntimeError(
-                "Install the GCS extra: pip install -e '.[gcs]'"
-            ) from error
+            raise RuntimeError("Install the GCS extra: pip install -e '.[gcs]'") from error
         self.config = config
         self.client: Any = client or storage.Client(project=config.project)
         self.bucket = self.client.bucket(config.bucket)
@@ -373,9 +374,7 @@ class BoundedUploader:
         future.add_done_callback(lambda _future: self.pending_limit.release())
         self.futures.append(future)
 
-    def _upload(
-        self, source: Path, name: str, sha256: str, size: int
-    ) -> tuple[ObjectInfo, bool]:
+    def _upload(self, source: Path, name: str, sha256: str, size: int) -> tuple[ObjectInfo, bool]:
         if self.journal.verified(name, sha256, size):
             existing = self.store.stat(name)
             if existing is not None:
@@ -495,9 +494,7 @@ class DatasetPublisher:
             }
         )
         completed.save_atomic(path)
-        manifest_name = (
-            f"datasets/{completed.dataset_id}/{completed.run_id}/manifest.json"
-        )
+        manifest_name = f"datasets/{completed.dataset_id}/{completed.run_id}/manifest.json"
         digest, size = sha256_file(path)
         manifest_info = self.store.upload(
             path,

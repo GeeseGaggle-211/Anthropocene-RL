@@ -40,9 +40,10 @@ See `configs/simulator/elder-v2.yaml`.
 - a three-snapshot by three-seed cultivation-readiness matrix with aggregate
   convergence and stability gates;
 - a fixed-semantics 1/2/4/8 native-environment throughput benchmark.
-- a pluggable immutable snapshot store with legacy Google Drive durability;
-- a sharded local/GCS dataset store with bounded concurrent resumable uploads,
-  restart journals, authoritative run manifests, and checksum-keyed caches.
+- a legacy pluggable Google Drive snapshot store for compatibility;
+- a sharded GCS dataset and run-artifact store with bounded resumable uploads,
+  authoritative manifests, immutable generations, and a 5 GiB checksum-keyed
+  LRU cache.
 
 The initial optimizer smoke keeps movement disabled. H=400 and lambda_ref=0.95
 are provisional debug settings in config, not final design decisions.
@@ -119,47 +120,31 @@ DEVELOPMENT and HELDOUT samples appear solely in post-fit diagnostics.
 
 ## Durable snapshot storage
 
-Large machine-consumed training datasets now use the GCS shard path documented
-in [`docs/GCS_DATASET_STORE.md`](docs/GCS_DATASET_STORE.md). The Drive path below
-remains available during validation and for small, human-facing artifacts.
+Google Cloud Storage is the durable store for machine-consumed snapshots,
+training outputs, diagnostics, and checkpoints; see
+[`docs/GCS_DATASET_STORE.md`](docs/GCS_DATASET_STORE.md). Git remains
+authoritative for manifests, configuration, and compact provenance. Dataset
+shards use global content-addressed object names, run bundles are immutable,
+and each authoritative manifest is published last.
 
-Git remains authoritative for manifests and provenance. Large immutable
-SaveCodec payloads live in Google Drive under content-addressed keys such as
-`sha256/5e/<full-sha>.snapshot`; `datasets/blobs` is a 5 GiB LRU cache. Remote
-file IDs, byte counts, checksums, and verification status are recorded per
-manifest record but deliberately excluded from snapshot-bank identity, so a
-Drive move or upload timestamp cannot invalidate a normalizer or checkpoint.
-
-Install the optional client and configure local Google credentials. The Codex
-app's connected-Drive OAuth grant is intentionally not exported to local
-processes, so the CLI needs Application Default Credentials or an authorized
-credential file of its own:
+Install the optional client and configure local Application Default
+Credentials. Credentials and refresh tokens stay outside the repository:
 
 ```bash
-uv sync --extra google-drive
-export ANTHROPOCENE_GOOGLE_DRIVE_CREDENTIALS=/secure/path/authorized-user.json
+uv sync --extra gcs
+gcloud auth application-default login
 
-uv run anthropocene-rl snapshot-store push
-uv run anthropocene-rl snapshot-store sync
-uv run anthropocene-rl snapshot-store fetch <snapshot-id-or-sha>
-uv run anthropocene-rl snapshot-store prune --max-local-gb 5
-uv run anthropocene-rl snapshot-store status
+uv run anthropocene-rl dataset publish --manifest <staged-manifest>
+uv run anthropocene-rl dataset fetch-record <gs-manifest-uri> <snapshot-id>
+uv run anthropocene-rl dataset verify <gs-manifest-uri>
 ```
 
-Application Default Credentials in Google's standard local configuration
-location are discovered automatically, so the environment variable is optional
-in that case. Keep OAuth client and authorized-user JSON outside the repository.
-An External/Testing OAuth app's refresh token is short-lived; use a production
-OAuth client or a folder-scoped service account for unattended long campaigns.
-
-Uploads are resumable and deduplicate by content key. For stored binary files,
-the client checks Drive's byte size, MD5, and server-computed SHA-256 as well as
-its private content-identity metadata, and always recomputes SHA-256 after a
-download before admitting a blob to the cache. Push and fetch enforce the
-configured cache ceiling; explicit prune is also available. Eviction performs a
-live remote identity check and never removes a blob that lacks verified manifest
-metadata or a matching Drive copy. Training and overfit loaders use a valid
-local cache hit, or fetch and verify once on a miss.
+Uploads use create-only generations, CRC32C transport validation, provider MD5,
+and application SHA-256 metadata. Downloads recompute SHA-256 before admitting
+bytes to the 5 GiB cache. Training loaders prefer a valid local blob, then a
+materialized cache record, and otherwise download and verify the containing
+shard once; they never stream reset bytes from GCS each episode. The older Drive
+commands remain available only for historical manifests and migration fallback.
 
 ## Real one-snapshot mechanics gate
 
@@ -189,13 +174,13 @@ compiler-repair magnitude, full-update KL/clipping, on-policy critic fit, and
 bit-exact checkpoint continuation. Its aggregate result is a mechanics and
 optimization-readiness claim, not a gameplay-performance claim.
 
-## Prepared cultivation-only pilot
+## Cultivation-only pilot v1
 
-The unlaunched pilot plan is materialized at
-`configs/datasets/cultivation-pilot-v1.yaml`. It requests 240 snapshots across
-200 independent worlds using deterministic constrained-pairwise coverage:
-F01/F02/F03/F13 plus limited F17 memory histories and matched F18
-primitive/plough contrasts. Movement, herding, and fishing remain absent.
+The first serious pilot is complete. Its frozen bank contains 300 accepted
+snapshots across F01/F02/F03/F13/F15/F16/F17/F18, split 210 TRAIN / 45
+DEVELOPMENT / 45 HELDOUT before timestamp selection. Trade, migration, fission,
+memory, and frontier variation remain live while movement, husbandry, and
+fishing are structurally excluded for the three-decision campaign horizon.
 
 Regenerate the plan deterministically with:
 
@@ -203,8 +188,7 @@ Regenerate the plan deterministically with:
 uv run python scripts/build_cultivation_pilot_plan.py
 ```
 
-Generation still requires an explicit go decision. After generation, audit the
-accepted physical states rather than trusting requested bands:
+Audit the accepted physical states rather than trusting requested bands:
 
 ```bash
 uv run anthropocene-rl audit-snapshot-bank \
@@ -214,23 +198,23 @@ uv run anthropocene-rl audit-snapshot-bank \
   --cultivation-pilot-coverage
 ```
 
-Only after the bank is frozen should a new final normalization-v2 be fitted
-from PILOT TRAIN resets and short legal calibration rollouts. DEVELOPMENT and
-HELDOUT are transform-only; the Stage-0 provisional normalizer is not a campaign
-normalizer.
+The final v1 normalization was fitted from PILOT TRAIN resets and short legal
+calibration rollouts only. The three-seed PPO result is NO-GO: all contracts
+passed, but one seed breached the KL gate and another materially regressed on
+DEVELOPMENT and HELDOUT. Sparse trade/migration slices also revealed inadequate
+TRAIN-only normalization coverage. See `evidence/cultivation-ppo-pilot-v1/`.
 
 ## What is still experimental
 
 Before any gameplay-performance claim:
 
-1. expand the diagnostic Stage-0 bank into the 200-500-state pilot bank;
-2. fit and freeze the final campaign normalizer on the pilot TRAIN partition;
-3. promote the real tiny-snapshot PPO gate from diagnostic to campaign settings;
-4. use the measured native-worker scaling to select pilot hardware and batching;
-5. compare H=400 versus H=800;
-6. run the q_k/technology-regime MLP adaptation sandbox;
-7. optionally test the privileged critic;
-8. enable movement only after the fixed-location loop is healthy.
+1. create a fresh v2 generation with new held-out world/lineage groups;
+2. increase rare trade/migration exposure in TRAIN calibration and fit a new
+   TRAIN-only robust sparse-event normalizer;
+3. rerun three feed-forward seeds with a more conservative actor update;
+4. predeclare an intervention-distance promotion gate;
+5. compare H=400 versus H=800 only after the fixed-location loop is robust;
+6. enable movement or husbandry only in a separately declared curriculum.
 
 GRU, Transformer, online gameplay SGD, later-era goods encoders, sparse
 event-time multi-agent inference and RLlib scale-out remain deferred.

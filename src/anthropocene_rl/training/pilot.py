@@ -43,6 +43,12 @@ from anthropocene_rl.datasets.models import (
     SnapshotBankManifest,
     SnapshotRecord,
 )
+from anthropocene_rl.datasets.object_store import (
+    DEFAULT_DATASET_STORE_CONFIG,
+    DatasetStoreConfig,
+    build_object_store,
+)
+from anthropocene_rl.datasets.shards import DatasetReader, load_dataset_reader
 from anthropocene_rl.datasets.storage import (
     DEFAULT_SNAPSHOT_STORE_CONFIG,
     resolve_snapshot_blob,
@@ -90,6 +96,10 @@ DEFAULT_BRIDGE_DLL = Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.
 DEFAULT_EVIDENCE_DIRECTORY = Path("evidence/cultivation-ppo-pilot-v1")
 DEFAULT_CHECKPOINT_DIRECTORY = Path("checkpoints/cultivation-ppo-pilot-v1")
 DEFAULT_SEEDS = (1701, 1901, 2101)
+DEFAULT_GCS_DATASET_MANIFEST = (
+    "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-v1/"
+    "2026-10-11-manifest-9d33a9e5/manifest.json"
+)
 
 
 @dataclass(frozen=True)
@@ -144,11 +154,16 @@ class CampaignDataset:
         blob_root: str | Path,
         normalizer_path: str | Path,
         snapshot_store_config: str | Path = DEFAULT_SNAPSHOT_STORE_CONFIG,
+        dataset_manifest: str | Path | None = DEFAULT_GCS_DATASET_MANIFEST,
+        dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
     ) -> None:
         self.manifest_path = Path(manifest_path)
         self.blob_root = Path(blob_root)
         self.normalizer_path = Path(normalizer_path)
         self.snapshot_store_config = Path(snapshot_store_config)
+        self.dataset_manifest = str(dataset_manifest) if dataset_manifest is not None else None
+        self.dataset_store_config = Path(dataset_store_config)
+        self._dataset_reader: DatasetReader | None = None
         self.manifest = SnapshotBankManifest.load(self.manifest_path)
         self.manifest_sha256 = self.manifest.sha256()
         normalization_manifest = NormalizationManifest.load(self.normalizer_path)
@@ -208,12 +223,16 @@ class CampaignDataset:
     def selection(self, record: SnapshotRecord) -> CampaignSelection:
         cached = self._bytes.get(record.content_sha256)
         if cached is None:
-            path = resolve_snapshot_blob(
-                record,
-                blob_root=self.blob_root,
-                config_path=self.snapshot_store_config,
-                manifest_path=self.manifest_path,
-            )
+            local_path = self.blob_root / record.blob_path
+            if local_path.is_file() or self.dataset_manifest is None:
+                path = resolve_snapshot_blob(
+                    record,
+                    blob_root=self.blob_root,
+                    config_path=self.snapshot_store_config,
+                    manifest_path=self.manifest_path,
+                )
+            else:
+                path = self._gcs_reader().materialize_record(record.snapshot_id)
             cached = (path, path.read_bytes())
             self._bytes[record.content_sha256] = cached
         return CampaignSelection(
@@ -224,6 +243,26 @@ class CampaignDataset:
             snapshot_bytes=cached[1],
             normalizer=self.normalizer,
         )
+
+    def _gcs_reader(self) -> DatasetReader:
+        if self._dataset_reader is not None:
+            return self._dataset_reader
+        if self.dataset_manifest is None:
+            raise FileNotFoundError("No GCS dataset manifest is configured")
+        config = DatasetStoreConfig.load(self.dataset_store_config)
+        reader = load_dataset_reader(
+            self.dataset_manifest,
+            store=build_object_store(config),
+            cache_root=config.cache_root,
+            max_cache_bytes=config.max_cache_bytes,
+        )
+        if reader.manifest.source_manifest_sha256 != self.manifest_sha256:
+            raise ValueError("GCS dataset and snapshot-bank manifest identities differ")
+        expected_ids = {record.snapshot_id for record in self.manifest.records}
+        if set(reader.record_ids()) != expected_ids:
+            raise ValueError("GCS dataset record cohort differs from the frozen snapshot bank")
+        self._dataset_reader = reader
+        return reader
 
 
 class BalancedFamilySampler:
@@ -275,6 +314,8 @@ def run_cultivation_pilot(
     blob_root: str | Path = DEFAULT_BLOB_ROOT,
     normalizer_path: str | Path = DEFAULT_NORMALIZER,
     snapshot_store_config: str | Path = DEFAULT_SNAPSHOT_STORE_CONFIG,
+    dataset_manifest: str | Path | None = DEFAULT_GCS_DATASET_MANIFEST,
+    dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
     evidence_directory: str | Path = DEFAULT_EVIDENCE_DIRECTORY,
     checkpoint_directory: str | Path = DEFAULT_CHECKPOINT_DIRECTORY,
     config: PilotConfig | None = None,
@@ -300,6 +341,8 @@ def run_cultivation_pilot(
         blob_root=blob_root,
         normalizer_path=normalizer_path,
         snapshot_store_config=snapshot_store_config,
+        dataset_manifest=dataset_manifest,
+        dataset_store_config=dataset_store_config,
     )
     train = dataset.by_partition[Partition.TRAIN]
     development = dataset.by_partition[Partition.DEVELOPMENT]

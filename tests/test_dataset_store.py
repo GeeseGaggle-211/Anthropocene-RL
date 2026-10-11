@@ -27,6 +27,7 @@ from anthropocene_rl.datasets.shards import (
     discover_runs,
     pack_snapshot_bank,
 )
+from anthropocene_rl.training.overfit import load_stage0_selection
 
 
 def _snapshot_bank(tmp_path: Path) -> tuple[Path, Path, dict[str, bytes]]:
@@ -126,9 +127,7 @@ class FakeGcsStore(ImmutableObjectStore):
 
     def list(self, prefix: str) -> tuple[ObjectInfo, ...]:
         return tuple(
-            stored.info
-            for name, stored in sorted(self.objects.items())
-            if name.startswith(prefix)
+            stored.info for name, stored in sorted(self.objects.items()) if name.startswith(prefix)
         )
 
 
@@ -210,6 +209,30 @@ def test_checksum_validation_rejects_corrupt_cache(tmp_path: Path) -> None:
     assert reader.cache_misses == 2
 
 
+def test_dataset_reader_enforces_lru_cache_limit_without_touching_remote(
+    tmp_path: Path,
+) -> None:
+    manifest_path, _ = _pack(tmp_path)
+    store = FakeGcsStore()
+    DatasetPublisher(_config(tmp_path), store).publish(manifest_path)
+    manifest = DatasetRunManifest.load(manifest_path)
+    limit = max(shard.size_bytes for shard in manifest.shards)
+    reader = DatasetReader(
+        manifest,
+        store=store,
+        cache_root=tmp_path / "cache",
+        max_cache_bytes=limit,
+    )
+
+    first_path = reader.ensure_shard(manifest.shards[0])
+    assert first_path.is_file()
+    second_path = reader.ensure_shard(manifest.shards[1])
+
+    assert not first_path.exists()
+    assert second_path.is_file()
+    assert store.objects
+
+
 def test_local_backend_has_the_same_publish_and_read_contract(tmp_path: Path) -> None:
     manifest_path, payloads = _pack(tmp_path)
     config = DatasetStoreConfig(
@@ -228,6 +251,41 @@ def test_local_backend_has_the_same_publish_and_read_contract(tmp_path: Path) ->
     reader = DatasetReader(manifest, store=store, cache_root=config.cache_root)
     first = manifest.shards[0].records[0]
     assert reader.read_record(first.record_id) == payloads[first.record_id]
+
+
+def test_overfit_loader_fetches_a_missing_snapshot_from_dataset_cache(
+    tmp_path: Path,
+) -> None:
+    config = DatasetStoreConfig(
+        backend="local",
+        local_root=(tmp_path / "remote").as_posix(),
+        staging_root=(tmp_path / "staging").as_posix(),
+        cache_root=(tmp_path / "cache").as_posix(),
+        max_cache_gib=0.01,
+        upload_workers=1,
+        max_pending_uploads=1,
+        initial_backoff_seconds=0,
+    )
+    packed = pack_snapshot_bank(
+        snapshot_manifest_path="datasets/manifests/elder-v2-stage0-v1.json",
+        blob_root="datasets/blobs",
+        staging_root=config.staging_root,
+        dataset_id="elder-stage0-test",
+        run_id="run-001",
+        target_shard_bytes=64 * 1024**2,
+    )
+    DatasetPublisher(config, LocalObjectStore(config.local_root)).publish(packed.manifest_path)
+    config_path = tmp_path / "dataset-store.json"
+    config_path.write_text(json.dumps(config.model_dump(mode="json")), encoding="utf-8")
+
+    selection = load_stage0_selection(
+        blob_root=tmp_path / "empty-local-blobs",
+        dataset_manifest=packed.manifest_path,
+        dataset_store_config=config_path,
+    )
+
+    assert selection.snapshot_path.is_file()
+    assert hashlib.sha256(selection.snapshot_bytes).hexdigest() == (selection.record.content_sha256)
 
 
 def test_retry_bounded_concurrency_partial_restart_and_duplicate(tmp_path: Path) -> None:

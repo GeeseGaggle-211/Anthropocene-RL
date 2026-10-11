@@ -168,7 +168,9 @@ class SnapshotCache:
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             dir=path.parent,
-            prefix=f".{path.name}.",
+            # Keep the temporary leaf short enough for Windows paths even
+            # though the durable cache leaf is a full content hash.
+            prefix=".dl.",
             suffix=".download",
         )
         os.close(descriptor)
@@ -499,9 +501,7 @@ def build_snapshot_store_manager(
     from anthropocene_rl.datasets.google_drive import GoogleDriveRemoteStore
 
     config = SnapshotStoreConfig.load(config_path)
-    credentials = credentials_path or os.environ.get(
-        "ANTHROPOCENE_GOOGLE_DRIVE_CREDENTIALS"
-    )
+    credentials = credentials_path or os.environ.get("ANTHROPOCENE_GOOGLE_DRIVE_CREDENTIALS")
     remote = GoogleDriveRemoteStore(
         root_folder_id=config.folder_id,
         credentials_path=credentials,
@@ -576,9 +576,7 @@ def _select_record(manifest: SnapshotBankManifest, selector: str) -> SnapshotRec
 def _verify_local(path: Path, record: SnapshotRecord) -> None:
     digest, size = sha256_file(path)
     if digest != record.content_sha256 or size != record.content_bytes:
-        raise ValueError(
-            f"Local blob for {record.snapshot_id!r} does not match its SHA-256/size"
-        )
+        raise ValueError(f"Local blob for {record.snapshot_id!r} does not match its SHA-256/size")
 
 
 def _remote_errors(
@@ -599,10 +597,7 @@ def _remote_errors(
         errors.append("remote size differs from manifest")
     if remote.content_sha256 != record.content_sha256:
         errors.append("remote SHA-256 app property differs from manifest")
-    if (
-        remote.sha256_checksum is not None
-        and remote.sha256_checksum != record.content_sha256
-    ):
+    if remote.sha256_checksum is not None and remote.sha256_checksum != record.content_sha256:
         errors.append("provider SHA-256 differs from manifest")
     if expected_md5 is not None and remote.md5_checksum != expected_md5:
         errors.append("Drive MD5 differs from local bytes")

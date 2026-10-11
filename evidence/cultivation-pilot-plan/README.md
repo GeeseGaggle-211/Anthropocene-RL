@@ -1,7 +1,8 @@
 # Cultivation-only pilot plan
 
-This directory describes the prepared plan only. The 240-snapshot campaign has
-not been generated or launched.
+This directory is superseded historical planning evidence. The 240-snapshot
+draft was amended to the executed 300-snapshot open-economy campaign; see
+`evidence/cultivation-pilot-v1/` and `evidence/cultivation-ppo-pilot-v1/`.
 
 `configs/datasets/cultivation-pilot-v1.yaml` requests 240 snapshots across 200
 independent worlds: F01 (40), F02 (40), F03 (40), F13 (48), F17 (24 from eight

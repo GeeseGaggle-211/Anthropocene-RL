@@ -1,0 +1,108 @@
+{
+  "audit_schema_version": "cultivation-pilot-gcs-storage-audit-v1",
+  "captured_at": "2026-10-11T16:22:52Z",
+  "status": "PASS",
+  "storage": {
+    "backend": "gcs",
+    "bucket": "anthropocene-rl-datasets-508912",
+    "project": "anthropocene-508912",
+    "region": "asia-northeast1",
+    "storage_class": "STANDARD",
+    "configured_local_cache_bytes": 5368709120,
+    "eviction_policy": "lru-verified-remote-only"
+  },
+  "snapshot_dataset": {
+    "source_manifest_identity_sha256": "9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d",
+    "published_manifest": {
+      "uri": "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-v1/2026-10-11-manifest-9d33a9e5/manifest.json",
+      "generation": "1791734008562301",
+      "content_bytes": 138096,
+      "content_sha256": "6774ac2774aa868cde8766c9c7e59875c017f548f49c1a35de8d8f9a2153d297",
+      "provider_md5_base64": "qvKLGx4jjw7GgbulrGMNhg==",
+      "provider_md5_hex": "aaf28b1b1e238f0ec681bba5ac630d86",
+      "provider_crc32c_base64": "0ZfNgw=="
+    },
+    "shard": {
+      "uri": "gs://anthropocene-rl-datasets-508912/objects/sha256/d7/d7fdec842a63e71ae5520f8a1a59a7954740761165af3372c99c4532b012032b.tar",
+      "generation": "1791734007145167",
+      "content_bytes": 64706560,
+      "content_sha256": "d7fdec842a63e71ae5520f8a1a59a7954740761165af3372c99c4532b012032b",
+      "provider_md5_base64": "i2e0IzX1Dzc2nXgqeIlZ5Q==",
+      "provider_md5_hex": "8b67b42335f50f37369d782a788959e5",
+      "provider_crc32c_base64": "xsw4VQ==",
+      "records": 300,
+      "trajectories": 206,
+      "samples": 1200
+    },
+    "readback": {
+      "cold_cache_downloaded_bytes": 64706560,
+      "cold_cache_sha256": "d7fdec842a63e71ae5520f8a1a59a7954740761165af3372c99c4532b012032b",
+      "full_record_verification_status": "PASS",
+      "warm_record_audit_hits": 300,
+      "warm_record_audit_misses": 0,
+      "loader_behavior": "local blob, then verified materialized cache, then one verified GCS shard download"
+    }
+  },
+  "run_artifacts": {
+    "manifest": {
+      "uri": "gs://anthropocene-rl-datasets-508912/runs/cultivation-ppo-pilot-v1/2378d420-20261011/manifest.json",
+      "generation": "1791735772441160",
+      "content_bytes": 27780,
+      "content_sha256": "429431468ac2e370f2295f27e5b0b13dde8e1f2f7aa23939f6f78ffff4cb54ee",
+      "provider_md5_base64": "aPa7juVuzNx4v7LCe5o8Mw==",
+      "provider_md5_hex": "68f6bb8ee56eccdc78bfb2c27b9a3c33",
+      "provider_crc32c_base64": "X4sriw=="
+    },
+    "bundle": {
+      "uri": "gs://anthropocene-rl-datasets-508912/run-objects/sha256/d6/d6678493fdff83a62412c57c410ef2f797de8ae9d9df8546dbb15a2cb48a969f.tar",
+      "generation": "1791735771363671",
+      "content_bytes": 224614400,
+      "payload_bytes": 224512115,
+      "content_sha256": "d6678493fdff83a62412c57c410ef2f797de8ae9d9df8546dbb15a2cb48a969f",
+      "provider_md5_base64": "K9OXit2eXs5QQ8c9ZVq4vQ==",
+      "provider_md5_hex": "2bd3978add9e5ece5043c73d655ab8bd",
+      "provider_crc32c_base64": "EIsUOQ==",
+      "files": 129,
+      "contents": "all local checkpoints, campaign raw diagnostics, readiness evidence, normalization evidence, manifests, and declared configs"
+    }
+  },
+  "local_disk": {
+    "datasets_blobs": {
+      "files": 1027,
+      "bytes": 220393645,
+      "manifest_referenced_files": 328,
+      "manifest_referenced_bytes": 70400574,
+      "unreferenced_generation_intermediates_files": 699,
+      "unreferenced_generation_intermediates_bytes": 149993071
+    },
+    "checkpoints": {
+      "files": 38,
+      "bytes": 183278532
+    },
+    "artifacts": {
+      "files": 36,
+      "bytes": 1806597
+    },
+    "dataset_cache": {
+      "files": 4,
+      "bytes": 87625440
+    },
+    "dataset_staging_after_publication": {
+      "files": 5,
+      "bytes": 289487375
+    },
+    "simulator_bridge_build_cache": {
+      "files": 44,
+      "bytes": 8249950
+    },
+    "free_bytes_on_c_drive_at_measurement": 19716554752,
+    "verified_remote_backed_bytes_immediately_evictable": 632598518,
+    "note": "The reclaim estimate includes manifest-referenced snapshot bytes, checkpoints, run artifacts, verified cache entries, and uploaded staging bundles. Unreferenced rejected-candidate blobs are reported separately and are not counted as remotely backed."
+  },
+  "provider_limitations": [
+    "GCS supplies CRC32C and MD5 for these non-composite objects, but not a provider-native SHA-256 field; SHA-256 is stored as immutable custom metadata and recomputed after download.",
+    "Per-object API latency makes many tiny uploads inefficient, so snapshots and run outputs are published as deterministic tar bundles with a manifest uploaded last.",
+    "Authentication uses local Application Default Credentials and must be refreshed outside the repository; no tokens or credentials are committed.",
+    "Cold recovery downloads a whole shard once. Repeated episode resets use the verified local cache and do not stream from GCS."
+  ]
+}

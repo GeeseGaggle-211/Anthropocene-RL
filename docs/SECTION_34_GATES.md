@@ -118,40 +118,30 @@ diagnostic hashes, checkpoint byte hashes, checkpoint identities, native SHA,
 and per-run/aggregate gates match. The result remains a cultivation mechanics
 and optimizer-readiness PASS, not a gameplay-performance claim.
 
-## Drive-backed snapshot cache
+## GCS-backed dataset and run cache
 
-The learner now owns a pluggable remote-blob contract. Google Drive is the first
-backend, rooted at `Stage0 and Pilot Banks` folder
-`1BtKChDAhEpJOWdeEiJyfnowuuN7y_GSN`. Per-record storage metadata is excluded
-from manifest identity. Loaders verify local SHA-256 on cache hits and fetch,
-verify, and retain a blob on a miss. The default local cap is 5 GiB; LRU pruning
-is enforced after remote transfers, requires a live verified remote copy, and
-cannot delete the only copy.
+GCS is the durable backend for new snapshot banks, diagnostics, and checkpoints.
+Content-addressed immutable shards use create-only object generations; provider
+CRC32C/MD5 and application SHA-256 metadata are verified, and download admission
+recomputes SHA-256. The learner uses a 5 GiB LRU cache and downloads a shard once
+on the first miss rather than streaming reset bytes per episode. The prior Drive
+store remains a historical compatibility backend.
 
-All 28 Stage-0 objects are uploaded at their content-addressed keys and have
-live-verified remote identities. A blob was safely evicted and restored through
-the local CLI and pluggable loader. The local CLI uses separate Google
-credentials because the app connector's OAuth token is not exposed to local
-processes. Drive's binary metadata supplies size, MD5, and server-side SHA-256;
-fetch verification additionally recomputes SHA-256 before a blob enters the
-local cache.
+## Cultivation-only pilot result
 
-## Prepared cultivation-only pilot bank
+The frozen v1 bank contains 300 snapshots across F01/F02/F03/F13/F15/F16/F17/F18
+and is stored in GCS. The corrected three-decision, three-seed PPO campaign is a
+NO-GO: seed 1701 passed, seed 1901 breached the KL gate, and seed 2101 regressed
+against Option A on DEVELOPMENT and HELDOUT. Contracts and inactive heads stayed
+clean. No feed-forward representational failure was demonstrated.
 
-The unlaunched `cultivation-pilot-v1` plan requests 240 snapshots across 200
-worlds. It covers F01/F02/F03/F13, eight three-timestamp cultivation-only F17
-memory lineages, and 24 matched F18 primitive/plough world pairs. A deterministic
-constrained-pairwise planner supplies broad factor coverage without a Cartesian
-product. World/lineage partitioning precedes timestamp selection. Promotion is
-based on accepted native measurements, not requested bands.
+## Still required before promotion
 
-## Still required before a serious campaign
-
-- expand/freeze the 200-500-state pilot snapshot bank;
-- fit and archive the final normalization-v2 scales on pilot TRAIN only;
-- archive the local tiny-snapshot gate and throughput results used for the pilot
-  hardware decision;
-- freeze checkpoint contents and experiment manifests.
+- create a new bank generation with pristine held-out groups;
+- increase sparse trade/migration event coverage in TRAIN calibration;
+- fit and archive a new TRAIN-only robust sparse-event normalizer;
+- rerun three seeds with a more conservative actor update and an explicit
+  compiler-intervention-distance gate.
 
 GRU, Transformer, online gameplay SGD, the sparse event scheduler, later-era
 goods encoders and multi-agent RLlib scale-out remain deliberately deferred.

@@ -40,6 +40,12 @@ from anthropocene_rl.datasets.models import (
     SnapshotBankManifest,
     SnapshotRecord,
 )
+from anthropocene_rl.datasets.object_store import (
+    DEFAULT_DATASET_STORE_CONFIG,
+    DatasetStoreConfig,
+    build_object_store,
+)
+from anthropocene_rl.datasets.shards import load_dataset_reader
 from anthropocene_rl.datasets.storage import (
     DEFAULT_SNAPSHOT_STORE_CONFIG,
     RemoteBlobStore,
@@ -66,13 +72,14 @@ from anthropocene_rl.training.returns import (
 
 DEFAULT_MANIFEST = Path("datasets/manifests/elder-v2-stage0-v1.json")
 DEFAULT_BLOB_ROOT = Path("datasets/blobs")
-DEFAULT_NORMALIZER = Path(
-    "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
-)
+DEFAULT_NORMALIZER = Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json")
 DEFAULT_BRIDGE_DLL = Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll")
 DEFAULT_CHECKPOINT = Path("checkpoints/stage0-one-snapshot.pt")
 DEFAULT_OVERFIT_DIAGNOSTICS = Path("artifacts/stage0-one-snapshot-overfit.json")
 DEFAULT_THROUGHPUT_DIAGNOSTICS = Path("artifacts/stage0-native-throughput.json")
+DEFAULT_STAGE0_GCS_DATASET_MANIFEST = (
+    "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-stage0/gcs-smoke-20261011/manifest.json"
+)
 DEFAULT_READINESS_DIAGNOSTICS = Path("artifacts/cultivation-readiness.json")
 DEFAULT_READINESS_RUN_DIRECTORY = Path("artifacts/cultivation-readiness-runs")
 DEFAULT_READINESS_CHECKPOINT_DIRECTORY = Path("checkpoints/cultivation-readiness")
@@ -166,15 +173,21 @@ def load_stage0_selection(
     snapshot_id: str | None = None,
     remote_store: RemoteBlobStore | None = None,
     snapshot_store_config: str | Path = DEFAULT_SNAPSHOT_STORE_CONFIG,
+    dataset_manifest: str | Path | None = None,
+    dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
+    require_provisional_normalizer: bool = True,
 ) -> Stage0Selection:
     """Load one leakage-safe TRAIN reset and its frozen provisional normalizer."""
 
     manifest = SnapshotBankManifest.load(manifest_path)
     manifest_sha256 = manifest.sha256()
     normalization_manifest = NormalizationManifest.load(normalizer_path)
-    expected_partition_id = f"{manifest.bank_id}:train:provisional"
-    if normalization_manifest.partition_id != expected_partition_id:
-        raise ValueError("The normalizer is not the provisional TRAIN artifact")
+    allowed_partition_ids = {f"{manifest.bank_id}:train:provisional"}
+    if not require_provisional_normalizer:
+        allowed_partition_ids.add(f"{manifest.bank_id}:train:final")
+    if normalization_manifest.partition_id not in allowed_partition_ids:
+        requirement = "provisional" if require_provisional_normalizer else "provisional or final"
+        raise ValueError(f"The normalizer is not a {requirement} TRAIN artifact")
     if normalization_manifest.partition_manifest_sha256 != manifest_sha256:
         raise ValueError("Normalizer and snapshot-bank manifest identities differ")
 
@@ -222,19 +235,30 @@ def load_stage0_selection(
             record.schema_identity.observation_schema_hash,
         ),
     }
-    mismatches = {
-        key: values for key, values in identity_checks.items() if values[0] != values[1]
-    }
+    mismatches = {key: values for key, values in identity_checks.items() if values[0] != values[1]}
     if mismatches:
         raise ValueError(f"Snapshot/normalizer identity mismatch: {mismatches}")
 
-    snapshot_path = resolve_snapshot_blob(
-        record,
-        blob_root=blob_root,
-        remote=remote_store,
-        config_path=snapshot_store_config,
-        manifest_path=manifest_path,
-    )
+    local_path = Path(blob_root) / record.blob_path
+    if local_path.is_file() or dataset_manifest is None:
+        snapshot_path = resolve_snapshot_blob(
+            record,
+            blob_root=blob_root,
+            remote=remote_store,
+            config_path=snapshot_store_config,
+            manifest_path=manifest_path,
+        )
+    else:
+        dataset_config = DatasetStoreConfig.load(dataset_store_config)
+        reader = load_dataset_reader(
+            dataset_manifest,
+            store=build_object_store(dataset_config),
+            cache_root=dataset_config.cache_root,
+            max_cache_bytes=dataset_config.max_cache_bytes,
+        )
+        if reader.manifest.source_manifest_sha256 != manifest_sha256:
+            raise ValueError("GCS dataset and snapshot-bank manifest identities differ")
+        snapshot_path = reader.materialize_record(record.snapshot_id)
     return Stage0Selection(
         manifest=manifest,
         manifest_sha256=manifest_sha256,
@@ -252,6 +276,8 @@ def run_one_snapshot_overfit(
     manifest_path: str | Path = DEFAULT_MANIFEST,
     blob_root: str | Path = DEFAULT_BLOB_ROOT,
     normalizer_path: str | Path = DEFAULT_NORMALIZER,
+    dataset_manifest: str | Path | None = None,
+    dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
     snapshot_id: str | None = None,
     checkpoint_path: str | Path = DEFAULT_CHECKPOINT,
     diagnostics_path: str | Path | None = DEFAULT_OVERFIT_DIAGNOSTICS,
@@ -274,6 +300,8 @@ def run_one_snapshot_overfit(
         blob_root=blob_root,
         normalizer_path=normalizer_path,
         snapshot_id=snapshot_id,
+        dataset_manifest=dataset_manifest,
+        dataset_store_config=dataset_store_config,
     )
     bridge_path = Path(bridge_dll).resolve()
     if not bridge_path.is_file():
@@ -365,9 +393,7 @@ def run_one_snapshot_overfit(
                 )
                 if initial_observation is None:
                     initial_observation = observation_tensor.detach().clone()
-                    actor_path.append(
-                        _deterministic_action(model, initial_observation)
-                    )
+                    actor_path.append(_deterministic_action(model, initial_observation))
 
                 for _ in range(config.episode_steps):
                     inference_started = _timing_start(device)
@@ -397,9 +423,7 @@ def run_one_snapshot_overfit(
                         "movement_index": movement_value,
                     }
                     bridge_started = time.perf_counter()
-                    next_observation, _, terminated, truncated, next_info = env.step(
-                        action
-                    )
+                    next_observation, _, terminated, truncated, next_info = env.step(action)
                     timings.bridge_step_seconds += time.perf_counter() - bridge_started
                     result = _plain_mapping(next_info["native_result"])
                     native_seconds = float(_pick(result, "NativeStepSeconds"))
@@ -421,9 +445,7 @@ def run_one_snapshot_overfit(
                     )
                     with torch.no_grad():
                         next_value = (
-                            0.0
-                            if terminated
-                            else float(model.critic(next_tensor.unsqueeze(0))[0])
+                            0.0 if terminated else float(model.critic(next_tensor.unsqueeze(0))[0])
                         )
                     raw_next = _raw_observation(next_info)
                     finite, sat, denominator = _observation_guard(
@@ -455,12 +477,8 @@ def run_one_snapshot_overfit(
                     accepted_realized_distance = _action_l2(accepted, realized)
                     requested_accepted_distances.append(requested_accepted_distance)
                     accepted_realized_distances.append(accepted_realized_distance)
-                    update_requested_accepted_distances.append(
-                        requested_accepted_distance
-                    )
-                    update_accepted_realized_distances.append(
-                        accepted_realized_distance
-                    )
+                    update_requested_accepted_distances.append(requested_accepted_distance)
+                    update_accepted_realized_distances.append(accepted_realized_distance)
                     interventions = _sequence(result, "Interventions")
                     intervention_flags.append(bool(interventions))
                     intervention_counts.append(len(interventions))
@@ -548,9 +566,7 @@ def run_one_snapshot_overfit(
                 {
                     "update": update,
                     "transition_rate": float(np.mean(update_intervention_flags)),
-                    "mean_count_per_transition": float(
-                        np.mean(update_intervention_counts)
-                    ),
+                    "mean_count_per_transition": float(np.mean(update_intervention_counts)),
                     "requested_to_accepted_mean_l2": float(
                         np.mean(update_requested_accepted_distances)
                     ),
@@ -617,9 +633,7 @@ def run_one_snapshot_overfit(
     early_requested_accepted_l2, late_requested_accepted_l2 = _edge_means(
         requested_accepted_distances
     )
-    early_accepted_realized_l2, late_accepted_realized_l2 = _edge_means(
-        accepted_realized_distances
-    )
+    early_accepted_realized_l2, late_accepted_realized_l2 = _edge_means(accepted_realized_distances)
     policy_return_improvement = (
         policy_evaluation_after["discounted_scaled_return"]
         - policy_evaluation_before["discounted_scaled_return"]
@@ -640,13 +654,9 @@ def run_one_snapshot_overfit(
         rel_tol=0.0,
         abs_tol=1e-9,
     )
-    maximum_post_update_kl = max(
-        metric["post_update_approx_kl"] for metric in update_metrics
-    )
+    maximum_post_update_kl = max(metric["post_update_approx_kl"] for metric in update_metrics)
     mean_post_update_clip_fraction = float(
-        np.mean(
-            [metric["post_update_clip_fraction"] for metric in update_metrics]
-        )
+        np.mean([metric["post_update_clip_fraction"] for metric in update_metrics])
     )
     saturation_rate = saturated / max(saturation_denominator, 1)
 
@@ -686,15 +696,12 @@ def run_one_snapshot_overfit(
         ),
         "compiler_interventions_not_pathological": (
             late_rate <= early_rate + config.maximum_intervention_rate_increase
-            and late_count
-            <= early_count + config.maximum_intervention_count_increase
+            and late_count <= early_count + config.maximum_intervention_count_increase
             and late_requested_accepted_l2
-            <= early_requested_accepted_l2
-            + config.maximum_intervention_distance_increase
+            <= early_requested_accepted_l2 + config.maximum_intervention_distance_increase
         ),
         "finite_and_saturation_guards": (
-            non_finite_count == 0
-            and saturation_rate <= config.maximum_saturation_rate
+            non_finite_count == 0 and saturation_rate <= config.maximum_saturation_rate
         ),
         "checkpoint_reload_policy_parity": parity["max_abs_error"] == 0.0,
         "checkpoint_continuation_parity": (
@@ -702,25 +709,21 @@ def run_one_snapshot_overfit(
             and parity["continuation_model_max_abs_error"] == 0.0
             and parity["continuation_metrics_max_abs_error"] == 0.0
         ),
-        "native_replay_valid": replay_checks
-        == config.updates * config.episodes_per_update,
+        "native_replay_valid": replay_checks == config.updates * config.episodes_per_update,
         "movement_disabled": non_stay_requested_count == 0,
         "fixed_policy_outcome_improves": (
             policy_return_improvement > 1e-9
             or (
                 flat_policy_return
-                and policy_repair_reduction
-                >= config.minimum_flat_return_repair_reduction
+                and policy_repair_reduction >= config.minimum_flat_return_repair_reduction
             )
         ),
         "fixed_policy_evaluation_contract": (
-            policy_evaluation_before["contract_valid"]
-            and policy_evaluation_after["contract_valid"]
+            policy_evaluation_before["contract_valid"] and policy_evaluation_after["contract_valid"]
         ),
         "ppo_update_stability": (
             maximum_post_update_kl <= config.maximum_post_update_approx_kl
-            and mean_post_update_clip_fraction
-            <= config.maximum_mean_post_update_clip_fraction
+            and mean_post_update_clip_fraction <= config.maximum_mean_post_update_clip_fraction
         ),
     }
     diagnostics: dict[str, Any] = {
@@ -744,9 +747,7 @@ def run_one_snapshot_overfit(
             "mean_per_update_fit_improvement_fraction": mean_critic_improvement,
             "final_update_fit_improvement_fraction": final_critic_improvement,
             "required_improvement_fraction": config.minimum_critic_improvement,
-            "required_mean_improvement_fraction": (
-                config.minimum_mean_critic_improvement
-            ),
+            "required_mean_improvement_fraction": (config.minimum_mean_critic_improvement),
             "well_fit_mse_threshold": config.maximum_well_fit_critic_mse,
         },
         "actor": {
@@ -754,9 +755,7 @@ def run_one_snapshot_overfit(
             "inactive_heads": inactive_heads,
             "deterministic_action_path": actor_path,
             "active_action_shift_l2": actor_shift,
-            "evaluation_trajectory_mean_action_shift_l2": (
-                evaluation_action_shift
-            ),
+            "evaluation_trajectory_mean_action_shift_l2": (evaluation_action_shift),
             "effective_action_shift_l2": effective_actor_shift,
             "direction_consistency": direction_consistency,
             "inactive_head_gradient_max": inactive_gradient,
@@ -767,15 +766,11 @@ def run_one_snapshot_overfit(
             "after": policy_evaluation_after,
             "discounted_scaled_return_improvement": policy_return_improvement,
             "requested_to_accepted_l2_reduction": policy_repair_reduction,
-            "flat_return_repair_reduction_required": (
-                config.minimum_flat_return_repair_reduction
-            ),
+            "flat_return_repair_reduction_required": (config.minimum_flat_return_repair_reduction),
         },
         "ppo_stability": {
             "maximum_post_update_approx_kl": maximum_post_update_kl,
-            "allowed_maximum_post_update_approx_kl": (
-                config.maximum_post_update_approx_kl
-            ),
+            "allowed_maximum_post_update_approx_kl": (config.maximum_post_update_approx_kl),
             "mean_post_update_clip_fraction": mean_post_update_clip_fraction,
             "allowed_mean_post_update_clip_fraction": (
                 config.maximum_mean_post_update_clip_fraction
@@ -800,14 +795,10 @@ def run_one_snapshot_overfit(
             "early_count_per_transition": early_count,
             "late_count_per_transition": late_count,
             "mean_count_per_transition": float(np.mean(intervention_counts)),
-            "requested_to_accepted_mean_l2": float(
-                np.mean(requested_accepted_distances)
-            ),
+            "requested_to_accepted_mean_l2": float(np.mean(requested_accepted_distances)),
             "requested_to_accepted_early_mean_l2": early_requested_accepted_l2,
             "requested_to_accepted_late_mean_l2": late_requested_accepted_l2,
-            "accepted_to_realized_mean_l2": float(
-                np.mean(accepted_realized_distances)
-            ),
+            "accepted_to_realized_mean_l2": float(np.mean(accepted_realized_distances)),
             "accepted_to_realized_early_mean_l2": early_accepted_realized_l2,
             "accepted_to_realized_late_mean_l2": late_accepted_realized_l2,
             "kinds": dict(sorted(intervention_kinds.items())),
@@ -831,9 +822,7 @@ def run_one_snapshot_overfit(
         "updates": update_metrics,
     }
     deterministic_payload = {
-        key: value
-        for key, value in diagnostics.items()
-        if key not in {"timing", "checkpoint"}
+        key: value for key, value in diagnostics.items() if key not in {"timing", "checkpoint"}
     }
     diagnostics["deterministic_diagnostics_sha256"] = hashlib.sha256(
         json.dumps(
@@ -855,6 +844,8 @@ def run_cultivation_readiness_matrix(
     manifest_path: str | Path = DEFAULT_MANIFEST,
     blob_root: str | Path = DEFAULT_BLOB_ROOT,
     normalizer_path: str | Path = DEFAULT_NORMALIZER,
+    dataset_manifest: str | Path | None = None,
+    dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
     snapshot_ids: tuple[str, ...] | None = None,
     seeds: tuple[int, ...] = DEFAULT_READINESS_SEEDS,
     run_directory: str | Path = DEFAULT_READINESS_RUN_DIRECTORY,
@@ -890,6 +881,8 @@ def run_cultivation_readiness_matrix(
             blob_root=blob_root,
             normalizer_path=normalizer_path,
             snapshot_id=snapshot_id,
+            dataset_manifest=dataset_manifest,
+            dataset_store_config=dataset_store_config,
         )
         for seed in seeds:
             run_name = f"{selection.record.scenario_family.lower()}-seed-{seed}"
@@ -900,6 +893,8 @@ def run_cultivation_readiness_matrix(
                 blob_root=blob_root,
                 normalizer_path=normalizer_path,
                 snapshot_id=snapshot_id,
+                dataset_manifest=dataset_manifest,
+                dataset_store_config=dataset_store_config,
                 checkpoint_path=checkpoint_root / f"{run_name}.pt",
                 diagnostics_path=run_root / f"{run_name}.json",
                 config=replace(base_config, seed=seed),
@@ -931,34 +926,23 @@ def run_cultivation_readiness_matrix(
         },
         "aggregate_convergence": {
             "critic_mean_batch_improvement_min": min(critic_improvements),
-            "critic_mean_batch_improvement_mean": float(
-                np.mean(critic_improvements)
-            ),
+            "critic_mean_batch_improvement_mean": float(np.mean(critic_improvements)),
             "critic_fresh_target_progress_min": min(critic_progress),
             "critic_fresh_target_progress_mean": float(np.mean(critic_progress)),
-            "positive_fixed_policy_return_runs": sum(
-                value > 1e-9 for value in reward_improvements
-            ),
+            "positive_fixed_policy_return_runs": sum(value > 1e-9 for value in reward_improvements),
             "flat_fixed_policy_return_runs": sum(
-                math.isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-9)
-                for value in reward_improvements
+                math.isclose(value, 0.0, rel_tol=0.0, abs_tol=1e-9) for value in reward_improvements
             ),
             "negative_fixed_policy_return_runs": sum(
                 value < -1e-9 for value in reward_improvements
             ),
-            "fixed_policy_return_improvement_mean": float(
-                np.mean(reward_improvements)
-            ),
-            "fixed_policy_repair_reduction_mean": float(
-                np.mean(repair_reductions)
-            ),
+            "fixed_policy_return_improvement_mean": float(np.mean(reward_improvements)),
+            "fixed_policy_repair_reduction_mean": float(np.mean(repair_reductions)),
             "maximum_post_update_approx_kl": max(
                 row["maximum_post_update_approx_kl"] for row in rows
             ),
             "mean_post_update_clip_fraction": float(
-                np.mean(
-                    [row["mean_post_update_clip_fraction"] for row in rows]
-                )
+                np.mean([row["mean_post_update_clip_fraction"] for row in rows])
             ),
         },
         "gates": gates,
@@ -974,9 +958,7 @@ def run_cultivation_readiness_matrix(
         },
     }
     deterministic_payload = {
-        key: value
-        for key, value in result.items()
-        if key not in {"elapsed_seconds"}
+        key: value for key, value in result.items() if key not in {"elapsed_seconds"}
     }
     result["deterministic_diagnostics_sha256"] = hashlib.sha256(
         json.dumps(
@@ -998,6 +980,8 @@ def benchmark_native_throughput(
     manifest_path: str | Path = DEFAULT_MANIFEST,
     blob_root: str | Path = DEFAULT_BLOB_ROOT,
     normalizer_path: str | Path = DEFAULT_NORMALIZER,
+    dataset_manifest: str | Path | None = None,
+    dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
     snapshot_id: str | None = None,
     checkpoint_path: str | Path | None = None,
     worker_counts: tuple[int, ...] = (1, 2, 4, 8),
@@ -1018,6 +1002,9 @@ def benchmark_native_throughput(
         blob_root=blob_root,
         normalizer_path=normalizer_path,
         snapshot_id=snapshot_id,
+        dataset_manifest=dataset_manifest,
+        dataset_store_config=dataset_store_config,
+        require_provisional_normalizer=False,
     )
     bridge_path = Path(bridge_dll).resolve()
     if not bridge_path.is_file():
@@ -1032,9 +1019,7 @@ def benchmark_native_throughput(
             map_location=device,
             weights_only=False,
         )
-        actor_config = ElderActorCriticConfig(
-            **checkpoint_payload["actor_critic_config"]
-        )
+        actor_config = ElderActorCriticConfig(**checkpoint_payload["actor_critic_config"])
         checkpoint_identity = _validate_benchmark_checkpoint(
             checkpoint_payload,
             selection,
@@ -1068,19 +1053,13 @@ def benchmark_native_throughput(
             worker_results = [future.result() for future in futures]
         wall_seconds = time.perf_counter() - started
         transition_count = sum(int(result["transitions"]) for result in worker_results)
-        native_seconds = sum(
-            float(result["native_step_seconds"]) for result in worker_results
-        )
+        native_seconds = sum(float(result["native_step_seconds"]) for result in worker_results)
         inference_seconds = sum(
             float(result["policy_inference_seconds"]) for result in worker_results
         )
-        bridge_seconds = sum(
-            float(result["bridge_step_seconds"]) for result in worker_results
-        )
+        bridge_seconds = sum(float(result["bridge_step_seconds"]) for result in worker_results)
         replay_checks = sum(int(result["replay_checks"]) for result in worker_results)
-        illegal_actions = sum(
-            int(result["illegal_action_count"]) for result in worker_results
-        )
+        illegal_actions = sum(int(result["illegal_action_count"]) for result in worker_results)
         rows.append(
             {
                 "parallel_environments": workers,
@@ -1092,9 +1071,7 @@ def benchmark_native_throughput(
                     transition_count / native_seconds
                 ),
                 "policy_inference_seconds_total": inference_seconds,
-                "policy_inference_transitions_per_second": (
-                    transition_count / inference_seconds
-                ),
+                "policy_inference_transitions_per_second": (transition_count / inference_seconds),
                 "bridge_step_seconds_total": bridge_seconds,
                 "end_to_end_seconds": wall_seconds,
                 "end_to_end_transitions_per_second": transition_count / wall_seconds,
@@ -1105,13 +1082,9 @@ def benchmark_native_throughput(
 
     baseline = rows[0]["end_to_end_transitions_per_second"]
     for row in rows:
-        row["end_to_end_speedup_vs_first"] = (
-            row["end_to_end_transitions_per_second"] / baseline
-        )
+        row["end_to_end_speedup_vs_first"] = row["end_to_end_transitions_per_second"] / baseline
     result: dict[str, Any] = {
-        "status": "PASS"
-        if all(row["illegal_action_count"] == 0 for row in rows)
-        else "FAIL",
+        "status": "PASS" if all(row["illegal_action_count"] == 0 for row in rows) else "FAIL",
         "scope": "local-native-throughput-not-gameplay-performance",
         "identities": {
             "simulator_commit": SIMULATOR_COMMIT,
@@ -1183,9 +1156,7 @@ def _readiness_row(result: dict[str, Any], seed: int) -> dict[str, Any]:
         "critic_mean_batch_improvement": result["critic"][
             "mean_per_update_fit_improvement_fraction"
         ],
-        "critic_fresh_target_progress": result["critic"][
-            "post_fit_progress_fraction"
-        ],
+        "critic_fresh_target_progress": result["critic"]["post_fit_progress_fraction"],
         "actor_shift_l2": result["actor"]["effective_action_shift_l2"],
         "actor_direction_consistency": result["actor"]["direction_consistency"],
         "fixed_policy_return_improvement": result["fixed_policy_evaluation"][
@@ -1194,12 +1165,8 @@ def _readiness_row(result: dict[str, Any], seed: int) -> dict[str, Any]:
         "fixed_policy_repair_reduction": result["fixed_policy_evaluation"][
             "requested_to_accepted_l2_reduction"
         ],
-        "maximum_post_update_approx_kl": result["ppo_stability"][
-            "maximum_post_update_approx_kl"
-        ],
-        "mean_post_update_clip_fraction": result["ppo_stability"][
-            "mean_post_update_clip_fraction"
-        ],
+        "maximum_post_update_approx_kl": result["ppo_stability"]["maximum_post_update_approx_kl"],
+        "mean_post_update_clip_fraction": result["ppo_stability"]["mean_post_update_clip_fraction"],
         "diagnostics_sha256": result["deterministic_diagnostics_sha256"],
     }
 
@@ -1238,9 +1205,7 @@ def _readiness_matrix_gates(
         "all_on_policy_critic_fits_converge": all(
             row["gates"]["critic_return_fit"] for row in rows
         ),
-        "all_ppo_updates_stable": all(
-            row["gates"]["ppo_update_stability"] for row in rows
-        ),
+        "all_ppo_updates_stable": all(row["gates"]["ppo_update_stability"] for row in rows),
         "actor_motion_replicates_per_snapshot": all(
             sum(row["gates"]["actor_moved_consistently"] for row in snapshot_rows)
             >= required_seed_passes
@@ -1370,9 +1335,7 @@ def _evaluate_deterministic_policy(
             intervention_counts.append(len(interventions))
             for intervention in interventions:
                 if isinstance(intervention, dict):
-                    intervention_kinds[
-                        str(intervention.get("Kind", "unknown"))
-                    ] += 1
+                    intervention_kinds[str(intervention.get("Kind", "unknown"))] += 1
 
             reward = _mapping(result, "Reward")
             welfare_rate = float(_pick(reward, "WelfareRate"))
@@ -1383,9 +1346,7 @@ def _evaluate_deterministic_policy(
                 config.horizon_years,
             )
             discounted_return += discount * interval_welfare * config.reward_scale
-            undiscounted_interval_welfare += float(
-                _pick(reward, "UndiscountedIntervalWelfare")
-            )
+            undiscounted_interval_welfare += float(_pick(reward, "UndiscountedIntervalWelfare"))
             discount *= physical_gamma(elapsed, config.horizon_years)
             elapsed_total += elapsed
             raw = _raw_observation(info)
@@ -1418,12 +1379,8 @@ def _evaluate_deterministic_policy(
         ),
         "intervention_mean_count": float(np.mean(intervention_counts)),
         "intervention_kinds": dict(sorted(intervention_kinds.items())),
-        "requested_to_accepted_mean_l2": float(
-            np.mean(requested_accepted_distances)
-        ),
-        "accepted_to_realized_mean_l2": float(
-            np.mean(accepted_realized_distances)
-        ),
+        "requested_to_accepted_mean_l2": float(np.mean(requested_accepted_distances)),
+        "accepted_to_realized_mean_l2": float(np.mean(accepted_realized_distances)),
         "illegal_action_count": illegal_actions,
         "requested_sample_mismatches": requested_sample_mismatches,
         "non_stay_requested_count": non_stay_requests,
@@ -1795,39 +1752,33 @@ def _save_and_verify_checkpoint(
     loaded_normalizer.validate()
     if asdict(loaded_normalizer) != asdict(normalizer.manifest):
         raise RuntimeError("Checkpoint changed the frozen normalizer")
-    reloaded_model = ElderActorCritic(
-        ElderActorCriticConfig(**loaded["actor_critic_config"])
-    ).to(device)
+    reloaded_model = ElderActorCritic(ElderActorCriticConfig(**loaded["actor_critic_config"])).to(
+        device
+    )
     reloaded_model.load_state_dict(loaded["model_state_dict"])
     reloaded_trainer = PPOTrainer(
         reloaded_model,
         PPOConfig(**loaded["ppo_config"]),
     )
-    reloaded_trainer.optimizer.load_state_dict(
-        copy.deepcopy(loaded["optimizer_state_dict"])
-    )
+    reloaded_trainer.optimizer.load_state_dict(copy.deepcopy(loaded["optimizer_state_dict"]))
     actual = _policy_vector(reloaded_model, observation)
     maximum_error = float(torch.max(torch.abs(expected - actual)).cpu())
 
-    reference_model = ElderActorCritic(
-        ElderActorCriticConfig(**loaded["actor_critic_config"])
-    ).to(device)
+    reference_model = ElderActorCritic(ElderActorCriticConfig(**loaded["actor_critic_config"])).to(
+        device
+    )
     reference_model.load_state_dict(loaded["model_state_dict"])
     reference_trainer = PPOTrainer(
         reference_model,
         PPOConfig(**loaded["ppo_config"]),
     )
-    reference_trainer.optimizer.load_state_dict(
-        copy.deepcopy(loaded["optimizer_state_dict"])
-    )
+    reference_trainer.optimizer.load_state_dict(copy.deepcopy(loaded["optimizer_state_dict"]))
 
     _restore_rng_state(loaded["rng"])
     expected_stochastic = _stochastic_policy_vector(reference_model, observation)
     _restore_rng_state(loaded["rng"])
     actual_stochastic = _stochastic_policy_vector(reloaded_model, observation)
-    stochastic_error = float(
-        torch.max(torch.abs(expected_stochastic - actual_stochastic)).cpu()
-    )
+    stochastic_error = float(torch.max(torch.abs(expected_stochastic - actual_stochastic)).cpu())
 
     _restore_rng_state(loaded["rng"])
     reference_metrics = reference_trainer.update(continuation_batch)
@@ -1838,8 +1789,7 @@ def _save_and_verify_checkpoint(
         reloaded_model,
     )
     continuation_metrics_error = max(
-        abs(reference_metrics[key] - reloaded_metrics[key])
-        for key in reference_metrics
+        abs(reference_metrics[key] - reloaded_metrics[key]) for key in reference_metrics
     )
     digest, size = sha256_file(path)
     return {
@@ -1856,9 +1806,7 @@ def _save_and_verify_checkpoint(
 
 def _policy_vector(model: ElderActorCritic, observation: Tensor) -> Tensor:
     with torch.no_grad():
-        mean, log_std, movement_logits = model.actor.parameters_for(
-            observation.unsqueeze(0)
-        )
+        mean, log_std, movement_logits = model.actor.parameters_for(observation.unsqueeze(0))
         sampled = model.actor.sample(observation.unsqueeze(0), deterministic=True)
         value = model.critic(observation.unsqueeze(0)).unsqueeze(-1)
     return torch.cat(
@@ -1894,9 +1842,7 @@ def _capture_rng_state() -> dict[str, Any]:
         "python": random.getstate(),
         "numpy": np.random.get_state(),
         "torch_cpu": torch.random.get_rng_state(),
-        "torch_cuda": torch.cuda.get_rng_state_all()
-        if torch.cuda.is_available()
-        else [],
+        "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
     }
 
 
@@ -1935,15 +1881,12 @@ def _timing_report(
     return {
         "transitions": transitions,
         "native_step_seconds": timings.native_step_seconds,
-        "native_step_transitions_per_second": transitions
-        / timings.native_step_seconds,
+        "native_step_transitions_per_second": transitions / timings.native_step_seconds,
         "bridge_step_seconds": timings.bridge_step_seconds,
         "policy_inference_seconds": timings.policy_inference_seconds,
-        "policy_inference_transitions_per_second": transitions
-        / timings.policy_inference_seconds,
+        "policy_inference_transitions_per_second": transitions / timings.policy_inference_seconds,
         "ppo_update_seconds": timings.ppo_update_seconds,
-        "ppo_update_transitions_per_second": transitions
-        / timings.ppo_update_seconds,
+        "ppo_update_transitions_per_second": transitions / timings.ppo_update_seconds,
         "rollout_collection_seconds": timings.collection_seconds,
         "end_to_end_seconds": end_to_end_seconds,
         "end_to_end_transitions_per_second": transitions / end_to_end_seconds,

@@ -96,9 +96,7 @@ def pack_snapshot_bank(
         shards.append(
             DatasetShard(
                 name=name,
-                object_name=(
-                    f"objects/sha256/{digest[:2]}/{digest}.tar"
-                ),
+                object_name=(f"objects/sha256/{digest[:2]}/{digest}.tar"),
                 sha256=digest,
                 size_bytes=size,
                 payload_bytes=sum(record.content_bytes for record in records),
@@ -128,9 +126,7 @@ def pack_snapshot_bank(
             ),
         },
         map_world_configuration={
-            "scenario_families": sorted(
-                {record.scenario_family for record in source.records}
-            ),
+            "scenario_families": sorted({record.scenario_family for record in source.records}),
             "partitions": sorted({record.partition.value for record in source.records}),
         },
         random_seed_information={
@@ -138,9 +134,7 @@ def pack_snapshot_bank(
             "generation_seeds": sorted(
                 {record.generator.generation_seed for record in source.records}
             ),
-            "rng_algorithms": sorted(
-                {record.generator.rng_algorithm for record in source.records}
-            ),
+            "rng_algorithms": sorted({record.generator.rng_algorithm for record in source.records}),
         },
         counts=DatasetCounts(
             simulations=len({record.world_seed for record in records}),
@@ -266,10 +260,14 @@ class DatasetReader:
         *,
         store: ImmutableObjectStore,
         cache_root: str | Path,
+        max_cache_bytes: int = 5 * 1024**3,
     ) -> None:
+        if max_cache_bytes <= 0:
+            raise ValueError("max_cache_bytes must be positive")
         self.manifest = manifest
         self.store = store
         self.cache_root = Path(cache_root)
+        self.max_cache_bytes = max_cache_bytes
         self.cache_hits = 0
         self.cache_misses = 0
         self._records = {
@@ -287,6 +285,8 @@ class DatasetReader:
             digest, size = sha256_file(path)
             if digest == shard.sha256 and size == shard.size_bytes:
                 self.cache_hits += 1
+                os.utime(path, None)
+                self._prune_cache(protected=frozenset({path.resolve()}))
                 return path
             path.unlink()
         self.cache_misses += 1
@@ -309,6 +309,8 @@ class DatasetReader:
         finally:
             if temporary.exists():
                 temporary.unlink()
+        os.utime(path, None)
+        self._prune_cache(protected=frozenset({path.resolve()}))
         return path
 
     def read_record(self, record_id: str) -> bytes:
@@ -340,6 +342,8 @@ class DatasetReader:
         if path.is_file():
             digest, size = sha256_file(path)
             if digest == record.content_sha256 and size == record.content_bytes:
+                os.utime(path, None)
+                self._prune_cache(protected=frozenset({path.resolve()}))
                 return path
             path.unlink()
         payload = self.read_record(record_id)
@@ -359,7 +363,29 @@ class DatasetReader:
         finally:
             if temporary.exists():
                 temporary.unlink()
+        os.utime(path, None)
+        self._prune_cache(protected=frozenset({path.resolve()}))
         return path
+
+    def _prune_cache(self, *, protected: frozenset[Path]) -> None:
+        files = [path for path in self.cache_root.rglob("*") if path.is_file()]
+        total = sum(path.stat().st_size for path in files)
+        if total <= self.max_cache_bytes:
+            return
+        candidates = sorted(
+            (path for path in files if path.resolve() not in protected),
+            key=lambda path: (path.stat().st_mtime, path.as_posix()),
+        )
+        for path in candidates:
+            if total <= self.max_cache_bytes:
+                break
+            size = path.stat().st_size
+            path.unlink()
+            total -= size
+        if total > self.max_cache_bytes:
+            raise RuntimeError(
+                "The protected dataset object exceeds the configured local cache limit"
+            )
 
     def iter_records(self, record_ids: Iterable[str] | None = None) -> Iterator[bytes]:
         for record_id in record_ids or self.record_ids():
@@ -391,13 +417,19 @@ def load_dataset_reader(
     *,
     store: ImmutableObjectStore,
     cache_root: str | Path,
+    max_cache_bytes: int = 5 * 1024**3,
 ) -> DatasetReader:
     """Load a local manifest path or a configured immutable ``gs://`` manifest."""
 
     value = str(reference)
     if not value.startswith("gs://"):
         manifest = DatasetRunManifest.load(value)
-        return DatasetReader(manifest, store=store, cache_root=cache_root)
+        return DatasetReader(
+            manifest,
+            store=store,
+            cache_root=cache_root,
+            max_cache_bytes=max_cache_bytes,
+        )
     if not isinstance(store, GcsObjectStore):
         raise ValueError("A gs:// manifest requires the configured GCS backend")
     without_scheme = value[5:]
@@ -427,4 +459,9 @@ def load_dataset_reader(
     finally:
         if temporary.exists():
             temporary.unlink()
-    return DatasetReader(manifest, store=store, cache_root=cache_root)
+    return DatasetReader(
+        manifest,
+        store=store,
+        cache_root=cache_root,
+        max_cache_bytes=max_cache_bytes,
+    )

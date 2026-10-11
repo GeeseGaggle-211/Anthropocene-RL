@@ -29,8 +29,9 @@ Each run uses:
 gs://<bucket>/datasets/<dataset-id>/<run-id>/
   manifest.json
 gs://<bucket>/objects/sha256/<prefix>/<sha256>.tar
-checkpoints/
-evaluations/
+gs://<bucket>/runs/<campaign-id>/<run-id>/
+  manifest.json
+gs://<bucket>/run-objects/sha256/<prefix>/<sha256>.tar
 ```
 
 Shards live in a global content-addressed pool keyed by SHA-256, so identical
@@ -135,6 +136,25 @@ For local-only development, replace the config with
 `configs/storage/local-v1.yaml`; packing, publication semantics, discovery,
 cache validation, and readers remain the same without GCS credentials.
 
+Training-run evidence and checkpoints are published as one deterministic tar
+bundle plus a manifest created last. The command accepts explicit repository
+paths so secrets and unrelated workspace files cannot enter the bundle:
+
+```bash
+uv run python scripts/publish_run_artifacts.py \
+  --campaign-id <campaign-id> \
+  --run-id <immutable-run-id> \
+  --captured-at <fixed-utc-time> \
+  --source-branch <branch> \
+  --starting-learner-sha <sha> \
+  --execution-learner-sha <sha> \
+  --native-simulator-sha <sha> \
+  --dataset-manifest-uri <gs-uri> \
+  --dataset-manifest-sha256 <sha256> \
+  --include evidence/<campaign-id> \
+  --include checkpoints/<campaign-id>
+```
+
 ## Measured local and GCS benchmark
 
 The checked-in stage-0 bank (28 records, 6,035,379 payload bytes) packed into
@@ -159,6 +179,12 @@ upload; larger banks overlap up to four finalized shard uploads with continued
 generation. The machine-readable results are retained at
 `evidence/gcs-dataset-store/benchmark.json`.
 
+The cultivation pilot published 300 snapshots in one 64,706,560-byte shard and
+verified all records after cold recovery. Its complete 129-file training bundle
+is 224,614,400 bytes. Provider byte count, generation, MD5, CRC32C, custom
+SHA-256 metadata, and post-download SHA-256 all agree; details are recorded in
+`evidence/cultivation-ppo-pilot-v1/gcs-storage-audit.json`.
+
 ## Versioning and recovery
 
 `anthropocene-dataset-v1` is rejected explicitly when unknown rather than being
@@ -171,8 +197,8 @@ The authoritative remote manifest is created last. A run without that manifest
 is incomplete and must not be consumed. On restart, publish reconciles every
 staged shard and never overwrites differing bytes. A corrupt cached shard is
 discarded and fetched again; corrupt remote bytes fail checksum validation.
-The legacy Google Drive snapshot store remains available for validation and
-human-facing artifacts during migration.
+The legacy Google Drive snapshot store remains readable for historical
+manifests, but new snapshot banks and run outputs use GCS.
 
 ## Troubleshooting
 

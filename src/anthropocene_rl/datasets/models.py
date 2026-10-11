@@ -115,9 +115,7 @@ class MeasuredStrata(StrictModel):
     @model_validator(mode="after")
     def validate_measured_relations(self) -> Self:
         expected_reserve = self.food_reserve_years / self.next_interval_years
-        if abs(expected_reserve - self.reserve_horizon_ratio) > 1e-8 * max(
-            1.0, expected_reserve
-        ):
+        if abs(expected_reserve - self.reserve_horizon_ratio) > 1e-8 * max(1.0, expected_reserve):
             raise ValueError("Measured reserve-horizon ratio disagrees with physical durations")
         if self.owned_domestic_herd != (self.herd_animals > 0):
             raise ValueError("Owned-herd stratum disagrees with measured animal count")
@@ -146,9 +144,7 @@ class MeasuredStrata(StrictModel):
             if expected_ratio is None:
                 if ratio is not None:
                     raise ValueError(f"{label} herd ratio must be missing at zero capacity")
-            elif ratio is None or abs(ratio - expected_ratio) > 1e-8 * max(
-                1.0, expected_ratio
-            ):
+            elif ratio is None or abs(ratio - expected_ratio) > 1e-8 * max(1.0, expected_ratio):
                 raise ValueError(f"{label} herd ratio disagrees with measured capacity")
         if self.cultivation_available == (self.field_frontier == "none"):
             raise ValueError("Field frontier identity disagrees with cultivation capability")
@@ -186,9 +182,7 @@ class RemoteBlobMetadata(StrictModel):
 
     backend: Literal["google-drive"]
     file_id: str = Field(min_length=1)
-    remote_key: str = Field(
-        pattern=r"^sha256/[0-9a-f]{2}/[0-9a-f]{64}\.snapshot$"
-    )
+    remote_key: str = Field(pattern=r"^sha256/[0-9a-f]{2}/[0-9a-f]{64}\.snapshot$")
     upload_status: Literal["uploaded"] = "uploaded"
     verification_status: Literal["metadata-verified", "download-verified"]
     content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -391,7 +385,11 @@ class SnapshotBankManifest(StrictModel):
                 temporary.unlink()
 
     def _document_payload(self) -> dict[str, Any]:
-        payload = self.model_dump(mode="json", by_alias=True)
+        # Preserve the field set of older snapshot-bank documents.  The v1
+        # schema has gained additive, defaulted measured-strata fields; writing
+        # those defaults into a legacy document would otherwise change its
+        # frozen manifest identity merely because it was loaded by newer code.
+        payload = self.model_dump(mode="json", by_alias=True, exclude_unset=True)
         if self.storage_policy is None:
             payload.pop("storage_policy", None)
         for record, serialized in zip(self.records, payload["records"], strict=True):

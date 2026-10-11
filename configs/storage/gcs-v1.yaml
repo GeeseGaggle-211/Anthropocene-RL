@@ -8,6 +8,7 @@ prefix: ""
 local_root: datasets/remote
 staging_root: datasets/staging
 cache_root: datasets/cache
+max_cache_gib: 5.0
 target_shard_mib: 64
 upload_workers: 4
 max_pending_uploads: 8
