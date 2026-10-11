@@ -17,3 +17,11 @@ runs/
 datasets/blobs/
 .simulator/
 .env
+
+# Full native campaign traces stay local; compact hash-anchored summaries are evidence.
+evidence/cultivation-ppo-pilot-v1/campaign-summary.json
+evidence/cultivation-ppo-pilot-v1/option-a-baseline.json
+evidence/cultivation-ppo-pilot-v1/seed-*.json
+evidence/cultivation-ppo-pilot-v1/failed-eight-step/campaign-summary.json
+evidence/cultivation-ppo-pilot-v1/failed-eight-step/option-a-baseline.json
+evidence/cultivation-ppo-pilot-v1/failed-eight-step/seed-*.json

@@ -60,9 +60,7 @@ def _adapter_schema_smoke(dotnet: str) -> int:
 
     dll = Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll")
     if not dll.exists():
-        raise FileNotFoundError(
-            "RL bridge is not built; run scripts/bootstrap_simulator.py first"
-        )
+        raise FileNotFoundError("RL bridge is not built; run scripts/bootstrap_simulator.py first")
     with JsonLineProcessTransport([dotnet, str(dll)]) as transport:
         schema = transport.schema()
     expected = {
@@ -73,9 +71,7 @@ def _adapter_schema_smoke(dotnet: str) -> int:
         "tensorFeatureCount": TENSOR_FEATURE_COUNT,
     }
     mismatches = {
-        key: (schema.get(key), value)
-        for key, value in expected.items()
-        if schema.get(key) != value
+        key: (schema.get(key), value) for key, value in expected.items() if schema.get(key) != value
     }
     if mismatches:
         raise ValueError(f"Bridge schema mismatch: {mismatches}")
@@ -141,24 +137,32 @@ def main() -> int:
     audit_bank.add_argument("--cultivation-pilot-coverage", action="store_true")
     audit_bank.add_argument("--skip-blob-verification", action="store_true")
     overfit = sub.add_parser("overfit-one-snapshot")
-    overfit.add_argument("--manifest", type=Path, default=Path(
-        "datasets/manifests/elder-v2-stage0-v1.json"
-    ))
+    overfit.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("datasets/manifests/elder-v2-stage0-v1.json"),
+    )
     overfit.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
-    overfit.add_argument("--normalizer", type=Path, default=Path(
-        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
-    ))
-    overfit.add_argument("--bridge-dll", type=Path, default=Path(
-        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
-    ))
+    overfit.add_argument(
+        "--normalizer",
+        type=Path,
+        default=Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json"),
+    )
+    overfit.add_argument(
+        "--bridge-dll",
+        type=Path,
+        default=Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"),
+    )
     overfit.add_argument("--dotnet", default="dotnet")
     overfit.add_argument("--snapshot-id")
-    overfit.add_argument("--checkpoint", type=Path, default=Path(
-        "checkpoints/stage0-one-snapshot.pt"
-    ))
-    overfit.add_argument("--diagnostics", type=Path, default=Path(
-        "artifacts/stage0-one-snapshot-overfit.json"
-    ))
+    overfit.add_argument(
+        "--checkpoint", type=Path, default=Path("checkpoints/stage0-one-snapshot.pt")
+    )
+    overfit.add_argument(
+        "--diagnostics",
+        type=Path,
+        default=Path("artifacts/stage0-one-snapshot-overfit.json"),
+    )
     overfit.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     overfit.add_argument("--seed", type=int, default=1701)
     overfit.add_argument("--updates", type=int, default=12)
@@ -174,28 +178,38 @@ def main() -> int:
     overfit.add_argument("--minibatch-size", type=int, default=64)
     overfit.add_argument("--target-kl", type=float, default=0.05)
     readiness = sub.add_parser("cultivation-readiness")
-    readiness.add_argument("--manifest", type=Path, default=Path(
-        "datasets/manifests/elder-v2-stage0-v1.json"
-    ))
+    readiness.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("datasets/manifests/elder-v2-stage0-v1.json"),
+    )
     readiness.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
-    readiness.add_argument("--normalizer", type=Path, default=Path(
-        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
-    ))
-    readiness.add_argument("--bridge-dll", type=Path, default=Path(
-        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
-    ))
+    readiness.add_argument(
+        "--normalizer",
+        type=Path,
+        default=Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json"),
+    )
+    readiness.add_argument(
+        "--bridge-dll",
+        type=Path,
+        default=Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"),
+    )
     readiness.add_argument("--dotnet", default="dotnet")
     readiness.add_argument("--snapshot-ids")
     readiness.add_argument("--seeds", default="1701,1901,2101")
-    readiness.add_argument("--run-directory", type=Path, default=Path(
-        "artifacts/cultivation-readiness-runs"
-    ))
-    readiness.add_argument("--checkpoint-directory", type=Path, default=Path(
-        "checkpoints/cultivation-readiness"
-    ))
-    readiness.add_argument("--diagnostics", type=Path, default=Path(
-        "artifacts/cultivation-readiness.json"
-    ))
+    readiness.add_argument(
+        "--run-directory",
+        type=Path,
+        default=Path("artifacts/cultivation-readiness-runs"),
+    )
+    readiness.add_argument(
+        "--checkpoint-directory",
+        type=Path,
+        default=Path("checkpoints/cultivation-readiness"),
+    )
+    readiness.add_argument(
+        "--diagnostics", type=Path, default=Path("artifacts/cultivation-readiness.json")
+    )
     readiness.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     readiness.add_argument("--updates", type=int, default=24)
     readiness.add_argument("--episodes-per-update", type=int, default=4)
@@ -210,16 +224,22 @@ def main() -> int:
     readiness.add_argument("--minibatch-size", type=int, default=64)
     readiness.add_argument("--target-kl", type=float, default=0.05)
     throughput = sub.add_parser("benchmark-native-throughput")
-    throughput.add_argument("--manifest", type=Path, default=Path(
-        "datasets/manifests/elder-v2-stage0-v1.json"
-    ))
+    throughput.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("datasets/manifests/elder-v2-stage0-v1.json"),
+    )
     throughput.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
-    throughput.add_argument("--normalizer", type=Path, default=Path(
-        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
-    ))
-    throughput.add_argument("--bridge-dll", type=Path, default=Path(
-        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
-    ))
+    throughput.add_argument(
+        "--normalizer",
+        type=Path,
+        default=Path("evidence/stage0-snapshot-bank/provisional-train-normalization.json"),
+    )
+    throughput.add_argument(
+        "--bridge-dll",
+        type=Path,
+        default=Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"),
+    )
     throughput.add_argument("--dotnet", default="dotnet")
     throughput.add_argument("--snapshot-id")
     throughput.add_argument("--checkpoint", type=Path)
@@ -227,37 +247,51 @@ def main() -> int:
     throughput.add_argument("--transitions-per-environment", type=int, default=8)
     throughput.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     throughput.add_argument("--seed", type=int, default=1701)
-    throughput.add_argument("--diagnostics", type=Path, default=Path(
-        "artifacts/stage0-native-throughput.json"
-    ))
+    throughput.add_argument(
+        "--diagnostics",
+        type=Path,
+        default=Path("artifacts/stage0-native-throughput.json"),
+    )
     pilot = sub.add_parser("cultivation-pilot")
-    pilot.add_argument("--manifest", type=Path, default=Path(
-        "datasets/manifests/elder-v2-cultivation-pilot-v1.json"
-    ))
+    pilot.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("datasets/manifests/elder-v2-cultivation-pilot-v1.json"),
+    )
     pilot.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
-    pilot.add_argument("--normalizer", type=Path, default=Path(
-        "evidence/cultivation-pilot-v1/final-train-normalization.json"
-    ))
-    pilot.add_argument("--snapshot-store-config", type=Path, default=Path(
-        "configs/storage/google-drive-v1.yaml"
-    ))
-    pilot.add_argument("--bridge-dll", type=Path, default=Path(
-        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
-    ))
+    pilot.add_argument(
+        "--normalizer",
+        type=Path,
+        default=Path("evidence/cultivation-pilot-v1/final-train-normalization.json"),
+    )
+    pilot.add_argument(
+        "--snapshot-store-config",
+        type=Path,
+        default=Path("configs/storage/google-drive-v1.yaml"),
+    )
+    pilot.add_argument(
+        "--bridge-dll",
+        type=Path,
+        default=Path("integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"),
+    )
     pilot.add_argument("--dotnet", default="dotnet")
-    pilot.add_argument("--evidence-directory", type=Path, default=Path(
-        "evidence/cultivation-ppo-pilot-v1"
-    ))
-    pilot.add_argument("--checkpoint-directory", type=Path, default=Path(
-        "checkpoints/cultivation-ppo-pilot-v1"
-    ))
+    pilot.add_argument(
+        "--evidence-directory",
+        type=Path,
+        default=Path("evidence/cultivation-ppo-pilot-v1"),
+    )
+    pilot.add_argument(
+        "--checkpoint-directory",
+        type=Path,
+        default=Path("checkpoints/cultivation-ppo-pilot-v1"),
+    )
     pilot.add_argument("--seeds", default="1701,1901,2101")
     pilot.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
-    pilot.add_argument("--updates", type=int, default=32)
+    pilot.add_argument("--updates", type=int, default=96)
     pilot.add_argument("--episodes-per-update", type=int, default=8)
-    pilot.add_argument("--episode-steps", type=int, default=8)
-    pilot.add_argument("--evaluation-interval", type=int, default=8)
-    pilot.add_argument("--evaluation-steps", type=int, default=8)
+    pilot.add_argument("--episode-steps", type=int, default=3)
+    pilot.add_argument("--evaluation-interval", type=int, default=24)
+    pilot.add_argument("--evaluation-steps", type=int, default=3)
     pilot.add_argument("--horizon-years", type=float, default=400.0)
     pilot.add_argument("--lambda-ref", type=float, default=0.95)
     pilot.add_argument("--lambda-reference-years", type=float, default=20.0)
@@ -307,7 +341,10 @@ def main() -> int:
         print(json.dumps(result, sort_keys=True))
         return 0 if result["status"] == "PASS" else 1
     if args.command == "generate-snapshot-bank":
-        from anthropocene_rl.datasets.generate import GenerationPaths, generate_snapshot_bank
+        from anthropocene_rl.datasets.generate import (
+            GenerationPaths,
+            generate_snapshot_bank,
+        )
 
         simulator_root = args.simulator_root or Path(
             os.environ.get("ANTHROPOCENE_SIM_ROOT", ".simulator/Anthropocene")
@@ -342,7 +379,10 @@ def main() -> int:
         print(json.dumps(report.model_dump(mode="json"), sort_keys=True))
         return 0 if report.passed else 1
     if args.command == "overfit-one-snapshot":
-        from anthropocene_rl.training.overfit import OverfitConfig, run_one_snapshot_overfit
+        from anthropocene_rl.training.overfit import (
+            OverfitConfig,
+            run_one_snapshot_overfit,
+        )
         from anthropocene_rl.training.ppo import PPOConfig
 
         diagnostics = run_one_snapshot_overfit(
@@ -478,14 +518,16 @@ def main() -> int:
                 target_kl=args.target_kl,
             ),
         )
-        print(json.dumps(
-            {
-                "status": diagnostics["status"],
-                "evidence": str(args.evidence_directory / "campaign-summary.json"),
-                "evidence_sha256": diagnostics["evidence_sha256"],
-            },
-            sort_keys=True,
-        ))
+        print(
+            json.dumps(
+                {
+                    "status": diagnostics["status"],
+                    "evidence": str(args.evidence_directory / "campaign-summary.json"),
+                    "evidence_sha256": diagnostics["evidence_sha256"],
+                },
+                sort_keys=True,
+            )
+        )
         return 0 if diagnostics["status"] == "PASS" else 1
     raise AssertionError("unreachable")
 

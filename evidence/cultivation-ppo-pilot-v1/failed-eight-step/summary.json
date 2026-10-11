@@ -1,0 +1,90 @@
+{
+  "status": "NO_GO",
+  "reason": "native husbandry became available inside eight-decision rollouts, activating excluded herd heads",
+  "raw_evidence_sha256": "e57c9d99a249291db54ad35d01b5ae88e03512f4a68412f858d4dd8e8b9b943c",
+  "learner_commit": "a774a0c1a07487764c50082f4cde53af73b5281e",
+  "native_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "manifest_sha256": "9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d",
+  "normalizer_sha256": "b4393cbf0cd20e80d1ace345f48f768bd4f8393c9fe2c09d0535fd6aee42228b",
+  "configuration": {
+    "updates": 32,
+    "episodes_per_update": 8,
+    "episode_steps": 8,
+    "evaluation_interval": 8,
+    "evaluation_steps": 8,
+    "horizon_years": 400.0,
+    "lambda_ref": 0.95,
+    "actor_learning_rate": 0.0003,
+    "critic_learning_rate": 0.001,
+    "target_kl": 0.05
+  },
+  "promotion_gates": {
+    "contract_clean_all_seeds": true,
+    "checkpoint_parity_all_seeds": true,
+    "ppo_stable_all_seeds": true,
+    "inactive_heads_inert_all_seeds": false,
+    "development_competitive_all_seeds": false,
+    "heldout_competitive_all_seeds": true,
+    "no_universal_self_sufficiency_signal_all_seeds": true
+  },
+  "cultivation_intensity_trajectory": {
+    "steady_increase": false,
+    "requested_field_operation": {
+      "first": 0.4907811899675194,
+      "last": 0.4763239069532677,
+      "endpoint_change": -0.014457283014251698,
+      "linear_slope_per_update": -0.0018492269563855743,
+      "nonnegative_step_fraction": 0.5161290322580645
+    },
+    "requested_development_budget": {
+      "first": 0.4906181469954314,
+      "last": 0.3891878252110388,
+      "endpoint_change": -0.1014303217843926,
+      "linear_slope_per_update": -0.0017935073009560216,
+      "nonnegative_step_fraction": 0.5483870967741935
+    }
+  },
+  "seeds": [
+    {
+      "seed": 1701,
+      "selected_update": 32,
+      "transitions": 2048,
+      "inactive_head_gradient_max": 0.11910942941904068,
+      "maximum_post_update_approx_kl": 0.06855319865947107,
+      "development_mean_relative_return_difference": -0.09223081831631151,
+      "heldout_mean_relative_return_difference": -0.05214674414025823,
+      "end_to_end_transitions_per_second": 17.03996022100263,
+      "checkpoint_sha256": "634adbc914ee635a794123cdcc0c284793fe14d5605c938443d8c43669c1fe85"
+    },
+    {
+      "seed": 1901,
+      "selected_update": 24,
+      "transitions": 2048,
+      "inactive_head_gradient_max": 0.12276344001293182,
+      "maximum_post_update_approx_kl": 0.06525121114429408,
+      "development_mean_relative_return_difference": -0.09764355801829232,
+      "heldout_mean_relative_return_difference": -0.05567178430249433,
+      "end_to_end_transitions_per_second": 15.633799606344198,
+      "checkpoint_sha256": "60bf48e160d0099983027f3eefc1c857ed8ba778ff216ebe3b58ad74ca5463b3"
+    },
+    {
+      "seed": 2101,
+      "selected_update": 32,
+      "transitions": 2048,
+      "inactive_head_gradient_max": 0.05721968412399292,
+      "maximum_post_update_approx_kl": 0.07161332056231118,
+      "development_mean_relative_return_difference": -0.10065771807653368,
+      "heldout_mean_relative_return_difference": -0.053735573503380735,
+      "end_to_end_transitions_per_second": 17.11389346825887,
+      "checkpoint_sha256": "69098553f1459276b91c1aeaa1134af97cebeec209fd4df939f4fe591a0c6d1f"
+    }
+  ],
+  "raw_files_retained_locally": [
+    "campaign-summary.json",
+    "option-a-baseline.json",
+    "seed-1701.json",
+    "seed-1901.json",
+    "seed-2101.json"
+  ],
+  "checkpoints_retained_locally": "checkpoints/cultivation-ppo-pilot-v1-failed-eight-step"
+}

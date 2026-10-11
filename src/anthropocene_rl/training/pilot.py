@@ -27,13 +27,22 @@ from torch import Tensor
 from anthropocene_rl.contracts import (
     ACTION_SCHEMA_VERSION,
     CRITIC_SIDECAR_SCHEMA_VERSION,
+    DOMESTIC_HERD_COUNT_OFFSET,
     ENVIRONMENT_SCHEMA_VERSION,
+    FISHING_CAPABILITY_AVAILABLE_OFFSET,
+    FISHING_PRESENT_COUNT_OFFSET,
+    HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET,
+    MOVEMENT_ENABLED_OFFSET,
     OBSERVATION_SCHEMA_VERSION,
     SIMULATOR_COMMIT,
     TENSOR_FEATURE_COUNT,
 )
 from anthropocene_rl.datasets.blobs import sha256_file
-from anthropocene_rl.datasets.models import Partition, SnapshotBankManifest, SnapshotRecord
+from anthropocene_rl.datasets.models import (
+    Partition,
+    SnapshotBankManifest,
+    SnapshotRecord,
+)
 from anthropocene_rl.datasets.storage import (
     DEFAULT_SNAPSHOT_STORE_CONFIG,
     resolve_snapshot_blob,
@@ -44,6 +53,7 @@ from anthropocene_rl.observations.normalization import (
     NormalizationManifest,
     SemanticNormalizerV2,
 )
+from anthropocene_rl.observations.schema import EncodedObservation, StructuralActionMask
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
 from anthropocene_rl.training.overfit import (
     _action_l2,
@@ -86,11 +96,11 @@ DEFAULT_SEEDS = (1701, 1901, 2101)
 class PilotConfig:
     seeds: tuple[int, ...] = DEFAULT_SEEDS
     device: str = "cpu"
-    updates: int = 32
+    updates: int = 96
     episodes_per_update: int = 8
-    episode_steps: int = 8
-    evaluation_interval: int = 8
-    evaluation_steps: int = 8
+    episode_steps: int = 3
+    evaluation_interval: int = 24
+    evaluation_steps: int = 3
     horizon_years: float = 400.0
     lambda_ref: float = 0.95
     lambda_reference_years: float = 20.0
@@ -152,11 +162,7 @@ class CampaignDataset:
         self.by_partition = {
             partition: tuple(
                 sorted(
-                    (
-                        record
-                        for record in self.manifest.records
-                        if record.partition == partition
-                    ),
+                    (record for record in self.manifest.records if record.partition == partition),
                     key=lambda item: item.snapshot_id,
                 )
             )
@@ -376,24 +382,25 @@ def run_cultivation_pilot(
                 "development_use": "checkpoint-selection-and-debugging-only",
                 "heldout_use": "single-final-evaluation-only",
             },
+            "structural_scope": {
+                "asserted": "reset-and-every-post-step-state",
+                "maximum_episode_decisions": config.episode_steps,
+                "excluded": ["movement", "husbandry", "herds", "fishing"],
+                "failure_mode": "fail-fast",
+            },
         },
         "bank": {
             "records": len(dataset.manifest.records),
             "partition_counts": {
-                partition.value: len(records)
-                for partition, records in dataset.by_partition.items()
+                partition.value: len(records) for partition, records in dataset.by_partition.items()
             },
             "family_counts": dict(
                 sorted(
-                    Counter(
-                        record.scenario_family for record in dataset.manifest.records
-                    ).items()
+                    Counter(record.scenario_family for record in dataset.manifest.records).items()
                 )
             ),
         },
-        "option_a_baseline": {
-            key: value["summary"] for key, value in option_a.items()
-        },
+        "option_a_baseline": {key: value["summary"] for key, value in option_a.items()},
         "seeds": seed_reports,
         "cultivation_intensity_trajectory": trajectory,
         "promotion_gates": promotion,
@@ -589,8 +596,7 @@ def _run_seed(
         ),
     }
     comparisons = {
-        key: _compare_evaluations(final_evaluation[key], option_a[key])
-        for key in final_evaluation
+        key: _compare_evaluations(final_evaluation[key], option_a[key]) for key in final_evaluation
     }
     identities = _seed_checkpoint_identities(dataset, bridge_path, seed, best_update)
     checkpoint = _save_and_verify_campaign_checkpoint(
@@ -607,9 +613,7 @@ def _run_seed(
         device=device,
     )
     maximum_kl = max(row["ppo"]["post_update_approx_kl"] for row in learning_curve)
-    mean_clip = float(
-        np.mean([row["ppo"]["post_update_clip_fraction"] for row in learning_curve])
-    )
+    mean_clip = float(np.mean([row["ppo"]["post_update_clip_fraction"] for row in learning_curve]))
     critic_start = float(learning_curve[0]["ppo"]["post_update_value_mse"])
     critic_end = float(learning_curve[-1]["ppo"]["post_update_value_mse"])
     active_heads = [0, 2]
@@ -620,6 +624,7 @@ def _run_seed(
     )
     gates = {
         "contract_and_numerics": all(totals[key] == 0 for key in totals),
+        "structural_scope_preserved": True,
         "inactive_heads_gradient_inert": inactive_gradient <= 1e-12,
         "checkpoint_reload_parity": checkpoint["max_abs_error"] == 0.0,
         "checkpoint_continuation_parity": (
@@ -646,9 +651,7 @@ def _run_seed(
         "selected_development_probe_score": best_score,
         "gates": gates,
         "training": {
-            "transitions": sum(
-                int(row["transitions"]) for row in learning_curve
-            ),
+            "transitions": sum(int(row["transitions"]) for row in learning_curve),
             "elapsed_seconds": training_seconds,
             "learning_curve": learning_curve,
             "evaluation_curve": evaluation_curve,
@@ -712,6 +715,11 @@ def _collect_update(
         observation, info = env.reset(options=_reset_request(selection, config.episode_steps))
         _validate_campaign_reset(_plain_mapping(info["native_result"]), selection)
         raw = _raw_observation(info)
+        _assert_cultivation_scope(
+            raw,
+            snapshot_id=record.snapshot_id,
+            phase="reset",
+        )
         finite, saturated, denominator = _observation_guard(dataset.normalizer, raw)
         totals["non_finite_count"] += 0 if finite else 1
         saturation_count += saturated
@@ -736,9 +744,7 @@ def _collect_update(
         prior_population = int(_pick(reset_state, "Population"))
 
         for _ in range(config.episode_steps):
-            observation_tensor = torch.as_tensor(
-                observation, dtype=torch.float32, device=device
-            )
+            observation_tensor = torch.as_tensor(observation, dtype=torch.float32, device=device)
             inference_started = _timing_start(device)
             with torch.no_grad():
                 sampled = model.actor.sample(observation_tensor.unsqueeze(0))
@@ -765,9 +771,7 @@ def _collect_update(
             requested = _mapping(result, "Requested")
             accepted = _mapping(result, "Accepted")
             realized = _mapping(result, "Realized")
-            if not _requested_matches_sample(
-                requested, continuous.cpu().numpy(), movement_value
-            ):
+            if not _requested_matches_sample(requested, continuous.cpu().numpy(), movement_value):
                 totals["requested_sample_mismatches"] += 1
             if int(_pick(requested, "MovementCandidate")) != -1:
                 totals["non_stay_requested_count"] += 1
@@ -796,21 +800,20 @@ def _collect_update(
             scaled_reward = physical_reward * config.reward_scale
             episode_return += discount * scaled_reward
             discount *= physical_gamma(elapsed, config.horizon_years)
-            next_tensor = torch.as_tensor(
-                next_observation, dtype=torch.float32, device=device
-            )
+            next_tensor = torch.as_tensor(next_observation, dtype=torch.float32, device=device)
             with torch.no_grad():
-                next_value = (
-                    0.0
-                    if terminated
-                    else float(model.critic(next_tensor.unsqueeze(0))[0])
-                )
+                next_value = 0.0 if terminated else float(model.critic(next_tensor.unsqueeze(0))[0])
             if _reward_denominator_violation(reward, prior_population, elapsed):
                 totals["reward_denominator_violations"] += 1
             state = _mapping(result, "StateDiagnostics")
             if bool(_pick(state, "Active")):
                 prior_population = int(_pick(state, "Population"))
             raw_next = _raw_observation(next_info)
+            _assert_cultivation_scope(
+                raw_next,
+                snapshot_id=record.snapshot_id,
+                phase=f"post-step-{len(rewards) + 1}",
+            )
             finite, saturated, denominator = _observation_guard(dataset.normalizer, raw_next)
             totals["non_finite_count"] += 0 if finite else 1
             saturation_count += saturated
@@ -864,9 +867,7 @@ def _collect_update(
         advantages=torch.as_tensor(
             np.concatenate(advantages_all), dtype=torch.float32, device=device
         ),
-        returns=torch.as_tensor(
-            np.concatenate(returns_all), dtype=torch.float32, device=device
-        ),
+        returns=torch.as_tensor(np.concatenate(returns_all), dtype=torch.float32, device=device),
     )
     return {
         "batch": batch,
@@ -875,8 +876,7 @@ def _collect_update(
         "transition_visitation": dict(sorted(transition_visitation.items())),
         "strata_visitation": dict(sorted(strata_visitation.items())),
         "discounted_scaled_return_by_family": {
-            family: float(np.mean(values))
-            for family, values in sorted(family_returns.items())
+            family: float(np.mean(values)) for family, values in sorted(family_returns.items())
         },
         "discounted_scaled_return_mean": float(
             np.mean([value for values in family_returns.values() for value in values])
@@ -957,8 +957,7 @@ def _evaluate_records(
             model.train(was_training)
     return {
         "policy": (
-            "feed-forward-elder-ppo" if policy == "learned" else
-            "option-a-through-shared-compiler"
+            "feed-forward-elder-ppo" if policy == "learned" else "option-a-through-shared-compiler"
         ),
         "summary": _summarize_episodes(episodes),
         "by_family": _group_episode_summaries(episodes, "scenario_family"),
@@ -982,6 +981,11 @@ def _evaluate_episode(
 ) -> dict[str, Any]:
     observation, info = env.reset(options=_reset_request(selection, episode_steps))
     _validate_campaign_reset(_plain_mapping(info["native_result"]), selection)
+    _assert_cultivation_scope(
+        _raw_observation(info),
+        snapshot_id=selection.record.snapshot_id,
+        phase="reset",
+    )
     reset_result = _plain_mapping(info["native_result"])
     start_state = _mapping(reset_result, "StateDiagnostics")
     prior_population = int(_pick(start_state, "Population"))
@@ -1051,10 +1055,8 @@ def _evaluate_episode(
             channels["realized"][index].append(float(_pick(realized, key)))
         saturation_flags.extend(
             [
-                channels["requested"][0][-1] <= 0.02
-                or channels["requested"][0][-1] >= 0.98,
-                channels["requested"][2][-1] <= 0.02
-                or channels["requested"][2][-1] >= 0.98,
+                channels["requested"][0][-1] <= 0.02 or channels["requested"][0][-1] >= 0.98,
+                channels["requested"][2][-1] <= 0.02 or channels["requested"][2][-1] >= 0.98,
             ]
         )
         requested_accepted.append(_action_l2(requested, accepted))
@@ -1084,6 +1086,11 @@ def _evaluate_episode(
             migration_total += float(_pick(state, "SignedMigration"))
             fission_events += int(bool(_pick(state, "FissionEvent")))
         raw = _raw_observation(info)
+        _assert_cultivation_scope(
+            raw,
+            snapshot_id=selection.record.snapshot_id,
+            phase=f"post-step-{steps + 1}",
+        )
         finite, _, _ = _observation_guard(selection.normalizer, raw)
         totals["non_finite_count"] += 0 if finite else 1
         steps += 1
@@ -1139,9 +1146,7 @@ def _evaluate_episode(
             "non_stay_requested_count": int(totals["non_stay_requested_count"]),
             "non_finite_count": int(totals["non_finite_count"]),
             "replay_failures": int(totals["replay_failures"]),
-            "reward_denominator_violations": int(
-                totals["reward_denominator_violations"]
-            ),
+            "reward_denominator_violations": int(totals["reward_denominator_violations"]),
         },
     }
 
@@ -1209,8 +1214,7 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "episodes": len(episodes),
         "survival_rate": float(np.mean([episode["survived"] for episode in episodes])),
         "contract_failure_count": sum(
-            sum(int(value) for value in episode["contract"].values())
-            for episode in episodes
+            sum(int(value) for value in episode["contract"].values()) for episode in episodes
         ),
     }
     for name, path in fields.items():
@@ -1234,32 +1238,27 @@ def _distribution(values: list[float]) -> dict[str, float]:
     }
 
 
-def _group_episode_summaries(
-    episodes: list[dict[str, Any]], key: str
-) -> dict[str, dict[str, Any]]:
+def _group_episode_summaries(episodes: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for episode in episodes:
         grouped[str(episode[key])].append(episode)
-    return {
-        group: _summarize_episodes(rows)
-        for group, rows in sorted(grouped.items())
-    }
+    return {group: _summarize_episodes(rows) for group, rows in sorted(grouped.items())}
 
 
 def _behavior_slices(episodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     predicates: dict[str, Callable[[dict[str, Any]], bool]] = {
         "low-q": lambda row: float(_pick(row["start_state"], "FieldQ")) < 0.3,
         "high-q": lambda row: float(_pick(row["start_state"], "FieldQ")) >= 0.5,
-        "high-maintenance": lambda row: float(
-            _pick(row["start_state"], "MaintenanceWorkerYears")
-        ) >= 10,
+        "high-maintenance": lambda row: (
+            float(_pick(row["start_state"], "MaintenanceWorkerYears")) >= 10
+        ),
         "trade-dependent": lambda row: "trade-dependent" in row["tags"],
         "isolated": lambda row: "isolated" in row["tags"],
         "immigration": lambda row: "immigration" in row["tags"],
         "emigration": lambda row: "emigration" in row["tags"],
-        "fission-opportunity": lambda row: float(
-            _pick(row["start_state"], "FissionExitOpportunity")
-        ) > 0,
+        "fission-opportunity": lambda row: (
+            float(_pick(row["start_state"], "FissionExitOpportunity")) > 0
+        ),
         "young-memory": lambda row: "young-memory" in row["tags"],
         "mature-memory": lambda row: "mature-memory" in row["tags"],
         "primitive-frontier": lambda row: "primitive-frontier" in row["tags"],
@@ -1311,9 +1310,7 @@ def _self_sufficiency_diagnostic(episodes: list[dict[str, Any]]) -> dict[str, An
     }
 
 
-def _compare_evaluations(
-    learned: dict[str, Any], baseline: dict[str, Any]
-) -> dict[str, Any]:
+def _compare_evaluations(learned: dict[str, Any], baseline: dict[str, Any]) -> dict[str, Any]:
     baseline_by_id = {row["snapshot_id"]: row for row in baseline["episodes"]}
     differences: list[float] = []
     relative: list[float] = []
@@ -1329,9 +1326,7 @@ def _compare_evaluations(
         "matched_snapshots": len(differences),
         "discounted_scaled_return_difference": _distribution(differences),
         "relative_return_difference": _distribution(relative),
-        "fraction_at_or_above_baseline": float(
-            np.mean(np.asarray(differences) >= -1e-12)
-        ),
+        "fraction_at_or_above_baseline": float(np.mean(np.asarray(differences) >= -1e-12)),
         "by_family_mean_difference": {
             family: float(np.mean(values)) for family, values in sorted(by_family.items())
         },
@@ -1344,15 +1339,11 @@ def _cultivation_trajectory(seed_reports: list[dict[str, Any]]) -> dict[str, Any
     rows: list[dict[str, Any]] = []
     for index in range(update_count):
         requested_field = [
-            report["training"]["learning_curve"][index]["actions"]["requested"][
-                "field_operation"
-            ]
+            report["training"]["learning_curve"][index]["actions"]["requested"]["field_operation"]
             for report in seed_reports
         ]
         realized_field = [
-            report["training"]["learning_curve"][index]["actions"]["realized"][
-                "field_operation"
-            ]
+            report["training"]["learning_curve"][index]["actions"]["realized"]["field_operation"]
             for report in seed_reports
         ]
         requested_development = [
@@ -1368,15 +1359,11 @@ def _cultivation_trajectory(seed_reports: list[dict[str, Any]]) -> dict[str, Any
                 "requested_field_operation_by_seed": requested_field,
                 "realized_field_operation_mean": float(np.mean(realized_field)),
                 "realized_field_operation_by_seed": realized_field,
-                "requested_development_budget_mean": float(
-                    np.mean(requested_development)
-                ),
+                "requested_development_budget_mean": float(np.mean(requested_development)),
                 "requested_development_budget_by_seed": requested_development,
             }
         )
-    field = np.asarray(
-        [row["requested_field_operation_mean"] for row in rows], dtype=np.float64
-    )
+    field = np.asarray([row["requested_field_operation_mean"] for row in rows], dtype=np.float64)
     development = np.asarray(
         [row["requested_development_budget_mean"] for row in rows], dtype=np.float64
     )
@@ -1411,6 +1398,9 @@ def _trend(values: np.ndarray) -> dict[str, Any]:
 
 def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
     return {
+        "all_three_seeds_structural_scope_preserved": all(
+            report["gates"]["structural_scope_preserved"] for report in seed_reports
+        ),
         "all_three_seeds_contract_clean": all(
             report["gates"]["contract_and_numerics"] for report in seed_reports
         ),
@@ -1433,12 +1423,10 @@ def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]
             for report in seed_reports
         ),
         "heldout_competitive_all_seeds": all(
-            report["gates"]["heldout_not_strongly_worse_than_option_a"]
-            for report in seed_reports
+            report["gates"]["heldout_not_strongly_worse_than_option_a"] for report in seed_reports
         ),
         "no_universal_self_sufficiency_signal_all_seeds": all(
-            report["gates"]["no_universal_self_sufficiency_signal"]
-            for report in seed_reports
+            report["gates"]["no_universal_self_sufficiency_signal"] for report in seed_reports
         ),
     }
 
@@ -1491,9 +1479,7 @@ def _reset_request(selection: CampaignSelection, episode_limit: int) -> dict[str
     }
 
 
-def _validate_campaign_reset(
-    reset: dict[str, Any], selection: CampaignSelection
-) -> None:
+def _validate_campaign_reset(reset: dict[str, Any], selection: CampaignSelection) -> None:
     record = selection.record
     checks: dict[str, tuple[Any, Any]] = {
         "initial_state_fingerprint": (
@@ -1524,6 +1510,36 @@ def _validate_campaign_reset(
     }
     if mismatches:
         raise RuntimeError(f"Native campaign reset identity mismatch: {mismatches}")
+
+
+def _assert_cultivation_scope(
+    observation: EncodedObservation,
+    *,
+    snapshot_id: str,
+    phase: str,
+) -> None:
+    """Fail before an excluded learned domain can enter a campaign transition."""
+
+    values = observation.values
+    mask = StructuralActionMask.from_observation(observation)
+    violations: list[str] = []
+    if values[HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
+        violations.append("husbandry-capability-available")
+    if values[DOMESTIC_HERD_COUNT_OFFSET] > 1e-9:
+        violations.append("domestic-herd-present")
+    if mask.herd_retention:
+        violations.append("herd-retention-mask-active")
+    if mask.herd_development:
+        violations.append("herd-development-mask-active")
+    if values[FISHING_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
+        violations.append("fishing-capability-available")
+    if values[FISHING_PRESENT_COUNT_OFFSET] > 1e-9:
+        violations.append("fishing-ground-present")
+    if values[MOVEMENT_ENABLED_OFFSET] > 0.5 or any(mask.movement_candidates[1:]):
+        violations.append("movement-enabled")
+    if violations:
+        detail = ", ".join(violations)
+        raise RuntimeError(f"Cultivation-only scope escaped for {snapshot_id} at {phase}: {detail}")
 
 
 def _reward_denominator_violation(
@@ -1628,23 +1644,19 @@ def _save_and_verify_campaign_checkpoint(
     if asdict(loaded_normalizer) != asdict(normalizer.manifest):
         raise RuntimeError("Campaign checkpoint changed the frozen normalizer")
     expected = _policy_vector(model, observation)
-    reloaded_model = ElderActorCritic(
-        ElderActorCriticConfig(**loaded["actor_critic_config"])
-    ).to(device)
+    reloaded_model = ElderActorCritic(ElderActorCriticConfig(**loaded["actor_critic_config"])).to(
+        device
+    )
     reloaded_model.load_state_dict(loaded["model_state_dict"])
     reloaded_trainer = PPOTrainer(reloaded_model, PPOConfig(**loaded["ppo_config"]))
-    reloaded_trainer.optimizer.load_state_dict(
-        copy.deepcopy(loaded["optimizer_state_dict"])
-    )
+    reloaded_trainer.optimizer.load_state_dict(copy.deepcopy(loaded["optimizer_state_dict"]))
     actual = _policy_vector(reloaded_model, observation)
-    reference_model = ElderActorCritic(
-        ElderActorCriticConfig(**loaded["actor_critic_config"])
-    ).to(device)
+    reference_model = ElderActorCritic(ElderActorCriticConfig(**loaded["actor_critic_config"])).to(
+        device
+    )
     reference_model.load_state_dict(loaded["model_state_dict"])
     reference_trainer = PPOTrainer(reference_model, PPOConfig(**loaded["ppo_config"]))
-    reference_trainer.optimizer.load_state_dict(
-        copy.deepcopy(loaded["optimizer_state_dict"])
-    )
+    reference_trainer.optimizer.load_state_dict(copy.deepcopy(loaded["optimizer_state_dict"]))
     _restore_rng_state(loaded["rng"])
     expected_stochastic = _stochastic_policy_vector(reference_model, observation)
     _restore_rng_state(loaded["rng"])
@@ -1666,8 +1678,7 @@ def _save_and_verify_campaign_checkpoint(
             reference_model, reloaded_model
         ),
         "continuation_metrics_max_abs_error": max(
-            abs(reference_metrics[key] - reloaded_metrics[key])
-            for key in reference_metrics
+            abs(reference_metrics[key] - reloaded_metrics[key]) for key in reference_metrics
         ),
         "optimizer_state_reloaded": bool(reloaded_trainer.optimizer.state_dict()["state"]),
     }
@@ -1680,15 +1691,13 @@ def _timing_report(
     return {
         "transitions": transitions,
         "native_step_seconds": timings.native_step_seconds,
-        "native_step_transitions_per_second": transitions
-        / max(timings.native_step_seconds, 1e-12),
+        "native_step_transitions_per_second": transitions / max(timings.native_step_seconds, 1e-12),
         "bridge_step_seconds": timings.bridge_step_seconds,
         "policy_inference_seconds": timings.policy_inference_seconds,
         "policy_inference_transitions_per_second": transitions
         / max(timings.policy_inference_seconds, 1e-12),
         "ppo_update_seconds": timings.ppo_update_seconds,
-        "ppo_update_transitions_per_second": transitions
-        / max(timings.ppo_update_seconds, 1e-12),
+        "ppo_update_transitions_per_second": transitions / max(timings.ppo_update_seconds, 1e-12),
         "rollout_collection_seconds": timings.collection_seconds,
         "end_to_end_seconds": elapsed,
         "end_to_end_transitions_per_second": transitions / max(elapsed, 1e-12),
