@@ -1,0 +1,91 @@
+{
+  "audit_schema_version": "cultivation-pilot-gcs-run-audit-v1",
+  "captured_at": "2026-10-11T20:12:54Z",
+  "status": "PASS",
+  "storage": {
+    "backend": "gcs",
+    "bucket": "anthropocene-rl-datasets-508912",
+    "project": "anthropocene-508912",
+    "region": "asia-northeast1",
+    "configured_local_cache_bytes": 5368709120,
+    "eviction_policy": "lru-content-addressed-cache"
+  },
+  "snapshot_dataset": {
+    "source_manifest_identity_sha256": "1cfabbc6057c063d2bca8d27c4bda861a090d5811e2b02f3fe51adc9fd2a6b83",
+    "manifest_uri": "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-normalization-v3-scope-safe/2026-10-12-manifest-1cfabbc6/manifest.json",
+    "published_manifest_sha256": "6a6e131bcb314c67b1b2487a25c1182cf9f1013ba2bd5c7b50089fa9db5f4045",
+    "shard": {
+      "uri": "gs://anthropocene-rl-datasets-508912/objects/sha256/41/41df9f39b5a556ed78c81be540699e2b346042e36f9ea69c4141ccafacc9b412.tar",
+      "generation": "1791747061946033",
+      "content_bytes": 64798720,
+      "content_sha256": "41df9f39b5a556ed78c81be540699e2b346042e36f9ea69c4141ccafacc9b412",
+      "provider_md5_base64": "5Tswsc5Y1NSIn2XkAZ1PAw==",
+      "provider_crc32c_base64": "l5RD6Q==",
+      "records": 300
+    },
+    "readback": {
+      "full_remote_refetch": true,
+      "refetched_sha256": "41df9f39b5a556ed78c81be540699e2b346042e36f9ea69c4141ccafacc9b412",
+      "records_verified": 300,
+      "materialized_snapshot_id": "f01-41001-f01-pairwise-001-d0-554efcb05bf2",
+      "materialized_content_sha256": "ff97d7427439b8798542979bc1093241583daca179c941ea688047a8fb14ebfd",
+      "status": "PASS"
+    }
+  },
+  "run_artifacts": {
+    "manifest": {
+      "uri": "gs://anthropocene-rl-datasets-508912/runs/cultivation-ppo-pilot-normalization-v3-scope-safe/714903a6-20261011-final/manifest.json",
+      "generation": "1791749061722843",
+      "content_bytes": 7430,
+      "content_sha256": "ccf085b85e0c9de2d06dcdaa34949d703fc69f2ac9c60956e4328cee6a7f8469",
+      "provider_md5_base64": "mwPgdSScKJGiR12rAAuY0A==",
+      "provider_crc32c_base64": "U29APw=="
+    },
+    "bundle": {
+      "uri": "gs://anthropocene-rl-datasets-508912/run-objects/sha256/b2/b236f4499c414bda6c40f15bb8442ed6a491d2108a523f48ba306e0496564cff.tar",
+      "generation": "1791749060640421",
+      "content_bytes": 44062720,
+      "payload_bytes": 44039037,
+      "content_sha256": "b236f4499c414bda6c40f15bb8442ed6a491d2108a523f48ba306e0496564cff",
+      "provider_md5_base64": "SnKwjZMKqgC7jQuJWjwMcA==",
+      "provider_crc32c_base64": "JYvexQ==",
+      "files": 27
+    },
+    "restart_deduplication": "PASS",
+    "cold_readback": {
+      "downloaded_bytes": 44062720,
+      "downloaded_sha256": "b236f4499c414bda6c40f15bb8442ed6a491d2108a523f48ba306e0496564cff",
+      "status": "PASS"
+    }
+  },
+  "local_disk": {
+    "before_cleanup": {
+      "datasets_blobs_bytes": 289854394,
+      "datasets_cache_bytes": 347315046,
+      "datasets_staging_bytes": 507410079,
+      "checkpoints_bytes": 197803253,
+      "artifacts_bytes": 1806597,
+      "generated_dotnet_sdk_bytes": 747924319,
+      "generated_dotnet_sdk_archive_bytes": 284903146,
+      "cold_readback_proof_bytes": 88125440
+    },
+    "verified_files_evicted": 23,
+    "verified_bytes_evicted": 696594610,
+    "after_cleanup": {
+      "datasets_blobs_bytes": 289854394,
+      "datasets_cache_bytes": 217378067,
+      "datasets_staging_bytes": 354332606,
+      "checkpoints_bytes": 183278532,
+      "artifacts_bytes": 1806597,
+      "generated_dotnet_sdk_bytes": 747924319,
+      "cold_readback_proof_bytes": 0
+    },
+    "note": "Only individually identified files with verified GCS copies, plus one reproducible SDK archive, were removed. Other banks, prior checkpoints, and the unpacked SDK were preserved. The 5 GiB content cache remains bounded and evictable."
+  },
+  "provider_limitations": [
+    "GCS supplies CRC32C and MD5 for these non-composite objects but not a provider-native SHA-256 field; SHA-256 is immutable custom metadata and is recomputed after download.",
+    "Cold recovery downloads a complete roughly 64 MiB dataset shard once. Repeated resets use the verified bounded local cache instead of streaming each snapshot.",
+    "The observed connection downloads slowly enough that the 44 MiB cold run-bundle verification took several minutes; range reads remain restart-safe.",
+    "Local Application Default Credentials require periodic interactive refresh and must not be copied into the repository or worker images."
+  ]
+}

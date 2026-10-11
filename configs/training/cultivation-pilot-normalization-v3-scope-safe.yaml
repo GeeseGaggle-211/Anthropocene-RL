@@ -1,0 +1,87 @@
+name: elder-cultivation-open-economy-pilot-normalization-v3-scope-safe
+status: completed-no-go
+starting_learner_commit: f529b11b783620637f3f4eb9551159ee6eb0e9c3
+execution_learner_commit: 714903a64d71a1bc6c912de2d8d8282b104b24f0
+source_branch: feature/normalization-v3-remediation
+simulator_manifest: configs/simulator/elder-v2.yaml
+simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+snapshot_manifest: datasets/manifests/elder-v2-cultivation-pilot-normalization-v3-scope-safe.json
+snapshot_manifest_sha256: 1cfabbc6057c063d2bca8d27c4bda861a090d5811e2b02f3fe51adc9fd2a6b83
+snapshot_dataset_uri: gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-normalization-v3-scope-safe/2026-10-12-manifest-1cfabbc6/manifest.json
+run_artifact_manifest_uri: gs://anthropocene-rl-datasets-508912/runs/cultivation-ppo-pilot-normalization-v3-scope-safe/714903a6-20261011-final/manifest.json
+local_cache_gib: 5.0
+normalizer: evidence/cultivation-pilot-normalization-v3-scope-safe/generation/final-train-normalization.json
+normalizer_sha256: 6563cea5d26a54f5914b666c28584066eb18a681e5fad0559a10207a78fa01c4
+normalizer_fit:
+  partition: train
+  reset_observations: 210
+  legal_calibration_observations: 1050
+  development_or_heldout_used: false
+optimization_partition: train
+checkpoint_selection_partition: development
+heldout_policy: single-final-evaluation-only
+neural_seeds: [1701, 1901, 2101]
+network:
+  actor: [512, 256, 256, active-hybrid-heads]
+  critic: [512, 256, 256, scalar-value]
+  activation: tanh
+  layer_norm: false
+  shared_trunk: false
+  recurrent: false
+  privileged_critic: false
+active_controls:
+  - retained_field_operation
+  - development_budget
+inactive_controls:
+  - retained_herd_fraction
+  - field_development_share
+  - movement
+sampling:
+  kind: exact-balanced-family-within-family-shuffled-cycle
+  families: [F01, F02, F03, F13, F15, F16, F17, F18]
+  episodes_per_update: 8
+  episode_steps: 3
+  updates: 96
+  structural_scope_gate: fail-fast-on-husbandry-herd-fishing-or-movement
+evaluation:
+  interval_updates: 24
+  episode_steps: 3
+  comparator: option-a-through-shared-compiler
+physical_time_credit:
+  e_fold_horizon_years: 400
+  lambda_ref: 0.95
+  lambda_reference_years: 20
+  reward_scale: 0.001
+optimizer:
+  critic_learning_rate: 0.001
+  actor_learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.0
+  max_grad_norm: 0.5
+  epochs: 8
+  minibatch_size: 64
+  target_kl: 0.05
+deferred:
+  - movement
+  - husbandry
+  - fishing
+  - synthetic_disaster_curriculum
+  - gru
+  - transformer
+  - privileged_critic
+promotion:
+  result: no-go
+  passing_seeds: [1701, 1901]
+  failing_seeds: [2101]
+  failed_seed_2101_gates:
+    - heldout_not_strongly_worse_than_option_a
+    - ppo_kl_stable
+  steady_cultivation_intensity_increase: false
+  universal_self_sufficiency_signal: false
+  feed_forward_representational_failure_demonstrated: false
+  heldout_consumed: true
+posthoc_diagnostics:
+  sparse_event_normalization_blocker: false
+  layernorm_ablation_justified: true
+  relu_ablation_priority: defer-until-normalized-tanh-and-optimizer-ablation
