@@ -104,6 +104,7 @@ class PPOTrainer:
         early_stop_triggered = False
         policy_frozen = False
         continuous_head_gradient_max = [0.0] * 4
+        movement_head_gradient_max = 0.0
 
         for _ in range(self.config.epochs):
             actor_enabled = not policy_frozen
@@ -162,6 +163,15 @@ class PPOTrainer:
                             float(torch.abs(mean_bias_grad[head]).detach()),
                             float(torch.abs(log_std_grad[head]).detach()),
                         )
+                    movement_weight_grad = self.model.actor.movement_logits.weight.grad
+                    movement_bias_grad = self.model.actor.movement_logits.bias.grad
+                    if movement_weight_grad is None or movement_bias_grad is None:
+                        raise RuntimeError("Movement actor head gradients are missing")
+                    movement_head_gradient_max = max(
+                        movement_head_gradient_max,
+                        float(torch.max(torch.abs(movement_weight_grad)).detach()),
+                        float(torch.max(torch.abs(movement_bias_grad)).detach()),
+                    )
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     self.config.max_grad_norm,
@@ -265,4 +275,5 @@ class PPOTrainer:
                 for head in range(4)
             }
         )
+        metrics["movement_head_grad_max"] = movement_head_gradient_max
         return metrics

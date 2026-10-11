@@ -19,6 +19,8 @@ class ElderTransport(Protocol):
 
     def step(self, payload: Mapping[str, Any]) -> dict[str, Any]: ...
 
+    def option_a_step(self) -> dict[str, Any]: ...
+
     def verify_replay(self) -> dict[str, Any]: ...
 
     def close(self) -> None: ...
@@ -61,6 +63,9 @@ class JsonLineProcessTransport:
 
     def step(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         return self._request({"op": "step", "directive": dict(payload)})
+
+    def option_a_step(self) -> dict[str, Any]:
+        return self._request({"op": "option_a_step"})
 
     def verify_replay(self) -> dict[str, Any]:
         return self._request({"op": "verify_replay"})

@@ -23,6 +23,7 @@ from anthropocene_rl.datasets.models import (
     StrictModel,
 )
 from anthropocene_rl.datasets.partition import DeterministicPartitioner, LineageIdentity
+from anthropocene_rl.datasets.pilot_plan import PILOT_ACCEPTED_FAMILY_COUNTS
 
 
 class AuditIssue(StrictModel):
@@ -454,7 +455,8 @@ def _check_cultivation_pilot_coverage(
                 ),
             )
         )
-    required_families = {"F01", "F02", "F03", "F13", "F17", "F18"}
+    required_counts = PILOT_ACCEPTED_FAMILY_COUNTS
+    required_families = set(required_counts)
     families = Counter(record.scenario_family for record in records)
     if set(families) != required_families:
         errors.append(
@@ -493,6 +495,16 @@ def _check_cultivation_pilot_coverage(
                     snapshot_ids=(record.snapshot_id,),
                 )
             )
+    if dict(sorted(families.items())) != required_counts:
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-family-counts",
+                message=(
+                    "Cultivation pilot accepted family counts differ from the frozen "
+                    f"300-state design: {dict(sorted(families.items()))}"
+                ),
+            )
+        )
     required_measured_tags = {
         "F01": "young-memory",
         "F02": "near-knee-q",
@@ -532,5 +544,41 @@ def _check_cultivation_pilot_coverage(
             AuditIssue(
                 code="cultivation-pilot-frontier-contrast",
                 message="F18 lacks measured primitive/plough frontier contrast",
+            )
+        )
+    f15_tags = Counter(
+        tag
+        for record in records
+        if record.scenario_family == "F15"
+        for tag in record.actual_strata.tags
+    )
+    required_f15_tags = {
+        "isolated",
+        "trade-active",
+        "food-import",
+        "trade-dependent",
+        "food-export",
+        "material-tool-import",
+        "migration-positive",
+        "migration-negative",
+    }
+    if not required_f15_tags.issubset(f15_tags):
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-open-economy-coverage",
+                message=(
+                    "F15 lacks measured isolated/trade/import-or-export/signed-migration "
+                    f"coverage: {dict(sorted(f15_tags.items()))}"
+                ),
+            )
+        )
+    f16 = [record for record in records if record.scenario_family == "F16"]
+    if not any(record.actual_strata.fission_recent_split for record in f16) or not any(
+        not record.actual_strata.fission_recent_split for record in f16
+    ):
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-fission-causal-coverage",
+                message="F16 requires both recent native fission and no-split states",
             )
         )

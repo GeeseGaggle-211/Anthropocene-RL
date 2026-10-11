@@ -140,6 +140,35 @@ class AnthropoceneElderEnv(_BaseEnv):
     def close(self) -> None:
         self.transport.close()
 
+    def option_a_step(
+        self,
+    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+        """Advance the native Option-A policy through the shared compiler."""
+
+        if self._raw is None:
+            raise RuntimeError("reset() must be called before option_a_step()")
+        previous_raw = self._raw
+        response = self.transport.option_a_step()
+        result = _mapping(response, "result", "Result")
+        reward = float(_value(result, "ScalarReward", "scalarReward"))
+        terminated = bool(_value(result, "Terminated", "terminated"))
+        truncated = bool(_value(result, "Truncated", "truncated"))
+        tensor = response.get("tensor", response.get("Tensor"))
+        terminal_observation_missing = tensor is None
+        if terminal_observation_missing:
+            if not terminated:
+                raise ValueError("Native bridge omitted a non-terminal observation")
+            raw = previous_raw
+        else:
+            if not isinstance(tensor, Mapping):
+                raise TypeError("Expected native tensor mapping")
+            raw = EncodedObservation.from_native(tensor)
+        info = _info(response, raw)
+        if terminal_observation_missing:
+            info["terminal_observation_missing"] = True
+        self._raw = None if terminated or truncated else raw
+        return self._observation(raw), reward, terminated, truncated, info
+
     def verify_replay(self) -> dict[str, Any]:
         return self.transport.verify_replay()
 

@@ -17,6 +17,26 @@ import yaml  # type: ignore[import-untyped]
 from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationConfig
 
 PILOT_GENERATION_SEED = 5117001
+PILOT_ACCEPTED_FAMILY_COUNTS = {
+    "F01": 30,
+    "F02": 35,
+    "F03": 35,
+    "F13": 40,
+    "F15": 50,
+    "F16": 40,
+    "F17": 24,
+    "F18": 46,
+}
+PILOT_ACCEPTED_PARTITION_COUNTS = {
+    "F01": {"train": 20, "development": 4, "heldout": 6},
+    "F02": {"train": 29, "development": 2, "heldout": 4},
+    "F03": {"train": 24, "development": 7, "heldout": 4},
+    "F13": {"train": 25, "development": 3, "heldout": 12},
+    "F15": {"train": 30, "development": 12, "heldout": 8},
+    "F16": {"train": 32, "development": 4, "heldout": 4},
+    "F17": {"train": 18, "development": 3, "heldout": 3},
+    "F18": {"train": 32, "development": 10, "heldout": 4},
+}
 
 
 def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
@@ -24,7 +44,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
     family_specs: tuple[tuple[str, int, int, dict[str, list[Any]]], ...] = (
         (
             "F01",
-            40,
+            30,
             31001,
             {
                 "population": [60, 80, 100, 130, 160],
@@ -37,7 +57,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
         ),
         (
             "F02",
-            40,
+            35,
             31101,
             {
                 "population": [100, 150, 210, 280, 360],
@@ -50,7 +70,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
         ),
         (
             "F03",
-            40,
+            35,
             31201,
             {
                 "population": [100, 160, 240, 360, 480],
@@ -63,7 +83,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
         ),
         (
             "F13",
-            48,
+            40,
             31301,
             {
                 "population": [120, 180, 240, 320, 420],
@@ -107,6 +127,116 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
                 )
             )
 
+    open_economy_factors: dict[str, list[Any]] = {
+        "population": [90, 130, 180, 250, 340],
+        "field_q": [0.24, 0.32, 0.40, 0.48],
+        "reserve_intervals": [0.25, 1.0, 2.0, 4.0],
+        "site_support_quantile": [0.2, 0.5, 0.8, 1.0],
+        "tool_abundance": [0.15, 0.4, 0.8, 1.4],
+        "amenity_coverage": [0.3, 0.55, 0.8, 1.0],
+    }
+    open_economy_pair_targets = (
+        (("isolated", "strong-food-import"), 15),
+        (("mild-import", "surplus-export"), 22),
+        (("food-shortfall-contact", "material-tool-import"), 50),
+        (("immigration-secure", "emigration-distress"), 12),
+        (("immigration-labor", "immigration-stress"), 10),
+    )
+    open_economy_pairs = [
+        pair
+        for repeat in range(max(count for _, count in open_economy_pair_targets))
+        for pair, count in open_economy_pair_targets
+        if repeat < count
+    ]
+    open_economy_rows = _constrained_pairwise_rows(
+        open_economy_factors,
+        count=len(open_economy_pairs),
+        seed=PILOT_GENERATION_SEED + 15,
+    )
+    for index, (row, variants) in enumerate(
+        zip(open_economy_rows, open_economy_pairs, strict=True)
+    ):
+        world_seed = 31401 + index
+        group_id = f"f15-open-economy-pair-{index + 1:03d}"
+        for variant in variants:
+            required = ["cultivation-only"]
+            if variant == "isolated":
+                required.append("isolated")
+            elif variant in {
+                "strong-food-import",
+                "mild-import",
+                "food-shortfall-contact",
+                "material-tool-import",
+                "surplus-export",
+            }:
+                required.append("trade-active")
+                if variant in {
+                    "strong-food-import",
+                    "mild-import",
+                    "food-shortfall-contact",
+                }:
+                    required.append("food-import")
+                    if variant == "strong-food-import":
+                        required.append("trade-dependent")
+                elif variant == "material-tool-import":
+                    required.append("material-tool-import")
+                elif variant == "surplus-export":
+                    required.append("food-export")
+            elif variant.startswith("immigration-"):
+                required.append("migration-positive")
+            elif variant == "emigration-distress":
+                required.append("migration-negative")
+            trajectories.append(
+                _trajectory(
+                    trajectory_id=f"{group_id}-{variant}",
+                    scenario_family="F15",
+                    world_seed=world_seed,
+                    trajectory_family="cultivation-open-economy-v1",
+                    lineage_id=group_id,
+                    counterfactual_group_id=group_id,
+                    snapshot_steps=(
+                        [2]
+                        if variant == "material-tool-import"
+                        else [1]
+                    ),
+                    requested_tags=required,
+                    causal_variant=variant,
+                    **row,
+                )
+            )
+
+    fission_factors: dict[str, list[Any]] = {
+        "population": [360, 480, 650, 850, 1100],
+        "field_q": [0.28, 0.36, 0.44, 0.52],
+        "reserve_intervals": [0.25, 1.0, 2.0],
+        "site_support_quantile": [0.2, 0.5, 0.8, 1.0],
+        "tool_abundance": [0.2, 0.6, 1.2],
+        "amenity_coverage": [0.2, 0.45, 0.75, 1.0],
+    }
+    fission_rows = _constrained_pairwise_rows(
+        fission_factors,
+        count=15,
+        seed=PILOT_GENERATION_SEED + 16,
+    )
+    for index, row in enumerate(fission_rows):
+        world_seed = 31601 + index
+        group_id = f"f16-exit-opportunity-pair-{index + 1:03d}"
+        for variant in ("poor-exit-opportunity", "strong-exit-opportunity"):
+            trajectories.append(
+                _trajectory(
+                    trajectory_id=f"{group_id}-{variant}",
+                    scenario_family="F16",
+                    world_seed=world_seed,
+                    trajectory_family="cultivation-fission-causal-v1",
+                    lineage_id=group_id,
+                    counterfactual_group_id=group_id,
+                    snapshot_steps=[0, 1],
+                    requested_tags=["cultivation-only"],
+                    causal_variant=variant,
+                    **row,
+                )
+            )
+
     memory_factors: dict[str, list[Any]] = {
         "population": [100, 160, 240, 340],
         "field_q": [0.28, 0.34, 0.40, 0.44],
@@ -118,7 +248,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
     for index, row in enumerate(
         _constrained_pairwise_rows(
             memory_factors,
-            count=8,
+            count=12,
             seed=PILOT_GENERATION_SEED + 17,
         )
     ):
@@ -126,7 +256,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
             _trajectory(
                 trajectory_id=f"f17-memory-contrast-{index + 1:03d}",
                 scenario_family="F17",
-                world_seed=31401 + index,
+                world_seed=31701 + index,
                 trajectory_family="cultivation-memory-history-v1",
                 snapshot_steps=[0, 3, 9],
                 requested_tags=["cultivation-only"],
@@ -146,11 +276,11 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
     for index, row in enumerate(
         _constrained_pairwise_rows(
             frontier_factors,
-            count=24,
+            count=23,
             seed=PILOT_GENERATION_SEED + 18,
         )
     ):
-        world_seed = 31501 + index
+        world_seed = 31801 + index
         group_id = f"f18-frontier-pair-{index + 1:03d}"
         common = {
             key: value
@@ -193,7 +323,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
             "config_schema_version": "snapshot-bank-generation-v1",
             "bank_kind": "cultivation-pilot",
             "bank_id": "elder-v2-cultivation-pilot",
-            "bank_version": "1.0.0-plan",
+            "bank_version": "2.0.0-pilot",
             "native_generator_version": "snapshot-bank-native-v1",
             "generation_seed": PILOT_GENERATION_SEED,
             "world": {
@@ -201,10 +331,10 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
                 "height": 24,
                 "players": 4,
                 "start_separation": 6,
-                "annual_human_growth_rate": 0.0,
+                "annual_human_growth_rate": 0.01145,
             },
             "partition": {
-                "salt": "elder-v2-cultivation-pilot-partitions-v1",
+                "salt": "elder-v2-cultivation-pilot-partitions-v7",
                 "train_fraction": 0.70,
                 "development_fraction": 0.15,
                 "heldout_fraction": 0.15,
@@ -252,6 +382,7 @@ def cultivation_pilot_plan_summary(
                 "tool_abundance",
                 "amenity_coverage",
                 "frontier",
+                "causal_variant",
             ),
         )
         for family in sorted(family_snapshots)
@@ -261,6 +392,8 @@ def cultivation_pilot_plan_summary(
         "bank_id": config.bank_id,
         "generator_config_sha256": config.canonical_sha256(),
         "requested_snapshot_count": sum(family_snapshots.values()),
+        "target_accepted_snapshot_count": sum(PILOT_ACCEPTED_FAMILY_COUNTS.values()),
+        "target_accepted_family_counts": PILOT_ACCEPTED_FAMILY_COUNTS,
         "independent_world_count": len({item.world_seed for item in resolved}),
         "family_snapshot_counts": dict(sorted(family_snapshots.items())),
         "family_world_counts": {
@@ -283,6 +416,7 @@ def cultivation_pilot_plan_summary(
             "fit final normalization-v2 from frozen PILOT TRAIN reset plus short legal "
             "calibration rollouts; DEVELOPMENT and HELDOUT are transform-only"
         ),
+        "live_external_dynamics": ["trade", "immigration", "emigration", "fission"],
         "deferred_capabilities": ["movement", "herding", "fishing"],
     }
 
@@ -324,11 +458,12 @@ def _trajectory(
     counterfactual_group_id: str | None = None,
     classification: str = "controlled-valid-fixture",
     frontier: str = "primitive",
+    causal_variant: str = "none",
 ) -> dict[str, Any]:
     return {
         "trajectory_id": trajectory_id,
         "scenario_family": scenario_family,
-        "scenario_version": "cultivation-pilot-v1",
+        "scenario_version": "cultivation-pilot-v2",
         "world_seed": world_seed,
         "trajectory_family": trajectory_family,
         "lineage_id": lineage_id or trajectory_id,
@@ -345,6 +480,7 @@ def _trajectory(
         "tool_abundance": tool_abundance,
         "amenity_coverage": amenity_coverage,
         "frontier": frontier,
+        "causal_variant": causal_variant,
         "requested_tags": requested_tags,
     }
 

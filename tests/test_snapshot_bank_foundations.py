@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 
 from anthropocene_rl.datasets.audit import audit_snapshot_bank
@@ -11,6 +12,7 @@ from anthropocene_rl.datasets.normalization_audit import (
 )
 from anthropocene_rl.datasets.partition import DeterministicPartitioner, LineageIdentity
 from anthropocene_rl.datasets.pilot_plan import (
+    PILOT_ACCEPTED_PARTITION_COUNTS,
     build_cultivation_pilot_plan,
     cultivation_pilot_plan_summary,
 )
@@ -80,13 +82,15 @@ def test_cultivation_pilot_plan_is_pairwise_bounded_and_partitioned_first() -> N
 
     assert committed.canonical_sha256() == config.canonical_sha256()
     assert config.bank_kind == "cultivation-pilot"
-    assert sum(len(plan.snapshot_steps) for plan in resolved) == 240
-    assert len({plan.world_seed for plan in resolved}) == 200
+    assert sum(len(plan.snapshot_steps) for plan in resolved) == 500
+    assert len({plan.world_seed for plan in resolved}) == 299
     assert {plan.scenario_family for plan in resolved} == {
         "F01",
         "F02",
         "F03",
         "F13",
+        "F15",
+        "F16",
         "F17",
         "F18",
     }
@@ -102,8 +106,51 @@ def test_cultivation_pilot_plan_is_pairwise_bounded_and_partitioned_first() -> N
         "development",
         "heldout",
     }
-    assert summary["requested_snapshot_count"] == 240
-    assert summary["requested_pairwise_coverage"]["F01"]["fraction"] == 1.0
+    assert summary["requested_snapshot_count"] == 500
+    assert summary["target_accepted_snapshot_count"] == 300
+    assert summary["family_snapshot_counts"] == {
+        "F01": 30,
+        "F02": 35,
+        "F03": 35,
+        "F13": 40,
+        "F15": 218,
+        "F16": 60,
+        "F17": 36,
+        "F18": 46,
+    }
+    assert summary["target_accepted_family_counts"] == {
+        "F01": 30,
+        "F02": 35,
+        "F03": 35,
+        "F13": 40,
+        "F15": 50,
+        "F16": 40,
+        "F17": 24,
+        "F18": 46,
+    }
+    assert summary["requested_pairwise_coverage"]["F01"]["fraction"] > 0.9
+
+
+def test_frozen_cultivation_pilot_has_every_family_in_every_partition() -> None:
+    manifest = SnapshotBankManifest.load(
+        "datasets/manifests/elder-v2-cultivation-pilot-v1.json"
+    )
+    observed = Counter(
+        (record.scenario_family, record.partition.value)
+        for record in manifest.records
+    )
+    expected = {
+        (family, partition): count
+        for family, partitions in PILOT_ACCEPTED_PARTITION_COUNTS.items()
+        for partition, count in partitions.items()
+    }
+
+    assert observed == expected
+    assert Counter(record.partition.value for record in manifest.records) == {
+        "train": 210,
+        "development": 45,
+        "heldout": 45,
+    }
 
 
 def test_audit_detects_world_lineage_and_counterfactual_leakage() -> None:

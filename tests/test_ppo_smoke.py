@@ -55,6 +55,7 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["continuous_head_2_grad_max"] > 0.0
     assert metrics["continuous_head_1_grad_max"] == 0.0
     assert metrics["continuous_head_3_grad_max"] == 0.0
+    assert metrics["movement_head_grad_max"] == 0.0
     assert metrics["optimization_epochs_completed"] == 2.0
     assert metrics["optimization_actor_epochs_completed"] == 1.0
     assert metrics["target_kl_early_stop"] == 1.0

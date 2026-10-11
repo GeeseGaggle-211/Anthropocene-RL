@@ -71,6 +71,7 @@ class TrajectoryPlan(StrictModel):
     frontier: Literal[
         "primitive", "plough", "technology-transition-cultivation"
     ] = "primitive"
+    causal_variant: str = "none"
     requested_tags: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -108,6 +109,11 @@ class TrajectoryPlan(StrictModel):
             raise ValueError("Fishing economies require a positive fishing-ground target")
         if self.frontier == "plough" and not cultivation:
             raise ValueError("The Plough frontier requires cultivation")
+        if not self.causal_variant or any(
+            character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
+            for character in self.causal_variant
+        ):
+            raise ValueError("causal_variant must be a lowercase hyphenated token")
         return self
 
 
@@ -156,7 +162,16 @@ class SnapshotBankGenerationConfig(StrictModel):
         ):
             raise ValueError("Capability Experience thresholds must be finite and positive")
         if self.bank_kind == "cultivation-pilot":
-            allowed_families = {"F01", "F02", "F03", "F13", "F17", "F18"}
+            allowed_families = {
+                "F01",
+                "F02",
+                "F03",
+                "F13",
+                "F15",
+                "F16",
+                "F17",
+                "F18",
+            }
             for trajectory in self.trajectories:
                 if trajectory.scenario_family not in allowed_families:
                     raise ValueError(
@@ -183,6 +198,11 @@ class SnapshotBankGenerationConfig(StrictModel):
         # the current native plan validator.
         if self.bank_kind == "stage0" and "bank_kind" not in self.model_fields_set:
             payload.pop("bank_kind", None)
+        for trajectory, serialized in zip(
+            self.trajectories, payload["trajectories"], strict=True
+        ):
+            if "causal_variant" not in trajectory.model_fields_set:
+                serialized.pop("causal_variant", None)
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 

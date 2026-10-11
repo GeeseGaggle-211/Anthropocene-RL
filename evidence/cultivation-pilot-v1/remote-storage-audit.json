@@ -1,0 +1,34 @@
+{
+  "cache_prune": {
+    "bytes_after": 220366368,
+    "bytes_before": 220366368,
+    "bytes_reclaimed": 0,
+    "evicted_snapshot_ids": [],
+    "max_local_bytes": 5368709120,
+    "status": "PASS"
+  },
+  "deduplicated": 288,
+  "folder_id": "1BtKChDAhEpJOWdeEiJyfnowuuN7y_GSN",
+  "manifest_identity_sha256": "9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d",
+  "operation": "sync",
+  "records": 300,
+  "remote_only": 0,
+  "settled_version_reconciliation": {
+    "deduplicated": 300,
+    "initial_live_version_mismatch_count": 12,
+    "uploaded": 0
+  },
+  "status": "PASS",
+  "uploaded": 12,
+  "live_status": {
+    "invalid_snapshot_ids": [],
+    "live_verified_count": 300,
+    "local_bytes": 64365195,
+    "local_count": 300,
+    "metadata_count": 300,
+    "missing_metadata_snapshot_ids": [],
+    "record_count": 300,
+    "status": "PASS",
+    "unrecoverable_snapshot_ids": []
+  }
+}

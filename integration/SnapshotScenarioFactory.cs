@@ -19,10 +19,11 @@ namespace Anthropocene.SnapshotBank
         public ScenarioBuildResult Build(TrajectoryPlan trajectory)
         {
             var world = SaveCodec.Load(BaseWorld(trajectory.WorldSeed));
-            var camp = world.Camps.Where(item => item.Player == 0)
+            int controlledPlayer = plan.BankKind == "cultivation-pilot" ? 1 : 0;
+            var camp = world.Camps.Where(item => item.Player == controlledPlayer)
                 .OrderBy(item => item.Id).FirstOrDefault()
                 ?? throw new InvalidOperationException(
-                    "Generated world has no player-zero controlled camp.");
+                    "Generated world has no requested controlled camp.");
             RemoveControlledArtifacts(world, camp);
             ConfigureCapabilities(world, camp, trajectory);
             int site = SelectSite(world, camp, trajectory,
@@ -32,6 +33,7 @@ namespace Anthropocene.SnapshotBank
             ConfigureFields(world, camp, trajectory);
             ConfigureHerd(world, camp, trajectory);
             ConfigureFishing(world, camp, trajectory);
+            ConfigureExternalDynamics(world, camp, trajectory);
             Ownership.Bind(world);
             FisheryState.Normalize(world);
             NeolithicProduction.NormalizeFixedHousing(world);
@@ -64,6 +66,16 @@ namespace Anthropocene.SnapshotBank
                 plan.World.AnnualHumanGrowthRate;
             config.EconomicAllocation =
                 EconomicAllocationStrategy.DemandControl;
+            if (plan.BankKind == "cultivation-pilot")
+            {
+                config.TradeEnabled = true;
+                config.ImmigrationEnabled = true;
+                config.FissionEnabled = true;
+                config.NeolithicFishingEnabled = false;
+                config.CorrectedAquaticSeasonalPressureEnabled = false;
+                config.FissionPressureRule =
+                    FissionPressureRule.CurrentPlusExitOpportunity;
+            }
             ValidateCapabilityThresholds(config);
             var generated = new WorldGenerator().Generate(seed, config);
             // GenerationReport contains wall-clock timings and process-memory
@@ -152,10 +164,13 @@ namespace Anthropocene.SnapshotBank
             people.TechnologyExposure = new double[3];
             for (int domain = 0; domain < 3; domain++)
             {
-                people.Experience[domain] =
-                    world.Config.ExperienceThreshold * .8;
-                people.NeolithicExperience[domain] =
-                    world.Config.SecondaryTechnologyThreshold * .35;
+                bool enabled = domain == (int)Domain.Gathering && cultivation ||
+                    domain == (int)Domain.Hunting && husbandry ||
+                    domain == (int)Domain.Fishing && fishing;
+                people.Experience[domain] = enabled ?
+                    world.Config.ExperienceThreshold * .8 : 0;
+                people.NeolithicExperience[domain] = enabled ?
+                    world.Config.SecondaryTechnologyThreshold * .35 : 0;
             }
             people.NeolithicTechnologies = new List<string>(
                 NeolithicTech.FirstTier);
@@ -394,6 +409,186 @@ namespace Anthropocene.SnapshotBank
                 });
             camp.LastSelectedFishingGrounds = selected.ToList();
         }
+
+        private static void ConfigureExternalDynamics(WorldState world,
+            Camp controlled, TrajectoryPlan trajectory)
+        {
+            string variant = trajectory.CausalVariant ?? "none";
+            if (trajectory.ScenarioFamily == "F16")
+            {
+                controlled.FissionPolicy = FissionPolicy.Neutral;
+                controlled.StationaryTurns = 4;
+                controlled.StationaryYears = 4 * world.Config.TurnDays /
+                    world.Config.DaysPerYear;
+                int radius = variant == "strong-exit-opportunity" ?
+                    world.Config.FissionRadius : world.Config.VisionRadius;
+                foreach (int tile in world.Map.Radius(controlled.Tile, radius))
+                    controlled.People.Memory.Explored.Add(tile, world.Turn);
+                return;
+            }
+            if (trajectory.ScenarioFamily != "F15")
+                return;
+
+            if (variant == "isolated")
+            {
+                world.FixedHousing.RemoveAll(item =>
+                    item.CampId == controlled.Id);
+                ConfigureCamp(world, controlled, VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, .02, 40.0, .85));
+                return;
+            }
+
+            var partner = world.Camps.Where(item => item.Id != controlled.Id &&
+                    item.Player != 0 && item.Player != controlled.Player)
+                .OrderBy(item => item.Id).FirstOrDefault()
+                ?? throw new InvalidOperationException(
+                    "Open-economy fixture requires a non-player-zero partner camp.");
+            RemoveControlledArtifacts(world, partner);
+            partner.Tile = SelectPartnerSite(world, controlled, partner,
+                preferRich: variant != "emigration-distress");
+
+            TrajectoryPlan controlledProfile = trajectory;
+            TrajectoryPlan partnerProfile;
+            if (variant == "strong-food-import" ||
+                variant == "food-shortfall-contact")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, .02, 40.0, .85);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(100, trajectory.Population), .36, 4.0, .02, .15);
+            }
+            else if (variant == "mild-import")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, .20, 1.5, .80);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(100, trajectory.Population), .36, 4.0, .05, .20);
+            }
+            else if (variant == "surplus-export")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, 4.0, .02, .20);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(100, trajectory.Population), .32, .02, 1.8, .95);
+            }
+            else if (variant == "material-tool-import")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, 4.0, .0, .15);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(100, trajectory.Population), .36, .10, 2.0, .95);
+            }
+            else if (variant == "emigration-distress")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, .0, .0, .0);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(60, trajectory.Population / 3), .52, 4.0, 2.0, 1.0);
+            }
+            else if (variant == "immigration-stress")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    Math.Max(70, trajectory.Population / 2), trajectory.FieldQ,
+                    1.0, .5, .50);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(260, trajectory.Population), .16, .0, .0, .0);
+            }
+            else if (variant == "immigration-labor")
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    Math.Max(60, trajectory.Population / 2), trajectory.FieldQ,
+                    4.0, 1.5, 1.0);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(260, trajectory.Population), .16, .0, .0, .0);
+            }
+            else
+            {
+                controlledProfile = VariantPlan(trajectory,
+                    trajectory.Population, trajectory.FieldQ, 4.0, 1.5, 1.0);
+                partnerProfile = VariantPlan(trajectory,
+                    Math.Max(260, trajectory.Population), .16, .0, .0, .0);
+            }
+
+            world.FixedHousing.RemoveAll(item =>
+                item.CampId == controlled.Id);
+            ConfigureCamp(world, controlled, controlledProfile);
+            ConfigureCapabilities(world, partner, partnerProfile);
+            ConfigureCamp(world, partner, partnerProfile);
+            ConfigureFields(world, partner, partnerProfile);
+            ContactKnowledge.RecordTrade(world, controlled.People, partner);
+            ContactKnowledge.RecordTrade(world, partner.People, controlled);
+        }
+
+        private static int SelectPartnerSite(WorldState world,
+            Camp controlled, Camp partner, bool preferRich)
+        {
+            var candidates = world.Map.Radius(controlled.Tile,
+                    world.Config.ImmigrationRadius)
+                .Where(tile =>
+                {
+                    int distance = world.Map.Distance(controlled.Tile, tile);
+                    if (distance < world.Config.MinimumCampSpacing ||
+                        distance > world.Config.ImmigrationRadius)
+                        return false;
+                    var physical = world.Tiles[tile];
+                    if (!physical.TraversableLand ||
+                        !(FreshwaterAccess.Available(world, tile) > 0))
+                        return false;
+                    if (world.Map.Radius(tile, 1).Count(id =>
+                            CultivationEconomy.Cultivable(world.Tiles[id])) < 4)
+                        return false;
+                    return world.Camps.Where(item => item.Id != partner.Id &&
+                            item.Id != controlled.Id && item.Population > 0)
+                        .All(item => world.Map.Distance(tile, item.Tile) >=
+                            world.Config.MinimumCampSpacing);
+                })
+                .Select(tile => new
+                {
+                    Tile = tile,
+                    Support = PlacementStage.Viability(world, tile)
+                })
+                .Where(item => item.Support > 0)
+                .OrderBy(item => item.Support)
+                .ThenBy(item => item.Tile)
+                .ToArray();
+            if (candidates.Length == 0)
+                throw new InvalidOperationException(
+                    "No physically compatible open-economy partner site.");
+            return (preferRich ? candidates[candidates.Length - 1] :
+                candidates[0]).Tile;
+        }
+
+        private static TrajectoryPlan VariantPlan(TrajectoryPlan source,
+            int population, double fieldQ, double reserveIntervals,
+            double toolAbundance, double amenityCoverage)
+            => new TrajectoryPlan
+            {
+                TrajectoryId = source.TrajectoryId,
+                ScenarioFamily = source.ScenarioFamily,
+                ScenarioVersion = source.ScenarioVersion,
+                WorldSeed = source.WorldSeed,
+                TrajectoryFamily = source.TrajectoryFamily,
+                LineageId = source.LineageId,
+                CounterfactualGroupId = source.CounterfactualGroupId,
+                SourceController = source.SourceController,
+                Classification = source.Classification,
+                Partition = source.Partition,
+                HistoricalOrConsumedDiagnostic =
+                    source.HistoricalOrConsumedDiagnostic,
+                SnapshotSteps = source.SnapshotSteps,
+                Economy = "cultivation",
+                Population = population,
+                FieldQ = fieldQ,
+                HerdSupportRatio = 0,
+                ReserveIntervals = reserveIntervals,
+                FishingGroundTarget = 0,
+                SiteSupportQuantile = source.SiteSupportQuantile,
+                ToolAbundance = toolAbundance,
+                AmenityCoverage = amenityCoverage,
+                Frontier = "primitive",
+                CausalVariant = source.CausalVariant,
+                RequestedTags = source.RequestedTags
+            };
 
         private static int VisibleFishingGrounds(WorldState world, int tile)
             => world.Map.Radius(tile, world.Config.VisionRadius)

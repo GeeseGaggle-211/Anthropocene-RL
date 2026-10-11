@@ -84,6 +84,26 @@ class MeasuredStrata(StrictModel):
     water_needs_met: float = Field(ge=0, le=1)
     clothing_coverage: float = Field(ge=0, le=1)
     housing_coverage: float = Field(ge=0, le=1)
+    retained_field_capital: float = Field(default=0, ge=0)
+    retained_field_operation: float = Field(default=0, ge=0, le=1)
+    maintenance_worker_years: float = Field(default=0, ge=0)
+    hand_tools_per_capita: float = Field(default=0, ge=0)
+    farm_tools_per_capita: float = Field(default=0, ge=0)
+    materials_per_capita: float = Field(default=0, ge=0)
+    delivered_trade_total: float = Field(default=0, ge=0)
+    delivered_import_total: float = Field(default=0, ge=0)
+    delivered_export_total: float = Field(default=0, ge=0)
+    delivered_food_import: float = Field(default=0, ge=0)
+    delivered_food_export: float = Field(default=0, ge=0)
+    delivered_material_tool_import: float = Field(default=0, ge=0)
+    import_dependence: float = Field(default=0, ge=0)
+    signed_migration: float = 0
+    fission_candidate_present: bool = False
+    fission_recent_split: bool = False
+    fission_pressure: float = Field(default=0, ge=0, le=1)
+    fission_exit_opportunity: float = Field(default=0, ge=0, le=1)
+    fission_daughter_population: int = Field(default=0, ge=0)
+    parent_population_relief: float = Field(default=0, ge=0)
     field_frontier: str
     cultivation_available: bool
     husbandry_available: bool

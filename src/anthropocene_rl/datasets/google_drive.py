@@ -12,6 +12,7 @@ from anthropocene_rl.datasets.storage import RemoteObject, remote_key_for
 
 _DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 _FOLDER_MIME = "application/vnd.google-apps.folder"
+_API_RETRIES = 5
 _FILE_FIELDS = (
     "id,name,size,md5Checksum,sha256Checksum,version,modifiedTime,parents,appProperties"
 )
@@ -57,7 +58,7 @@ class GoogleDriveRemoteStore:
             self._service()
             .files()
             .get(fileId=file_id, fields=_FILE_FIELDS, supportsAllDrives=True)
-            .execute()
+            .execute(num_retries=_API_RETRIES)
         )
         key = str((metadata.get("appProperties") or {}).get("anthropocene_remote_key", ""))
         return self._to_remote_object(metadata, expected_key=key)
@@ -107,7 +108,7 @@ class GoogleDriveRemoteStore:
                 fields=_FILE_FIELDS,
                 supportsAllDrives=True,
             )
-            .execute()
+            .execute(num_retries=_API_RETRIES)
         )
         # A resumable Drive upload can return the metadata-request version from
         # ``files.create`` and then advance the object version when the media is
@@ -126,7 +127,7 @@ class GoogleDriveRemoteStore:
             downloader = MediaIoBaseDownload(handle, request)
             done = False
             while not done:
-                _, done = downloader.next_chunk()
+                _, done = downloader.next_chunk(num_retries=_API_RETRIES)
         return self.get(file_id)
 
     def _service(self) -> Any:
@@ -209,7 +210,7 @@ class GoogleDriveRemoteStore:
                 supportsAllDrives=True,
                 includeItemsFromAllDrives=True,
             )
-            .execute()
+            .execute(num_retries=_API_RETRIES)
         )
         files = response.get("files", [])
         if len(files) > 1:
@@ -231,7 +232,7 @@ class GoogleDriveRemoteStore:
                     fields="id,name",
                     supportsAllDrives=True,
                 )
-                .execute()
+                .execute(num_retries=_API_RETRIES)
             )
         folder_id = str(existing["id"])
         self._folder_cache[cache_key] = folder_id

@@ -1,0 +1,58 @@
+name: elder-cultivation-open-economy-pilot-v1
+status: frozen-for-first-pilot
+simulator_manifest: configs/simulator/elder-v2.yaml
+simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+snapshot_manifest: datasets/manifests/elder-v2-cultivation-pilot-v1.json
+snapshot_manifest_sha256: 9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d
+normalizer: evidence/cultivation-pilot-v1/final-train-normalization.json
+normalizer_sha256: b4393cbf0cd20e80d1ace345f48f768bd4f8393c9fe2c09d0535fd6aee42228b
+optimization_partition: train
+checkpoint_selection_partition: development
+heldout_policy: final-only
+neural_seeds: [1701, 1901, 2101]
+network:
+  actor: [512, 256, 256, active-hybrid-heads]
+  critic: [512, 256, 256, scalar-value]
+  shared_trunk: false
+  recurrent: false
+  privileged_critic: false
+active_controls:
+  - retained_field_operation
+  - development_budget
+inactive_controls:
+  - retained_herd_fraction
+  - field_development_share
+  - movement
+sampling:
+  kind: exact-balanced-family-within-family-shuffled-cycle
+  families: [F01, F02, F03, F13, F15, F16, F17, F18]
+  episodes_per_update: 8
+  episode_steps: 8
+  updates: 32
+evaluation:
+  interval_updates: 8
+  episode_steps: 8
+  comparator: option-a-through-shared-compiler
+physical_time_credit:
+  e_fold_horizon_years: 400
+  lambda_ref: 0.95
+  lambda_reference_years: 20
+  reward_scale: 0.001
+optimizer:
+  critic_learning_rate: 0.001
+  actor_learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.0
+  max_grad_norm: 0.5
+  epochs: 8
+  minibatch_size: 64
+  target_kl: 0.05
+deferred:
+  - movement
+  - husbandry
+  - fishing
+  - synthetic_disaster_curriculum
+  - gru
+  - transformer
+  - privileged_critic

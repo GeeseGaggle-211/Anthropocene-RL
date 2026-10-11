@@ -133,11 +133,21 @@ def normalization_diagnostics(
         ],
     }
     for name in (
+        "low-q",
         "high-q",
         "fishing",
         "fishing-only",
         "no-herd",
         "young-memory",
+        "mature-memory",
+        "trade-dependent",
+        "isolated",
+        "immigration",
+        "emigration",
+        "pre-fission",
+        "post-fission",
+        "primitive-frontier",
+        "plough-frontier",
     ):
         slice_indices[name] = [
             index for index, sample in enumerate(samples) if name in sample.slices

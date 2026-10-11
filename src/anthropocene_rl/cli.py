@@ -230,6 +230,43 @@ def main() -> int:
     throughput.add_argument("--diagnostics", type=Path, default=Path(
         "artifacts/stage0-native-throughput.json"
     ))
+    pilot = sub.add_parser("cultivation-pilot")
+    pilot.add_argument("--manifest", type=Path, default=Path(
+        "datasets/manifests/elder-v2-cultivation-pilot-v1.json"
+    ))
+    pilot.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
+    pilot.add_argument("--normalizer", type=Path, default=Path(
+        "evidence/cultivation-pilot-v1/final-train-normalization.json"
+    ))
+    pilot.add_argument("--snapshot-store-config", type=Path, default=Path(
+        "configs/storage/google-drive-v1.yaml"
+    ))
+    pilot.add_argument("--bridge-dll", type=Path, default=Path(
+        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
+    ))
+    pilot.add_argument("--dotnet", default="dotnet")
+    pilot.add_argument("--evidence-directory", type=Path, default=Path(
+        "evidence/cultivation-ppo-pilot-v1"
+    ))
+    pilot.add_argument("--checkpoint-directory", type=Path, default=Path(
+        "checkpoints/cultivation-ppo-pilot-v1"
+    ))
+    pilot.add_argument("--seeds", default="1701,1901,2101")
+    pilot.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    pilot.add_argument("--updates", type=int, default=32)
+    pilot.add_argument("--episodes-per-update", type=int, default=8)
+    pilot.add_argument("--episode-steps", type=int, default=8)
+    pilot.add_argument("--evaluation-interval", type=int, default=8)
+    pilot.add_argument("--evaluation-steps", type=int, default=8)
+    pilot.add_argument("--horizon-years", type=float, default=400.0)
+    pilot.add_argument("--lambda-ref", type=float, default=0.95)
+    pilot.add_argument("--lambda-reference-years", type=float, default=20.0)
+    pilot.add_argument("--reward-scale", type=float, default=0.001)
+    pilot.add_argument("--learning-rate", type=float, default=1e-3)
+    pilot.add_argument("--actor-learning-rate", type=float, default=3e-4)
+    pilot.add_argument("--ppo-epochs", type=int, default=8)
+    pilot.add_argument("--minibatch-size", type=int, default=64)
+    pilot.add_argument("--target-kl", type=float, default=0.05)
     args = parser.parse_args()
 
     if args.command == "check-manifest":
@@ -404,6 +441,51 @@ def main() -> int:
             ),
         )
         print(json.dumps(diagnostics, sort_keys=True))
+        return 0 if diagnostics["status"] == "PASS" else 1
+    if args.command == "cultivation-pilot":
+        from anthropocene_rl.training.pilot import PilotConfig, run_cultivation_pilot
+        from anthropocene_rl.training.ppo import PPOConfig
+
+        seeds = tuple(int(value) for value in args.seeds.split(","))
+        diagnostics = run_cultivation_pilot(
+            bridge_dll=args.bridge_dll,
+            dotnet=args.dotnet,
+            manifest_path=args.manifest,
+            blob_root=args.blob_root,
+            normalizer_path=args.normalizer,
+            snapshot_store_config=args.snapshot_store_config,
+            evidence_directory=args.evidence_directory,
+            checkpoint_directory=args.checkpoint_directory,
+            config=PilotConfig(
+                seeds=seeds,
+                device=args.device,
+                updates=args.updates,
+                episodes_per_update=args.episodes_per_update,
+                episode_steps=args.episode_steps,
+                evaluation_interval=args.evaluation_interval,
+                evaluation_steps=args.evaluation_steps,
+                horizon_years=args.horizon_years,
+                lambda_ref=args.lambda_ref,
+                lambda_reference_years=args.lambda_reference_years,
+                reward_scale=args.reward_scale,
+            ),
+            ppo_config=PPOConfig(
+                learning_rate=args.learning_rate,
+                actor_learning_rate=args.actor_learning_rate,
+                entropy_coefficient=0.0,
+                epochs=args.ppo_epochs,
+                minibatch_size=args.minibatch_size,
+                target_kl=args.target_kl,
+            ),
+        )
+        print(json.dumps(
+            {
+                "status": diagnostics["status"],
+                "evidence": str(args.evidence_directory / "campaign-summary.json"),
+                "evidence_sha256": diagnostics["evidence_sha256"],
+            },
+            sort_keys=True,
+        ))
         return 0 if diagnostics["status"] == "PASS" else 1
     raise AssertionError("unreachable")
 
