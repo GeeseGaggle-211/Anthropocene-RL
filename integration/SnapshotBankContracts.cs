@@ -35,7 +35,7 @@ namespace Anthropocene.SnapshotBank
 
     internal sealed class GenerationPlan
     {
-        public string ConfigSchemaVersion, BankId, BankVersion,
+        public string ConfigSchemaVersion, BankKind, BankId, BankVersion,
             NativeGeneratorVersion, NativeSimulatorSha,
             GeneratorConfigSha256;
         public int GenerationSeed, CalibrationRolloutSteps;

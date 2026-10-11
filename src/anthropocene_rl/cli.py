@@ -83,6 +83,21 @@ def _adapter_schema_smoke(dotnet: str) -> int:
     return 0
 
 
+def _add_snapshot_store_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=Path("datasets/manifests/elder-v2-stage0-v1.json"),
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=Path("configs/storage/google-drive-v1.yaml"),
+    )
+    parser.add_argument("--blob-root", type=Path)
+    parser.add_argument("--credentials", type=Path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="anthropocene-rl")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -93,6 +108,22 @@ def main() -> int:
     adapter = sub.add_parser("adapter-smoke")
     adapter.add_argument("--dotnet", default="dotnet")
     sub.add_parser("ppo-smoke")
+    snapshot_store = sub.add_parser("snapshot-store")
+    snapshot_store_commands = snapshot_store.add_subparsers(
+        dest="snapshot_store_command",
+        required=True,
+    )
+    for store_command in ("push", "sync", "status"):
+        store_parser = snapshot_store_commands.add_parser(store_command)
+        _add_snapshot_store_arguments(store_parser)
+        if store_command == "status":
+            store_parser.add_argument("--offline", action="store_true")
+    fetch_store = snapshot_store_commands.add_parser("fetch")
+    _add_snapshot_store_arguments(fetch_store)
+    fetch_store.add_argument("selector")
+    prune_store = snapshot_store_commands.add_parser("prune")
+    _add_snapshot_store_arguments(prune_store)
+    prune_store.add_argument("--max-local-gb", type=float, required=True)
     generate_bank = sub.add_parser("generate-snapshot-bank")
     generate_bank.add_argument("--config", type=Path, required=True)
     generate_bank.add_argument("--manifest", type=Path, required=True)
@@ -107,6 +138,7 @@ def main() -> int:
     audit_bank.add_argument("--coverage-json", type=Path)
     audit_bank.add_argument("--coverage-markdown", type=Path)
     audit_bank.add_argument("--no-stage0-coverage", action="store_true")
+    audit_bank.add_argument("--cultivation-pilot-coverage", action="store_true")
     audit_bank.add_argument("--skip-blob-verification", action="store_true")
     overfit = sub.add_parser("overfit-one-snapshot")
     overfit.add_argument("--manifest", type=Path, default=Path(
@@ -212,6 +244,31 @@ def main() -> int:
         return _adapter_schema_smoke(args.dotnet)
     if args.command == "ppo-smoke":
         return _ppo_smoke()
+    if args.command == "snapshot-store":
+        from anthropocene_rl.datasets.storage import build_snapshot_store_manager
+
+        manager = build_snapshot_store_manager(
+            manifest_path=args.manifest,
+            config_path=args.config,
+            blob_root=args.blob_root,
+            credentials_path=args.credentials,
+        )
+        if args.snapshot_store_command == "push":
+            result = manager.push()
+        elif args.snapshot_store_command == "sync":
+            result = manager.sync()
+        elif args.snapshot_store_command == "fetch":
+            result = manager.fetch(args.selector)
+        elif args.snapshot_store_command == "prune":
+            if args.max_local_gb < 0:
+                raise ValueError("--max-local-gb cannot be negative")
+            result = manager.prune(max_local_bytes=int(args.max_local_gb * 1024**3))
+        elif args.snapshot_store_command == "status":
+            result = manager.status(check_remote=not args.offline)
+        else:
+            raise AssertionError("unreachable snapshot-store command")
+        print(json.dumps(result, sort_keys=True))
+        return 0 if result["status"] == "PASS" else 1
     if args.command == "generate-snapshot-bank":
         from anthropocene_rl.datasets.generate import GenerationPaths, generate_snapshot_bank
 
@@ -239,7 +296,10 @@ def main() -> int:
             report_path=args.report,
             coverage_json_path=args.coverage_json,
             coverage_markdown_path=args.coverage_markdown,
-            require_stage0_coverage=not args.no_stage0_coverage,
+            require_stage0_coverage=(
+                not args.no_stage0_coverage and not args.cultivation_pilot_coverage
+            ),
+            require_cultivation_pilot_coverage=args.cultivation_pilot_coverage,
             verify_blobs=not args.skip_blob_verification,
         )
         print(json.dumps(report.model_dump(mode="json"), sort_keys=True))

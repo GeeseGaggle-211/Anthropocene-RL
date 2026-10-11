@@ -37,6 +37,7 @@ from anthropocene_rl.datasets.models import (
 from anthropocene_rl.datasets.normalization_audit import (
     CalibrationObservation,
     fit_provisional_and_report,
+    fit_train_and_report,
 )
 from anthropocene_rl.observations.schema import EncodedObservation
 
@@ -125,7 +126,12 @@ def generate_snapshot_bank(
         json_path=coverage_json,
         markdown_path=coverage_markdown,
     )
-    audit = audit_snapshot_bank(manifest, blob_root=paths.blob_root)
+    audit = audit_snapshot_bank(
+        manifest,
+        blob_root=paths.blob_root,
+        require_stage0_coverage=config.bank_kind == "stage0",
+        require_cultivation_pilot_coverage=config.bank_kind == "cultivation-pilot",
+    )
     _save_json(paths.evidence_directory / "audit.json", audit.model_dump(mode="json"))
     if not audit.passed:
         raise ValueError(
@@ -133,20 +139,39 @@ def generate_snapshot_bank(
             + "; ".join(f"{issue.code}: {issue.message}" for issue in audit.errors)
         )
 
-    fit_provisional_and_report(
-        samples,
-        manifest=manifest,
-        capability_experience_thresholds=config.capability_experience_thresholds,
-        local_movement_radius=config.local_movement_radius,
-        normalizer_path=paths.evidence_directory
-        / "provisional-train-normalization.json",
-        diagnostics_path=paths.evidence_directory
-        / "provisional-normalization-diagnostics.json",
-        rng_provenance=(
-            f"{config.native_generator_version}/generation-seed:{config.generation_seed};"
-            "bounded native calibration directives"
-        ),
+    rng_provenance = (
+        f"{config.native_generator_version}/generation-seed:{config.generation_seed};"
+        "bounded native calibration directives"
     )
+    if config.bank_kind == "stage0":
+        fit_provisional_and_report(
+            samples,
+            manifest=manifest,
+            capability_experience_thresholds=config.capability_experience_thresholds,
+            local_movement_radius=config.local_movement_radius,
+            normalizer_path=paths.evidence_directory
+            / "provisional-train-normalization.json",
+            diagnostics_path=paths.evidence_directory
+            / "provisional-normalization-diagnostics.json",
+            rng_provenance=rng_provenance,
+        )
+        normalization_status = (
+            "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER"
+        )
+    else:
+        fit_train_and_report(
+            samples,
+            manifest=manifest,
+            capability_experience_thresholds=config.capability_experience_thresholds,
+            local_movement_radius=config.local_movement_radius,
+            normalizer_path=paths.evidence_directory / "final-train-normalization.json",
+            diagnostics_path=paths.evidence_directory
+            / "final-normalization-diagnostics.json",
+            rng_provenance=rng_provenance,
+            partition_suffix="final",
+            artifact_status="FINAL_PILOT_TRAIN_ONLY_NORMALIZER",
+        )
+        normalization_status = "FINAL_PILOT_TRAIN_ONLY_NORMALIZER"
 
     native_sha = hashlib.sha256(_canonical_json(first_result)).hexdigest()
     summary = GenerationSummary(
@@ -165,9 +190,7 @@ def generate_snapshot_bank(
         {
             **summary.__dict__,
             "generator_config_sha256": config.canonical_sha256(),
-            "normalization_status": (
-                "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER"
-            ),
+            "normalization_status": normalization_status,
         },
     )
     return summary
@@ -181,6 +204,7 @@ def audit_manifest_file(
     coverage_json_path: str | Path | None = None,
     coverage_markdown_path: str | Path | None = None,
     require_stage0_coverage: bool = True,
+    require_cultivation_pilot_coverage: bool = False,
     verify_blobs: bool = True,
 ) -> SnapshotBankAuditReport:
     manifest = SnapshotBankManifest.load(manifest_path)
@@ -189,6 +213,7 @@ def audit_manifest_file(
         manifest,
         blob_root=resolved_blob_root,
         require_stage0_coverage=require_stage0_coverage,
+        require_cultivation_pilot_coverage=require_cultivation_pilot_coverage,
         verify_blobs=verify_blobs,
     )
     if report_path is not None:

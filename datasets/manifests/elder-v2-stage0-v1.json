@@ -107,6 +107,18 @@
       "observation_sha256": "39f625f5b88c2e59e66d9688e0c614a40d33cfe349f0b734703406afb0c9620c",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 209704,
+        "content_sha256": "5ef2fc720414671a7d5b9fe66ccb7537b03c4e37264bf38f54083c6d4639f86f",
+        "file_id": "1DTwsgDCI3R8qva7jpTMRLRqA44BtCNZo",
+        "md5_checksum": "c048bc1f040de9e17591e24ed3504721",
+        "remote_key": "sha256/5e/5ef2fc720414671a7d5b9fe66ccb7537b03c4e37264bf38f54083c6d4639f86f.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T10:01:30.462Z",
+        "verification_status": "download-verified",
+        "version": null
+      },
       "scenario_family": "F01",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -3595,5 +3607,13 @@
       "world_seed": 21150
     }
   ],
-  "rejected_candidates": []
+  "rejected_candidates": [],
+  "storage_policy": {
+    "eviction_policy": "lru",
+    "local_mode": "bounded-cache",
+    "max_local_bytes": 5368709120,
+    "remote_backend": "google-drive",
+    "remote_root_id": "1BtKChDAhEpJOWdeEiJyfnowuuN7y_GSN",
+    "remote_root_path": "Anthropocene / RL Snapshot Banks / Elder v2 / Stage0 and Pilot Banks"
+  }
 }

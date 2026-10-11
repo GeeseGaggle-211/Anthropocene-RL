@@ -1,0 +1,8 @@
+config_schema_version: snapshot-store-v1
+backend: google-drive
+folder_id: 1BtKChDAhEpJOWdeEiJyfnowuuN7y_GSN
+folder_path: Anthropocene / RL Snapshot Banks / Elder v2 / Stage0 and Pilot Banks
+remote_prefix: sha256
+local_cache_root: datasets/blobs
+max_local_gb: 5.0
+eviction_policy: lru

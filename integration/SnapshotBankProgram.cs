@@ -677,9 +677,18 @@ namespace Anthropocene.SnapshotBank
                     "Generation plan is empty or has an invalid rollout length.");
             int snapshots = plan.Trajectories.Sum(item =>
                 item.SnapshotSteps.Length);
-            if (snapshots < 24 || snapshots > 48)
+            if (plan.BankKind == "stage0" &&
+                (snapshots < 24 || snapshots > 48))
                 throw new InvalidDataException(
                     "Stage-0 plan must request 24-48 snapshots.");
+            if (plan.BankKind == "cultivation-pilot" &&
+                (snapshots < 200 || snapshots > 500))
+                throw new InvalidDataException(
+                    "Cultivation pilot plan must request 200-500 snapshots.");
+            if (plan.BankKind != "stage0" &&
+                plan.BankKind != "cultivation-pilot")
+                throw new InvalidDataException(
+                    "Unsupported snapshot-bank kind.");
         }
     }
 }

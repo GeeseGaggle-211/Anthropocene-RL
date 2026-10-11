@@ -113,6 +113,37 @@ critic MLPs for the bounded multi-snapshot pilot. GRU, Transformer, and
 privileged-critic experiments remain evidence-triggered follow-ups rather than
 preconditions for adding the next action capabilities.
 
+The preserved 3 x 3 artifacts have been independently re-audited: all nine
+diagnostic hashes, checkpoint byte hashes, checkpoint identities, native SHA,
+and per-run/aggregate gates match. The result remains a cultivation mechanics
+and optimizer-readiness PASS, not a gameplay-performance claim.
+
+## Drive-backed snapshot cache
+
+The learner now owns a pluggable remote-blob contract. Google Drive is the first
+backend, rooted at `Stage0 and Pilot Banks` folder
+`1BtKChDAhEpJOWdeEiJyfnowuuN7y_GSN`. Per-record storage metadata is excluded
+from manifest identity. Loaders verify local SHA-256 on cache hits and fetch,
+verify, and retain a blob on a miss. The default local cap is 5 GiB; LRU pruning
+is enforced after remote transfers, requires a live verified remote copy, and
+cannot delete the only copy.
+
+A Stage-0 F01 object was uploaded at its content-addressed key, downloaded
+through the authenticated Drive connector, byte/hash verified, safely evicted,
+and restored through the pluggable loader. The local CLI uses separate Google
+credentials because the app connector's OAuth token is not exposed to local
+processes. Drive's binary metadata supplies size and MD5 but not server-side
+SHA-256, so fetch verification remains authoritative for SHA-256.
+
+## Prepared cultivation-only pilot bank
+
+The unlaunched `cultivation-pilot-v1` plan requests 240 snapshots across 200
+worlds. It covers F01/F02/F03/F13, eight three-timestamp cultivation-only F17
+memory lineages, and 24 matched F18 primitive/plough world pairs. A deterministic
+constrained-pairwise planner supplies broad factor coverage without a Cartesian
+product. World/lineage partitioning precedes timestamp selection. Promotion is
+based on accepted native measurements, not requested bands.
+
 ## Still required before a serious campaign
 
 - expand/freeze the 200-500-state pilot snapshot bank;

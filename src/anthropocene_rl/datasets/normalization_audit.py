@@ -37,9 +37,34 @@ def fit_provisional_and_report(
     diagnostics_path: str | Path,
     rng_provenance: str,
 ) -> tuple[SemanticNormalizerV2, dict[str, Any]]:
+    return fit_train_and_report(
+        samples,
+        manifest=manifest,
+        capability_experience_thresholds=capability_experience_thresholds,
+        local_movement_radius=local_movement_radius,
+        normalizer_path=normalizer_path,
+        diagnostics_path=diagnostics_path,
+        rng_provenance=rng_provenance,
+        partition_suffix="provisional",
+        artifact_status="PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER",
+    )
+
+
+def fit_train_and_report(
+    samples: list[CalibrationObservation],
+    *,
+    manifest: SnapshotBankManifest,
+    capability_experience_thresholds: dict[str, float],
+    local_movement_radius: float,
+    normalizer_path: str | Path,
+    diagnostics_path: str | Path,
+    rng_provenance: str,
+    partition_suffix: str,
+    artifact_status: str,
+) -> tuple[SemanticNormalizerV2, dict[str, Any]]:
     training = [sample for sample in samples if sample.partition is Partition.TRAIN]
     if not training:
-        raise ValueError("Provisional normalization requires TRAIN observations")
+        raise ValueError("Normalization requires TRAIN observations")
     configuration_hashes = {record.configuration_hash for record in manifest.records}
     build_hashes = {record.native_build_hash for record in manifest.records}
     schema_hashes = {
@@ -50,7 +75,7 @@ def fit_provisional_and_report(
     source_mix = Counter(sample.source for sample in training)
     normalizer = SemanticNormalizerV2.fit(
         [sample.observation for sample in training],
-        partition_id=f"{manifest.bank_id}:train:provisional",
+        partition_id=f"{manifest.bank_id}:train:{partition_suffix}",
         capability_experience_thresholds=capability_experience_thresholds,
         local_movement_radius=local_movement_radius,
         partition_manifest_sha256=manifest.sha256(),
@@ -61,7 +86,12 @@ def fit_provisional_and_report(
         rng_provenance=rng_provenance,
     )
     normalizer.manifest.save(normalizer_path)
-    report = normalization_diagnostics(samples, normalizer=normalizer, manifest=manifest)
+    report = normalization_diagnostics(
+        samples,
+        normalizer=normalizer,
+        manifest=manifest,
+        artifact_status=artifact_status,
+    )
     target = Path(diagnostics_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -73,6 +103,7 @@ def normalization_diagnostics(
     *,
     normalizer: SemanticNormalizerV2,
     manifest: SnapshotBankManifest,
+    artifact_status: str = "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER",
 ) -> dict[str, Any]:
     coordinates: list[np.ndarray] = []
     effective_presence: list[np.ndarray] = []
@@ -134,7 +165,7 @@ def normalization_diagnostics(
             )
         features.append(feature)
     return {
-        "status": "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER",
+        "status": artifact_status,
         "bank_id": manifest.bank_id,
         "partition_manifest_sha256": manifest.sha256(),
         "fit_partition": "train",

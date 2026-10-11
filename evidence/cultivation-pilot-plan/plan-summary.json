@@ -1,0 +1,74 @@
+{
+  "bank_id": "elder-v2-cultivation-pilot",
+  "deferred_capabilities": [
+    "movement",
+    "herding",
+    "fishing"
+  ],
+  "family_snapshot_counts": {
+    "F01": 40,
+    "F02": 40,
+    "F03": 40,
+    "F13": 48,
+    "F17": 24,
+    "F18": 48
+  },
+  "family_world_counts": {
+    "F01": 40,
+    "F02": 40,
+    "F03": 40,
+    "F13": 48,
+    "F17": 8,
+    "F18": 24
+  },
+  "generator_config_sha256": "966a3265314b154578edcb75a330b908ece919c210552f5276651f5d7931e374",
+  "independent_world_count": 200,
+  "normalization_rule": "fit final normalization-v2 from frozen PILOT TRAIN reset plus short legal calibration rollouts; DEVELOPMENT and HELDOUT are transform-only",
+  "partition_world_counts": {
+    "development": 35,
+    "heldout": 30,
+    "train": 135
+  },
+  "promotion_rule": "requested bands are planning inputs only; freeze the bank only after native accepted records pass measured physical-strata and leakage audits",
+  "requested_pairwise_coverage": {
+    "F01": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F02": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F03": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F13": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 219,
+      "possible_pairs": 219
+    },
+    "F17": {
+      "active_factor_count": 6,
+      "fraction": 0.7114093959731543,
+      "observed_pairs": 106,
+      "possible_pairs": 149
+    },
+    "F18": {
+      "active_factor_count": 7,
+      "fraction": 0.9723076923076923,
+      "observed_pairs": 316,
+      "possible_pairs": 325
+    }
+  },
+  "requested_snapshot_count": 240,
+  "selection_rule": "deterministic constrained pairwise rows; partitions resolved from complete world/lineage identity before timestamp selection",
+  "status": "PLAN_READY_NOT_GENERATED"
+}

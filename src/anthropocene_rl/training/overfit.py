@@ -40,6 +40,11 @@ from anthropocene_rl.datasets.models import (
     SnapshotBankManifest,
     SnapshotRecord,
 )
+from anthropocene_rl.datasets.storage import (
+    DEFAULT_SNAPSHOT_STORE_CONFIG,
+    RemoteBlobStore,
+    resolve_snapshot_blob,
+)
 from anthropocene_rl.env.gym_env import AnthropoceneElderEnv
 from anthropocene_rl.env.transport import JsonLineProcessTransport
 from anthropocene_rl.observations.normalization import (
@@ -159,6 +164,8 @@ def load_stage0_selection(
     blob_root: str | Path = DEFAULT_BLOB_ROOT,
     normalizer_path: str | Path = DEFAULT_NORMALIZER,
     snapshot_id: str | None = None,
+    remote_store: RemoteBlobStore | None = None,
+    snapshot_store_config: str | Path = DEFAULT_SNAPSHOT_STORE_CONFIG,
 ) -> Stage0Selection:
     """Load one leakage-safe TRAIN reset and its frozen provisional normalizer."""
 
@@ -221,10 +228,13 @@ def load_stage0_selection(
     if mismatches:
         raise ValueError(f"Snapshot/normalizer identity mismatch: {mismatches}")
 
-    snapshot_path = Path(blob_root) / Path(record.blob_path)
-    digest, size = sha256_file(snapshot_path)
-    if digest != record.content_sha256 or size != record.content_bytes:
-        raise ValueError("Selected SaveCodec blob does not match the committed manifest")
+    snapshot_path = resolve_snapshot_blob(
+        record,
+        blob_root=blob_root,
+        remote=remote_store,
+        config_path=snapshot_store_config,
+        manifest_path=manifest_path,
+    )
     return Stage0Selection(
         manifest=manifest,
         manifest_sha256=manifest_sha256,

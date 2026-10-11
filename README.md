@@ -40,6 +40,8 @@ See `configs/simulator/elder-v2.yaml`.
 - a three-snapshot by three-seed cultivation-readiness matrix with aggregate
   convergence and stability gates;
 - a fixed-semantics 1/2/4/8 native-environment throughput benchmark.
+- a pluggable immutable snapshot store with Google Drive durability and a
+  bounded local content cache.
 
 The initial optimizer smoke keeps movement disabled. H=400 and lambda_ref=0.95
 are provisional debug settings in config, not final design decisions.
@@ -114,6 +116,40 @@ The Stage-0 normalization artifact is explicitly provisional. It is fitted from
 TRAIN reset observations and short legal TRAIN calibration rollouts only; the
 DEVELOPMENT and HELDOUT samples appear solely in post-fit diagnostics.
 
+## Durable snapshot storage
+
+Git remains authoritative for manifests and provenance. Large immutable
+SaveCodec payloads live in Google Drive under content-addressed keys such as
+`sha256/5e/<full-sha>.snapshot`; `datasets/blobs` is a 5 GiB LRU cache. Remote
+file IDs, byte counts, checksums, and verification status are recorded per
+manifest record but deliberately excluded from snapshot-bank identity, so a
+Drive move or upload timestamp cannot invalidate a normalizer or checkpoint.
+
+Install the optional client and configure local Google credentials. The Codex
+app's connected-Drive OAuth grant is intentionally not exported to local
+processes, so the CLI needs Application Default Credentials or an authorized
+credential file of its own:
+
+```bash
+uv sync --extra google-drive
+export ANTHROPOCENE_GOOGLE_DRIVE_CREDENTIALS=/secure/path/authorized-user.json
+
+uv run anthropocene-rl snapshot-store push
+uv run anthropocene-rl snapshot-store sync
+uv run anthropocene-rl snapshot-store fetch <snapshot-id-or-sha>
+uv run anthropocene-rl snapshot-store prune --max-local-gb 5
+uv run anthropocene-rl snapshot-store status
+```
+
+Uploads are resumable and deduplicate by content key. Drive exposes byte size
+and MD5 for stored binary files, not a server-computed SHA-256; the client checks
+size/MD5 at upload and always computes SHA-256 after download before admitting a
+blob to the cache. Push and fetch enforce the configured cache ceiling; explicit
+prune is also available. Eviction performs a live remote identity check and
+never removes a blob that lacks verified manifest metadata or a matching Drive
+copy. Training and overfit loaders use a valid local cache hit, or fetch and
+verify once on a miss.
+
 ## Real one-snapshot mechanics gate
 
 After restoring the gitignored Stage-0 blobs and building the bridge against the
@@ -141,6 +177,36 @@ separation, inactive-head/RNG inertness, deterministic fixed-policy outcomes,
 compiler-repair magnitude, full-update KL/clipping, on-policy critic fit, and
 bit-exact checkpoint continuation. Its aggregate result is a mechanics and
 optimization-readiness claim, not a gameplay-performance claim.
+
+## Prepared cultivation-only pilot
+
+The unlaunched pilot plan is materialized at
+`configs/datasets/cultivation-pilot-v1.yaml`. It requests 240 snapshots across
+200 independent worlds using deterministic constrained-pairwise coverage:
+F01/F02/F03/F13 plus limited F17 memory histories and matched F18
+primitive/plough contrasts. Movement, herding, and fishing remain absent.
+
+Regenerate the plan deterministically with:
+
+```bash
+uv run python scripts/build_cultivation_pilot_plan.py
+```
+
+Generation still requires an explicit go decision. After generation, audit the
+accepted physical states rather than trusting requested bands:
+
+```bash
+uv run anthropocene-rl audit-snapshot-bank \
+  --manifest datasets/manifests/elder-v2-cultivation-pilot-v1.json \
+  --blob-root datasets/blobs \
+  --no-stage0-coverage \
+  --cultivation-pilot-coverage
+```
+
+Only after the bank is frozen should a new final normalization-v2 be fitted
+from PILOT TRAIN resets and short legal calibration rollouts. DEVELOPMENT and
+HELDOUT are transform-only; the Stage-0 provisional normalizer is not a campaign
+normalizer.
 
 ## What is still experimental
 
