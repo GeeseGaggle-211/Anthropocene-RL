@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Final
 
@@ -92,6 +93,21 @@ def main() -> int:
     adapter = sub.add_parser("adapter-smoke")
     adapter.add_argument("--dotnet", default="dotnet")
     sub.add_parser("ppo-smoke")
+    generate_bank = sub.add_parser("generate-snapshot-bank")
+    generate_bank.add_argument("--config", type=Path, required=True)
+    generate_bank.add_argument("--manifest", type=Path, required=True)
+    generate_bank.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
+    generate_bank.add_argument("--evidence-dir", type=Path, required=True)
+    generate_bank.add_argument("--simulator-root", type=Path)
+    generate_bank.add_argument("--dotnet", default="dotnet")
+    audit_bank = sub.add_parser("audit-snapshot-bank")
+    audit_bank.add_argument("--manifest", type=Path, required=True)
+    audit_bank.add_argument("--blob-root", type=Path)
+    audit_bank.add_argument("--report", type=Path)
+    audit_bank.add_argument("--coverage-json", type=Path)
+    audit_bank.add_argument("--coverage-markdown", type=Path)
+    audit_bank.add_argument("--no-stage0-coverage", action="store_true")
+    audit_bank.add_argument("--skip-blob-verification", action="store_true")
     args = parser.parse_args()
 
     if args.command == "check-manifest":
@@ -106,6 +122,38 @@ def main() -> int:
         return _adapter_schema_smoke(args.dotnet)
     if args.command == "ppo-smoke":
         return _ppo_smoke()
+    if args.command == "generate-snapshot-bank":
+        from anthropocene_rl.datasets.generate import GenerationPaths, generate_snapshot_bank
+
+        simulator_root = args.simulator_root or Path(
+            os.environ.get("ANTHROPOCENE_SIM_ROOT", ".simulator/Anthropocene")
+        )
+        summary = generate_snapshot_bank(
+            config_path=args.config,
+            paths=GenerationPaths(
+                manifest=args.manifest,
+                blob_root=args.blob_root,
+                evidence_directory=args.evidence_dir,
+            ),
+            simulator_root=simulator_root,
+            dotnet=args.dotnet,
+        )
+        print(json.dumps(asdict(summary), sort_keys=True))
+        return 0
+    if args.command == "audit-snapshot-bank":
+        from anthropocene_rl.datasets.generate import audit_manifest_file
+
+        report = audit_manifest_file(
+            manifest_path=args.manifest,
+            blob_root=args.blob_root,
+            report_path=args.report,
+            coverage_json_path=args.coverage_json,
+            coverage_markdown_path=args.coverage_markdown,
+            require_stage0_coverage=not args.no_stage0_coverage,
+            verify_blobs=not args.skip_blob_verification,
+        )
+        print(json.dumps(report.model_dump(mode="json"), sort_keys=True))
+        return 0 if report.passed else 1
     raise AssertionError("unreachable")
 
 

@@ -57,10 +57,20 @@ and a persistent Gym/bridge Reset/Step run against actual native `SaveCodec`
 snapshot bytes pass. Their hashes, fingerprints and selected learner commit are
 archived under `evidence/elder-v2-handoff/`.
 
+## Completed diagnostic snapshot-bank gate
+
+The reproducible Stage-0 bank contains 28 native SaveCodec states across TRAIN,
+DEVELOPMENT, and HELDOUT. Its committed manifest is
+`datasets/manifests/elder-v2-stage0-v1.json`; generation, coverage, audit, and
+provisional TRAIN-only normalization evidence is under
+`evidence/stage0-snapshot-bank/`. Snapshot blobs remain gitignored and
+content-addressed. This is an integration diagnostic, not the final campaign
+bank or final normalizer.
+
 ## Still required before a serious campaign
 
-- build/freeze the training/development/held-out snapshot bank;
-- fit and archive normalization-v2 on the training partition;
+- expand/freeze the 200-500-state pilot snapshot bank;
+- fit and archive the final normalization-v2 scales on pilot TRAIN only;
 - pass the tiny-snapshot PPO mechanics gate;
 - benchmark environment throughput and decide worker/batching counts;
 - freeze checkpoint contents and experiment manifests.
