@@ -73,12 +73,48 @@ Exact-SHA schema/reset/step/replay results, 143 focused Elder assertions, and a
 persistent bridge Reset/Step run against real `SaveCodec` bytes are archived in
 `evidence/elder-v2-handoff/`.
 
+## Stage-0 snapshot bank
+
+The learner-owned snapshot-bank tool compiles the pinned simulator sources and
+stores native `SaveCodec` payloads under gitignored, content-addressed storage.
+Python does not construct worlds or reproduce simulation formulas. The checked
+in Stage-0 manifest and reports are:
+
+- `datasets/manifests/elder-v2-stage0-v1.json`;
+- `evidence/stage0-snapshot-bank/`.
+
+Generate and independently audit the bank with:
+
+```bash
+uv run anthropocene-rl generate-snapshot-bank \
+  --config configs/datasets/stage0-v1.yaml \
+  --manifest datasets/manifests/elder-v2-stage0-v1.json \
+  --blob-root datasets/blobs \
+  --evidence-dir evidence/stage0-snapshot-bank \
+  --simulator-root "$ANTHROPOCENE_SIM_ROOT"
+
+uv run anthropocene-rl audit-snapshot-bank \
+  --manifest datasets/manifests/elder-v2-stage0-v1.json \
+  --blob-root datasets/blobs
+```
+
+Partition assignment is deterministic and happens before trajectory timestamps
+are selected. Complete world seeds are isolated, which is stricter than the
+required lineage/counterfactual grouping. Historical or already-consumed
+diagnostics are forced to DEVELOPMENT. Requested bands, scenario labels, and
+source-policy selection metadata live only in the manifest and are never added
+to actor observations.
+
+The Stage-0 normalization artifact is explicitly provisional. It is fitted from
+TRAIN reset observations and short legal TRAIN calibration rollouts only; the
+DEVELOPMENT and HELDOUT samples appear solely in post-fit diagnostics.
+
 ## What is still experimental
 
 Before any gameplay-performance claim:
 
-1. construct and freeze the training/development/held-out snapshot bank;
-2. fit normalization on the train partition;
+1. expand the diagnostic Stage-0 bank into the 200-500-state pilot bank;
+2. fit and freeze the final campaign normalizer on the pilot TRAIN partition;
 3. run the real tiny-snapshot PPO overfit gate;
 4. benchmark native workers and batching;
 5. compare H=400 versus H=800;

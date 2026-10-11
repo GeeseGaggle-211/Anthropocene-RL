@@ -1,0 +1,332 @@
+config_schema_version: snapshot-bank-generation-v1
+bank_id: elder-v2-stage0-diagnostic
+bank_version: 1.0.0
+native_generator_version: snapshot-bank-native-v1
+generation_seed: 4307001
+world:
+  width: 48
+  height: 24
+  players: 4
+  start_separation: 6
+  annual_human_growth_rate: 0.0
+partition:
+  salt: elder-v2-stage0-partitions-v1
+  train_fraction: 0.60
+  development_fraction: 0.20
+  heldout_fraction: 0.20
+calibration_rollout_steps: 3
+verify_deterministic_regeneration: true
+local_movement_radius: 1.0
+capability_experience_thresholds:
+  field-retention: 225.0
+  herd-management: 225.0
+  resident-fishing: 225.0
+trajectories:
+  - trajectory_id: f01-young-low-q
+    scenario_family: F01
+    world_seed: 21001
+    trajectory_family: controlled-bounded
+    lineage_id: f01-young-low-q
+    snapshot_steps: [0]
+    economy: cultivation
+    population: 70
+    field_q: 0.15
+    reserve_intervals: 0.25
+    site_support_quantile: 0.5
+    requested_tags: [cultivation-only, young-memory]
+  - trajectory_id: f01-young-viable
+    scenario_family: F01
+    world_seed: 21002
+    trajectory_family: controlled-bounded
+    lineage_id: f01-young-viable
+    snapshot_steps: [1]
+    economy: cultivation
+    population: 95
+    field_q: 0.24
+    reserve_intervals: 1.0
+    site_support_quantile: 0.8
+    requested_tags: [cultivation-only]
+  - trajectory_id: f02-knee-balanced
+    scenario_family: F02
+    world_seed: 21003
+    trajectory_family: controlled-bounded
+    lineage_id: f02-knee-balanced
+    snapshot_steps: [1]
+    economy: cultivation
+    population: 160
+    field_q: 0.38
+    reserve_intervals: 1.0
+    requested_tags: [cultivation-only, near-knee-q]
+  - trajectory_id: f02-knee-scarce-tools
+    scenario_family: F02
+    world_seed: 21004
+    trajectory_family: controlled-bounded
+    lineage_id: f02-knee-scarce-tools
+    snapshot_steps: [1]
+    economy: cultivation
+    population: 220
+    field_q: 0.44
+    reserve_intervals: 0.25
+    tool_abundance: 0.15
+    requested_tags: [cultivation-only, near-knee-q]
+  - trajectory_id: f03-expensive-high-q
+    scenario_family: F03
+    world_seed: 21005
+    trajectory_family: controlled-bounded
+    lineage_id: f03-expensive-high-q
+    snapshot_steps: [0]
+    economy: cultivation
+    population: 110
+    field_q: 0.56
+    reserve_intervals: 1.0
+    tool_abundance: 0.2
+    classification: synthetic-stress
+    requested_tags: [cultivation-only, high-q]
+  - trajectory_id: f03-expensive-large
+    scenario_family: F03
+    world_seed: 21006
+    trajectory_family: controlled-bounded
+    lineage_id: f03-expensive-large
+    snapshot_steps: [1]
+    economy: cultivation
+    population: 430
+    field_q: 0.62
+    reserve_intervals: 0.25
+    tool_abundance: 0.25
+    classification: synthetic-stress
+    requested_tags: [cultivation-only, high-q]
+  - trajectory_id: f04-herd-under-capacity
+    scenario_family: F04
+    world_seed: 21007
+    trajectory_family: controlled-bounded
+    lineage_id: f04-herd-under-capacity
+    snapshot_steps: [1]
+    economy: husbandry
+    population: 120
+    herd_support_ratio: 0.35
+    reserve_intervals: 1.0
+    requested_tags: [husbandry-only]
+  - trajectory_id: f04-knowledge-only
+    scenario_family: F04
+    world_seed: 21008
+    trajectory_family: controlled-bounded
+    lineage_id: f04-knowledge-only
+    snapshot_steps: [0]
+    economy: knowledge-only-husbandry
+    population: 90
+    reserve_intervals: 1.0
+    requested_tags: [husbandry-only, knowledge-only-husbandry-no-herd, no-development]
+  - trajectory_id: f05-near-capacity
+    scenario_family: F05
+    world_seed: 21009
+    trajectory_family: controlled-bounded
+    lineage_id: f05-near-capacity
+    snapshot_steps: [0]
+    economy: husbandry
+    population: 150
+    herd_support_ratio: 1.0
+    reserve_intervals: 0.25
+    requested_tags: [husbandry-only]
+  - trajectory_id: f05-overstocked
+    scenario_family: F05
+    world_seed: 21010
+    trajectory_family: controlled-bounded
+    lineage_id: f05-overstocked
+    snapshot_steps: [0]
+    economy: husbandry
+    population: 180
+    herd_support_ratio: 1.5
+    reserve_intervals: 0.25
+    classification: synthetic-stress
+    requested_tags: [husbandry-only, overstocked-herd]
+  - trajectory_id: f06-complementary-balanced
+    scenario_family: F06
+    world_seed: 21011
+    trajectory_family: controlled-bounded
+    lineage_id: f06-complementary-balanced
+    snapshot_steps: [1]
+    economy: mixed
+    population: 190
+    field_q: 0.30
+    herd_support_ratio: 0.45
+    reserve_intervals: 1.0
+    requested_tags: [mixed-cultivation-husbandry]
+  - trajectory_id: f06-complementary-secure
+    scenario_family: F06
+    world_seed: 21012
+    trajectory_family: controlled-bounded
+    lineage_id: f06-complementary-secure
+    snapshot_steps: [1]
+    economy: mixed
+    population: 260
+    field_q: 0.34
+    herd_support_ratio: 0.55
+    reserve_intervals: 2.0
+    requested_tags: [mixed-cultivation-husbandry]
+  - trajectory_id: f07-competing-knee
+    scenario_family: F07
+    world_seed: 21013
+    trajectory_family: controlled-bounded
+    lineage_id: f07-competing-knee
+    snapshot_steps: [1]
+    economy: mixed
+    population: 240
+    field_q: 0.40
+    herd_support_ratio: 1.1
+    reserve_intervals: 0.25
+    tool_abundance: 0.4
+    requested_tags: [mixed-cultivation-husbandry, near-knee-q]
+  - trajectory_id: f07-competing-overstock
+    scenario_family: F07
+    world_seed: 21014
+    trajectory_family: controlled-bounded
+    lineage_id: f07-competing-overstock
+    snapshot_steps: [0]
+    economy: mixed
+    population: 320
+    field_q: 0.45
+    herd_support_ratio: 1.8
+    reserve_intervals: 0.25
+    site_support_quantile: 0.0
+    classification: synthetic-stress
+    requested_tags: [mixed-cultivation-husbandry, near-knee-q, overstocked-herd]
+  - trajectory_id: f08-one-ground-fishing
+    scenario_family: F08
+    world_seed: 21015
+    trajectory_family: controlled-bounded
+    lineage_id: f08-one-ground-fishing
+    snapshot_steps: [0]
+    economy: fishing
+    population: 100
+    fishing_ground_target: 1
+    reserve_intervals: 0.25
+    requested_tags: [no-development, fishing]
+  - trajectory_id: f09-three-ground-fishing
+    scenario_family: F09
+    world_seed: 21016
+    trajectory_family: controlled-bounded
+    lineage_id: f09-three-ground-fishing
+    snapshot_steps: [1]
+    economy: fishing
+    population: 170
+    fishing_ground_target: 3
+    reserve_intervals: 1.0
+    requested_tags: [no-development, fishing]
+  - trajectory_id: f10-cultivation-fishing
+    scenario_family: F10
+    world_seed: 21017
+    trajectory_family: controlled-bounded
+    lineage_id: f10-cultivation-fishing
+    snapshot_steps: [0]
+    economy: cultivation-fishing
+    population: 210
+    field_q: 0.36
+    fishing_ground_target: 2
+    reserve_intervals: 2.0
+    requested_tags: [cultivation-only, fishing]
+  - trajectory_id: f11-husbandry-fishing
+    scenario_family: F11
+    world_seed: 21018
+    trajectory_family: controlled-bounded
+    lineage_id: f11-husbandry-fishing
+    snapshot_steps: [0]
+    economy: husbandry-fishing
+    population: 180
+    herd_support_ratio: 0.55
+    fishing_ground_target: 2
+    reserve_intervals: 1.0
+    requested_tags: [husbandry-only, fishing]
+  - trajectory_id: f12-all-three
+    scenario_family: F12
+    world_seed: 21019
+    trajectory_family: controlled-bounded
+    lineage_id: f12-all-three
+    snapshot_steps: [1]
+    economy: all-three
+    population: 310
+    field_q: 0.40
+    herd_support_ratio: 0.8
+    fishing_ground_target: 3
+    reserve_intervals: 1.0
+    tool_abundance: 0.6
+    requested_tags: [mixed-cultivation-husbandry, fishing, near-knee-q]
+  - trajectory_id: f13-amenity-cultivation
+    scenario_family: F13
+    world_seed: 21020
+    trajectory_family: controlled-bounded
+    lineage_id: f13-amenity-cultivation
+    snapshot_steps: [0]
+    economy: cultivation
+    population: 200
+    field_q: 0.32
+    reserve_intervals: 2.0
+    amenity_coverage: 0.2
+    tool_abundance: 0.2
+    requested_tags: [cultivation-only, amenity-bottleneck]
+  - trajectory_id: f13-amenity-mixed
+    scenario_family: F13
+    world_seed: 21021
+    trajectory_family: controlled-bounded
+    lineage_id: f13-amenity-mixed
+    snapshot_steps: [0]
+    economy: mixed
+    population: 280
+    field_q: 0.34
+    herd_support_ratio: 0.5
+    reserve_intervals: 2.0
+    amenity_coverage: 0.3
+    tool_abundance: 0.25
+    requested_tags: [mixed-cultivation-husbandry, amenity-bottleneck]
+  - trajectory_id: f17-memory-trajectory
+    scenario_family: F17
+    world_seed: 21022
+    trajectory_family: bounded-memory-contrast
+    lineage_id: f17-memory-trajectory
+    snapshot_steps: [0, 3, 9]
+    economy: mixed
+    population: 170
+    field_q: 0.30
+    herd_support_ratio: 0.4
+    reserve_intervals: 4.0
+    site_support_quantile: 0.8
+    tool_abundance: 1.5
+    requested_tags: [mixed-cultivation-husbandry]
+  - trajectory_id: f18-primitive-frontier
+    scenario_family: F18
+    world_seed: 21150
+    trajectory_family: matched-frontier-counterfactual
+    lineage_id: f18-frontier-pair
+    counterfactual_group_id: f18-frontier-pair
+    snapshot_steps: [0]
+    economy: cultivation
+    population: 180
+    field_q: 0.38
+    reserve_intervals: 2.0
+    frontier: primitive
+    requested_tags: [cultivation-only, near-knee-q]
+  - trajectory_id: f18-plough-frontier
+    scenario_family: F18
+    world_seed: 21150
+    trajectory_family: matched-frontier-counterfactual
+    lineage_id: f18-frontier-pair
+    counterfactual_group_id: f18-frontier-pair
+    snapshot_steps: [0]
+    economy: cultivation
+    population: 180
+    field_q: 0.52
+    reserve_intervals: 2.0
+    frontier: plough
+    requested_tags: [cultivation-only, high-q]
+  - trajectory_id: f18-native-transition
+    scenario_family: F18
+    world_seed: 21023
+    trajectory_family: endogenous-capability-transition
+    lineage_id: f18-native-transition
+    counterfactual_group_id: f18-native-transition
+    snapshot_steps: [0, 1]
+    economy: husbandry
+    population: 160
+    herd_support_ratio: 0.4
+    reserve_intervals: 2.0
+    frontier: technology-transition-cultivation
+    requested_tags: []

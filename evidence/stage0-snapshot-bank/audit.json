@@ -1,0 +1,13 @@
+{
+  "errors": [],
+  "manifest_sha256": "b433f75837da942caf891406208c1416bca0c7e0fe8a13b7b7a98d4f598a112a",
+  "partition_counts": {
+    "development": 10,
+    "heldout": 7,
+    "train": 11
+  },
+  "rejection_counts": {},
+  "snapshot_count": 28,
+  "status": "PASS",
+  "warnings": []
+}

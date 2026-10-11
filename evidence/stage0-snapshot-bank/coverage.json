@@ -1,0 +1,98 @@
+{
+  "bank_id": "elder-v2-stage0-diagnostic",
+  "classification_counts": {
+    "controlled-valid-fixture": 24,
+    "synthetic-stress": 4
+  },
+  "fishing_ground_counts": {
+    "0": 23,
+    "1": 1,
+    "2": 2,
+    "3": 2
+  },
+  "manifest_sha256": "b433f75837da942caf891406208c1416bca0c7e0fe8a13b7b7a98d4f598a112a",
+  "measured_tag_counts": {
+    "amenity-bottleneck": 2,
+    "cultivation-only": 10,
+    "fishing": 5,
+    "high-q": 3,
+    "husbandry-only": 6,
+    "knowledge-only-husbandry-no-herd": 1,
+    "mature-memory": 1,
+    "mixed-cultivation-husbandry": 10,
+    "near-knee-q": 7,
+    "no-development": 3,
+    "no-herd": 13,
+    "overstocked-herd": 2,
+    "technology-transition": 1,
+    "young-memory": 15
+  },
+  "partition_counts": {
+    "development": 10,
+    "heldout": 7,
+    "train": 11
+  },
+  "scenario_family_by_partition": {
+    "F01": {
+      "development": 1,
+      "train": 1
+    },
+    "F02": {
+      "development": 1,
+      "heldout": 1
+    },
+    "F03": {
+      "heldout": 1,
+      "train": 1
+    },
+    "F04": {
+      "development": 1,
+      "heldout": 1
+    },
+    "F05": {
+      "train": 2
+    },
+    "F06": {
+      "heldout": 1,
+      "train": 1
+    },
+    "F07": {
+      "development": 1,
+      "heldout": 1
+    },
+    "F08": {
+      "train": 1
+    },
+    "F09": {
+      "development": 1
+    },
+    "F10": {
+      "train": 1
+    },
+    "F11": {
+      "heldout": 1
+    },
+    "F12": {
+      "train": 1
+    },
+    "F13": {
+      "heldout": 1,
+      "train": 1
+    },
+    "F17": {
+      "development": 3
+    },
+    "F18": {
+      "development": 2,
+      "train": 2
+    }
+  },
+  "snapshot_count": 28,
+  "structural_mask_signatures": {
+    "0000": 3,
+    "0101": 5,
+    "0111": 1,
+    "1010": 10,
+    "1111": 9
+  }
+}

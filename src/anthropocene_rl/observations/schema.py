@@ -34,7 +34,9 @@ class EncodedObservation:
 
     @classmethod
     def from_native(cls, payload: Mapping[str, Any]) -> EncodedObservation:
-        schema_version = int(_pick(payload, "SchemaVersion", "schemaVersion"))
+        schema_version = int(
+            _pick(payload, "SchemaVersion", "schemaVersion", "schema_version")
+        )
         if schema_version != OBSERVATION_SCHEMA_VERSION:
             raise ValueError(f"Unexpected Elder observation schema version: {schema_version}")
         values = tuple(float(value) for value in _pick(payload, "Values", "values"))
