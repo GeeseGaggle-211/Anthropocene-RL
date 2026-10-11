@@ -29,7 +29,7 @@ and aggregate file SHA-256
 `5014420bccbbb56bb79e212fac5cb5f453197bd152cdcbd0fcac64f5df4c10e9`.
 `cultivation-readiness-post-storage-verification.json` independently verifies
 that rerun and its nine new checkpoints. The aggregate and all nine small
-per-run diagnostics are committed under `post-storage-readiness/`; the nine
+per-run diagnostics are committed under `post-storage-readiness/per-run/`; the nine
 large checkpoint files remain preserved locally under
 `checkpoints/cultivation-readiness-ebeb54f/` and gitignored as required.
 
