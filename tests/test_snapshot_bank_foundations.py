@@ -4,7 +4,12 @@ from anthropocene_rl.datasets.audit import audit_snapshot_bank
 from anthropocene_rl.datasets.blobs import ContentAddressedBlobStore
 from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationConfig
 from anthropocene_rl.datasets.models import Partition, SnapshotBankManifest
+from anthropocene_rl.datasets.normalization_audit import (
+    CalibrationObservation,
+    normalization_diagnostics,
+)
 from anthropocene_rl.datasets.partition import DeterministicPartitioner, LineageIdentity
+from anthropocene_rl.observations.normalization import SemanticNormalizerV2
 from anthropocene_rl.observations.schema import EncodedObservation
 
 
@@ -98,3 +103,42 @@ def test_native_snake_case_tensor_payload_is_accepted() -> None:
     )
 
     assert len(observation.values) == 512
+
+
+def test_normalization_diagnostics_separates_fishing_only_slice() -> None:
+    observation = EncodedObservation(
+        values=(0.0,) * 512,
+        present=(False,) * 512,
+    )
+    normalizer = SemanticNormalizerV2.fit(
+        [observation],
+        partition_id="unit-train",
+    )
+    samples = [
+        CalibrationObservation(
+            snapshot_id="fishing-only",
+            partition=Partition.TRAIN,
+            source="reset",
+            observation=observation,
+            slices=frozenset({"fishing", "fishing-only"}),
+        ),
+        CalibrationObservation(
+            snapshot_id="cultivation-fishing",
+            partition=Partition.TRAIN,
+            source="reset",
+            observation=observation,
+            slices=frozenset({"fishing", "cultivation-only"}),
+        ),
+    ]
+    manifest = SnapshotBankManifest.load(
+        "datasets/manifests/elder-v2-stage0-v1.json"
+    )
+
+    diagnostics = normalization_diagnostics(
+        samples,
+        normalizer=normalizer,
+        manifest=manifest,
+    )
+
+    assert diagnostics["sample_counts"]["fishing"] == 2
+    assert diagnostics["sample_counts"]["fishing-only"] == 1

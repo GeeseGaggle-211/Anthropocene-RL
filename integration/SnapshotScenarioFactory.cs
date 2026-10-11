@@ -351,15 +351,20 @@ namespace Anthropocene.SnapshotBank
             if (!(support.ZeroDisplacementCapacity > 0))
                 throw new InvalidOperationException(
                     "Requested domestic herd has zero local sustainable support.");
-            int animals = Math.Max(2, (int)Math.Round(
-                support.ZeroDisplacementCapacity *
-                trajectory.HerdSupportRatio,
-                MidpointRounding.AwayFromZero));
-            animals = Math.Min(animals,
-                world.Config.GetSpecies(species).MaximumHerdSize);
+            double requestedAnimals = support.ZeroDisplacementCapacity *
+                trajectory.HerdSupportRatio;
+            int animals = (int)Math.Round(requestedAnimals,
+                MidpointRounding.AwayFromZero);
+            int maximumHerdSize = world.Config.GetSpecies(species)
+                .MaximumHerdSize;
+            if (animals < 2)
+                throw new InvalidOperationException(
+                    "Requested domestic herd support ratio is below the minimum whole-animal fixture size.");
+            if (animals > maximumHerdSize)
+                throw new InvalidOperationException(
+                    "Requested domestic herd support ratio exceeds the native maximum herd size.");
             herd.Animals = animals;
-            herd.Capacity = Math.Max(animals,
-                world.Config.GetSpecies(species).MaximumHerdSize);
+            herd.Capacity = maximumHerdSize;
             camp.HerdTargetSet = true;
             camp.HerdTarget = animals;
         }

@@ -2,7 +2,7 @@
   "bank_id": "elder-v2-stage0-diagnostic",
   "bank_version": "1.0.0",
   "blob_storage": "datasets/blobs",
-  "generator_config_sha256": "1395bb0e52538d59d0748f38962897cbfb9bf464331aa4df5759a58f8daf065a",
+  "generator_config_sha256": "aee7d4c64ca62b3998e730039d6a765b9f4467349990b2f247187155e2122595",
   "manifest_schema_version": "snapshot-bank-v1",
   "native_simulator_repository": "GeeseGaggle-211/Anthropocene",
   "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
@@ -86,7 +86,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -100,7 +100,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f01-young-low-q",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "F8067A545EC2FA3DF8CA20472D55BC9F757B2AF9BC58B97E46E6899BDCAA24B7",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -213,7 +213,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -227,7 +227,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f01-young-viable",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "87F7B59C91FE0F9BF6C2426412018A57F22943A351B168E693A3906E64CDD4B7",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -340,7 +340,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -354,7 +354,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f02-knee-balanced",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "FFCF5063D60C1B09E4E585E7B265D980709A62FC968E7423BA48BE6F6716F24E",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -468,7 +468,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -482,7 +482,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f02-knee-scarce-tools",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "8B63971532F19099831897C921FD920F2F68411020EEF4CF0DF24C42861E1F49",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -597,7 +597,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -611,7 +611,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f03-expensive-high-q",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "066EB27B48E62C3911852F58F9EEB886BD13C13B1A92A76763CF8303540483A0",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -725,7 +725,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -739,7 +739,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f03-expensive-large",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "7EDFE49556F496F73D5619B404CACC6919BEFED16012AE050C7CB56A197FBA31",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -851,7 +851,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -865,7 +865,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f04-herd-under-capacity",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "DC396827F486B247E1F66D6A6D0519DF0ACCA4ECFAC80DB320054AE3659DF60A",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -980,7 +980,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -994,7 +994,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f04-knowledge-only",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "B366290A0513EA6160732A13CB38C92A6EEB74E78FC2615BA6AA4FFD1EF5B994",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1108,7 +1108,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1122,7 +1122,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f05-near-capacity",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "398A648EEB6633C3BDCAAF643C722E79DFA1F062CC9DD8519AD982DBEF3349BD",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1235,7 +1235,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1249,7 +1249,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f05-overstocked",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "68CE2D1DD91949B2252E440537F01502D34005AE8D89AA9383EFAD68A5644EF5",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1361,7 +1361,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1375,7 +1375,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f06-complementary-balanced",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "E24CD3FFD66B872D26600019CFA5126BE814B239DF2E14D5D70EA28C4D2D5042",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1486,7 +1486,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1500,7 +1500,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f06-complementary-secure",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "A0666B67287B85F4B9B6CC00C34554D58541D5249C12E273A2997FFEA36E1BEF",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1612,7 +1612,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1626,7 +1626,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f07-competing-knee",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "D731FEAD4656DC42079E2F1C12AE199790D3A37012ED52709B1415B9C1B59508",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1741,7 +1741,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1755,7 +1755,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f07-competing-overstock",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "0CA25619B9810B9C4848130C542F5B371A8F7FAAF061D0E8759553DDB3022481",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1851,6 +1851,7 @@
         },
         "tags": [
           "fishing",
+          "fishing-only",
           "no-development",
           "no-herd",
           "young-memory"
@@ -1871,7 +1872,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -1885,7 +1886,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f08-one-ground-fishing",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "F0C90595C55D7E97B94DCB51B7BC43DD0667F8736A46B5FC269C36F74B8FFB8F",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -1912,7 +1913,8 @@
         "requested_site_support_quantile": 0.5,
         "requested_tags": [
           "no-development",
-          "fishing"
+          "fishing",
+          "fishing-only"
         ],
         "site_selection_evidence": "candidates=10;rank=5;viability=180;visible_fishing=1",
         "source_policy_identity": "bounded-exploratory-elder-v1",
@@ -1980,6 +1982,7 @@
         },
         "tags": [
           "fishing",
+          "fishing-only",
           "no-development",
           "no-herd"
         ],
@@ -1999,7 +2002,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2013,7 +2016,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f09-three-ground-fishing",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "4E58C3A4091C3F5D0E823404BB7811832E3C3D044884715FD79703281974C259",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2040,7 +2043,8 @@
         "requested_site_support_quantile": 0.5,
         "requested_tags": [
           "no-development",
-          "fishing"
+          "fishing",
+          "fishing-only"
         ],
         "site_selection_evidence": "candidates=151;rank=75;viability=180;visible_fishing=3",
         "source_policy_identity": "bounded-exploratory-elder-v1",
@@ -2129,7 +2133,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2143,7 +2147,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f10-cultivation-fishing",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "ED64EA93E80B812062CDBBFBE350DAFCC624DC7C05FEAECE8E8B9590B2107E7C",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2257,7 +2261,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2271,7 +2275,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f11-husbandry-fishing",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "3A864782614AAD1DA4E68C70856C3A631F0DB4B8B73CED9C64F74CA442374BA2",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2385,7 +2389,7 @@
       "counterfactual_group_id": null,
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2399,7 +2403,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f12-all-three",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "A2330F46E30035F2FA1B3E8993302B472A932CB321372DD3FC0B4B1C2C9D82E0",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2515,7 +2519,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2529,7 +2533,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f13-amenity-cultivation",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "0ADF856EE91C49CA2814C0289F3A6B4B5CA097E7368E833DDF06F37674780266",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2643,7 +2647,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2657,7 +2661,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f13-amenity-mixed",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "02CC3FEF2B789B13B3CEA2B8D41A6AF54369A8F6E82C5FA0C87C1E08C955D4F1",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2770,7 +2774,7 @@
       "counterfactual_group_id": null,
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2784,7 +2788,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f17-memory-trajectory",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "213F1B4113C657F48E4ED08E073C0F4924FDCEB054F5C939A9BE3D49FCD3CBB2",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -2895,7 +2899,7 @@
       "counterfactual_group_id": null,
       "decision_index": 3,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -2909,7 +2913,7 @@
         "maturity_60y": 0.6321205588285577
       },
       "lineage_id": "f17-memory-trajectory",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "00E0362BE0A18DFD35C5A11C77D0555096FD81D239610BD563AD24CA7DC21859",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -3021,7 +3025,7 @@
       "counterfactual_group_id": null,
       "decision_index": 9,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -3035,7 +3039,7 @@
         "maturity_60y": 0.950212931632136
       },
       "lineage_id": "f17-memory-trajectory",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "8C0F567B419E18671FA1B458562712B7105D9B8942A60C01EB02B5DA40DFEF92",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -3147,7 +3151,7 @@
       "counterfactual_group_id": "f18-native-transition",
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -3161,7 +3165,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f18-native-transition",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "892EE7B351BCD1C62594E817E435891B13F89D084A97502BA610D45C980C2026",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -3271,7 +3275,7 @@
       "counterfactual_group_id": "f18-native-transition",
       "decision_index": 1,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -3285,7 +3289,7 @@
         "maturity_60y": 0.28346868942621073
       },
       "lineage_id": "f18-native-transition",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "0D23B27CA901F56D02725291A005B390509D6A20AE3A8AC85728C62BD9A3A328",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -3397,7 +3401,7 @@
       "counterfactual_group_id": "f18-frontier-pair",
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -3411,7 +3415,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f18-frontier-pair",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "FAC82390D1C74AF8ADFE668124E5662F13429173AFD79830337F6A946C1C794F",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",
@@ -3526,7 +3530,7 @@
       "counterfactual_group_id": "f18-frontier-pair",
       "decision_index": 0,
       "generator": {
-        "code_sha256": "1fd1959652a1420e468ccfa62713efc7673fc1b586c33f3adc6ea9f22832d7bd",
+        "code_sha256": "c7464e0cdf6f9b99c246ce6c1f67d13b504564e918d2b88be0f447a4e78f3ae8",
         "generation_seed": 4307001,
         "name": "Anthropocene.SnapshotBank",
         "rng_algorithm": "native-keyed-Numbers.Hash",
@@ -3540,7 +3544,7 @@
         "maturity_60y": 0.0
       },
       "lineage_id": "f18-frontier-pair",
-      "native_build_hash": "d5655bf7cfc94a44b254b1030343e737",
+      "native_build_hash": "6899358151f04c7b96996f1e576bd958",
       "native_fingerprint": "808A1356583DAA473F04FD4C8AC74CF26A116EF81C2EE575EBEF53BB926F8066",
       "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
       "native_simulator_version": "world-7/generator-14/elder-2",

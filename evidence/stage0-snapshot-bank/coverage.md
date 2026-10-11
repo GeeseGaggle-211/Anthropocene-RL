@@ -65,6 +65,7 @@ Signature order: field retention, herd retention, field Development, herd Develo
 | amenity-bottleneck | 2 |
 | cultivation-only | 10 |
 | fishing | 5 |
+| fishing-only | 2 |
 | high-q | 3 |
 | husbandry-only | 6 |
 | knowledge-only-husbandry-no-herd | 1 |

@@ -101,7 +101,13 @@ def normalization_diagnostics(
             if sample.partition is Partition.HELDOUT
         ],
     }
-    for name in ("high-q", "fishing", "no-herd", "young-memory"):
+    for name in (
+        "high-q",
+        "fishing",
+        "fishing-only",
+        "no-herd",
+        "young-memory",
+    ):
         slice_indices[name] = [
             index for index, sample in enumerate(samples) if name in sample.slices
         ]

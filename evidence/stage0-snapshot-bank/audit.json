@@ -1,6 +1,6 @@
 {
   "errors": [],
-  "manifest_sha256": "b433f75837da942caf891406208c1416bca0c7e0fe8a13b7b7a98d4f598a112a",
+  "manifest_sha256": "1a6c524bc7e7c443133b56324bd3867682eac66749a3b81476353c93f134e084",
   "partition_counts": {
     "development": 10,
     "heldout": 7,

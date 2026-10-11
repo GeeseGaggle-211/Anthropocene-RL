@@ -90,7 +90,9 @@ def generate_snapshot_bank(
             output=temporary_root / "first",
             project_root=root,
         )
-        deterministic = True
+        # This field means regeneration was actually checked and matched.  A
+        # disabled check must not be reported as successful verification.
+        deterministic = False
         if config.verify_deterministic_regeneration:
             second_result, _ = _native_run(
                 dotnet=dotnet,

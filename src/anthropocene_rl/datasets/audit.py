@@ -315,6 +315,11 @@ def _check_strata(records: tuple[SnapshotRecord, ...], errors: list[AuditIssue])
                 strata.cultivation_available and strata.husbandry_available
             ),
             "fishing": strata.fishing_ground_count > 0,
+            "fishing-only": (
+                strata.fishing_ground_count > 0
+                and not strata.cultivation_available
+                and not strata.husbandry_available
+            ),
             "no-herd": strata.herd_animals == 0,
             "young-memory": record.institutional_memory.age_years < 20,
             "mature-memory": record.institutional_memory.age_years >= 180,
@@ -394,6 +399,7 @@ def _check_stage0_coverage(
         "mixed-cultivation-husbandry",
         "no-development",
         "knowledge-only-husbandry-no-herd",
+        "fishing-only",
         "young-memory",
         "mature-memory",
         "near-knee-q",

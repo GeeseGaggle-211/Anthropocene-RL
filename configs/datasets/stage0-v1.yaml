@@ -200,7 +200,7 @@ trajectories:
     population: 100
     fishing_ground_target: 1
     reserve_intervals: 0.25
-    requested_tags: [no-development, fishing]
+    requested_tags: [no-development, fishing, fishing-only]
   - trajectory_id: f09-three-ground-fishing
     scenario_family: F09
     world_seed: 21016
@@ -211,7 +211,7 @@ trajectories:
     population: 170
     fishing_ground_target: 3
     reserve_intervals: 1.0
-    requested_tags: [no-development, fishing]
+    requested_tags: [no-development, fishing, fishing-only]
   - trajectory_id: f10-cultivation-fishing
     scenario_family: F10
     world_seed: 21017

@@ -8,7 +8,7 @@ SHA-256 digests are in the committed manifest.
 ## Result
 
 - manifest: `datasets/manifests/elder-v2-stage0-v1.json`;
-- manifest SHA-256: `b433f75837da942caf891406208c1416bca0c7e0fe8a13b7b7a98d4f598a112a`;
+- manifest SHA-256: `1a6c524bc7e7c443133b56324bd3867682eac66749a3b81476353c93f134e084`;
 - accepted snapshots: 28;
 - partitions: 11 TRAIN, 10 DEVELOPMENT, 7 HELDOUT;
 - rejected candidates: 0;
@@ -20,9 +20,10 @@ SHA-256 digests are in the committed manifest.
 
 Measured structural coverage includes cultivation-only/no-herd,
 husbandry-only, mixed cultivation/husbandry, legal no-Development,
-knowledge-only Husbandry with no herd, one/two/three-ground fishing, young and
-mature institutional memory, amenity bottlenecks, high-q states, overstocked
-herds, matched primitive/Plough frontiers, and an endogenous Cultivation
+knowledge-only Husbandry with no herd, fishing-only and mixed fishing states,
+one/two/three-ground fishing, young and mature institutional memory, amenity
+bottlenecks, high-q states, overstocked herds, paired primitive/Plough frontier
+fixtures, and an endogenous Cultivation
 capability transition.
 
 ## Artifacts
@@ -33,7 +34,8 @@ capability transition.
 - `provisional-train-normalization.json`: provisional Stage-0 scale manifest;
 - `provisional-normalization-diagnostics.json`: all 512 named features, with
   presence, min, P5/P50/P95/P99/max, fitted `c_i`, and saturation for TRAIN,
-  DEVELOPMENT, HELDOUT, high-q, fishing, no-herd, and young-memory slices.
+  DEVELOPMENT, HELDOUT, high-q, fishing, fishing-only, no-herd, and
+  young-memory slices.
 
 The provisional fit used 44 TRAIN observations: 11 resets and 33 short legal
 native calibration-rollout observations. DEVELOPMENT and HELDOUT observations

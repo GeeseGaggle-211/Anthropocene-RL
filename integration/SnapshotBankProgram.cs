@@ -412,7 +412,11 @@ namespace Anthropocene.SnapshotBank
             if (husbandry && !cultivation) tags.Add("husbandry-only");
             if (cultivation && husbandry)
                 tags.Add("mixed-cultivation-husbandry");
-            if (observation.Fishing.Length > 0) tags.Add("fishing");
+            if (observation.Fishing.Length > 0)
+            {
+                tags.Add("fishing");
+                if (!cultivation && !husbandry) tags.Add("fishing-only");
+            }
             if (observation.Herd.Animals == 0) tags.Add("no-herd");
             if (memoryAge < 20) tags.Add("young-memory");
             if (memoryAge >= 180) tags.Add("mature-memory");
@@ -608,7 +612,8 @@ namespace Anthropocene.SnapshotBank
             LineageId = plan.LineageId,
             CounterfactualGroupId = plan.CounterfactualGroupId,
             RequestedPartition = plan.Partition,
-            ReasonCode = error.Message.Contains("No physically compatible site")
+            ReasonCode = error.Message.Contains("No physically compatible site") ||
+                    error.Message.Contains("Requested domestic herd support ratio")
                 ? "requested-stratum-unreachable"
                 : error.Message.Contains("Requested stratum was not achieved")
                     ? "requested-stratum-not-achieved"
