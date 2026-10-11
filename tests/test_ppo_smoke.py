@@ -69,15 +69,26 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
         log_ratio = evaluated.log_prob - batch.old_log_prob
         ratio = torch.exp(log_ratio)
         expected_kl = ((ratio - 1.0) - log_ratio).mean()
-        expected_clip_fraction = (
-            torch.abs(ratio - 1.0) > trainer.config.clip_ratio
-        ).float().mean()
-        expected_value_mse = torch.square(
-            model.critic(batch.observations) - batch.returns
-        ).mean()
+        expected_clip_fraction = (torch.abs(ratio - 1.0) > trainer.config.clip_ratio).float().mean()
+        expected_value_mse = torch.square(model.critic(batch.observations) - batch.returns).mean()
 
     assert metrics["post_update_approx_kl"] == pytest.approx(float(expected_kl))
-    assert metrics["post_update_clip_fraction"] == pytest.approx(
-        float(expected_clip_fraction)
-    )
+    assert metrics["post_update_clip_fraction"] == pytest.approx(float(expected_clip_fraction))
     assert metrics["post_update_value_mse"] == pytest.approx(float(expected_value_mse))
+
+
+def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:
+    torch.manual_seed(71)
+    model = ElderActorCritic()
+    diagnostics = model.hidden_activation_diagnostics(torch.randn(12, 512) * 0.1)
+
+    assert diagnostics["observation_count"] == 12
+    for network in ("actor", "critic"):
+        assert diagnostics[network]["activation"] == "tanh"
+        assert len(diagnostics[network]["layers"]) == 2
+        for layer in diagnostics[network]["layers"]:
+            assert math.isfinite(layer["preactivation"]["max_abs"])
+            rate = layer["activation"]["abs_at_or_above_0_95_rate"]
+            assert 0.0 <= rate <= 1.0
+            derivative = layer["activation"]["mean_tanh_derivative"]
+            assert 0.0 <= derivative <= 1.0

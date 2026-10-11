@@ -1,0 +1,33 @@
+{
+  "artifact_schema_version": "elder-normalization-v3-promotion-audit-v1",
+  "diagnostics_sha256": "cae4b23ed3489fadb7aa3fb2fcb1b1a2dce103edc2c3b4f70720e3ba049a11ab",
+  "normalizer_sha256": "f08158acd0e46268d8b6b330b6282cfca0f7fa19edba2d908981673dc6fa1e01",
+  "saturation_absolute_threshold": 0.95,
+  "saturation_gate_maximum": 0.1,
+  "saturation_maximum_by_partition": {
+    "development": 0.0072463768115942,
+    "heldout": 0.0,
+    "train": 0.00193050193050193
+  },
+  "saturation_maximum_by_train_causal_slice": {
+    "emigration": 0.0,
+    "immigration": 0.0,
+    "post-fission": 0.0,
+    "pre-fission": 0.0,
+    "trade-dependent": 0.0
+  },
+  "saturation_pass": true,
+  "sparse_causal_support": {
+    "commodity-recent-export": 75,
+    "commodity-recent-import": 46,
+    "contact-recent-migration": 206,
+    "contact-recent-trade-flow": 139,
+    "contact-recent-trade-utility": 119,
+    "core-realized-migration": 206,
+    "core-realized-trade-utility": 116,
+    "memory-realized-migration": 519,
+    "memory-realized-trade-utility": 480
+  },
+  "sparse_causal_support_pass": true,
+  "status": "PASS"
+}

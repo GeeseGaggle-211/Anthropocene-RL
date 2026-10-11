@@ -1,0 +1,27 @@
+{
+  "failed_snapshot_id": "f17-41707-f17-memory-contrast-007-d9-eb55028669cc",
+  "failure": "husbandry-capability-available",
+  "optimizer_updates_completed": 0,
+  "phase": "post-step-1",
+  "retrospective_calibration_maxima": {
+    "development": {
+      "domestic_herd_count": 0.0,
+      "herd_development_mask": 0.0,
+      "herd_retention_mask": 0.0,
+      "husbandry_capability_available": 0.0
+    },
+    "heldout": {
+      "domestic_herd_count": 0.0,
+      "herd_development_mask": 0.0,
+      "herd_retention_mask": 0.0,
+      "husbandry_capability_available": 1.0
+    },
+    "train": {
+      "domestic_herd_count": 0.009414998934601869,
+      "herd_development_mask": 1.0,
+      "herd_retention_mask": 1.0,
+      "husbandry_capability_available": 1.0
+    }
+  },
+  "status": "REJECTED_BEFORE_FIRST_OPTIMIZER_UPDATE"
+}

@@ -55,7 +55,8 @@ from anthropocene_rl.env.gym_env import AnthropoceneElderEnv
 from anthropocene_rl.env.transport import JsonLineProcessTransport
 from anthropocene_rl.observations.normalization import (
     NormalizationManifest,
-    SemanticNormalizerV2,
+    SemanticNormalizer,
+    semantic_normalizer_from_manifest,
 )
 from anthropocene_rl.observations.schema import EncodedObservation
 from anthropocene_rl.policies.distributions import structural_head_mask
@@ -153,7 +154,7 @@ class Stage0Selection:
     record: SnapshotRecord
     snapshot_path: Path
     snapshot_bytes: bytes
-    normalizer: SemanticNormalizerV2
+    normalizer: SemanticNormalizer
 
 
 @dataclass
@@ -265,7 +266,7 @@ def load_stage0_selection(
         record=record,
         snapshot_path=snapshot_path,
         snapshot_bytes=snapshot_path.read_bytes(),
-        normalizer=SemanticNormalizerV2(normalization_manifest),
+        normalizer=semantic_normalizer_from_manifest(normalization_manifest),
     )
 
 
@@ -1528,7 +1529,7 @@ def _value_mse(model: ElderActorCritic, batch: RolloutBatch) -> float:
 
 
 def _observation_guard(
-    normalizer: SemanticNormalizerV2,
+    normalizer: SemanticNormalizer,
     raw: EncodedObservation,
 ) -> tuple[bool, int, int]:
     transformed = np.asarray(normalizer.transform(raw), dtype=np.float64)
@@ -1724,7 +1725,7 @@ def _save_and_verify_checkpoint(
     actor_critic_config: ElderActorCriticConfig,
     ppo_config: PPOConfig,
     overfit_config: OverfitConfig,
-    normalizer: SemanticNormalizerV2,
+    normalizer: SemanticNormalizer,
     identities: dict[str, Any],
     observation: Tensor,
     continuation_batch: RolloutBatch,

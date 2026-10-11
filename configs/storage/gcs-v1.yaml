@@ -15,4 +15,5 @@ max_pending_uploads: 8
 upload_attempts: 5
 initial_backoff_seconds: 0.5
 resumable_chunk_mib: 16
+download_chunk_mib: 4
 request_timeout_seconds: 120

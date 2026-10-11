@@ -15,8 +15,13 @@ from typing import Any
 import yaml  # type: ignore[import-untyped]
 
 from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationConfig
+from anthropocene_rl.observations.normalization import (
+    NORMALIZATION_VERSION_V2,
+    NORMALIZATION_VERSION_V3,
+)
 
 PILOT_GENERATION_SEED = 5117001
+PILOT_V3_REMEDIATION_GENERATION_SEED = 6117001
 PILOT_ACCEPTED_FAMILY_COUNTS = {
     "F01": 30,
     "F02": 35,
@@ -37,9 +42,65 @@ PILOT_ACCEPTED_PARTITION_COUNTS = {
     "F17": {"train": 18, "development": 3, "heldout": 3},
     "F18": {"train": 32, "development": 10, "heldout": 4},
 }
+PILOT_V3_ACCEPTED_PARTITION_COUNTS = {
+    "F01": {"train": 21, "development": 4, "heldout": 5},
+    "F02": {"train": 25, "development": 4, "heldout": 6},
+    "F03": {"train": 24, "development": 6, "heldout": 5},
+    "F13": {"train": 28, "development": 7, "heldout": 5},
+    "F15": {"train": 38, "development": 6, "heldout": 6},
+    "F16": {"train": 28, "development": 4, "heldout": 8},
+    "F17": {"train": 18, "development": 3, "heldout": 3},
+    "F18": {"train": 28, "development": 12, "heldout": 6},
+}
 
 
 def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
+    return _build_cultivation_pilot_plan(
+        generation_seed=PILOT_GENERATION_SEED,
+        world_seed_offset=0,
+        bank_id="elder-v2-cultivation-pilot",
+        bank_version="2.0.0-pilot",
+        partition_salt="elder-v2-cultivation-pilot-partitions-v7",
+        normalization_version=NORMALIZATION_VERSION_V2,
+    )
+
+
+def build_normalization_v3_remediation_plan() -> SnapshotBankGenerationConfig:
+    return _build_cultivation_pilot_plan(
+        generation_seed=PILOT_V3_REMEDIATION_GENERATION_SEED,
+        world_seed_offset=10_000,
+        bank_id="elder-v2-cultivation-pilot-normalization-v3",
+        bank_version="3.0.0-remediation",
+        partition_salt=("elder-v2-cultivation-pilot-partitions-v8-normalization-v3-12333"),
+        normalization_version=NORMALIZATION_VERSION_V3,
+        accepted_partition_counts=PILOT_V3_ACCEPTED_PARTITION_COUNTS,
+    )
+
+
+def build_normalization_v3_scope_safe_plan() -> SnapshotBankGenerationConfig:
+    return _build_cultivation_pilot_plan(
+        generation_seed=PILOT_V3_REMEDIATION_GENERATION_SEED,
+        world_seed_offset=10_000,
+        bank_id="elder-v2-cultivation-pilot-normalization-v3-scope-safe",
+        bank_version="3.1.0-scope-safe",
+        partition_salt=("elder-v2-cultivation-pilot-partitions-v8-normalization-v3-12333"),
+        normalization_version=NORMALIZATION_VERSION_V3,
+        accepted_partition_counts=PILOT_V3_ACCEPTED_PARTITION_COUNTS,
+        scope_safe_oversampling=True,
+    )
+
+
+def _build_cultivation_pilot_plan(
+    *,
+    generation_seed: int,
+    world_seed_offset: int,
+    bank_id: str,
+    bank_version: str,
+    partition_salt: str,
+    normalization_version: str,
+    accepted_partition_counts: dict[str, dict[str, int]] | None = None,
+    scope_safe_oversampling: bool = False,
+) -> SnapshotBankGenerationConfig:
     trajectories: list[dict[str, Any]] = []
     family_specs: tuple[tuple[str, int, int, dict[str, list[Any]]], ...] = (
         (
@@ -96,10 +157,12 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
         ),
     )
     for family_index, (family, count, seed_start, factors) in enumerate(family_specs):
+        if scope_safe_oversampling:
+            count = {"F01": 38, "F02": 45, "F03": 45, "F13": 52}[family]
         rows = _constrained_pairwise_rows(
             factors,
             count=count,
-            seed=PILOT_GENERATION_SEED + family_index,
+            seed=generation_seed + family_index,
         )
         for index, row in enumerate(rows):
             label = family.lower()
@@ -118,7 +181,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
                 _trajectory(
                     trajectory_id=f"{label}-pairwise-{index + 1:03d}",
                     scenario_family=family,
-                    world_seed=seed_start + index,
+                    world_seed=seed_start + world_seed_offset + index,
                     trajectory_family="cultivation-pairwise-v1",
                     snapshot_steps=[0],
                     requested_tags=requested_tags,
@@ -135,13 +198,26 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
         "tool_abundance": [0.15, 0.4, 0.8, 1.4],
         "amenity_coverage": [0.3, 0.55, 0.8, 1.0],
     }
-    open_economy_pair_targets = (
-        (("isolated", "strong-food-import"), 15),
-        (("mild-import", "surplus-export"), 22),
-        (("food-shortfall-contact", "material-tool-import"), 50),
-        (("immigration-secure", "emigration-distress"), 12),
-        (("immigration-labor", "immigration-stress"), 10),
-    )
+    if normalization_version == NORMALIZATION_VERSION_V3:
+        # The first independent v3 probe showed low physical-stratum yield for
+        # the isolation/import and mild-import/export contrasts.  Oversample
+        # candidates before native validation; the accepted quota remains five
+        # complete pairs per contrast and 50 F15 snapshots total.
+        open_economy_pair_targets = (
+            (("isolated", "strong-food-import"), 30),
+            (("mild-import", "surplus-export"), 96),
+            (("food-shortfall-contact", "material-tool-import"), 50),
+            (("immigration-secure", "emigration-distress"), 12),
+            (("immigration-labor", "immigration-stress"), 10),
+        )
+    else:
+        open_economy_pair_targets = (
+            (("isolated", "strong-food-import"), 15),
+            (("mild-import", "surplus-export"), 22),
+            (("food-shortfall-contact", "material-tool-import"), 50),
+            (("immigration-secure", "emigration-distress"), 12),
+            (("immigration-labor", "immigration-stress"), 10),
+        )
     open_economy_pairs = [
         pair
         for repeat in range(max(count for _, count in open_economy_pair_targets))
@@ -151,12 +227,12 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
     open_economy_rows = _constrained_pairwise_rows(
         open_economy_factors,
         count=len(open_economy_pairs),
-        seed=PILOT_GENERATION_SEED + 15,
+        seed=generation_seed + 15,
     )
     for index, (row, variants) in enumerate(
         zip(open_economy_rows, open_economy_pairs, strict=True)
     ):
-        world_seed = 31401 + index
+        world_seed = 31401 + world_seed_offset + index
         group_id = f"f15-open-economy-pair-{index + 1:03d}"
         for variant in variants:
             required = ["cultivation-only"]
@@ -194,11 +270,7 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
                     trajectory_family="cultivation-open-economy-v1",
                     lineage_id=group_id,
                     counterfactual_group_id=group_id,
-                    snapshot_steps=(
-                        [2]
-                        if variant == "material-tool-import"
-                        else [1]
-                    ),
+                    snapshot_steps=([2] if variant == "material-tool-import" else [1]),
                     requested_tags=required,
                     causal_variant=variant,
                     **row,
@@ -213,13 +285,17 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
         "tool_abundance": [0.2, 0.6, 1.2],
         "amenity_coverage": [0.2, 0.45, 0.75, 1.0],
     }
+    if scope_safe_oversampling:
+        fission_candidate_count = 25
+    else:
+        fission_candidate_count = 20 if normalization_version == NORMALIZATION_VERSION_V3 else 15
     fission_rows = _constrained_pairwise_rows(
         fission_factors,
-        count=15,
-        seed=PILOT_GENERATION_SEED + 16,
+        count=fission_candidate_count,
+        seed=generation_seed + 16,
     )
     for index, row in enumerate(fission_rows):
-        world_seed = 31601 + index
+        world_seed = 31601 + world_seed_offset + index
         group_id = f"f16-exit-opportunity-pair-{index + 1:03d}"
         for variant in ("poor-exit-opportunity", "strong-exit-opportunity"):
             trajectories.append(
@@ -248,15 +324,15 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
     for index, row in enumerate(
         _constrained_pairwise_rows(
             memory_factors,
-            count=12,
-            seed=PILOT_GENERATION_SEED + 17,
+            count=20 if scope_safe_oversampling else 12,
+            seed=generation_seed + 17,
         )
     ):
         trajectories.append(
             _trajectory(
                 trajectory_id=f"f17-memory-contrast-{index + 1:03d}",
                 scenario_family="F17",
-                world_seed=31701 + index,
+                world_seed=31701 + world_seed_offset + index,
                 trajectory_family="cultivation-memory-history-v1",
                 snapshot_steps=[0, 3, 9],
                 requested_tags=["cultivation-only"],
@@ -276,16 +352,14 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
     for index, row in enumerate(
         _constrained_pairwise_rows(
             frontier_factors,
-            count=23,
-            seed=PILOT_GENERATION_SEED + 18,
+            count=30 if scope_safe_oversampling else 23,
+            seed=generation_seed + 18,
         )
     ):
-        world_seed = 31801 + index
+        world_seed = 31801 + world_seed_offset + index
         group_id = f"f18-frontier-pair-{index + 1:03d}"
         common = {
-            key: value
-            for key, value in row.items()
-            if key not in {"primitive_q", "plough_q"}
+            key: value for key, value in row.items() if key not in {"primitive_q", "plough_q"}
         }
         trajectories.extend(
             (
@@ -318,38 +392,43 @@ def build_cultivation_pilot_plan() -> SnapshotBankGenerationConfig:
             )
         )
 
-    return SnapshotBankGenerationConfig.model_validate(
-        {
-            "config_schema_version": "snapshot-bank-generation-v1",
-            "bank_kind": "cultivation-pilot",
-            "bank_id": "elder-v2-cultivation-pilot",
-            "bank_version": "2.0.0-pilot",
-            "native_generator_version": "snapshot-bank-native-v1",
-            "generation_seed": PILOT_GENERATION_SEED,
-            "world": {
-                "width": 48,
-                "height": 24,
-                "players": 4,
-                "start_separation": 6,
-                "annual_human_growth_rate": 0.01145,
-            },
-            "partition": {
-                "salt": "elder-v2-cultivation-pilot-partitions-v7",
-                "train_fraction": 0.70,
-                "development_fraction": 0.15,
-                "heldout_fraction": 0.15,
-            },
-            "calibration_rollout_steps": 3,
-            "verify_deterministic_regeneration": True,
-            "local_movement_radius": 1.0,
-            "capability_experience_thresholds": {
-                "field-retention": 225.0,
-                "herd-management": 225.0,
-                "resident-fishing": 225.0,
-            },
-            "trajectories": trajectories,
-        }
-    )
+    payload: dict[str, Any] = {
+        "config_schema_version": "snapshot-bank-generation-v1",
+        "bank_kind": "cultivation-pilot",
+        "bank_id": bank_id,
+        "bank_version": bank_version,
+        "native_generator_version": "snapshot-bank-native-v1",
+        "generation_seed": generation_seed,
+        "world": {
+            "width": 48,
+            "height": 24,
+            "players": 4,
+            "start_separation": 6,
+            "annual_human_growth_rate": 0.01145,
+        },
+        "partition": {
+            "salt": partition_salt,
+            "train_fraction": 0.70,
+            "development_fraction": 0.15,
+            "heldout_fraction": 0.15,
+        },
+        "calibration_rollout_steps": (
+            5 if normalization_version == NORMALIZATION_VERSION_V3 else 3
+        ),
+        "verify_deterministic_regeneration": True,
+        "local_movement_radius": 1.0,
+        "capability_experience_thresholds": {
+            "field-retention": 225.0,
+            "herd-management": 225.0,
+            "resident-fishing": 225.0,
+        },
+        "trajectories": trajectories,
+    }
+    if normalization_version != NORMALIZATION_VERSION_V2:
+        payload["normalization_version"] = normalization_version
+    if accepted_partition_counts is not None:
+        payload["pilot_accepted_partition_counts"] = accepted_partition_counts
+    return SnapshotBankGenerationConfig.model_validate(payload)
 
 
 def cultivation_pilot_plan_summary(
@@ -361,12 +440,8 @@ def cultivation_pilot_plan_summary(
     partition_worlds: dict[str, set[int]] = {}
     for trajectory in resolved:
         family_snapshots[trajectory.scenario_family] += len(trajectory.snapshot_steps)
-        family_worlds.setdefault(trajectory.scenario_family, set()).add(
-            trajectory.world_seed
-        )
-        partition_worlds.setdefault(trajectory.partition.value, set()).add(
-            trajectory.world_seed
-        )
+        family_worlds.setdefault(trajectory.scenario_family, set()).add(trajectory.world_seed)
+        partition_worlds.setdefault(trajectory.partition.value, set()).add(trajectory.world_seed)
     pairwise = {
         family: _requested_pair_coverage(
             [
@@ -394,14 +469,16 @@ def cultivation_pilot_plan_summary(
         "requested_snapshot_count": sum(family_snapshots.values()),
         "target_accepted_snapshot_count": sum(PILOT_ACCEPTED_FAMILY_COUNTS.values()),
         "target_accepted_family_counts": PILOT_ACCEPTED_FAMILY_COUNTS,
+        "target_accepted_partition_counts": (
+            config.pilot_accepted_partition_counts or PILOT_ACCEPTED_PARTITION_COUNTS
+        ),
         "independent_world_count": len({item.world_seed for item in resolved}),
         "family_snapshot_counts": dict(sorted(family_snapshots.items())),
         "family_world_counts": {
             family: len(worlds) for family, worlds in sorted(family_worlds.items())
         },
         "partition_world_counts": {
-            partition: len(worlds)
-            for partition, worlds in sorted(partition_worlds.items())
+            partition: len(worlds) for partition, worlds in sorted(partition_worlds.items())
         },
         "requested_pairwise_coverage": pairwise,
         "selection_rule": (
@@ -413,8 +490,9 @@ def cultivation_pilot_plan_summary(
             "accepted records pass measured physical-strata and leakage audits"
         ),
         "normalization_rule": (
-            "fit final normalization-v2 from frozen PILOT TRAIN reset plus short legal "
-            "calibration rollouts; DEVELOPMENT and HELDOUT are transform-only"
+            f"fit final {config.normalization_version} from frozen PILOT TRAIN reset "
+            "plus short legal calibration rollouts; DEVELOPMENT and HELDOUT are "
+            "transform-only"
         ),
         "live_external_dynamics": ["trade", "immigration", "emigration", "fission"],
         "deferred_capabilities": ["movement", "herding", "fishing"],
@@ -425,10 +503,23 @@ def save_cultivation_pilot_plan(
     *,
     config_path: str | Path,
     summary_path: str | Path,
+    variant: str = "v2",
 ) -> dict[str, Any]:
-    config = build_cultivation_pilot_plan()
+    builders = {
+        "v2": build_cultivation_pilot_plan,
+        "normalization-v3": build_normalization_v3_remediation_plan,
+        "normalization-v3-scope-safe": build_normalization_v3_scope_safe_plan,
+    }
+    try:
+        config = builders[variant]()
+    except KeyError as error:
+        raise ValueError(f"Unsupported cultivation pilot plan variant: {variant}") from error
     summary = cultivation_pilot_plan_summary(config)
     config_payload = config.model_dump(mode="json")
+    if "normalization_version" not in config.model_fields_set:
+        config_payload.pop("normalization_version", None)
+    if "pilot_accepted_partition_counts" not in config.model_fields_set:
+        config_payload.pop("pilot_accepted_partition_counts", None)
     _write_atomic(
         Path(config_path),
         yaml.safe_dump(config_payload, sort_keys=False, allow_unicode=True),
@@ -508,8 +599,7 @@ def _constrained_pairwise_rows(
             if candidate_index < len(names):
                 candidate = {
                     name: factors[name][
-                        (row_index + candidate_index * (factor_index + 1))
-                        % len(factors[name])
+                        (row_index + candidate_index * (factor_index + 1)) % len(factors[name])
                     ]
                     for factor_index, name in enumerate(names)
                 }

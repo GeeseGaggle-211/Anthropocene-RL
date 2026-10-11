@@ -1,0 +1,37 @@
+{
+  "bucket": "anthropocene-rl-datasets-508912",
+  "cache_verification": {
+    "cache_hits": 300,
+    "cache_misses": 0,
+    "records_verified": 300,
+    "status": "PASS"
+  },
+  "dataset_id": "elder-v2-cultivation-pilot-normalization-v3",
+  "dataset_manifest_sha256_after_publication": "67a91d0f95994a292f310ba874edad5fe7566fd166df174cc51243861990e555",
+  "manifest_uri": "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-normalization-v3/2026-10-11-manifest-e8e54431/manifest.json",
+  "object": {
+    "content_sha256": "654e6c6713667217eef8ca35c7d3042478b3ebf9f2a7726ad99b60e196b452d1",
+    "generation": "1791743245051483",
+    "gcs_crc32c_base64": "WdCRXw==",
+    "gcs_md5_base64": "KpKieMpT8rlEMAre2Wf4ag==",
+    "metadata_sha256": "654e6c6713667217eef8ca35c7d3042478b3ebf9f2a7726ad99b60e196b452d1",
+    "object_name": "objects/sha256/65/654e6c6713667217eef8ca35c7d3042478b3ebf9f2a7726ad99b60e196b452d1.tar",
+    "provider_size_bytes": 64706560,
+    "refetched_sha256": "654e6c6713667217eef8ca35c7d3042478b3ebf9f2a7726ad99b60e196b452d1"
+  },
+  "published_learner_sha": "953792f8da6874e4ce5840c3db2cb70c5246b655",
+  "record_refetch": {
+    "content_bytes": 201375,
+    "content_sha256": "ff97d7427439b8798542979bc1093241583daca179c941ea688047a8fb14ebfd",
+    "snapshot_id": "f01-41001-f01-pairwise-001-d0-554efcb05bf2",
+    "status": "PASS"
+  },
+  "run_id": "2026-10-11-manifest-e8e54431",
+  "state_count": 300,
+  "status": "PASS",
+  "transfer": {
+    "download_chunk_bytes": 4194304,
+    "full_remote_refetch": true,
+    "provider_range_reads": true
+  }
+}

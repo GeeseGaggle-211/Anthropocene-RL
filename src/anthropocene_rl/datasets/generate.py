@@ -44,7 +44,10 @@ from anthropocene_rl.datasets.pilot_plan import (
     PILOT_ACCEPTED_FAMILY_COUNTS,
     PILOT_ACCEPTED_PARTITION_COUNTS,
 )
-from anthropocene_rl.observations.schema import EncodedObservation
+from anthropocene_rl.observations.schema import (
+    EncodedObservation,
+    cultivation_only_scope_violations,
+)
 
 
 @dataclass(frozen=True)
@@ -109,9 +112,7 @@ def generate_snapshot_bank(
             )
             deterministic = _canonical_json(first_result) == _canonical_json(second_result)
             if not deterministic:
-                raise ValueError(
-                    "Native regeneration changed for the same declared seed/config"
-                )
+                raise ValueError("Native regeneration changed for the same declared seed/config")
 
         _validate_native_result(first_result, config)
         manifest, samples = _ingest_native_result(
@@ -154,15 +155,12 @@ def generate_snapshot_bank(
             manifest=manifest,
             capability_experience_thresholds=config.capability_experience_thresholds,
             local_movement_radius=config.local_movement_radius,
-            normalizer_path=paths.evidence_directory
-            / "provisional-train-normalization.json",
+            normalizer_path=paths.evidence_directory / "provisional-train-normalization.json",
             diagnostics_path=paths.evidence_directory
             / "provisional-normalization-diagnostics.json",
             rng_provenance=rng_provenance,
         )
-        normalization_status = (
-            "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER"
-        )
+        normalization_status = "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER"
     else:
         fit_train_and_report(
             samples,
@@ -170,13 +168,13 @@ def generate_snapshot_bank(
             capability_experience_thresholds=config.capability_experience_thresholds,
             local_movement_radius=config.local_movement_radius,
             normalizer_path=paths.evidence_directory / "final-train-normalization.json",
-            diagnostics_path=paths.evidence_directory
-            / "final-normalization-diagnostics.json",
+            diagnostics_path=paths.evidence_directory / "final-normalization-diagnostics.json",
             rng_provenance=rng_provenance,
             partition_suffix="final",
             artifact_status="FINAL_PILOT_TRAIN_ONLY_NORMALIZER",
+            normalization_version=config.normalization_version,
         )
-        normalization_status = "FINAL_PILOT_TRAIN_ONLY_NORMALIZER"
+        normalization_status = f"FINAL_PILOT_TRAIN_ONLY_NORMALIZER:{config.normalization_version}"
 
     native_sha = hashlib.sha256(_canonical_json(first_result)).hexdigest()
     summary = GenerationSummary(
@@ -225,9 +223,7 @@ def audit_manifest_file(
         _save_json(report_path, report.model_dump(mode="json"))
     if coverage_json_path is not None or coverage_markdown_path is not None:
         json_path = coverage_json_path or Path(manifest_path).with_suffix(".coverage.json")
-        markdown_path = coverage_markdown_path or Path(manifest_path).with_suffix(
-            ".coverage.md"
-        )
+        markdown_path = coverage_markdown_path or Path(manifest_path).with_suffix(".coverage.md")
         save_coverage_report(
             manifest,
             json_path=json_path,
@@ -242,9 +238,7 @@ def _validate_frozen_simulator(root: Path) -> None:
     head = _run(["git", "-C", str(root), "rev-parse", "HEAD"]).strip()
     if head != SIMULATOR_COMMIT:
         raise ValueError(f"Simulator pin mismatch: {head} != {SIMULATOR_COMMIT}")
-    dirty = _run(
-        ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"]
-    ).strip()
+    dirty = _run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"]).strip()
     if dirty:
         raise ValueError("Frozen simulator tracked files are modified")
 
@@ -299,9 +293,7 @@ def _native_run(
     return result, output
 
 
-def _validate_native_result(
-    result: dict[str, Any], config: SnapshotBankGenerationConfig
-) -> None:
+def _validate_native_result(result: dict[str, Any], config: SnapshotBankGenerationConfig) -> None:
     expected = {
         "status": "PASS",
         "native_simulator_sha": SIMULATOR_COMMIT,
@@ -313,9 +305,7 @@ def _validate_native_result(
         "tensor_feature_count": TENSOR_FEATURE_COUNT,
     }
     mismatches = {
-        key: (result.get(key), value)
-        for key, value in expected.items()
-        if result.get(key) != value
+        key: (result.get(key), value) for key, value in expected.items() if result.get(key) != value
     }
     if mismatches:
         raise ValueError(f"Native generator identity mismatch: {mismatches}")
@@ -362,24 +352,27 @@ def _ingest_native_result(
             raise ValueError("Native-declared content SHA-256 does not match SaveCodec bytes")
         if raw_record.get("content_bytes") != reference.size:
             raise ValueError("Native-declared content size does not match SaveCodec bytes")
-        record = SnapshotRecord.model_validate(
-            {**raw_record, "blob_path": reference.relative_path}
-        )
+        record = SnapshotRecord.model_validate({**raw_record, "blob_path": reference.relative_path})
         records.append(record)
         for raw_sample in raw_samples:
-            if not isinstance(raw_sample, dict) or not isinstance(
-                raw_sample.get("source"), str
-            ):
+            if not isinstance(raw_sample, dict) or not isinstance(raw_sample.get("source"), str):
                 raise ValueError("Native calibration sample is malformed")
             tensor = raw_sample.get("tensor")
             if not isinstance(tensor, dict):
                 raise ValueError("Native calibration tensor is malformed")
+            observation = EncodedObservation.from_native(tensor)
+            violations = cultivation_only_scope_violations(observation)
+            if config.bank_kind == "cultivation-pilot" and violations:
+                raise ValueError(
+                    f"Selected cultivation candidate {record.snapshot_id} contains "
+                    f"an excluded calibration domain: {', '.join(violations)}"
+                )
             samples.append(
                 CalibrationObservation(
                     snapshot_id=record.snapshot_id,
                     partition=record.partition,
                     source=raw_sample["source"],
-                    observation=EncodedObservation.from_native(tensor),
+                    observation=observation,
                     # Measured stratum tags describe the authoritative saved
                     # state. Do not silently carry them onto later rollout
                     # states whose physical strata may have changed.
@@ -391,10 +384,13 @@ def _ingest_native_result(
                 )
             )
 
-    rejected = tuple(
-        RejectedCandidate.model_validate(candidate)
-        for candidate in result["rejected_candidates"]
-    ) + selection_rejections
+    rejected = (
+        tuple(
+            RejectedCandidate.model_validate(candidate)
+            for candidate in result["rejected_candidates"]
+        )
+        + selection_rejections
+    )
     _, partitioner = config.resolve_partitions()
     manifest = SnapshotBankManifest(
         bank_id=config.bank_id,
@@ -427,15 +423,11 @@ def _select_pilot_candidates(
     expected_counts: dict[tuple[str, str], int] = defaultdict(int)
     for trajectory in config.trajectories:
         group = trajectory.counterfactual_group_id or trajectory.lineage_id
-        expected_counts[(trajectory.scenario_family, group)] += len(
-            trajectory.snapshot_steps
-        )
+        expected_counts[(trajectory.scenario_family, group)] += len(trajectory.snapshot_steps)
 
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for candidate in candidates:
-        if not isinstance(candidate, dict) or not isinstance(
-            candidate.get("record"), dict
-        ):
+        if not isinstance(candidate, dict) or not isinstance(candidate.get("record"), dict):
             raise ValueError("Native candidate must contain a record object")
         record = candidate["record"]
         family = record.get("scenario_family")
@@ -448,17 +440,26 @@ def _select_pilot_candidates(
         grouped[key].append(candidate)
 
     duplicate_identity_groups: set[tuple[str, str]] = set()
+    scope_escape_groups: dict[tuple[str, str], tuple[str, ...]] = {}
     complete: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for key, group_candidates in grouped.items():
         if len(group_candidates) != expected_counts[key]:
             continue
+        violations = sorted(
+            {
+                violation
+                for candidate in group_candidates
+                for violation in _candidate_calibration_scope_violations(candidate)
+            }
+        )
+        if violations:
+            scope_escape_groups[key] = tuple(violations)
+            continue
         fingerprints = {
-            str(candidate["record"]["native_fingerprint"]).lower()
-            for candidate in group_candidates
+            str(candidate["record"]["native_fingerprint"]).lower() for candidate in group_candidates
         }
         content_hashes = {
-            str(candidate["record"]["content_sha256"]).lower()
-            for candidate in group_candidates
+            str(candidate["record"]["content_sha256"]).lower() for candidate in group_candidates
         }
         if len(fingerprints) != len(group_candidates) or len(content_hashes) != len(
             group_candidates
@@ -474,12 +475,10 @@ def _select_pilot_candidates(
     eligible: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for key, group_candidates in sorted(complete.items()):
         fingerprints = {
-            str(candidate["record"]["native_fingerprint"]).lower()
-            for candidate in group_candidates
+            str(candidate["record"]["native_fingerprint"]).lower() for candidate in group_candidates
         }
         content_hashes = {
-            str(candidate["record"]["content_sha256"]).lower()
-            for candidate in group_candidates
+            str(candidate["record"]["content_sha256"]).lower() for candidate in group_candidates
         }
         if fingerprints & selected_fingerprints or content_hashes & selected_content_hashes:
             identity_conflict_groups.add(key)
@@ -493,6 +492,25 @@ def _select_pilot_candidates(
     # duplicate by construction.
     selected_fingerprints.clear()
     selected_content_hashes.clear()
+    accepted_partition_counts = (
+        config.pilot_accepted_partition_counts or PILOT_ACCEPTED_PARTITION_COUNTS
+    )
+    shortages: list[str] = []
+    for family, quotas in accepted_partition_counts.items():
+        if family == "F15":
+            continue
+        for partition, required in quotas.items():
+            available = sum(
+                len(group_candidates)
+                for key, group_candidates in eligible.items()
+                if key[0] == family and _group_partition(group_candidates) == partition
+            )
+            if available < required:
+                shortages.append(
+                    f"{family}/{partition}: available {available}, required {required}"
+                )
+    if shortages:
+        raise ValueError("Insufficient complete scope-safe groups: " + "; ".join(shortages))
     for family, target_count in PILOT_ACCEPTED_FAMILY_COUNTS.items():
         family_groups = sorted(
             (
@@ -502,7 +520,7 @@ def _select_pilot_candidates(
             ),
             key=lambda item: item[0][1],
         )
-        quotas = PILOT_ACCEPTED_PARTITION_COUNTS[family]
+        quotas = accepted_partition_counts[family]
         if sum(quotas.values()) != target_count:
             raise ValueError(f"Pilot partition quotas do not sum for {family}")
         if family == "F15":
@@ -511,9 +529,7 @@ def _select_pilot_candidates(
             chosen = []
             for partition in ("train", "development", "heldout"):
                 candidates_for_partition = [
-                    item
-                    for item in family_groups
-                    if _group_partition(item[1]) == partition
+                    item for item in family_groups if _group_partition(item[1]) == partition
                 ]
                 count = 0
                 for item in candidates_for_partition:
@@ -536,8 +552,7 @@ def _select_pilot_candidates(
                 for candidate in group_candidates
             )
             selected_content_hashes.update(
-                str(candidate["record"]["content_sha256"]).lower()
-                for candidate in group_candidates
+                str(candidate["record"]["content_sha256"]).lower() for candidate in group_candidates
             )
 
     selected: list[dict[str, Any]] = []
@@ -548,7 +563,14 @@ def _select_pilot_candidates(
             continue
         complete_group = key in complete
         duplicate_identity = key in duplicate_identity_groups or key in identity_conflict_groups
-        if duplicate_identity:
+        if key in scope_escape_groups:
+            reason_code = "cultivation-scope-escape-during-calibration"
+            reason = (
+                "A legal calibration rollout activated an excluded pilot domain: "
+                + ", ".join(scope_escape_groups[key])
+                + "."
+            )
+        elif duplicate_identity:
             reason_code = "duplicate-native-identity-group"
             reason = "A causal group repeated a native fingerprint or content identity."
         elif complete_group:
@@ -560,9 +582,7 @@ def _select_pilot_candidates(
         for candidate in group_candidates:
             record = candidate["record"]
             metadata = dict(record.get("selection_metadata", {}))
-            metadata["pilot_selection_policy"] = (
-                "complete-groups-family-partition-exact-quota-v2"
-            )
+            metadata["pilot_selection_policy"] = "complete-groups-family-partition-exact-quota-v2"
             rejected.append(
                 RejectedCandidate(
                     candidate_id=str(record["snapshot_id"]),
@@ -581,11 +601,21 @@ def _select_pilot_candidates(
     return selected, tuple(rejected)
 
 
+def _candidate_calibration_scope_violations(candidate: dict[str, Any]) -> tuple[str, ...]:
+    raw_samples = candidate.get("calibration_observations")
+    if not isinstance(raw_samples, list):
+        raise ValueError("Native candidate calibration observations are malformed")
+    violations: set[str] = set()
+    for raw_sample in raw_samples:
+        if not isinstance(raw_sample, dict) or not isinstance(raw_sample.get("tensor"), dict):
+            raise ValueError("Native candidate calibration observation is malformed")
+        observation = EncodedObservation.from_native(raw_sample["tensor"])
+        violations.update(cultivation_only_scope_violations(observation))
+    return tuple(sorted(violations))
+
+
 def _group_partition(group_candidates: list[dict[str, Any]]) -> str:
-    partitions = {
-        str(candidate["record"]["partition"])
-        for candidate in group_candidates
-    }
+    partitions = {str(candidate["record"]["partition"]) for candidate in group_candidates}
     if len(partitions) != 1:
         raise ValueError("A causal group crossed snapshot-bank partitions")
     return next(iter(partitions))
@@ -607,9 +637,7 @@ def _select_f15_partitioned_groups(
     for item in family_groups:
         contrast = tuple(
             sorted(
-                str(candidate["record"]["selection_metadata"].get(
-                    "causal_variant", "none"
-                ))
+                str(candidate["record"]["selection_metadata"].get("causal_variant", "none"))
                 for candidate in item[1]
             )
         )
@@ -625,8 +653,7 @@ def _select_f15_partitioned_groups(
             return all(value == 0 for value in remaining.values())
         contrast = contrasts[index]
         available = {
-            partition: len(by_contrast[contrast].get(partition, []))
-            for partition in partitions
+            partition: len(by_contrast[contrast].get(partition, [])) for partition in partitions
         }
         for train in range(6):
             for development in range(6 - train):
@@ -653,14 +680,21 @@ def _select_f15_partitioned_groups(
         return False
 
     if not search(0, dict(group_quotas)):
-        raise ValueError("Complete F15 groups cannot meet contrast and partition quotas")
+        availability = {
+            " + ".join(contrast): {
+                partition: len(by_contrast[contrast].get(partition, [])) for partition in partitions
+            }
+            for contrast in contrasts
+        }
+        raise ValueError(
+            "Complete F15 groups cannot meet contrast and partition quotas; "
+            f"requested_groups={group_quotas}; available_groups={availability}"
+        )
     selected = []
     for contrast in contrasts:
         for partition in partitions:
             selected.extend(
-                by_contrast[contrast].get(partition, [])[
-                    : allocation[contrast][partition]
-                ]
+                by_contrast[contrast].get(partition, [])[: allocation[contrast][partition]]
             )
     if len(selected) != 25:
         raise AssertionError("F15 selection must preserve 25 complete pairs")

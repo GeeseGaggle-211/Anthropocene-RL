@@ -15,7 +15,7 @@ from anthropocene_rl.contracts import (
     TENSOR_FEATURE_COUNT,
 )
 from anthropocene_rl.env.transport import ElderTransport
-from anthropocene_rl.observations.normalization import SemanticNormalizerV2
+from anthropocene_rl.observations.normalization import SemanticNormalizer
 from anthropocene_rl.observations.schema import (
     ElderDirective,
     EncodedObservation,
@@ -41,7 +41,7 @@ class AnthropoceneElderEnv(_BaseEnv):
         transport: ElderTransport,
         reset_request: Mapping[str, Any],
         *,
-        normalizer: SemanticNormalizerV2 | None = None,
+        normalizer: SemanticNormalizer | None = None,
     ) -> None:
         if gym is None or spaces is None:
             raise ImportError("Install anthropocene-rl[adapter] to use Gymnasium")

@@ -13,6 +13,7 @@ from anthropocene_rl.contracts import (
     MOVEMENT_ENABLED_OFFSET,
     TENSOR_FEATURE_COUNT,
 )
+from anthropocene_rl.datasets.generate import _candidate_calibration_scope_violations
 from anthropocene_rl.observations.schema import EncodedObservation
 from anthropocene_rl.training.pilot import _assert_cultivation_scope
 
@@ -45,3 +46,21 @@ def test_cultivation_scope_accepts_excluded_domains_inactive() -> None:
 def test_cultivation_scope_rejects_excluded_domain_activation(offset: int) -> None:
     with pytest.raises(RuntimeError, match="Cultivation-only scope escaped"):
         _assert_cultivation_scope(_observation(offset), snapshot_id="snapshot", phase="post-step-1")
+
+
+def test_generation_detects_scope_escape_in_calibration_rollout() -> None:
+    observation = _observation(HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET)
+    candidate = {
+        "calibration_observations": [
+            {
+                "source": "legal-calibration-step-1",
+                "tensor": {
+                    "SchemaVersion": 2,
+                    "Values": observation.values,
+                    "Present": observation.present,
+                },
+            }
+        ]
+    }
+
+    assert _candidate_calibration_scope_violations(candidate) == ("husbandry-capability-available",)

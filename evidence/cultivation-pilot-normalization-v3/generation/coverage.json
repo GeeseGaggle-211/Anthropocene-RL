@@ -1,0 +1,289 @@
+{
+  "bank_id": "elder-v2-cultivation-pilot-normalization-v3",
+  "classification_counts": {
+    "controlled-valid-fixture": 265,
+    "synthetic-stress": 35
+  },
+  "fishing_ground_counts": {
+    "0": 300
+  },
+  "lineage_count": 206,
+  "manifest_sha256": "e8e544311040423f56e0cb1d0fe300112bd60c1d21f5c0516f1c6e16f8939f52",
+  "measured_distributions": {
+    "delivered_food_export": {
+      "count": 300,
+      "max": 380.80000000000007,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 145.6
+    },
+    "delivered_food_import": {
+      "count": 300,
+      "max": 12240.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 3.8250000000008697,
+      "p99": 8906.94999999997
+    },
+    "delivered_material_tool_import": {
+      "count": 300,
+      "max": 188.02000000000004,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 80.5028100608824
+    },
+    "delivered_trade_total": {
+      "count": 300,
+      "max": 24480.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 291.94000000000017,
+      "p99": 17813.89999999994
+    },
+    "field_q": {
+      "count": 300,
+      "max": 0.64,
+      "min": 0.12,
+      "p5": 0.16,
+      "p50": 0.3801112462477688,
+      "p95": 0.6020000000000004,
+      "p99": 0.64
+    },
+    "fission_exit_opportunity": {
+      "count": 300,
+      "max": 0.15332137349425573,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.025371406323558544
+    },
+    "fission_pressure": {
+      "count": 300,
+      "max": 1.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 1.0
+    },
+    "food_reserve_years": {
+      "count": 300,
+      "max": 80.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 27.8702120857482,
+      "p95": 80.0,
+      "p99": 80.0
+    },
+    "import_dependence": {
+      "count": 300,
+      "max": 0.45,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0005312500000001208,
+      "p99": 0.45
+    },
+    "maintenance_worker_years": {
+      "count": 300,
+      "max": 15283.549693357765,
+      "min": 7.457142857142856,
+      "p5": 18.708571428571425,
+      "p50": 86.69999999999999,
+      "p95": 4027.3632367144814,
+      "p99": 10875.452202852459
+    },
+    "memory_age_years": {
+      "count": 300,
+      "max": 180.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 60.0,
+      "p99": 180.0
+    },
+    "population": {
+      "count": 300,
+      "max": 1100.0,
+      "min": 45.0,
+      "p5": 81.95,
+      "p50": 240.0,
+      "p95": 850.0,
+      "p99": 1100.0
+    },
+    "retained_field_capital": {
+      "count": 300,
+      "max": 17.919999999999995,
+      "min": 0.44999999999999996,
+      "p5": 1.1199999999999997,
+      "p50": 5.238774403024266,
+      "p95": 13.720000000000004,
+      "p99": 17.919999999999995
+    },
+    "signed_migration": {
+      "count": 300,
+      "max": 34.0,
+      "min": -34.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 5.10000000000025,
+      "p99": 26.0
+    }
+  },
+  "measured_factor_counts": {
+    "amenity_band": {
+      "moderate": 118,
+      "poor": 62,
+      "strong": 120
+    },
+    "family": {
+      "F01": 30,
+      "F02": 35,
+      "F03": 35,
+      "F13": 40,
+      "F15": 50,
+      "F16": 40,
+      "F17": 24,
+      "F18": 46
+    },
+    "fission_state": {
+      "candidate": 7,
+      "none": 287,
+      "recent-split": 6
+    },
+    "frontier": {
+      "plough": 23,
+      "primitive": 277
+    },
+    "memory_maturity": {
+      "mature": 8,
+      "partial": 78,
+      "young": 214
+    },
+    "migration_sign": {
+      "negative": 7,
+      "positive": 16,
+      "zero": 277
+    },
+    "population_band": {
+      "large": 58,
+      "medium": 161,
+      "small": 81
+    },
+    "q_band": {
+      "high": 70,
+      "low": 88,
+      "moderate": 142
+    },
+    "reserve_band": {
+      "moderate": 5,
+      "poor": 17,
+      "strong": 278
+    },
+    "tool_band": {
+      "moderate": 90,
+      "poor": 133,
+      "strong": 77
+    },
+    "trade_band": {
+      "mild": 15,
+      "none": 275,
+      "strong": 10
+    }
+  },
+  "measured_factor_pairwise_coverage": {
+    "fraction": 0.719672131147541,
+    "observed_pairs": 439,
+    "possible_pairs": 610
+  },
+  "measured_tag_counts": {
+    "amenity-bottleneck": 52,
+    "cultivation-only": 300,
+    "emigration": 7,
+    "fission-candidate": 7,
+    "food-export": 5,
+    "food-import": 15,
+    "high-q": 70,
+    "immigration": 16,
+    "isolated": 246,
+    "low-q": 88,
+    "material-tool-import": 5,
+    "mature-memory": 8,
+    "migration-negative": 7,
+    "migration-positive": 16,
+    "near-knee-q": 107,
+    "no-herd": 300,
+    "plough-frontier": 23,
+    "post-fission": 6,
+    "pre-fission": 7,
+    "primitive-frontier": 277,
+    "recent-fission": 6,
+    "trade-active": 25,
+    "trade-dependent": 10,
+    "young-memory": 214
+  },
+  "partition_counts": {
+    "development": 46,
+    "heldout": 44,
+    "train": 210
+  },
+  "scenario_family_by_partition": {
+    "F01": {
+      "development": 4,
+      "heldout": 5,
+      "train": 21
+    },
+    "F02": {
+      "development": 4,
+      "heldout": 6,
+      "train": 25
+    },
+    "F03": {
+      "development": 6,
+      "heldout": 5,
+      "train": 24
+    },
+    "F13": {
+      "development": 7,
+      "heldout": 5,
+      "train": 28
+    },
+    "F15": {
+      "development": 6,
+      "heldout": 6,
+      "train": 38
+    },
+    "F16": {
+      "development": 4,
+      "heldout": 8,
+      "train": 28
+    },
+    "F17": {
+      "development": 3,
+      "heldout": 3,
+      "train": 18
+    },
+    "F18": {
+      "development": 12,
+      "heldout": 6,
+      "train": 28
+    }
+  },
+  "snapshot_count": 300,
+  "structural_mask_signatures": {
+    "1010": 300
+  },
+  "world_count": 206,
+  "world_counts_by_partition": {
+    "development": 32,
+    "heldout": 30,
+    "train": 144
+  }
+}

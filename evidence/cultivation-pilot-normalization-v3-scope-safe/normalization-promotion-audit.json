@@ -1,0 +1,19 @@
+{
+  "excluded_domain_maximum": {
+    "development": 0.0,
+    "heldout": 0.0,
+    "train": 0.0
+  },
+  "fit_observations": 1260,
+  "fit_partition": "train",
+  "heldout_or_development_used_for_fit": false,
+  "normalization_version": "elder-normalization-v3",
+  "saturation_gate_pass": true,
+  "saturation_maximum": {
+    "development": 0.007246376811594203,
+    "heldout": 0.003787878787878788,
+    "train": 0.0019801980198019802
+  },
+  "sparse_causal_support_pass": true,
+  "status": "PASS"
+}

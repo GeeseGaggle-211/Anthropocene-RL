@@ -29,7 +29,7 @@ def _activation(name: str) -> type[nn.Module]:
 class _Backbone(nn.Module):
     """Baseline hidden MLP without runtime layer normalization.
 
-    Inputs are expected to use the frozen observation normalization-v2 transform,
+    Inputs are expected to use a frozen semantic observation transform,
     while tanh bounds each post-activation hidden value. Linear pre-activations can
     still grow and saturate tanh during training, so LayerNorm remains a
     diagnostic-triggered ablation if optimization metrics show instability or
@@ -38,6 +38,7 @@ class _Backbone(nn.Module):
 
     def __init__(self, *, activation: str = "tanh") -> None:
         super().__init__()
+        self.activation_name = activation
         act = _activation(activation)
         self.net = nn.Sequential(
             nn.Linear(TENSOR_FEATURE_COUNT, 256),
@@ -52,6 +53,37 @@ class _Backbone(nn.Module):
 
     def forward(self, observation: Tensor) -> Tensor:
         return self.net(observation)
+
+    @torch.no_grad()
+    def activation_diagnostics(self, observation: Tensor) -> dict[str, object]:
+        hidden = observation.detach()
+        layers: list[dict[str, object]] = []
+        for layer_index, offset in enumerate((0, 2), start=1):
+            linear = self.net[offset]
+            activation = self.net[offset + 1]
+            if not isinstance(linear, nn.Linear):  # pragma: no cover - construction invariant
+                raise TypeError("Backbone diagnostic expected a linear layer")
+            preactivation = linear(hidden)
+            hidden = activation(preactivation)
+            layers.append(
+                {
+                    "layer": layer_index,
+                    "preactivation": _tensor_diagnostics(preactivation),
+                    "activation": {
+                        **_tensor_diagnostics(hidden),
+                        "abs_at_or_above_0_95_rate": float(
+                            torch.mean((torch.abs(hidden) >= 0.95).float()).cpu()
+                        ),
+                        "exact_zero_rate": float(torch.mean((hidden == 0).float()).cpu()),
+                        "mean_tanh_derivative": (
+                            float(torch.mean(1.0 - hidden.square()).cpu())
+                            if self.activation_name == "tanh"
+                            else None
+                        ),
+                    },
+                }
+            )
+        return {"activation": self.activation_name, "layers": layers}
 
 
 class ElderActor(nn.Module):
@@ -131,3 +163,30 @@ class ElderActorCritic(nn.Module):
 
     def value(self, observation: Tensor) -> Tensor:
         return self.critic(observation)
+
+    @torch.no_grad()
+    def hidden_activation_diagnostics(self, observation: Tensor) -> dict[str, object]:
+        return {
+            "observation_count": int(observation.shape[0]),
+            "actor": self.actor.backbone.activation_diagnostics(observation),
+            "critic": self.critic.backbone.activation_diagnostics(observation),
+        }
+
+
+def _tensor_diagnostics(tensor: Tensor) -> dict[str, float]:
+    values = tensor.detach().float().reshape(-1)
+    quantiles = torch.quantile(
+        values,
+        torch.tensor((0.01, 0.05, 0.50, 0.95, 0.99), device=values.device),
+    )
+    return {
+        "mean": float(torch.mean(values).cpu()),
+        "std": float(torch.std(values, unbiased=False).cpu()),
+        "p01": float(quantiles[0].cpu()),
+        "p05": float(quantiles[1].cpu()),
+        "p50": float(quantiles[2].cpu()),
+        "p95": float(quantiles[3].cpu()),
+        "p99": float(quantiles[4].cpu()),
+        "max_abs": float(torch.max(torch.abs(values)).cpu()),
+        "abs_at_or_above_2_rate": float(torch.mean((torch.abs(values) >= 2.0).float()).cpu()),
+    }

@@ -832,9 +832,9 @@ namespace Anthropocene.SnapshotBank
                 throw new InvalidDataException(
                     "Stage-0 plan must request 24-48 snapshots.");
             if (plan.BankKind == "cultivation-pilot" &&
-                (snapshots < 200 || snapshots > 500))
+                (snapshots < 200 || snapshots > 800))
                 throw new InvalidDataException(
-                    "Cultivation pilot plan must request 200-500 snapshots.");
+                    "Cultivation pilot plan must request 200-800 candidates.");
             if (plan.BankKind != "stage0" &&
                 plan.BankKind != "cultivation-pilot")
                 throw new InvalidDataException(

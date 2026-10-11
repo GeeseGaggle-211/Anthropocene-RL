@@ -27,12 +27,7 @@ from torch import Tensor
 from anthropocene_rl.contracts import (
     ACTION_SCHEMA_VERSION,
     CRITIC_SIDECAR_SCHEMA_VERSION,
-    DOMESTIC_HERD_COUNT_OFFSET,
     ENVIRONMENT_SCHEMA_VERSION,
-    FISHING_CAPABILITY_AVAILABLE_OFFSET,
-    FISHING_PRESENT_COUNT_OFFSET,
-    HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET,
-    MOVEMENT_ENABLED_OFFSET,
     OBSERVATION_SCHEMA_VERSION,
     SIMULATOR_COMMIT,
     TENSOR_FEATURE_COUNT,
@@ -57,9 +52,13 @@ from anthropocene_rl.env.gym_env import AnthropoceneElderEnv
 from anthropocene_rl.env.transport import JsonLineProcessTransport
 from anthropocene_rl.observations.normalization import (
     NormalizationManifest,
-    SemanticNormalizerV2,
+    SemanticNormalizer,
+    semantic_normalizer_from_manifest,
 )
-from anthropocene_rl.observations.schema import EncodedObservation, StructuralActionMask
+from anthropocene_rl.observations.schema import (
+    EncodedObservation,
+    cultivation_only_scope_violations,
+)
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
 from anthropocene_rl.training.overfit import (
     _action_l2,
@@ -143,7 +142,7 @@ class CampaignSelection:
     record: SnapshotRecord
     snapshot_path: Path
     snapshot_bytes: bytes
-    normalizer: SemanticNormalizerV2
+    normalizer: SemanticNormalizer
 
 
 class CampaignDataset:
@@ -172,7 +171,7 @@ class CampaignDataset:
             raise ValueError("Pilot requires the frozen final TRAIN-only normalizer")
         if normalization_manifest.partition_manifest_sha256 != self.manifest_sha256:
             raise ValueError("Pilot normalizer and bank manifest identities differ")
-        self.normalizer = SemanticNormalizerV2(normalization_manifest)
+        self.normalizer = semantic_normalizer_from_manifest(normalization_manifest)
         self._bytes: dict[str, tuple[Path, bytes]] = {}
         self.by_partition = {
             partition: tuple(
@@ -497,6 +496,7 @@ def _run_seed(
     best_score = -math.inf
     best_update = 0
     best_state: dict[str, Any] | None = None
+    initial_activation_diagnostics: dict[str, object] | None = None
 
     initial_evaluation = _evaluate_records(
         dataset=dataset,
@@ -529,6 +529,10 @@ def _run_seed(
             )
             batch = collected.pop("batch")
             last_batch = batch
+            if initial_activation_diagnostics is None:
+                initial_activation_diagnostics = model.hidden_activation_diagnostics(
+                    batch.observations
+                )
             update_started = _timing_start(device)
             metrics = trainer.update(batch)
             timings.ppo_update_seconds += _timing_stop(update_started, device)
@@ -599,6 +603,7 @@ def _run_seed(
     model.load_state_dict(best_state["model"])
     trainer.optimizer.load_state_dict(best_state["optimizer"])
     _restore_rng_state(best_state["rng"])
+    selected_activation_diagnostics = model.hidden_activation_diagnostics(last_batch.observations)
 
     final_evaluation = {
         "train_probe": _evaluate_records(
@@ -712,6 +717,16 @@ def _run_seed(
             "mean_post_update_clip_fraction": mean_clip,
             "critic_first_post_update_mse": critic_start,
             "critic_final_post_update_mse": critic_end,
+            "hidden_activation_diagnostics": {
+                "initial_policy": initial_activation_diagnostics,
+                "selected_policy": selected_activation_diagnostics,
+                "tanh_saturation_trigger": 0.10,
+                "layernorm_ablation_recommended": any(
+                    float(layer["activation"]["abs_at_or_above_0_95_rate"]) >= 0.10
+                    for network in ("actor", "critic")
+                    for layer in selected_activation_diagnostics[network]["layers"]
+                ),
+            },
             "timing": _timing_report(timings, learning_curve, training_seconds),
         },
         "evaluation": final_evaluation,
@@ -1563,23 +1578,7 @@ def _assert_cultivation_scope(
 ) -> None:
     """Fail before an excluded learned domain can enter a campaign transition."""
 
-    values = observation.values
-    mask = StructuralActionMask.from_observation(observation)
-    violations: list[str] = []
-    if values[HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
-        violations.append("husbandry-capability-available")
-    if values[DOMESTIC_HERD_COUNT_OFFSET] > 1e-9:
-        violations.append("domestic-herd-present")
-    if mask.herd_retention:
-        violations.append("herd-retention-mask-active")
-    if mask.herd_development:
-        violations.append("herd-development-mask-active")
-    if values[FISHING_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
-        violations.append("fishing-capability-available")
-    if values[FISHING_PRESENT_COUNT_OFFSET] > 1e-9:
-        violations.append("fishing-ground-present")
-    if values[MOVEMENT_ENABLED_OFFSET] > 0.5 or any(mask.movement_candidates[1:]):
-        violations.append("movement-enabled")
+    violations = cultivation_only_scope_violations(observation)
     if violations:
         detail = ", ".join(violations)
         raise RuntimeError(f"Cultivation-only scope escaped for {snapshot_id} at {phase}: {detail}")
@@ -1660,7 +1659,7 @@ def _save_and_verify_campaign_checkpoint(
     actor_config: ElderActorCriticConfig,
     ppo_config: PPOConfig,
     pilot_config: PilotConfig,
-    normalizer: SemanticNormalizerV2,
+    normalizer: SemanticNormalizer,
     identities: dict[str, Any],
     observation: Tensor,
     continuation_batch: RolloutBatch,

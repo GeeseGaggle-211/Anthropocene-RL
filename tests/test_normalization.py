@@ -5,8 +5,11 @@ import pytest
 
 from anthropocene_rl.observations.normalization import (
     CAPABILITY_EXPERIENCE_OFFSETS_BY_KEY,
+    NORMALIZATION_VERSION_V3,
     NormalizationManifest,
     SemanticNormalizerV2,
+    SemanticNormalizerV3,
+    semantic_normalizer_from_manifest,
 )
 from anthropocene_rl.observations.schema import EncodedObservation
 
@@ -61,9 +64,7 @@ def test_fit_freeze_roundtrip(tmp_path) -> None:
     first = replace(make_observation(population=100), values={18: 400})
     second = replace(make_observation(population=200), values={18: 900})
     normalizer = fit([first, second])
-    transformed = normalizer.transform(
-        replace(make_observation(population=150), values={18: 600})
-    )
+    transformed = normalizer.transform(replace(make_observation(population=150), values={18: 600}))
     assert len(transformed) == 512
     assert all(math.isfinite(value) for value in transformed)
     assert transformed[80] == 1.0
@@ -190,9 +191,7 @@ def test_herd_support_ratios_and_zero_capacity_limit_are_finite() -> None:
 
 
 def test_missing_herd_capacity_is_not_treated_as_zero_capacity() -> None:
-    observation = replace(
-        make_observation(), values={24: 10, 28: 0}, present={28: False}
-    )
+    observation = replace(make_observation(), values={24: 10, 28: 0}, present={28: False})
     normalizer = fit([observation])
     _, effective_present = normalizer.semantic_coordinates(observation)
 
@@ -227,11 +226,80 @@ def test_bounded_values_are_affine_and_binary_masks_stay_binary() -> None:
 
 def test_missing_values_are_excluded_from_scale_fit_and_output_zero() -> None:
     observed = replace(make_observation(), values={18: 2_000.0})
-    huge_but_missing = replace(
-        make_observation(), values={18: 1e300}, present={18: False}
-    )
+    huge_but_missing = replace(make_observation(), values={18: 1e300}, present={18: False})
     baseline = fit([observed])
     with_missing = fit([observed, huge_but_missing])
 
     assert with_missing.manifest.scales[18] == baseline.manifest.scales[18]
     assert with_missing.transform(huge_but_missing)[18] == 0.0
+
+
+def test_v3_sparse_event_scale_uses_nonzero_train_values() -> None:
+    observations = [make_observation() for _ in range(95)] + [
+        replace(make_observation(), values={15: 0.5}) for _ in range(5)
+    ]
+    v2 = fit(observations)
+    v3 = SemanticNormalizerV3.fit(observations, partition_id="unit-train")
+    event = replace(make_observation(), values={15: 0.5})
+
+    assert abs(v2.transform(event)[15]) >= 0.95
+    assert v3.transform(event)[15] == pytest.approx(0.8)
+    assert v3.transform(make_observation())[15] == 0.0
+    assert v3.manifest.scale_fit_modes[15] == ("sparse-nonzero-guard+dense-tail-envelope")
+    assert v3.manifest.nonzero_fit_counts[15] == 5
+
+
+def test_v3_dense_tail_envelope_protects_rare_high_values() -> None:
+    observations = [replace(make_observation(), values={312: 0.1}) for _ in range(50)] + [
+        replace(make_observation(), values={312: 0.2}) for _ in range(49)
+    ]
+    high = replace(make_observation(), values={312: 10.0})
+    observations.append(high)
+    v2 = fit(observations)
+    v3 = SemanticNormalizerV3.fit(observations, partition_id="unit-train")
+
+    assert abs(v2.transform(high)[312]) >= 0.95
+    assert abs(v3.transform(high)[312]) == pytest.approx(0.8)
+    assert v3.manifest.dense_tail_quantile == pytest.approx(0.995)
+    assert "dense-tail-envelope" in v3.manifest.scale_fit_modes[312]
+
+
+def test_v3_pools_repeated_sparse_contact_channels() -> None:
+    observations = [make_observation() for _ in range(40)]
+    observations.extend(
+        [replace(make_observation(), values={403: 0.2, 411: -0.4}) for _ in range(4)]
+    )
+    normalizer = SemanticNormalizerV3.fit(observations, partition_id="unit-train")
+    scales = {normalizer.manifest.scales[index] for index in range(403, 464, 8)}
+
+    assert len(scales) == 1
+    assert normalizer.manifest.nonzero_fit_counts[403] == 8
+    assert normalizer.manifest.scale_fit_modes[403].startswith(
+        "shared:contact-recent-trade-utility:"
+    )
+
+
+def test_v3_soft_ratio_has_finite_neutral_and_zero_coordinates() -> None:
+    neutral = replace(make_observation(horizon=20), values={10: 20})
+    positive = replace(neutral, values={10: 1})
+    zero = replace(neutral, values={10: 0})
+    normalizer = SemanticNormalizerV3.fit([neutral, positive, zero], partition_id="unit-train")
+    neutral_stage2, _ = normalizer.semantic_coordinates(neutral)
+    zero_stage2, _ = normalizer.semantic_coordinates(zero)
+
+    assert neutral_stage2[10] == pytest.approx(0.0)
+    assert math.isfinite(zero_stage2[10])
+    assert abs(normalizer.transform(zero)[10]) <= 0.950001
+    assert normalizer.manifest.ratio_softening[10] > 0
+
+
+def test_v3_manifest_roundtrip_dispatches_correctly(tmp_path) -> None:
+    normalizer = SemanticNormalizerV3.fit([make_observation()], partition_id="unit-train")
+    path = tmp_path / "normalizer-v3.json"
+    normalizer.manifest.save(path)
+    manifest = NormalizationManifest.load(path)
+    loaded = semantic_normalizer_from_manifest(manifest)
+
+    assert manifest.version == NORMALIZATION_VERSION_V3
+    assert isinstance(loaded, SemanticNormalizerV3)
+    assert loaded.transform(make_observation()) == normalizer.transform(make_observation())

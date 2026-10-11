@@ -163,6 +163,57 @@ def _slim_curve(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def _action_trend(curve: list[dict[str, Any]], head: str) -> dict[str, float]:
+    values = [float(row["actions"]["requested"][head]) for row in curve]
+    edge_count = max(1, math.floor(len(values) * 0.2))
+    return {
+        "first": values[0],
+        "last": values[-1],
+        "endpoint_change": values[-1] - values[0],
+        "first_20_percent_mean": sum(values[:edge_count]) / edge_count,
+        "last_20_percent_mean": sum(values[-edge_count:]) / edge_count,
+    }
+
+
+def _hidden_activation_summary(seed: dict[str, Any]) -> dict[str, Any] | None:
+    diagnostics = seed["training"].get("hidden_activation_diagnostics")
+    if diagnostics is None:
+        return None
+    selected = diagnostics["selected_policy"]
+    return {
+        "activation": selected["actor"]["activation"],
+        "observation_count": selected["observation_count"],
+        "tanh_saturation_trigger": diagnostics["tanh_saturation_trigger"],
+        "layernorm_ablation_recommended": diagnostics["layernorm_ablation_recommended"],
+        "actor_layers": [
+            {
+                "layer": row["layer"],
+                "activation_abs_at_or_above_0_95_rate": row["activation"][
+                    "abs_at_or_above_0_95_rate"
+                ],
+                "mean_tanh_derivative": row["activation"]["mean_tanh_derivative"],
+                "preactivation_abs_at_or_above_2_rate": row["preactivation"][
+                    "abs_at_or_above_2_rate"
+                ],
+            }
+            for row in selected["actor"]["layers"]
+        ],
+        "critic_layers": [
+            {
+                "layer": row["layer"],
+                "activation_abs_at_or_above_0_95_rate": row["activation"][
+                    "abs_at_or_above_0_95_rate"
+                ],
+                "mean_tanh_derivative": row["activation"]["mean_tanh_derivative"],
+                "preactivation_abs_at_or_above_2_rate": row["preactivation"][
+                    "abs_at_or_above_2_rate"
+                ],
+            }
+            for row in selected["critic"]["layers"]
+        ],
+    }
+
+
 def _seed_summary(seed: dict[str, Any], raw_path: Path) -> dict[str, Any]:
     curve = seed["training"]["learning_curve"]
     selected = next(row for row in curve if row["update"] == seed["selected_update"])
@@ -206,12 +257,19 @@ def _seed_summary(seed: dict[str, Any], raw_path: Path) -> dict[str, Any]:
                 bool(row["ppo"]["target_kl_early_stop"]) for row in curve
             ),
             "critic_post_update_mse": {
+                "first": seed["training"]["critic_first_post_update_mse"],
+                "final": seed["training"]["critic_final_post_update_mse"],
                 "selected": selected["ppo"]["post_update_value_mse"],
                 "mean": sum(values) / len(values),
                 "median": sorted_values[len(sorted_values) // 2],
                 "min": min(values),
                 "max": max(values),
             },
+            "cultivation_action_trends": {
+                "field_operation": _action_trend(curve, "field_operation"),
+                "development_budget": _action_trend(curve, "development_budget"),
+            },
+            "hidden_activation_diagnostics": _hidden_activation_summary(seed),
             "intervention_trend": {
                 "early_transition_rate": early_rate,
                 "late_transition_rate": late_rate,
@@ -309,6 +367,35 @@ def summarize(
         for seed in seed_reports
         if not seed["training"]["intervention_trend"]["not_pathological"]
     ]
+    failed_kl_seeds = [seed["seed"] for seed in seed_reports if not seed["gates"]["ppo_kl_stable"]]
+    failed_heldout_seeds = [
+        seed["seed"]
+        for seed in seed_reports
+        if not seed["gates"]["heldout_not_strongly_worse_than_option_a"]
+    ]
+    layernorm_ablation_seeds = [
+        seed["seed"]
+        for seed in seed_reports
+        if seed["training"]["hidden_activation_diagnostics"] is not None
+        and seed["training"]["hidden_activation_diagnostics"]["layernorm_ablation_recommended"]
+    ]
+    failure_attribution: list[str] = []
+    if failed_kl_seeds:
+        failure_attribution.append(
+            "optimizer-instability-seeds-" + "-".join(str(seed) for seed in failed_kl_seeds)
+        )
+    if failed_heldout_seeds:
+        failure_attribution.append(
+            "heldout-option-a-underperformance-seeds-"
+            + "-".join(str(seed) for seed in failed_heldout_seeds)
+        )
+    if normalization_summary["sparse_event_scale_saturation_detected"]:
+        failure_attribution.append("sparse-event-normalization-saturation")
+    if layernorm_ablation_seeds:
+        failure_attribution.append(
+            "hidden-tanh-saturation-seeds-"
+            + "-".join(str(seed) for seed in layernorm_ablation_seeds)
+        )
     trajectory = {
         key: value
         for key, value in campaign["cultivation_intensity_trajectory"].items()
@@ -334,13 +421,14 @@ def summarize(
             "sparse_event_normalization_blocker": normalization_summary[
                 "sparse_event_scale_saturation_detected"
             ],
-            "failure_attribution": [
-                "optimizer-instability-seed-1901-single-kl-breach",
-                "seed-instability-and-option-a-underperformance-seed-2101",
-                "scenario-coverage-or-transform-semantics-for-sparse-trade-migration-features",
-            ],
+            "failed_kl_seeds": failed_kl_seeds,
+            "failed_heldout_seeds": failed_heldout_seeds,
+            "layernorm_ablation_recommended_seeds": layernorm_ablation_seeds,
+            "failure_attribution": failure_attribution,
             "feed_forward_representational_failure_demonstrated": False,
-            "architecture_escalation_justified": False,
+            "sequence_architecture_escalation_justified": False,
+            "layernorm_ablation_justified": bool(layernorm_ablation_seeds),
+            "relu_ablation_priority": "defer-until-normalized-tanh-and-optimizer-ablation",
             "heldout_must_not_be_reused_for_posthoc_tuning": True,
         },
         "cultivation_intensity_trajectory": trajectory,
