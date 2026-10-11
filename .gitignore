@@ -14,6 +14,7 @@ obj/
 artifacts/
 checkpoints/
 runs/
+work/
 datasets/blobs/
 datasets/cache/
 datasets/remote/
@@ -28,3 +29,7 @@ evidence/cultivation-ppo-pilot-v1/seed-*.json
 evidence/cultivation-ppo-pilot-v1/failed-eight-step/campaign-summary.json
 evidence/cultivation-ppo-pilot-v1/failed-eight-step/option-a-baseline.json
 evidence/cultivation-ppo-pilot-v1/failed-eight-step/seed-*.json
+
+# Full per-observation normalization diagnostics are published with run data;
+# Git retains the compact promotion audit and the fitted normalizer manifest.
+evidence/cultivation-pilot-normalization-v3/generation/final-normalization-diagnostics.json

@@ -20,6 +20,8 @@ from anthropocene_rl.datasets.models import (
 from anthropocene_rl.datasets.partition import DeterministicPartitioner, LineageIdentity
 from anthropocene_rl.observations.normalization import (
     CAPABILITIES_WITH_PROGRESSION_THRESHOLDS,
+    NORMALIZATION_VERSION_V2,
+    NORMALIZATION_VERSION_V3,
 )
 
 
@@ -68,9 +70,7 @@ class TrajectoryPlan(StrictModel):
     site_support_quantile: float = Field(default=0.5, ge=0, le=1)
     tool_abundance: float = Field(default=1, ge=0, le=2)
     amenity_coverage: float = Field(default=1, ge=0, le=1)
-    frontier: Literal[
-        "primitive", "plough", "technology-transition-cultivation"
-    ] = "primitive"
+    frontier: Literal["primitive", "plough", "technology-transition-cultivation"] = "primitive"
     causal_variant: str = "none"
     requested_tags: tuple[str, ...] = ()
 
@@ -134,28 +134,33 @@ class SnapshotBankGenerationConfig(StrictModel):
     verify_deterministic_regeneration: bool = True
     local_movement_radius: float = Field(gt=0)
     capability_experience_thresholds: dict[str, float]
+    normalization_version: Literal["elder-normalization-v2", "elder-normalization-v3"] = (
+        NORMALIZATION_VERSION_V2
+    )
+    pilot_accepted_partition_counts: dict[str, dict[str, int]] | None = None
     trajectories: tuple[TrajectoryPlan, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_bank_plan(self) -> Self:
         if self.config_schema_version != "snapshot-bank-generation-v1":
             raise ValueError("Unsupported generation config schema")
+        if self.normalization_version not in {
+            NORMALIZATION_VERSION_V2,
+            NORMALIZATION_VERSION_V3,
+        }:
+            raise ValueError("Unsupported normalization version")
         ids = [trajectory.trajectory_id for trajectory in self.trajectories]
         if len(ids) != len(set(ids)):
             raise ValueError("trajectory_id values must be unique")
         snapshots = sum(len(trajectory.snapshot_steps) for trajectory in self.trajectories)
         if self.bank_kind == "stage0" and not 24 <= snapshots <= 48:
             raise ValueError("Stage-0 generation plan must request 24-48 snapshots")
-        if self.bank_kind == "cultivation-pilot" and not 200 <= snapshots <= 500:
-            raise ValueError(
-                "Cultivation pilot generation plan must request 200-500 snapshots"
-            )
+        if self.bank_kind == "cultivation-pilot" and not 200 <= snapshots <= 700:
+            raise ValueError("Cultivation pilot generation plan must request 200-700 candidates")
         if set(self.capability_experience_thresholds) != set(
             CAPABILITIES_WITH_PROGRESSION_THRESHOLDS
         ):
-            raise ValueError(
-                "Stage-0 must declare the three native semantic capability thresholds"
-            )
+            raise ValueError("Stage-0 must declare the three native semantic capability thresholds")
         if any(
             not math.isfinite(threshold) or threshold <= 0
             for threshold in self.capability_experience_thresholds.values()
@@ -174,9 +179,7 @@ class SnapshotBankGenerationConfig(StrictModel):
             }
             for trajectory in self.trajectories:
                 if trajectory.scenario_family not in allowed_families:
-                    raise ValueError(
-                        "Cultivation pilot contains a non-cultivation scenario family"
-                    )
+                    raise ValueError("Cultivation pilot contains a non-cultivation scenario family")
                 if (
                     trajectory.economy != "cultivation"
                     or trajectory.herd_support_ratio != 0
@@ -189,6 +192,22 @@ class SnapshotBankGenerationConfig(StrictModel):
                     raise ValueError(
                         "Cultivation pilot cannot reuse consumed historical diagnostics"
                     )
+            if self.pilot_accepted_partition_counts is not None:
+                if set(self.pilot_accepted_partition_counts) != allowed_families:
+                    raise ValueError(
+                        "Pilot accepted-partition counts must declare every pilot family"
+                    )
+                for family, counts in self.pilot_accepted_partition_counts.items():
+                    if set(counts) != {"train", "development", "heldout"}:
+                        raise ValueError(
+                            f"Pilot accepted-partition counts are incomplete for {family}"
+                        )
+                    if any(type(count) is not int or count <= 0 for count in counts.values()):
+                        raise ValueError(
+                            f"Pilot accepted-partition counts must be positive for {family}"
+                        )
+        elif self.pilot_accepted_partition_counts is not None:
+            raise ValueError("Only cultivation pilots may declare accepted-partition counts")
         return self
 
     def canonical_sha256(self) -> str:
@@ -198,9 +217,11 @@ class SnapshotBankGenerationConfig(StrictModel):
         # the current native plan validator.
         if self.bank_kind == "stage0" and "bank_kind" not in self.model_fields_set:
             payload.pop("bank_kind", None)
-        for trajectory, serialized in zip(
-            self.trajectories, payload["trajectories"], strict=True
-        ):
+        if "normalization_version" not in self.model_fields_set:
+            payload.pop("normalization_version", None)
+        if "pilot_accepted_partition_counts" not in self.model_fields_set:
+            payload.pop("pilot_accepted_partition_counts", None)
+        for trajectory, serialized in zip(self.trajectories, payload["trajectories"], strict=True):
             if "causal_variant" not in trajectory.model_fields_set:
                 serialized.pop("causal_variant", None)
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -239,7 +260,14 @@ class SnapshotBankGenerationConfig(StrictModel):
 
     def native_payload(self) -> dict[str, Any]:
         resolved, _ = self.resolve_partitions()
-        payload = self.model_dump(mode="json", exclude={"trajectories"})
+        payload = self.model_dump(
+            mode="json",
+            exclude={
+                "trajectories",
+                "normalization_version",
+                "pilot_accepted_partition_counts",
+            },
+        )
         payload["native_simulator_sha"] = SIMULATOR_COMMIT
         payload["generator_config_sha256"] = self.canonical_sha256()
         payload["trajectories"] = [plan.model_dump(mode="json") for plan in resolved]
