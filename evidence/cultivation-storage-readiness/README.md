@@ -28,7 +28,10 @@ commit `ebeb54fbae2730934dd976d0749e426ac5d7c8a7`. It passed 9/9 again in
 and aggregate file SHA-256
 `5014420bccbbb56bb79e212fac5cb5f453197bd152cdcbd0fcac64f5df4c10e9`.
 `cultivation-readiness-post-storage-verification.json` independently verifies
-that rerun and its nine new checkpoints.
+that rerun and its nine new checkpoints. The aggregate and all nine small
+per-run diagnostics are committed under `post-storage-readiness/`; the nine
+large checkpoint files remain preserved locally under
+`checkpoints/cultivation-readiness-ebeb54f/` and gitignored as required.
 
 ## Google Drive round trip
 
