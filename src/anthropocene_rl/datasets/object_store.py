@@ -41,6 +41,7 @@ class DatasetStoreConfig(StrictModel):
     upload_attempts: int = Field(default=5, ge=1, le=20)
     initial_backoff_seconds: float = Field(default=0.5, ge=0, le=60)
     resumable_chunk_mib: int = Field(default=16, ge=1, le=256)
+    download_chunk_mib: int = Field(default=4, ge=1, le=256)
     request_timeout_seconds: int = Field(default=120, ge=1)
 
     @model_validator(mode="after")
@@ -283,12 +284,26 @@ class GcsObjectStore:
         blob = self.bucket.blob(self._name(name))
         blob.reload(timeout=self.config.request_timeout_seconds)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        blob.download_to_filename(
-            str(destination),
-            checksum="auto",
-            retry=DEFAULT_RETRY,
-            timeout=self.config.request_timeout_seconds,
-        )
+        size = int(blob.size)
+        chunk_size = self.config.download_chunk_mib * 1024**2
+        with destination.open("wb") as handle:
+            for start in range(0, size, chunk_size):
+                end = min(start + chunk_size, size) - 1
+                payload = blob.download_as_bytes(
+                    start=start,
+                    end=end,
+                    checksum=None,
+                    retry=DEFAULT_RETRY,
+                    timeout=self.config.request_timeout_seconds,
+                )
+                expected = end - start + 1
+                if len(payload) != expected:
+                    raise OSError(
+                        f"Short GCS range read for {name}: "
+                        f"expected {expected} bytes, received {len(payload)}"
+                    )
+                handle.write(payload)
+                handle.flush()
         return self._info(blob, name)
 
     def list(self, prefix: str) -> tuple[ObjectInfo, ...]:

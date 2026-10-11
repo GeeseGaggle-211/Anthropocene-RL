@@ -384,6 +384,7 @@ def test_gcs_adapter_uses_generation_precondition_and_sha_metadata(tmp_path: Pat
             self.generation: str | None = None
             self.size = 0
             self.upload_options: dict[str, object] = {}
+            self.download_ranges: list[tuple[int, int]] = []
 
         def reload(self, **_kwargs: object) -> None:
             if self.name not in self.bucket.objects:
@@ -396,14 +397,17 @@ def test_gcs_adapter_uses_generation_precondition_and_sha_metadata(tmp_path: Pat
             self.generation = "1"
             self.bucket.objects[self.name] = self
 
-        def download_to_filename(self, filename: str, **_kwargs: object) -> None:
-            Path(filename).write_bytes(self.payload)
+        def download_as_bytes(self, *, start: int, end: int, **_kwargs: object) -> bytes:
+            self.download_ranges.append((start, end))
+            return self.payload[start : end + 1]
 
     class Bucket:
         def __init__(self) -> None:
             self.objects: dict[str, Blob] = {}
+            self.blob_options: list[dict[str, object]] = []
 
-        def blob(self, name: str, **_kwargs: object) -> Blob:
+        def blob(self, name: str, **kwargs: object) -> Blob:
+            self.blob_options.append(kwargs)
             return self.objects.get(name, Blob(self, name))
 
     class Client:
@@ -430,6 +434,7 @@ def test_gcs_adapter_uses_generation_precondition_and_sha_metadata(tmp_path: Pat
     destination = tmp_path / "downloaded.tar"
     store.download("objects/sha256/test.tar", destination)
     assert destination.read_bytes() == b"immutable-shard"
+    assert blob.download_ranges == [(0, 14)]
     assert store.list("objects/sha256/") == (info,)
 
 

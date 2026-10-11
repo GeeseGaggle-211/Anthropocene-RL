@@ -59,3 +59,13 @@ reward, observation/action schemas, and policy architecture were never relaxed.
 See `generation/audit.json`, `generation/coverage.md`,
 `generation/final-normalization-diagnostics.json`, and
 `generation/generation-summary.json` for machine-readable evidence.
+
+## Durable storage
+
+The frozen bank is published at
+`gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-normalization-v3/2026-10-11-manifest-e8e54431/manifest.json`.
+The 64,706,560-byte immutable shard was independently re-fetched in bounded
+range requests, matched its manifest SHA-256, materialized a named snapshot,
+and passed a 300-record content audit. Provider generation, MD5, CRC32C, custom
+SHA-256 metadata, and the exact re-fetch identity are recorded in
+`gcs-storage-audit.json`.
