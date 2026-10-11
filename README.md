@@ -37,6 +37,8 @@ See `configs/simulator/elder-v2.yaml`.
 - a minimal PPO optimizer and CI mechanics smoke;
 - a real movement-disabled one-snapshot PPO overfit gate with checkpoint parity,
   replay validation, and native/policy/update timing;
+- a three-snapshot by three-seed cultivation-readiness matrix with aggregate
+  convergence and stability gates;
 - a fixed-semantics 1/2/4/8 native-environment throughput benchmark.
 
 The initial optimizer smoke keeps movement disabled. H=400 and lambda_ref=0.95
@@ -119,6 +121,7 @@ frozen native SHA, run:
 
 ```bash
 uv run anthropocene-rl overfit-one-snapshot
+uv run anthropocene-rl cultivation-readiness
 uv run anthropocene-rl benchmark-native-throughput \
   --checkpoint checkpoints/stage0-one-snapshot.pt
 ```
@@ -129,6 +132,15 @@ and writes deterministic gate diagnostics plus a complete reloadable checkpoint.
 `--device` accepts `cpu` or `cuda`; CPU remains the default. The throughput
 command measures the same snapshot class with 1, 2, 4, and 8 persistent native
 processes and does not alter training semantics.
+
+`cultivation-readiness` is the promotion gate before enabling movement, herding,
+or fishing. It runs independent PPO replicas on the F01, F03, and F13
+cultivation-only TRAIN states using three neural seeds each. Every run keeps the
+other capabilities disabled and checks real native replay, action-channel
+separation, inactive-head/RNG inertness, deterministic fixed-policy outcomes,
+compiler-repair magnitude, full-update KL/clipping, on-policy critic fit, and
+bit-exact checkpoint continuation. Its aggregate result is a mechanics and
+optimization-readiness claim, not a gameplay-performance claim.
 
 ## What is still experimental
 

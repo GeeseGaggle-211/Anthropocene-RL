@@ -143,3 +143,26 @@ def test_inactive_heads_are_gradient_inert() -> None:
     (result.log_prob + result.entropy).sum().backward()
     assert torch.count_nonzero(mean.grad[0, 1:]) == 0
     assert torch.count_nonzero(log_std.grad[1:]) == 0
+
+
+def test_inactive_heads_do_not_consume_gaussian_rng_draws() -> None:
+    observation = torch.zeros(1, 512)
+    observation[:, 82] = 1.0  # field development only
+    observation[:, 482] = 1.0  # explicit stay
+    mean = torch.zeros(1, 4)
+    log_std = torch.zeros(4)
+    logits = torch.zeros(1, 8)
+
+    torch.manual_seed(101)
+    first_gaussian_draw = torch.randn(1)
+    expected_development = torch.sigmoid(
+        2.0 * first_gaussian_draw.to(torch.float64)
+    )
+
+    torch.manual_seed(101)
+    sampled = sample_hybrid(mean, log_std, logits, observation)
+
+    assert torch.equal(sampled.continuous[:, 2], expected_development)
+    assert sampled.continuous[0, 0].item() == 0.0
+    assert sampled.continuous[0, 1].item() == 0.0
+    assert sampled.continuous[0, 3].item() == 1.0

@@ -85,6 +85,32 @@ PPO update, and end-to-end timing are reported separately. A companion
 `benchmark-native-throughput` command compares 1, 2, 4, and 8 persistent native
 environments without changing the action or reset semantics.
 
+The hardened gate samples only structurally active Gaussian heads, aggregates
+PPO diagnostics over every minibatch, and recomputes KL, clip fraction, entropy,
+and value MSE over the full rollout after each update. A target-KL stop freezes
+further actor changes for that rollout while allowing the separate critic to
+finish its scheduled value-fitting epochs. Checkpoint verification restores RNG
+and optimizer state and proves the next stochastic policy sample and next PPO
+update are bit-exact, rather than checking deterministic inference alone.
+
+## Cultivation-only readiness matrix
+
+`anthropocene-rl cultivation-readiness` repeats the real native gate across F01
+(young/low-q), F03 (expensive/high-q), and F13 (amenity-constrained)
+cultivation-only TRAIN snapshots and neural seeds 1701, 1901, and 2101. This is
+a 3 x 3 independent-replica matrix; it does not pool partitions or alter the
+learner objective. Movement, herding, and fishing remain disabled. The matrix
+requires every contract, replay, numerical, checkpoint, critic-fit, and PPO
+stability gate to pass; actor movement and positive fixed-policy return signal
+must replicate across seeds. Flat-return snapshots may demonstrate a lower
+compiler-repair burden, but that is reported separately and is not called
+gameplay improvement.
+
+Passing this matrix supports retaining the separate 512 -> 256 -> 256 actor and
+critic MLPs for the bounded multi-snapshot pilot. GRU, Transformer, and
+privileged-critic experiments remain evidence-triggered follow-ups rather than
+preconditions for adding the next action capabilities.
+
 ## Still required before a serious campaign
 
 - expand/freeze the 200-500-state pilot snapshot bank;

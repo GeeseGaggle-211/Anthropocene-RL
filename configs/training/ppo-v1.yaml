@@ -43,6 +43,7 @@ optimizer:
   max_grad_norm: 0.5
   epochs: 4
   minibatch_size: 64
+  target_kl: 0.05
 open_experiments:
   - final_physical_discount_and_lambda
   - initial_log_std_and_entropy_schedule

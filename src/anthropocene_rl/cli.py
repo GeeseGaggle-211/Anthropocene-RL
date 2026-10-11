@@ -139,6 +139,42 @@ def main() -> int:
     overfit.add_argument("--learning-rate", type=float, default=1e-3)
     overfit.add_argument("--ppo-epochs", type=int, default=8)
     overfit.add_argument("--minibatch-size", type=int, default=64)
+    overfit.add_argument("--target-kl", type=float, default=0.05)
+    readiness = sub.add_parser("cultivation-readiness")
+    readiness.add_argument("--manifest", type=Path, default=Path(
+        "datasets/manifests/elder-v2-stage0-v1.json"
+    ))
+    readiness.add_argument("--blob-root", type=Path, default=Path("datasets/blobs"))
+    readiness.add_argument("--normalizer", type=Path, default=Path(
+        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
+    ))
+    readiness.add_argument("--bridge-dll", type=Path, default=Path(
+        "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll"
+    ))
+    readiness.add_argument("--dotnet", default="dotnet")
+    readiness.add_argument("--snapshot-ids")
+    readiness.add_argument("--seeds", default="1701,1901,2101")
+    readiness.add_argument("--run-directory", type=Path, default=Path(
+        "artifacts/cultivation-readiness-runs"
+    ))
+    readiness.add_argument("--checkpoint-directory", type=Path, default=Path(
+        "checkpoints/cultivation-readiness"
+    ))
+    readiness.add_argument("--diagnostics", type=Path, default=Path(
+        "artifacts/cultivation-readiness.json"
+    ))
+    readiness.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    readiness.add_argument("--updates", type=int, default=24)
+    readiness.add_argument("--episodes-per-update", type=int, default=4)
+    readiness.add_argument("--episode-steps", type=int, default=8)
+    readiness.add_argument("--horizon-years", type=float, default=400.0)
+    readiness.add_argument("--lambda-ref", type=float, default=0.95)
+    readiness.add_argument("--lambda-reference-years", type=float, default=20.0)
+    readiness.add_argument("--reward-scale", type=float, default=0.001)
+    readiness.add_argument("--learning-rate", type=float, default=1e-3)
+    readiness.add_argument("--ppo-epochs", type=int, default=8)
+    readiness.add_argument("--minibatch-size", type=int, default=64)
+    readiness.add_argument("--target-kl", type=float, default=0.05)
     throughput = sub.add_parser("benchmark-native-throughput")
     throughput.add_argument("--manifest", type=Path, default=Path(
         "datasets/manifests/elder-v2-stage0-v1.json"
@@ -235,6 +271,7 @@ def main() -> int:
                 entropy_coefficient=0.0,
                 epochs=args.ppo_epochs,
                 minibatch_size=args.minibatch_size,
+                target_kl=args.target_kl,
             ),
         )
         print(json.dumps(diagnostics, sort_keys=True))
@@ -256,6 +293,51 @@ def main() -> int:
             seed=args.seed,
             device_name=args.device,
             diagnostics_path=args.diagnostics,
+        )
+        print(json.dumps(diagnostics, sort_keys=True))
+        return 0 if diagnostics["status"] == "PASS" else 1
+    if args.command == "cultivation-readiness":
+        from anthropocene_rl.training.overfit import (
+            OverfitConfig,
+            run_cultivation_readiness_matrix,
+        )
+        from anthropocene_rl.training.ppo import PPOConfig
+
+        seeds = tuple(int(value) for value in args.seeds.split(","))
+        snapshot_ids = (
+            tuple(value for value in args.snapshot_ids.split(",") if value)
+            if args.snapshot_ids
+            else None
+        )
+        diagnostics = run_cultivation_readiness_matrix(
+            bridge_dll=args.bridge_dll,
+            dotnet=args.dotnet,
+            manifest_path=args.manifest,
+            blob_root=args.blob_root,
+            normalizer_path=args.normalizer,
+            snapshot_ids=snapshot_ids,
+            seeds=seeds,
+            run_directory=args.run_directory,
+            checkpoint_directory=args.checkpoint_directory,
+            diagnostics_path=args.diagnostics,
+            config=OverfitConfig(
+                seed=seeds[0],
+                device=args.device,
+                updates=args.updates,
+                episodes_per_update=args.episodes_per_update,
+                episode_steps=args.episode_steps,
+                horizon_years=args.horizon_years,
+                lambda_ref=args.lambda_ref,
+                lambda_reference_years=args.lambda_reference_years,
+                reward_scale=args.reward_scale,
+            ),
+            ppo_config=PPOConfig(
+                learning_rate=args.learning_rate,
+                entropy_coefficient=0.0,
+                epochs=args.ppo_epochs,
+                minibatch_size=args.minibatch_size,
+                target_kl=args.target_kl,
+            ),
         )
         print(json.dumps(diagnostics, sort_keys=True))
         return 0 if diagnostics["status"] == "PASS" else 1
