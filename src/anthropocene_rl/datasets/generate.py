@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import tempfile
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,11 @@ from anthropocene_rl.datasets.models import (
 from anthropocene_rl.datasets.normalization_audit import (
     CalibrationObservation,
     fit_provisional_and_report,
+    fit_train_and_report,
+)
+from anthropocene_rl.datasets.pilot_plan import (
+    PILOT_ACCEPTED_FAMILY_COUNTS,
+    PILOT_ACCEPTED_PARTITION_COUNTS,
 )
 from anthropocene_rl.observations.schema import EncodedObservation
 
@@ -125,7 +131,12 @@ def generate_snapshot_bank(
         json_path=coverage_json,
         markdown_path=coverage_markdown,
     )
-    audit = audit_snapshot_bank(manifest, blob_root=paths.blob_root)
+    audit = audit_snapshot_bank(
+        manifest,
+        blob_root=paths.blob_root,
+        require_stage0_coverage=config.bank_kind == "stage0",
+        require_cultivation_pilot_coverage=config.bank_kind == "cultivation-pilot",
+    )
     _save_json(paths.evidence_directory / "audit.json", audit.model_dump(mode="json"))
     if not audit.passed:
         raise ValueError(
@@ -133,20 +144,39 @@ def generate_snapshot_bank(
             + "; ".join(f"{issue.code}: {issue.message}" for issue in audit.errors)
         )
 
-    fit_provisional_and_report(
-        samples,
-        manifest=manifest,
-        capability_experience_thresholds=config.capability_experience_thresholds,
-        local_movement_radius=config.local_movement_radius,
-        normalizer_path=paths.evidence_directory
-        / "provisional-train-normalization.json",
-        diagnostics_path=paths.evidence_directory
-        / "provisional-normalization-diagnostics.json",
-        rng_provenance=(
-            f"{config.native_generator_version}/generation-seed:{config.generation_seed};"
-            "bounded native calibration directives"
-        ),
+    rng_provenance = (
+        f"{config.native_generator_version}/generation-seed:{config.generation_seed};"
+        "bounded native calibration directives"
     )
+    if config.bank_kind == "stage0":
+        fit_provisional_and_report(
+            samples,
+            manifest=manifest,
+            capability_experience_thresholds=config.capability_experience_thresholds,
+            local_movement_radius=config.local_movement_radius,
+            normalizer_path=paths.evidence_directory
+            / "provisional-train-normalization.json",
+            diagnostics_path=paths.evidence_directory
+            / "provisional-normalization-diagnostics.json",
+            rng_provenance=rng_provenance,
+        )
+        normalization_status = (
+            "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER"
+        )
+    else:
+        fit_train_and_report(
+            samples,
+            manifest=manifest,
+            capability_experience_thresholds=config.capability_experience_thresholds,
+            local_movement_radius=config.local_movement_radius,
+            normalizer_path=paths.evidence_directory / "final-train-normalization.json",
+            diagnostics_path=paths.evidence_directory
+            / "final-normalization-diagnostics.json",
+            rng_provenance=rng_provenance,
+            partition_suffix="final",
+            artifact_status="FINAL_PILOT_TRAIN_ONLY_NORMALIZER",
+        )
+        normalization_status = "FINAL_PILOT_TRAIN_ONLY_NORMALIZER"
 
     native_sha = hashlib.sha256(_canonical_json(first_result)).hexdigest()
     summary = GenerationSummary(
@@ -165,9 +195,7 @@ def generate_snapshot_bank(
         {
             **summary.__dict__,
             "generator_config_sha256": config.canonical_sha256(),
-            "normalization_status": (
-                "PROVISIONAL_STAGE0_PIPELINE_TEST_NOT_FINAL_CAMPAIGN_NORMALIZER"
-            ),
+            "normalization_status": normalization_status,
         },
     )
     return summary
@@ -181,6 +209,7 @@ def audit_manifest_file(
     coverage_json_path: str | Path | None = None,
     coverage_markdown_path: str | Path | None = None,
     require_stage0_coverage: bool = True,
+    require_cultivation_pilot_coverage: bool = False,
     verify_blobs: bool = True,
 ) -> SnapshotBankAuditReport:
     manifest = SnapshotBankManifest.load(manifest_path)
@@ -189,6 +218,7 @@ def audit_manifest_file(
         manifest,
         blob_root=resolved_blob_root,
         require_stage0_coverage=require_stage0_coverage,
+        require_cultivation_pilot_coverage=require_cultivation_pilot_coverage,
         verify_blobs=verify_blobs,
     )
     if report_path is not None:
@@ -305,7 +335,14 @@ def _ingest_native_result(
     store = ContentAddressedBlobStore(blob_root)
     records: list[SnapshotRecord] = []
     samples: list[CalibrationObservation] = []
-    for raw_candidate in result["candidates"]:
+    raw_candidates = result["candidates"]
+    selection_rejections: tuple[RejectedCandidate, ...] = ()
+    if config.bank_kind == "cultivation-pilot":
+        raw_candidates, selection_rejections = _select_pilot_candidates(
+            raw_candidates,
+            config=config,
+        )
+    for raw_candidate in raw_candidates:
         if not isinstance(raw_candidate, dict):
             raise ValueError("Native candidate must be a JSON object")
         raw_record = raw_candidate.get("record")
@@ -357,7 +394,7 @@ def _ingest_native_result(
     rejected = tuple(
         RejectedCandidate.model_validate(candidate)
         for candidate in result["rejected_candidates"]
-    )
+    ) + selection_rejections
     _, partitioner = config.resolve_partitions()
     manifest = SnapshotBankManifest(
         bank_id=config.bank_id,
@@ -371,6 +408,263 @@ def _ingest_native_result(
         rejected_candidates=rejected,
     )
     return manifest, samples
+
+
+def _select_pilot_candidates(
+    candidates: list[Any],
+    *,
+    config: SnapshotBankGenerationConfig,
+) -> tuple[list[dict[str, Any]], tuple[RejectedCandidate, ...]]:
+    """Promote exact quotas without splitting native causal groups.
+
+    The campaign intentionally requests surplus trajectories in families whose
+    achieved physical strata can be rejected by the native simulator.  This
+    selector operates only after native validation and keeps a group iff every
+    requested timestamp and counterfactual sibling survived.  F15 additionally
+    preserves five complete pairs of each declared causal contrast.
+    """
+
+    expected_counts: dict[tuple[str, str], int] = defaultdict(int)
+    for trajectory in config.trajectories:
+        group = trajectory.counterfactual_group_id or trajectory.lineage_id
+        expected_counts[(trajectory.scenario_family, group)] += len(
+            trajectory.snapshot_steps
+        )
+
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for candidate in candidates:
+        if not isinstance(candidate, dict) or not isinstance(
+            candidate.get("record"), dict
+        ):
+            raise ValueError("Native candidate must contain a record object")
+        record = candidate["record"]
+        family = record.get("scenario_family")
+        group = record.get("counterfactual_group_id") or record.get("lineage_id")
+        if not isinstance(family, str) or not isinstance(group, str):
+            raise ValueError("Native candidate lacks a causal group identity")
+        key = (family, group)
+        if key not in expected_counts:
+            raise ValueError(f"Native candidate has an undeclared group: {key}")
+        grouped[key].append(candidate)
+
+    duplicate_identity_groups: set[tuple[str, str]] = set()
+    complete: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for key, group_candidates in grouped.items():
+        if len(group_candidates) != expected_counts[key]:
+            continue
+        fingerprints = {
+            str(candidate["record"]["native_fingerprint"]).lower()
+            for candidate in group_candidates
+        }
+        content_hashes = {
+            str(candidate["record"]["content_sha256"]).lower()
+            for candidate in group_candidates
+        }
+        if len(fingerprints) != len(group_candidates) or len(content_hashes) != len(
+            group_candidates
+        ):
+            duplicate_identity_groups.add(key)
+            continue
+        complete[key] = group_candidates
+
+    selected_keys: set[tuple[str, str]] = set()
+    selected_fingerprints: set[str] = set()
+    selected_content_hashes: set[str] = set()
+    identity_conflict_groups: set[tuple[str, str]] = set()
+    eligible: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for key, group_candidates in sorted(complete.items()):
+        fingerprints = {
+            str(candidate["record"]["native_fingerprint"]).lower()
+            for candidate in group_candidates
+        }
+        content_hashes = {
+            str(candidate["record"]["content_sha256"]).lower()
+            for candidate in group_candidates
+        }
+        if fingerprints & selected_fingerprints or content_hashes & selected_content_hashes:
+            identity_conflict_groups.add(key)
+            continue
+        eligible[key] = group_candidates
+        selected_fingerprints.update(fingerprints)
+        selected_content_hashes.update(content_hashes)
+
+    # Reuse these sets below for identities in promoted groups.  Every eligible
+    # group is already globally unique, so partition selection cannot create a
+    # duplicate by construction.
+    selected_fingerprints.clear()
+    selected_content_hashes.clear()
+    for family, target_count in PILOT_ACCEPTED_FAMILY_COUNTS.items():
+        family_groups = sorted(
+            (
+                (key, group_candidates)
+                for key, group_candidates in eligible.items()
+                if key[0] == family
+            ),
+            key=lambda item: item[0][1],
+        )
+        quotas = PILOT_ACCEPTED_PARTITION_COUNTS[family]
+        if sum(quotas.values()) != target_count:
+            raise ValueError(f"Pilot partition quotas do not sum for {family}")
+        if family == "F15":
+            chosen = _select_f15_partitioned_groups(family_groups, quotas)
+        else:
+            chosen = []
+            for partition in ("train", "development", "heldout"):
+                candidates_for_partition = [
+                    item
+                    for item in family_groups
+                    if _group_partition(item[1]) == partition
+                ]
+                count = 0
+                for item in candidates_for_partition:
+                    size = len(item[1])
+                    if count + size > quotas[partition]:
+                        continue
+                    chosen.append(item)
+                    count += size
+                    if count == quotas[partition]:
+                        break
+                if count != quotas[partition]:
+                    raise ValueError(
+                        f"Insufficient complete {family}/{partition} groups: "
+                        f"selected {count}, required {quotas[partition]}"
+                    )
+        for key, group_candidates in chosen:
+            selected_keys.add(key)
+            selected_fingerprints.update(
+                str(candidate["record"]["native_fingerprint"]).lower()
+                for candidate in group_candidates
+            )
+            selected_content_hashes.update(
+                str(candidate["record"]["content_sha256"]).lower()
+                for candidate in group_candidates
+            )
+
+    selected: list[dict[str, Any]] = []
+    rejected: list[RejectedCandidate] = []
+    for key, group_candidates in sorted(grouped.items()):
+        if key in selected_keys:
+            selected.extend(group_candidates)
+            continue
+        complete_group = key in complete
+        duplicate_identity = key in duplicate_identity_groups or key in identity_conflict_groups
+        if duplicate_identity:
+            reason_code = "duplicate-native-identity-group"
+            reason = "A causal group repeated a native fingerprint or content identity."
+        elif complete_group:
+            reason_code = "coverage-quota-not-selected"
+            reason = "Valid native group exceeded the frozen accepted-family quota."
+        else:
+            reason_code = "incomplete-causal-group"
+            reason = "A requested timestamp or counterfactual sibling failed native validation."
+        for candidate in group_candidates:
+            record = candidate["record"]
+            metadata = dict(record.get("selection_metadata", {}))
+            metadata["pilot_selection_policy"] = (
+                "complete-groups-family-partition-exact-quota-v2"
+            )
+            rejected.append(
+                RejectedCandidate(
+                    candidate_id=str(record["snapshot_id"]),
+                    scenario_family=str(record["scenario_family"]),
+                    scenario_version=str(record["scenario_version"]),
+                    world_seed=int(record["world_seed"]),
+                    trajectory_family=str(record["trajectory_family"]),
+                    lineage_id=str(record["lineage_id"]),
+                    counterfactual_group_id=record.get("counterfactual_group_id"),
+                    requested_partition=record["partition"],
+                    reason_code=reason_code,
+                    reason=reason,
+                    selection_metadata=metadata,
+                )
+            )
+    return selected, tuple(rejected)
+
+
+def _group_partition(group_candidates: list[dict[str, Any]]) -> str:
+    partitions = {
+        str(candidate["record"]["partition"])
+        for candidate in group_candidates
+    }
+    if len(partitions) != 1:
+        raise ValueError("A causal group crossed snapshot-bank partitions")
+    return next(iter(partitions))
+
+
+def _select_f15_partitioned_groups(
+    family_groups: list[tuple[tuple[str, str], list[dict[str, Any]]]],
+    record_quotas: dict[str, int],
+) -> list[tuple[tuple[str, str], list[dict[str, Any]]]]:
+    """Select five pairs per F15 contrast while meeting split quotas exactly."""
+
+    group_quotas = {partition: count // 2 for partition, count in record_quotas.items()}
+    if any(count % 2 for count in record_quotas.values()):
+        raise ValueError("F15 record quotas must preserve two-snapshot counterfactual pairs")
+    by_contrast: dict[
+        tuple[str, ...],
+        dict[str, list[tuple[tuple[str, str], list[dict[str, Any]]]]],
+    ] = defaultdict(lambda: defaultdict(list))
+    for item in family_groups:
+        contrast = tuple(
+            sorted(
+                str(candidate["record"]["selection_metadata"].get(
+                    "causal_variant", "none"
+                ))
+                for candidate in item[1]
+            )
+        )
+        by_contrast[contrast][_group_partition(item[1])].append(item)
+    if len(by_contrast) != 5:
+        raise ValueError("F15 must expose exactly five causal contrasts")
+    contrasts = sorted(by_contrast)
+    partitions = ("train", "development", "heldout")
+    allocation: dict[tuple[str, ...], dict[str, int]] = {}
+
+    def search(index: int, remaining: dict[str, int]) -> bool:
+        if index == len(contrasts):
+            return all(value == 0 for value in remaining.values())
+        contrast = contrasts[index]
+        available = {
+            partition: len(by_contrast[contrast].get(partition, []))
+            for partition in partitions
+        }
+        for train in range(6):
+            for development in range(6 - train):
+                heldout = 5 - train - development
+                proposal = {
+                    "train": train,
+                    "development": development,
+                    "heldout": heldout,
+                }
+                if any(
+                    proposal[partition] > available[partition]
+                    or proposal[partition] > remaining[partition]
+                    for partition in partitions
+                ):
+                    continue
+                next_remaining = {
+                    partition: remaining[partition] - proposal[partition]
+                    for partition in partitions
+                }
+                allocation[contrast] = proposal
+                if search(index + 1, next_remaining):
+                    return True
+        allocation.pop(contrast, None)
+        return False
+
+    if not search(0, dict(group_quotas)):
+        raise ValueError("Complete F15 groups cannot meet contrast and partition quotas")
+    selected = []
+    for contrast in contrasts:
+        for partition in partitions:
+            selected.extend(
+                by_contrast[contrast].get(partition, [])[
+                    : allocation[contrast][partition]
+                ]
+            )
+    if len(selected) != 25:
+        raise AssertionError("F15 selection must preserve 25 complete pairs")
+    return selected
 
 
 def _canonical_json(payload: dict[str, Any]) -> bytes:

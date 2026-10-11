@@ -29,13 +29,13 @@ namespace Anthropocene.SnapshotBank
         public double FieldQ, HerdSupportRatio, ReserveIntervals;
         public int FishingGroundTarget;
         public double SiteSupportQuantile, ToolAbundance, AmenityCoverage;
-        public string Frontier;
+        public string Frontier, CausalVariant;
         public string[] RequestedTags = Array.Empty<string>();
     }
 
     internal sealed class GenerationPlan
     {
-        public string ConfigSchemaVersion, BankId, BankVersion,
+        public string ConfigSchemaVersion, BankKind, BankId, BankVersion,
             NativeGeneratorVersion, NativeSimulatorSha,
             GeneratorConfigSha256;
         public int GenerationSeed, CalibrationRolloutSteps;

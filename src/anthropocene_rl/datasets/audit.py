@@ -23,6 +23,7 @@ from anthropocene_rl.datasets.models import (
     StrictModel,
 )
 from anthropocene_rl.datasets.partition import DeterministicPartitioner, LineageIdentity
+from anthropocene_rl.datasets.pilot_plan import PILOT_ACCEPTED_FAMILY_COUNTS
 
 
 class AuditIssue(StrictModel):
@@ -50,6 +51,7 @@ def audit_snapshot_bank(
     *,
     blob_root: str | Path,
     require_stage0_coverage: bool = True,
+    require_cultivation_pilot_coverage: bool = False,
     verify_blobs: bool = True,
 ) -> SnapshotBankAuditReport:
     errors: list[AuditIssue] = []
@@ -67,6 +69,8 @@ def audit_snapshot_bank(
         _check_blobs(records, root, errors)
     if require_stage0_coverage:
         _check_stage0_coverage(records, errors, warnings)
+    if require_cultivation_pilot_coverage:
+        _check_cultivation_pilot_coverage(records, errors)
 
     rejection_counts = Counter(rejection.reason_code for rejection in manifest.rejected_candidates)
     partition_counts = Counter(record.partition.value for record in records)
@@ -435,3 +439,146 @@ def _check_stage0_coverage(
                     ),
                 )
             )
+
+
+def _check_cultivation_pilot_coverage(
+    records: tuple[SnapshotRecord, ...],
+    errors: list[AuditIssue],
+) -> None:
+    if not 200 <= len(records) <= 500:
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-size",
+                message=(
+                    "Cultivation pilot requires 200-500 accepted snapshots; "
+                    f"observed {len(records)}"
+                ),
+            )
+        )
+    required_counts = PILOT_ACCEPTED_FAMILY_COUNTS
+    required_families = set(required_counts)
+    families = Counter(record.scenario_family for record in records)
+    if set(families) != required_families:
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-family-coverage",
+                message=(
+                    "Cultivation pilot family set differs from F01/F02/F03/F13/F17/F18"
+                ),
+            )
+        )
+    if {record.partition for record in records} != set(Partition):
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-partitions",
+                message="Cultivation pilot must include TRAIN, DEVELOPMENT, and HELDOUT",
+            )
+        )
+    for record in records:
+        strata = record.actual_strata
+        invalid = (
+            not strata.cultivation_available
+            or strata.husbandry_available
+            or strata.owned_domestic_herd
+            or strata.fishing_ground_count != 0
+            or strata.structural_masks.movement
+            or not strata.structural_masks.field_retention
+            or not strata.structural_masks.field_development
+        )
+        if invalid:
+            errors.append(
+                AuditIssue(
+                    code="cultivation-pilot-structural-scope",
+                    message=(
+                        "Pilot record enables movement/herding/fishing or lacks cultivation"
+                    ),
+                    snapshot_ids=(record.snapshot_id,),
+                )
+            )
+    if dict(sorted(families.items())) != required_counts:
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-family-counts",
+                message=(
+                    "Cultivation pilot accepted family counts differ from the frozen "
+                    f"300-state design: {dict(sorted(families.items()))}"
+                ),
+            )
+        )
+    required_measured_tags = {
+        "F01": "young-memory",
+        "F02": "near-knee-q",
+        "F03": "high-q",
+        "F13": "amenity-bottleneck",
+    }
+    for family, tag in required_measured_tags.items():
+        if not any(
+            record.scenario_family == family and tag in record.actual_strata.tags
+            for record in records
+        ):
+            errors.append(
+                AuditIssue(
+                    code="cultivation-pilot-measured-strata",
+                    message=f"{family} lacks an accepted measured {tag!r} state",
+                )
+            )
+    memory_ages = {
+        round(record.institutional_memory.age_years, 8)
+        for record in records
+        if record.scenario_family == "F17"
+    }
+    if len(memory_ages) < 2:
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-memory-contrast",
+                message="F17 does not contain distinct measured memory ages",
+            )
+        )
+    frontier_values = {
+        record.actual_strata.field_frontier
+        for record in records
+        if record.scenario_family == "F18"
+    }
+    if not {"primitive", "plough"}.issubset(frontier_values):
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-frontier-contrast",
+                message="F18 lacks measured primitive/plough frontier contrast",
+            )
+        )
+    f15_tags = Counter(
+        tag
+        for record in records
+        if record.scenario_family == "F15"
+        for tag in record.actual_strata.tags
+    )
+    required_f15_tags = {
+        "isolated",
+        "trade-active",
+        "food-import",
+        "trade-dependent",
+        "food-export",
+        "material-tool-import",
+        "migration-positive",
+        "migration-negative",
+    }
+    if not required_f15_tags.issubset(f15_tags):
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-open-economy-coverage",
+                message=(
+                    "F15 lacks measured isolated/trade/import-or-export/signed-migration "
+                    f"coverage: {dict(sorted(f15_tags.items()))}"
+                ),
+            )
+        )
+    f16 = [record for record in records if record.scenario_family == "F16"]
+    if not any(record.actual_strata.fission_recent_split for record in f16) or not any(
+        not record.actual_strata.fission_recent_split for record in f16
+    ):
+        errors.append(
+            AuditIssue(
+                code="cultivation-pilot-fission-causal-coverage",
+                message="F16 requires both recent native fission and no-split states",
+            )
+        )

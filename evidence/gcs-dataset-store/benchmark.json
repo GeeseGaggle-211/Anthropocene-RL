@@ -1,0 +1,85 @@
+{
+  "benchmark_schema_version": "gcs-dataset-store-benchmark-v1",
+  "captured_at": "2026-10-11",
+  "environment": {
+    "operating_system": "Windows",
+    "python": "3.11.0",
+    "backend": "local-contract-equivalent"
+  },
+  "source": {
+    "manifest": "datasets/manifests/elder-v2-stage0-v1.json",
+    "records": 28,
+    "payload_bytes": 6035379,
+    "uncompressed_bytes": 17608427,
+    "gzip_to_uncompressed_ratio": 0.34275514786187317,
+    "simulations": 24,
+    "trajectories": 24,
+    "samples": 112
+  },
+  "packing": {
+    "target_shard_mib": 64,
+    "shards": 1,
+    "shard_bytes": 6072320,
+    "library_elapsed_seconds": 0.1960912,
+    "cli_elapsed_seconds": 0.808
+  },
+  "publication": {
+    "first_publish_elapsed_seconds": 0.72,
+    "first_publish_uploaded": 1,
+    "restart_elapsed_seconds": 0.677,
+    "restart_uploaded": 0,
+    "restart_deduplicated": 1
+  },
+  "verification": {
+    "status": "PASS",
+    "records": 28,
+    "cache_misses": 1,
+    "cache_hits": 27,
+    "cache_hit_ratio": 0.9642857142857143
+  },
+  "live_gcs_integration": {
+    "project": "anthropocene-508912",
+    "bucket": "anthropocene-rl-datasets-508912",
+    "region": "asia-northeast1",
+    "storage_class": "STANDARD",
+    "run_id": "gcs-smoke-20261011",
+    "manifest_uri": "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-stage0/gcs-smoke-20261011/manifest.json",
+    "manifest_bytes": 14851,
+    "shard_bytes": 6072320,
+    "total_gcs_bytes": 6087171,
+    "pack_elapsed_seconds": 0.21327260008547455,
+    "first_publish_wall_seconds": 7.807,
+    "effective_publish_mib_per_second": 0.7437,
+    "first_publish_uploaded": 1,
+    "restart_wall_seconds": 2.386,
+    "restart_uploaded": 0,
+    "restart_deduplicated": 1,
+    "cold_verify_wall_seconds": 24.619,
+    "effective_cold_download_mib_per_second": 0.2352,
+    "cold_cache_misses": 1,
+    "cold_cache_hits": 27,
+    "warm_verify_wall_seconds": 2.929,
+    "warm_cache_misses": 0,
+    "warm_cache_hits": 28,
+    "upload_workers_configured": 4,
+    "maximum_uploads_observed": 1,
+    "status": "PASS"
+  },
+  "observed_bank_profile": {
+    "snapshot_files": 1014,
+    "payload_bytes": 217716578,
+    "minimum_snapshot_bytes": 192625,
+    "median_snapshot_bytes": 213673,
+    "p95_snapshot_bytes": 232917,
+    "maximum_snapshot_bytes": 262989,
+    "second_gzip_output_bytes": 226481537,
+    "second_gzip_input_to_output_ratio": 0.961301685
+  },
+  "notes": [
+    "The local backend exercises the same immutable naming, manifest-last publication, checksum, resume, list, and on-demand cache contracts as GCS without network variability.",
+    "The live GCS smoke test uploaded one representative shard, verified manifest discovery and every record from a cold cache, and then demonstrated a fully warm cache.",
+    "Effective network rates include Python startup, API latency, manifest operations, and integrity validation; this single-shard smoke test does not saturate the configured four-worker uploader.",
+    "Sharding adds no second compression pass because the project-native snapshots are already gzip-compressed; the measured source payload is 34.28% of its decompressed size.",
+    "The 1,014-file profile measures the current on-disk snapshot bank; the checked-in stage-0 manifest is the compatible end-to-end benchmark fixture."
+  ]
+}

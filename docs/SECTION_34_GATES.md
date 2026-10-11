@@ -67,13 +67,81 @@ provisional TRAIN-only normalization evidence is under
 content-addressed. This is an integration diagnostic, not the final campaign
 bank or final normalizer.
 
-## Still required before a serious campaign
+## Implemented one-snapshot mechanics gate
 
-- expand/freeze the 200-500-state pilot snapshot bank;
-- fit and archive the final normalization-v2 scales on pilot TRAIN only;
-- pass the tiny-snapshot PPO mechanics gate;
-- benchmark environment throughput and decide worker/batching counts;
-- freeze checkpoint contents and experiment manifests.
+`anthropocene-rl overfit-one-snapshot` now runs the existing masked hybrid actor,
+critic, physical-time reward/GAE, and PPO optimizer against one real
+cultivation-only TRAIN snapshot through a persistent native bridge. Movement is
+disabled. The gate checks critic return fit, deterministic actor movement,
+inactive-head gradient inertness, legal likelihood support, separate
+requested/accepted/realized channels, intervention trends, finite normalized
+observations, checkpoint/reload parity, and native replay. It is explicitly not
+a gameplay-performance test.
+
+The checkpoint includes model and optimizer state, all RNG states, the frozen
+normalizer, run configuration, snapshot/manifest identities, simulator and
+schema identities, and the runtime bridge digest. Native Step, policy inference,
+PPO update, and end-to-end timing are reported separately. A companion
+`benchmark-native-throughput` command compares 1, 2, 4, and 8 persistent native
+environments without changing the action or reset semantics.
+
+The hardened gate samples only structurally active Gaussian heads, aggregates
+PPO diagnostics over every minibatch, and recomputes KL, clip fraction, entropy,
+and value MSE over the full rollout after each update. A target-KL stop freezes
+further actor changes for that rollout while allowing the separate critic to
+finish its scheduled value-fitting epochs. The actor and critic use distinct
+optimizer parameter groups so the actor can take the conservative 3e-4 step
+while the one-snapshot critic uses 1e-3. Checkpoint verification restores RNG
+and optimizer state and proves the next stochastic policy sample and next PPO
+update are bit-exact, rather than checking deterministic inference alone.
+
+## Cultivation-only readiness matrix
+
+`anthropocene-rl cultivation-readiness` repeats the real native gate across F01
+(young/low-q), F03 (expensive/high-q), and F13 (amenity-constrained)
+cultivation-only TRAIN snapshots and neural seeds 1701, 1901, and 2101. This is
+a 3 x 3 independent-replica matrix; it does not pool partitions or alter the
+learner objective. Movement, herding, and fishing remain disabled. The matrix
+requires every contract, replay, numerical, checkpoint, critic-fit, and PPO
+stability gate to pass; actor movement and positive fixed-policy return signal
+must replicate across seeds. Flat-return snapshots may demonstrate a lower
+compiler-repair burden, but that is reported separately and is not called
+gameplay improvement.
+
+Passing this matrix supports retaining the separate 512 -> 256 -> 256 actor and
+critic MLPs for the bounded multi-snapshot pilot. GRU, Transformer, and
+privileged-critic experiments remain evidence-triggered follow-ups rather than
+preconditions for adding the next action capabilities.
+
+The preserved 3 x 3 artifacts have been independently re-audited: all nine
+diagnostic hashes, checkpoint byte hashes, checkpoint identities, native SHA,
+and per-run/aggregate gates match. The result remains a cultivation mechanics
+and optimizer-readiness PASS, not a gameplay-performance claim.
+
+## GCS-backed dataset and run cache
+
+GCS is the durable backend for new snapshot banks, diagnostics, and checkpoints.
+Content-addressed immutable shards use create-only object generations; provider
+CRC32C/MD5 and application SHA-256 metadata are verified, and download admission
+recomputes SHA-256. The learner uses a 5 GiB LRU cache and downloads a shard once
+on the first miss rather than streaming reset bytes per episode. The prior Drive
+store remains a historical compatibility backend.
+
+## Cultivation-only pilot result
+
+The frozen v1 bank contains 300 snapshots across F01/F02/F03/F13/F15/F16/F17/F18
+and is stored in GCS. The corrected three-decision, three-seed PPO campaign is a
+NO-GO: seed 1701 passed, seed 1901 breached the KL gate, and seed 2101 regressed
+against Option A on DEVELOPMENT and HELDOUT. Contracts and inactive heads stayed
+clean. No feed-forward representational failure was demonstrated.
+
+## Still required before promotion
+
+- create a new bank generation with pristine held-out groups;
+- increase sparse trade/migration event coverage in TRAIN calibration;
+- fit and archive a new TRAIN-only robust sparse-event normalizer;
+- rerun three seeds with a more conservative actor update and an explicit
+  compiler-intervention-distance gate.
 
 GRU, Transformer, online gameplay SGD, the sparse event scheduler, later-era
 goods encoders and multi-agent RLlib scale-out remain deliberately deferred.

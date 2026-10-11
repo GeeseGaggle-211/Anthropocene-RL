@@ -1,3 +1,4 @@
+from collections import Counter
 from pathlib import Path
 
 from anthropocene_rl.datasets.audit import audit_snapshot_bank
@@ -6,9 +7,15 @@ from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationCon
 from anthropocene_rl.datasets.models import Partition, SnapshotBankManifest
 from anthropocene_rl.datasets.normalization_audit import (
     CalibrationObservation,
+    fit_train_and_report,
     normalization_diagnostics,
 )
 from anthropocene_rl.datasets.partition import DeterministicPartitioner, LineageIdentity
+from anthropocene_rl.datasets.pilot_plan import (
+    PILOT_ACCEPTED_PARTITION_COUNTS,
+    build_cultivation_pilot_plan,
+    cultivation_pilot_plan_summary,
+)
 from anthropocene_rl.observations.normalization import SemanticNormalizerV2
 from anthropocene_rl.observations.schema import EncodedObservation
 
@@ -50,8 +57,10 @@ def test_historical_or_consumed_diagnostics_are_development() -> None:
 def test_stage0_plan_partitions_before_timestamp_selection() -> None:
     config = SnapshotBankGenerationConfig.load("configs/datasets/stage0-v1.yaml")
     resolved, _ = config.resolve_partitions()
+    manifest = SnapshotBankManifest.load("datasets/manifests/elder-v2-stage0-v1.json")
 
     assert sum(len(plan.snapshot_steps) for plan in resolved) == 28
+    assert config.canonical_sha256() == manifest.generator_config_sha256
     assert {plan.scenario_family for plan in resolved} == {
         *(f"F{index:02d}" for index in range(1, 14)),
         "F17",
@@ -61,6 +70,87 @@ def test_stage0_plan_partitions_before_timestamp_selection() -> None:
     for plan in resolved:
         world_partitions.setdefault(plan.world_seed, set()).add(plan.partition)
     assert all(len(partitions) == 1 for partitions in world_partitions.values())
+
+
+def test_cultivation_pilot_plan_is_pairwise_bounded_and_partitioned_first() -> None:
+    config = build_cultivation_pilot_plan()
+    committed = SnapshotBankGenerationConfig.load(
+        "configs/datasets/cultivation-pilot-v1.yaml"
+    )
+    resolved, _ = config.resolve_partitions()
+    summary = cultivation_pilot_plan_summary(config)
+
+    assert committed.canonical_sha256() == config.canonical_sha256()
+    assert config.bank_kind == "cultivation-pilot"
+    assert sum(len(plan.snapshot_steps) for plan in resolved) == 500
+    assert len({plan.world_seed for plan in resolved}) == 299
+    assert {plan.scenario_family for plan in resolved} == {
+        "F01",
+        "F02",
+        "F03",
+        "F13",
+        "F15",
+        "F16",
+        "F17",
+        "F18",
+    }
+    assert all(plan.economy == "cultivation" for plan in resolved)
+    assert all(plan.herd_support_ratio == 0 for plan in resolved)
+    assert all(plan.fishing_ground_target == 0 for plan in resolved)
+    world_partitions: dict[int, set[Partition]] = {}
+    for plan in resolved:
+        world_partitions.setdefault(plan.world_seed, set()).add(plan.partition)
+    assert all(len(partitions) == 1 for partitions in world_partitions.values())
+    assert set(summary["partition_world_counts"]) == {
+        "train",
+        "development",
+        "heldout",
+    }
+    assert summary["requested_snapshot_count"] == 500
+    assert summary["target_accepted_snapshot_count"] == 300
+    assert summary["family_snapshot_counts"] == {
+        "F01": 30,
+        "F02": 35,
+        "F03": 35,
+        "F13": 40,
+        "F15": 218,
+        "F16": 60,
+        "F17": 36,
+        "F18": 46,
+    }
+    assert summary["target_accepted_family_counts"] == {
+        "F01": 30,
+        "F02": 35,
+        "F03": 35,
+        "F13": 40,
+        "F15": 50,
+        "F16": 40,
+        "F17": 24,
+        "F18": 46,
+    }
+    assert summary["requested_pairwise_coverage"]["F01"]["fraction"] > 0.9
+
+
+def test_frozen_cultivation_pilot_has_every_family_in_every_partition() -> None:
+    manifest = SnapshotBankManifest.load(
+        "datasets/manifests/elder-v2-cultivation-pilot-v1.json"
+    )
+    observed = Counter(
+        (record.scenario_family, record.partition.value)
+        for record in manifest.records
+    )
+    expected = {
+        (family, partition): count
+        for family, partitions in PILOT_ACCEPTED_PARTITION_COUNTS.items()
+        for partition, count in partitions.items()
+    }
+
+    assert observed == expected
+    assert Counter(record.partition.value for record in manifest.records) == {
+        "train": 210,
+        "development": 45,
+        "heldout": 45,
+    }
 
 
 def test_audit_detects_world_lineage_and_counterfactual_leakage() -> None:
@@ -142,3 +232,47 @@ def test_normalization_diagnostics_separates_fishing_only_slice() -> None:
 
     assert diagnostics["sample_counts"]["fishing"] == 2
     assert diagnostics["sample_counts"]["fishing-only"] == 1
+
+
+def test_final_pilot_normalizer_fits_train_only(tmp_path: Path) -> None:
+    observation = EncodedObservation(
+        values=(0.0,) * 512,
+        present=(False,) * 512,
+    )
+    manifest = SnapshotBankManifest.load(
+        "datasets/manifests/elder-v2-stage0-v1.json"
+    )
+    samples = [
+        CalibrationObservation(
+            snapshot_id="train",
+            partition=Partition.TRAIN,
+            source="reset",
+            observation=observation,
+            slices=frozenset(),
+        ),
+        CalibrationObservation(
+            snapshot_id="development",
+            partition=Partition.DEVELOPMENT,
+            source="calibration-step-1",
+            observation=observation,
+            slices=frozenset(),
+        ),
+    ]
+    config = SnapshotBankGenerationConfig.load("configs/datasets/stage0-v1.yaml")
+
+    normalizer, diagnostics = fit_train_and_report(
+        samples,
+        manifest=manifest,
+        capability_experience_thresholds=config.capability_experience_thresholds,
+        local_movement_radius=config.local_movement_radius,
+        normalizer_path=tmp_path / "normalizer.json",
+        diagnostics_path=tmp_path / "diagnostics.json",
+        rng_provenance="unit-test",
+        partition_suffix="final",
+        artifact_status="FINAL_PILOT_TRAIN_ONLY_NORMALIZER",
+    )
+
+    assert normalizer.manifest.partition_id.endswith(":train:final")
+    assert normalizer.manifest.fit_observation_count == 1
+    assert diagnostics["status"] == "FINAL_PILOT_TRAIN_ONLY_NORMALIZER"
+    assert diagnostics["heldout_or_development_used_for_fit"] is False

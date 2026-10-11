@@ -1,0 +1,23 @@
+{
+  "audit_status": "PASS",
+  "blob_root": "datasets/blobs",
+  "deterministic_regeneration": true,
+  "generator_config_sha256": "c2a6b259cb69566e96a8cd4797be40182074606dd21508424a5766246263d0d4",
+  "manifest_path": "datasets/manifests/elder-v2-cultivation-pilot-v1.json",
+  "manifest_sha256": "9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d",
+  "native_result_sha256": "424bdea8295200cddba984d4ec3e0b2ced099e83b60209aac6bbfd34e3e262b2",
+  "normalization_status": "FINAL_PILOT_TRAIN_ONLY_NORMALIZER",
+  "partition_counts": {
+    "development": 45,
+    "heldout": 45,
+    "train": 210
+  },
+  "rejection_counts": {
+    "coverage-quota-not-selected": 38,
+    "duplicate-native-identity-group": 12,
+    "incomplete-causal-group": 53,
+    "native-generation-rejected": 2,
+    "requested-stratum-not-achieved": 95
+  },
+  "snapshot_count": 300
+}

@@ -1,0 +1,53 @@
+{
+  "measured_on": "2026-10-11",
+  "paths": [
+    {
+      "bytes": 6035379,
+      "files": 28,
+      "label": "datasets/blobs snapshot payloads",
+      "mib": 5.756
+    },
+    {
+      "bytes": 154348898,
+      "files": 32,
+      "label": "checkpoints",
+      "mib": 147.199
+    },
+    {
+      "bytes": 1806597,
+      "files": 36,
+      "label": "artifacts",
+      "mib": 1.723
+    },
+    {
+      "bytes": 3795534,
+      "files": 10,
+      "label": "integration/bin",
+      "mib": 3.62
+    },
+    {
+      "bytes": 4378296,
+      "files": 34,
+      "label": "integration/obj",
+      "mib": 4.175
+    },
+    {
+      "bytes": 29430692,
+      "files": 718,
+      "label": "detached frozen simulator checkout including git metadata",
+      "mib": 28.067
+    },
+    {
+      "bytes": 3253498,
+      "files": 23,
+      "label": "frozen simulator Tools/ElderRL bin+obj build cache",
+      "mib": 3.103
+    }
+  ],
+  "pilot_blob_bytes_projected_from_stage0_mean": 51731820,
+  "pilot_blob_mib_projected_from_stage0_mean": 49.335,
+  "snapshot_cache_default_max_bytes": 5368709120,
+  "snapshot_cache_default_max_gib": 5.0,
+  "stage0_blob_bytes_immediately_reclaimable_after_full_sync": 6035379,
+  "stage0_blob_bytes_verified_remote_at_measurement": 6035379
+}

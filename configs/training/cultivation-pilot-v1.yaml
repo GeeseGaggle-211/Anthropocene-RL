@@ -1,0 +1,70 @@
+name: elder-cultivation-open-economy-pilot-v1
+status: completed-no-go
+starting_learner_commit: 9a9e174f829dc0342ac92e47c8b5317a727e592e
+execution_learner_commit: 2378d42095491a6ff9608b138f800c6f8880d4be
+simulator_manifest: configs/simulator/elder-v2.yaml
+simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+snapshot_manifest: datasets/manifests/elder-v2-cultivation-pilot-v1.json
+snapshot_manifest_sha256: 9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d
+snapshot_dataset_uri: gs://anthropocene-rl-datasets-508912/datasets/elder-v2-cultivation-pilot-v1/2026-10-11-manifest-9d33a9e5/manifest.json
+run_artifact_manifest_uri: gs://anthropocene-rl-datasets-508912/runs/cultivation-ppo-pilot-v1/2378d420-20261011/manifest.json
+local_cache_gib: 5.0
+normalizer: evidence/cultivation-pilot-v1/final-train-normalization.json
+normalizer_sha256: b4393cbf0cd20e80d1ace345f48f768bd4f8393c9fe2c09d0535fd6aee42228b
+optimization_partition: train
+checkpoint_selection_partition: development
+heldout_policy: final-only
+neural_seeds: [1701, 1901, 2101]
+network:
+  actor: [512, 256, 256, active-hybrid-heads]
+  critic: [512, 256, 256, scalar-value]
+  shared_trunk: false
+  recurrent: false
+  privileged_critic: false
+active_controls:
+  - retained_field_operation
+  - development_budget
+inactive_controls:
+  - retained_herd_fraction
+  - field_development_share
+  - movement
+sampling:
+  kind: exact-balanced-family-within-family-shuffled-cycle
+  families: [F01, F02, F03, F13, F15, F16, F17, F18]
+  episodes_per_update: 8
+  episode_steps: 3
+  updates: 96
+  structural_scope_gate: fail-fast-on-husbandry-herd-fishing-or-movement
+evaluation:
+  interval_updates: 24
+  episode_steps: 3
+  comparator: option-a-through-shared-compiler
+physical_time_credit:
+  e_fold_horizon_years: 400
+  lambda_ref: 0.95
+  lambda_reference_years: 20
+  reward_scale: 0.001
+optimizer:
+  critic_learning_rate: 0.001
+  actor_learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.0
+  max_grad_norm: 0.5
+  epochs: 8
+  minibatch_size: 64
+  target_kl: 0.05
+deferred:
+  - movement
+  - husbandry
+  - fishing
+  - synthetic_disaster_curriculum
+  - gru
+  - transformer
+  - privileged_critic
+promotion:
+  result: no-go
+  passing_seeds: [1701]
+  failing_seeds: [1901, 2101]
+  feed_forward_representational_failure_demonstrated: false
+  heldout_consumed: true

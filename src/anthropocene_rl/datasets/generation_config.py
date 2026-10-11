@@ -71,6 +71,7 @@ class TrajectoryPlan(StrictModel):
     frontier: Literal[
         "primitive", "plough", "technology-transition-cultivation"
     ] = "primitive"
+    causal_variant: str = "none"
     requested_tags: tuple[str, ...] = ()
 
     @model_validator(mode="after")
@@ -108,6 +109,11 @@ class TrajectoryPlan(StrictModel):
             raise ValueError("Fishing economies require a positive fishing-ground target")
         if self.frontier == "plough" and not cultivation:
             raise ValueError("The Plough frontier requires cultivation")
+        if not self.causal_variant or any(
+            character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
+            for character in self.causal_variant
+        ):
+            raise ValueError("causal_variant must be a lowercase hyphenated token")
         return self
 
 
@@ -117,6 +123,7 @@ class ResolvedTrajectoryPlan(TrajectoryPlan):
 
 class SnapshotBankGenerationConfig(StrictModel):
     config_schema_version: str = "snapshot-bank-generation-v1"
+    bank_kind: Literal["stage0", "cultivation-pilot"] = "stage0"
     bank_id: str
     bank_version: str
     native_generator_version: str
@@ -137,8 +144,12 @@ class SnapshotBankGenerationConfig(StrictModel):
         if len(ids) != len(set(ids)):
             raise ValueError("trajectory_id values must be unique")
         snapshots = sum(len(trajectory.snapshot_steps) for trajectory in self.trajectories)
-        if not 24 <= snapshots <= 48:
+        if self.bank_kind == "stage0" and not 24 <= snapshots <= 48:
             raise ValueError("Stage-0 generation plan must request 24-48 snapshots")
+        if self.bank_kind == "cultivation-pilot" and not 200 <= snapshots <= 500:
+            raise ValueError(
+                "Cultivation pilot generation plan must request 200-500 snapshots"
+            )
         if set(self.capability_experience_thresholds) != set(
             CAPABILITIES_WITH_PROGRESSION_THRESHOLDS
         ):
@@ -150,10 +161,48 @@ class SnapshotBankGenerationConfig(StrictModel):
             for threshold in self.capability_experience_thresholds.values()
         ):
             raise ValueError("Capability Experience thresholds must be finite and positive")
+        if self.bank_kind == "cultivation-pilot":
+            allowed_families = {
+                "F01",
+                "F02",
+                "F03",
+                "F13",
+                "F15",
+                "F16",
+                "F17",
+                "F18",
+            }
+            for trajectory in self.trajectories:
+                if trajectory.scenario_family not in allowed_families:
+                    raise ValueError(
+                        "Cultivation pilot contains a non-cultivation scenario family"
+                    )
+                if (
+                    trajectory.economy != "cultivation"
+                    or trajectory.herd_support_ratio != 0
+                    or trajectory.fishing_ground_target != 0
+                ):
+                    raise ValueError(
+                        "Cultivation pilot must keep herding and fishing structurally absent"
+                    )
+                if trajectory.historical_or_consumed_diagnostic:
+                    raise ValueError(
+                        "Cultivation pilot cannot reuse consumed historical diagnostics"
+                    )
         return self
 
     def canonical_sha256(self) -> str:
         payload = self.model_dump(mode="json")
+        # Stage-0 predates the explicit bank-kind discriminator.  Preserve its
+        # committed generator identity while still emitting ``bank_kind`` to
+        # the current native plan validator.
+        if self.bank_kind == "stage0" and "bank_kind" not in self.model_fields_set:
+            payload.pop("bank_kind", None)
+        for trajectory, serialized in zip(
+            self.trajectories, payload["trajectories"], strict=True
+        ):
+            if "causal_variant" not in trajectory.model_fields_set:
+                serialized.pop("causal_variant", None)
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(encoded).hexdigest()
 

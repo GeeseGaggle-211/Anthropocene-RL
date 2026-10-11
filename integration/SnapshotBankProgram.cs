@@ -323,6 +323,33 @@ namespace Anthropocene.SnapshotBank
                         reset.Observation.Core.ClothingCoverage,
                     housing_coverage =
                         reset.Observation.Core.HousingCoverage,
+                    retained_field_capital = measured.RetainedFieldCapital,
+                    retained_field_operation =
+                        reset.Observation.Fields.CurrentOperation,
+                    maintenance_worker_years =
+                        measured.MaintenanceWorkerYears,
+                    hand_tools_per_capita = measured.HandToolsPerCapita,
+                    farm_tools_per_capita = measured.FarmToolsPerCapita,
+                    materials_per_capita = measured.MaterialsPerCapita,
+                    delivered_trade_total = measured.DeliveredTradeTotal,
+                    delivered_import_total = measured.DeliveredImportTotal,
+                    delivered_export_total = measured.DeliveredExportTotal,
+                    delivered_food_import = measured.DeliveredFoodImport,
+                    delivered_food_export = measured.DeliveredFoodExport,
+                    delivered_material_tool_import =
+                        measured.DeliveredMaterialToolImport,
+                    import_dependence = measured.ImportDependence,
+                    signed_migration = measured.SignedMigration,
+                    fission_candidate_present =
+                        reset.Observation.Fission.CandidatePresent,
+                    fission_recent_split = measured.RecentFission,
+                    fission_pressure = reset.Observation.Fission.Pressure,
+                    fission_exit_opportunity =
+                        reset.Observation.Fission.ExitOpportunityPressure,
+                    fission_daughter_population =
+                        reset.Observation.Fission.RecentDaughterPopulation,
+                    parent_population_relief =
+                        measured.ParentPopulationRelief,
                     field_frontier = measured.FieldFrontier,
                     cultivation_available = measured.Cultivation,
                     husbandry_available = measured.Husbandry,
@@ -392,6 +419,14 @@ namespace Anthropocene.SnapshotBank
         {
             public bool Cultivation, Husbandry;
             public double? FishingQ;
+            public double RetainedFieldCapital, MaintenanceWorkerYears,
+                DeliveredTradeTotal, DeliveredImportTotal,
+                DeliveredExportTotal, DeliveredFoodImport,
+                DeliveredFoodExport, DeliveredMaterialToolImport,
+                ImportDependence, SignedMigration, ParentPopulationRelief;
+            public double HandToolsPerCapita, FarmToolsPerCapita,
+                MaterialsPerCapita;
+            public bool RecentFission;
             public string FieldFrontier;
             public string[] Tags;
         }
@@ -407,6 +442,54 @@ namespace Anthropocene.SnapshotBank
             string frontier = cultivation ? SettlementProductionFrontier
                 .ResolveCultivation(state, camp).Identity : "none";
             double memoryAge = MemoryAgeYears(state, camp);
+            var recent = state.History.LastOrDefault();
+            double imports = 0, exports = 0, foodImports = 0,
+                foodExports = 0, materialToolImports = 0;
+            foreach (var trade in recent?.Trades ?? new List<TradeRecord>())
+            {
+                double wantDelivered = trade.WantQuantity *
+                    Math.Max(0, Math.Min(1, trade.Delivered));
+                double giveDelivered = trade.GiveQuantity *
+                    Math.Max(0, Math.Min(1, trade.GiveDelivered));
+                if (trade.Requester == camp.Id)
+                {
+                    imports += wantDelivered;
+                    exports += giveDelivered;
+                    if (trade.Want == TradeGood.Food)
+                        foodImports += wantDelivered;
+                    if (trade.Give == TradeGood.Food)
+                        foodExports += giveDelivered;
+                    if (MaterialOrTool(trade.Want))
+                        materialToolImports += wantDelivered;
+                }
+                else if (trade.Responder == camp.Id)
+                {
+                    imports += giveDelivered;
+                    exports += wantDelivered;
+                    if (trade.Give == TradeGood.Food)
+                        foodImports += giveDelivered;
+                    if (trade.Want == TradeGood.Food)
+                        foodExports += wantDelivered;
+                    if (MaterialOrTool(trade.Give))
+                        materialToolImports += giveDelivered;
+                }
+            }
+            double migration = 0;
+            foreach (var flow in recent?.Migrations ??
+                new List<MigrationReport>())
+            {
+                if (flow.DestinationCamp == camp.Id)
+                    migration += flow.Migrants;
+                if (flow.SourceCamp == camp.Id)
+                    migration -= flow.Migrants;
+            }
+            var fission = (recent?.Fissions ?? new List<FissionReport>())
+                .LastOrDefault(item => item.ParentCamp == camp.Id);
+            double intervalNeed = Math.Max(1e-12,
+                Math.Max(1, recent?.Demographics?.FirstOrDefault(item =>
+                    item.Camp == camp.Id)?.StartingPopulation ??
+                    camp.Population) * state.Config.Consumption *
+                Math.Max(0, recent?.Duration ?? 0) / state.Config.BaseDays);
             var tags = new HashSet<string>(StringComparer.Ordinal);
             if (cultivation && !husbandry) tags.Add("cultivation-only");
             if (husbandry && !cultivation) tags.Add("husbandry-only");
@@ -422,6 +505,7 @@ namespace Anthropocene.SnapshotBank
             if (memoryAge >= 180) tags.Add("mature-memory");
             double q = Math.Max(observation.Fields.CurrentIntensity,
                 fishingQ ?? 0);
+            if (q < .3) tags.Add("low-q");
             if (q >= .35 && q <= .45) tags.Add("near-knee-q");
             if (q >= .5) tags.Add("high-q");
             double? herdRatio = Ratio(observation.Herd.Animals,
@@ -438,16 +522,81 @@ namespace Anthropocene.SnapshotBank
             if (husbandry && observation.Herd.Animals == 0)
                 tags.Add("knowledge-only-husbandry-no-herd");
             if (technologyTransition) tags.Add("technology-transition");
+            if (imports + exports > 1e-9) tags.Add("trade-active");
+            if (imports > exports + 1e-9) tags.Add("trade-importer");
+            if (exports > imports + 1e-9) tags.Add("trade-exporter");
+            if (foodImports > 1e-9) tags.Add("food-import");
+            if (foodExports > 1e-9) tags.Add("food-export");
+            if (materialToolImports > 1e-9)
+                tags.Add("material-tool-import");
+            if (foodImports / intervalNeed >= .25)
+                tags.Add("trade-dependent");
+            if (migration > 0)
+            {
+                tags.Add("migration-positive");
+                tags.Add("immigration");
+            }
+            if (migration < 0)
+            {
+                tags.Add("migration-negative");
+                tags.Add("emigration");
+            }
+            if (observation.Contacts.Length == 0 &&
+                imports + exports <= 1e-9 && migration == 0)
+                tags.Add("isolated");
+            if (observation.Fission.CandidatePresent)
+                tags.Add("fission-candidate");
+            if (fission != null)
+            {
+                tags.Add("recent-fission");
+                tags.Add("post-fission");
+            }
+            else if (observation.Fission.CandidatePresent)
+                tags.Add("pre-fission");
+            if (frontier == "primitive") tags.Add("primitive-frontier");
+            if (frontier == "plough") tags.Add("plough-frontier");
+            double retainedCapital = CultivationEconomy.Footprint(state, camp)
+                .Where(id => state.Tiles[id].CultivationOperator == camp.Id)
+                .Sum(id => Math.Max(0,
+                    LazyEcology.ProjectEcology(state, id, state.Days)
+                        .CultivationCapital));
             return new Measurement
             {
                 Cultivation = cultivation,
                 Husbandry = husbandry,
                 FishingQ = fishingQ,
+                RetainedFieldCapital = retainedCapital,
+                MaintenanceWorkerYears = cultivation ?
+                    CultivationEconomy.MaintenanceWorkerRequirement(
+                        state, camp) : 0,
+                HandToolsPerCapita = Math.Max(0,
+                    camp.Inventory.HandTools) / Math.Max(1, camp.Population),
+                FarmToolsPerCapita = Math.Max(0,
+                    camp.Inventory.FarmTools) / Math.Max(1, camp.Population),
+                MaterialsPerCapita = (Math.Max(0, camp.Inventory.Stone) +
+                    Math.Max(0, camp.Inventory.Clay) +
+                    Math.Max(0, camp.Inventory.Wood)) /
+                    Math.Max(1, camp.Population),
+                DeliveredTradeTotal = imports + exports,
+                DeliveredImportTotal = imports,
+                DeliveredExportTotal = exports,
+                DeliveredFoodImport = foodImports,
+                DeliveredFoodExport = foodExports,
+                DeliveredMaterialToolImport = materialToolImports,
+                ImportDependence = foodImports / intervalNeed,
+                SignedMigration = migration,
+                RecentFission = fission != null,
+                ParentPopulationRelief = fission?.Daughter ?? 0,
                 FieldFrontier = frontier,
                 Tags = tags.OrderBy(value => value,
                     StringComparer.Ordinal).ToArray()
             };
         }
+
+        private static bool MaterialOrTool(TradeGood good)
+            => good == TradeGood.HandTools || good == TradeGood.FarmTools ||
+               good == TradeGood.HousingMaterial || good == TradeGood.Stone ||
+               good == TradeGood.Clay || good == TradeGood.Wood;
 
         private static void ValidateRequestedState(TrajectoryPlan plan,
             ElderObservation observation, string[] actualTags,
@@ -595,6 +744,7 @@ namespace Anthropocene.SnapshotBank
                     plan.SiteSupportQuantile,
                 ["requested_tags"] = plan.RequestedTags,
                 ["frontier_request"] = plan.Frontier,
+                ["causal_variant"] = plan.CausalVariant,
                 ["source_policy_identity"] = plan.SourceController,
                 ["site_selection_evidence"] = siteEvidence,
                 ["historical_or_consumed_diagnostic"] =
@@ -677,9 +827,18 @@ namespace Anthropocene.SnapshotBank
                     "Generation plan is empty or has an invalid rollout length.");
             int snapshots = plan.Trajectories.Sum(item =>
                 item.SnapshotSteps.Length);
-            if (snapshots < 24 || snapshots > 48)
+            if (plan.BankKind == "stage0" &&
+                (snapshots < 24 || snapshots > 48))
                 throw new InvalidDataException(
                     "Stage-0 plan must request 24-48 snapshots.");
+            if (plan.BankKind == "cultivation-pilot" &&
+                (snapshots < 200 || snapshots > 500))
+                throw new InvalidDataException(
+                    "Cultivation pilot plan must request 200-500 snapshots.");
+            if (plan.BankKind != "stage0" &&
+                plan.BankKind != "cultivation-pilot")
+                throw new InvalidDataException(
+                    "Unsupported snapshot-bank kind.");
         }
     }
 }

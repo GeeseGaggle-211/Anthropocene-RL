@@ -1,0 +1,68 @@
+{
+  "action_head_mapping": {
+    "0": "retained_field_operation",
+    "1": "retained_herd_fraction_inactive",
+    "2": "development_budget",
+    "3": "field_development_share_inactive"
+  },
+  "family_fixed_policy_mean_changes": {
+    "F01": {
+      "development_budget": -0.23429008372940105,
+      "discounted_scaled_return": 0.0,
+      "retained_field_operation": -0.04447181328990829
+    },
+    "F03": {
+      "development_budget": -0.07703547387445896,
+      "discounted_scaled_return": 1.5311683287175804,
+      "retained_field_operation": -0.2473472774793731
+    },
+    "F13": {
+      "development_budget": -0.1037570247741061,
+      "discounted_scaled_return": 0.0,
+      "retained_field_operation": 0.05577671697357117
+    }
+  },
+  "fixed_policy_before_after": {
+    "development_budget": {
+      "mean_change": -0.13836086079265536,
+      "positive_change_runs": 0,
+      "run_count": 9
+    },
+    "retained_field_operation": {
+      "mean_change": -0.07868079126523672,
+      "positive_change_runs": 2,
+      "run_count": 9
+    }
+  },
+  "interpretation": "No steady or universal cultivation-intensity increase. The actor made non-monotonic, context-sensitive reallocations; F03 improved return while reducing both cultivation controls.",
+  "matrix": {
+    "families": [
+      "F01",
+      "F03",
+      "F13"
+    ],
+    "runs": 9,
+    "seeds": [
+      1701,
+      1901,
+      2101
+    ],
+    "updates_per_run": 24
+  },
+  "training_action_paths": {
+    "development_budget": {
+      "mean_endpoint_change": -0.053398230181485824,
+      "mean_up_step_fraction": 0.4490740740740741,
+      "monotonic_nondecreasing_runs": 0,
+      "positive_endpoint_change_runs": 4,
+      "positive_ols_slope_runs": 4
+    },
+    "retained_field_operation": {
+      "mean_endpoint_change": 0.044789060327429686,
+      "mean_up_step_fraction": 0.49537037037037035,
+      "monotonic_nondecreasing_runs": 0,
+      "positive_endpoint_change_runs": 6,
+      "positive_ols_slope_runs": 5
+    }
+  }
+}

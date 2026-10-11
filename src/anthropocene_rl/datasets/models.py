@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -82,6 +84,26 @@ class MeasuredStrata(StrictModel):
     water_needs_met: float = Field(ge=0, le=1)
     clothing_coverage: float = Field(ge=0, le=1)
     housing_coverage: float = Field(ge=0, le=1)
+    retained_field_capital: float = Field(default=0, ge=0)
+    retained_field_operation: float = Field(default=0, ge=0, le=1)
+    maintenance_worker_years: float = Field(default=0, ge=0)
+    hand_tools_per_capita: float = Field(default=0, ge=0)
+    farm_tools_per_capita: float = Field(default=0, ge=0)
+    materials_per_capita: float = Field(default=0, ge=0)
+    delivered_trade_total: float = Field(default=0, ge=0)
+    delivered_import_total: float = Field(default=0, ge=0)
+    delivered_export_total: float = Field(default=0, ge=0)
+    delivered_food_import: float = Field(default=0, ge=0)
+    delivered_food_export: float = Field(default=0, ge=0)
+    delivered_material_tool_import: float = Field(default=0, ge=0)
+    import_dependence: float = Field(default=0, ge=0)
+    signed_migration: float = 0
+    fission_candidate_present: bool = False
+    fission_recent_split: bool = False
+    fission_pressure: float = Field(default=0, ge=0, le=1)
+    fission_exit_opportunity: float = Field(default=0, ge=0, le=1)
+    fission_daughter_population: int = Field(default=0, ge=0)
+    parent_population_relief: float = Field(default=0, ge=0)
     field_frontier: str
     cultivation_available: bool
     husbandry_available: bool
@@ -93,9 +115,7 @@ class MeasuredStrata(StrictModel):
     @model_validator(mode="after")
     def validate_measured_relations(self) -> Self:
         expected_reserve = self.food_reserve_years / self.next_interval_years
-        if abs(expected_reserve - self.reserve_horizon_ratio) > 1e-8 * max(
-            1.0, expected_reserve
-        ):
+        if abs(expected_reserve - self.reserve_horizon_ratio) > 1e-8 * max(1.0, expected_reserve):
             raise ValueError("Measured reserve-horizon ratio disagrees with physical durations")
         if self.owned_domestic_herd != (self.herd_animals > 0):
             raise ValueError("Owned-herd stratum disagrees with measured animal count")
@@ -124,9 +144,7 @@ class MeasuredStrata(StrictModel):
             if expected_ratio is None:
                 if ratio is not None:
                     raise ValueError(f"{label} herd ratio must be missing at zero capacity")
-            elif ratio is None or abs(ratio - expected_ratio) > 1e-8 * max(
-                1.0, expected_ratio
-            ):
+            elif ratio is None or abs(ratio - expected_ratio) > 1e-8 * max(1.0, expected_ratio):
                 raise ValueError(f"{label} herd ratio disagrees with measured capacity")
         if self.cultivation_available == (self.field_frontier == "none"):
             raise ValueError("Field frontier identity disagrees with cultivation capability")
@@ -157,6 +175,43 @@ class GeneratorProvenance(StrictModel):
     generation_seed: int
     rng_algorithm: str
     rng_stream: str
+
+
+class RemoteBlobMetadata(StrictModel):
+    """Mutable storage metadata that is excluded from snapshot-bank identity."""
+
+    backend: Literal["google-drive"]
+    file_id: str = Field(min_length=1)
+    remote_key: str = Field(pattern=r"^sha256/[0-9a-f]{2}/[0-9a-f]{64}\.snapshot$")
+    upload_status: Literal["uploaded"] = "uploaded"
+    verification_status: Literal["metadata-verified", "download-verified"]
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    content_bytes: int = Field(gt=0)
+    md5_checksum: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    provider_sha256_checksum: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    uploaded_at: str | None = None
+    version: str | None = None
+
+    @model_validator(mode="after")
+    def validate_remote_key(self) -> Self:
+        expected = f"sha256/{self.content_sha256[:2]}/{self.content_sha256}.snapshot"
+        if self.remote_key != expected:
+            raise ValueError("Remote object key disagrees with its content SHA-256")
+        return self
+
+
+class SnapshotStoragePolicy(StrictModel):
+    """Durability and local-cache policy without authentication material."""
+
+    local_mode: Literal["bounded-cache"] = "bounded-cache"
+    max_local_bytes: int = Field(default=5 * 1024**3, gt=0)
+    eviction_policy: Literal["lru"] = "lru"
+    remote_backend: Literal["google-drive"] = "google-drive"
+    remote_root_id: str = Field(min_length=1)
+    remote_root_path: str = Field(min_length=1)
 
 
 class SnapshotValidation(StrictModel):
@@ -218,11 +273,17 @@ class SnapshotRecord(StrictModel):
     observation_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     calibration_observation_count: int = Field(ge=1)
     validation: SnapshotValidation
+    remote_storage: RemoteBlobMetadata | None = None
 
     @model_validator(mode="after")
     def validate_frozen_native_identity(self) -> Self:
         if self.native_simulator_sha != SIMULATOR_COMMIT:
             raise ValueError("Snapshot record was not generated by the frozen simulator SHA")
+        if self.remote_storage is not None and (
+            self.remote_storage.content_sha256 != self.content_sha256
+            or self.remote_storage.content_bytes != self.content_bytes
+        ):
+            raise ValueError("Remote storage identity disagrees with snapshot content")
         return self
 
 
@@ -269,6 +330,7 @@ class SnapshotBankManifest(StrictModel):
     partition_contract: PartitionContract
     records: tuple[SnapshotRecord, ...]
     rejected_candidates: tuple[RejectedCandidate, ...] = ()
+    storage_policy: SnapshotStoragePolicy | None = None
 
     @model_validator(mode="after")
     def validate_manifest_identity(self) -> Self:
@@ -281,7 +343,13 @@ class SnapshotBankManifest(StrictModel):
         return self
 
     def canonical_bytes(self) -> bytes:
-        payload = self.model_dump(mode="json", by_alias=True)
+        # Remote file IDs, upload timestamps, and cache limits are storage
+        # metadata.  They must not invalidate normalizers or checkpoints whose
+        # authoritative identity is the native content/provenance cohort.
+        payload = self._document_payload()
+        payload.pop("storage_policy", None)
+        for record in payload["records"]:
+            record.pop("remote_storage", None)
         return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
     def sha256(self) -> str:
@@ -290,11 +358,44 @@ class SnapshotBankManifest(StrictModel):
     def save(self, path: str | Path) -> None:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = self.model_dump(mode="json", by_alias=True)
+        payload = self._document_payload()
         target.write_text(
             json.dumps(payload, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
+
+    def save_atomic(self, path: str | Path) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = self._document_payload()
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=target.parent,
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+    def _document_payload(self) -> dict[str, Any]:
+        # Preserve the field set of older snapshot-bank documents.  The v1
+        # schema has gained additive, defaulted measured-strata fields; writing
+        # those defaults into a legacy document would otherwise change its
+        # frozen manifest identity merely because it was loaded by newer code.
+        payload = self.model_dump(mode="json", by_alias=True, exclude_unset=True)
+        if self.storage_policy is None:
+            payload.pop("storage_policy", None)
+        for record, serialized in zip(self.records, payload["records"], strict=True):
+            if record.remote_storage is None:
+                serialized.pop("remote_storage", None)
+        return payload
 
     @classmethod
     def load(cls, path: str | Path) -> SnapshotBankManifest:

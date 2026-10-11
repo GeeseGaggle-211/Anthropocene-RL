@@ -1,0 +1,79 @@
+{
+  "deterministic_diagnostics_sha256": "0f4299f716d5e741bbcaa36f404454517b7df10235ad1dbc5115a47177f279b9",
+  "device": "cpu",
+  "identities": {
+    "checkpoint": null,
+    "simulator_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+    "snapshot_content_sha256": "94b57390c500f8fbc466c9f44e8aa43415f4f06a6588db98c51a50b4fa80562d",
+    "snapshot_id": "f01-31001-f01-pairwise-001-d0-3f8592295cad",
+    "snapshot_manifest_sha256": "9d33a9e5b8be889ac1fa015ee10ae790fb390dd9b36621967252d2aa34b0228d"
+  },
+  "rows": [
+    {
+      "bridge_step_seconds_total": 0.6649989002617076,
+      "end_to_end_seconds": 1.549727400066331,
+      "end_to_end_speedup_vs_first": 1.0,
+      "end_to_end_transitions_per_second": 5.162198203153397,
+      "illegal_action_count": 0,
+      "native_step_seconds_mean": 0.043439149999999996,
+      "native_step_seconds_total": 0.34751319999999997,
+      "native_step_transitions_per_second_serial_equivalent": 23.020708278131597,
+      "parallel_environments": 1,
+      "policy_inference_seconds_total": 0.06878660002257675,
+      "policy_inference_transitions_per_second": 116.30172151806144,
+      "replay_checks": 1,
+      "transitions": 8,
+      "transitions_per_environment": 8
+    },
+    {
+      "bridge_step_seconds_total": 1.4228199002100155,
+      "end_to_end_seconds": 1.515351300011389,
+      "end_to_end_speedup_vs_first": 2.0453704696128003,
+      "end_to_end_transitions_per_second": 10.558607763018218,
+      "illegal_action_count": 0,
+      "native_step_seconds_mean": 0.047536825,
+      "native_step_seconds_total": 0.7605892,
+      "native_step_transitions_per_second_serial_equivalent": 21.03632289283098,
+      "parallel_environments": 2,
+      "policy_inference_seconds_total": 0.029309199890121818,
+      "policy_inference_transitions_per_second": 545.9036773430494,
+      "replay_checks": 2,
+      "transitions": 16,
+      "transitions_per_environment": 8
+    },
+    {
+      "bridge_step_seconds_total": 2.9867888001026586,
+      "end_to_end_seconds": 1.634459999972023,
+      "end_to_end_speedup_vs_first": 3.7926346318487023,
+      "end_to_end_transitions_per_second": 19.578331681746718,
+      "illegal_action_count": 0,
+      "native_step_seconds_mean": 0.04957995625,
+      "native_step_seconds_total": 1.5865586,
+      "native_step_transitions_per_second_serial_equivalent": 20.169440952259816,
+      "parallel_environments": 4,
+      "policy_inference_seconds_total": 0.0667725004022941,
+      "policy_inference_transitions_per_second": 479.2392048703418,
+      "replay_checks": 4,
+      "transitions": 32,
+      "transitions_per_environment": 8
+    },
+    {
+      "bridge_step_seconds_total": 8.745907699572854,
+      "end_to_end_seconds": 2.567895199987106,
+      "end_to_end_speedup_vs_first": 4.828008246050267,
+      "end_to_end_transitions_per_second": 24.923135492570474,
+      "illegal_action_count": 0,
+      "native_step_seconds_mean": 0.0745341671875,
+      "native_step_seconds_total": 4.7701867,
+      "native_step_transitions_per_second_serial_equivalent": 13.416665641200165,
+      "parallel_environments": 8,
+      "policy_inference_seconds_total": 0.6342166995164007,
+      "policy_inference_transitions_per_second": 100.91188082685447,
+      "replay_checks": 8,
+      "transitions": 64,
+      "transitions_per_environment": 8
+    }
+  ],
+  "scope": "local-native-throughput-not-gameplay-performance",
+  "status": "PASS"
+}

@@ -106,12 +106,12 @@ def sample_hybrid(
 ) -> HybridActionSample:
     _validate_gaussian_parameters(mean, log_std)
     normal = Normal(mean, torch.exp(log_std).expand_as(mean))
-    latent = mean if deterministic else normal.rsample()
+    active = structural_head_mask(observation)
+    latent = mean if deterministic else _sample_active_latent(normal, active)
     # sigmoid(2z) is exactly (tanh(z)+1)/2. Float64 preserves an invertible
     # requested action throughout the supported Gaussian parameter envelope.
     raw_continuous = torch.sigmoid(2.0 * latent.to(torch.float64))
     continuous = canonicalize_continuous(observation, raw_continuous)
-    active = structural_head_mask(observation)
     dim_log_prob = _bounded_log_prob(normal, continuous, active)
     active_float = active.to(dim_log_prob.dtype)
     continuous_log_prob = (dim_log_prob * active_float).sum(dim=-1)
@@ -125,6 +125,29 @@ def sample_hybrid(
     log_prob = continuous_log_prob + categorical.log_prob(movement_index)
     entropy = continuous_entropy + categorical.entropy()
     return HybridActionSample(continuous, movement_index, log_prob, entropy)
+
+
+def _sample_active_latent(normal: Normal, active: Tensor) -> Tensor:
+    """Reparameterize only structurally active dimensions.
+
+    Building one active subset at a time avoids consuming RNG draws for heads
+    that the native contract declares absent. Copy-slice autograd preserves the
+    pathwise derivative for each sampled active subset.
+    """
+
+    heads: list[Tensor] = []
+    for head in range(normal.loc.shape[-1]):
+        location = normal.loc[..., head]
+        scale = normal.scale[..., head]
+        mask = active[..., head]
+        latent = location.clone()
+        if torch.any(mask):
+            active_location = location[mask]
+            active_scale = scale[mask]
+            sampled = active_location + active_scale * torch.randn_like(active_location)
+            latent[mask] = sampled
+        heads.append(latent)
+    return torch.stack(heads, dim=-1)
 
 
 def evaluate_hybrid(
