@@ -5,7 +5,7 @@ import hashlib
 import json
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -27,6 +27,7 @@ from anthropocene_rl.datasets.shards import (
     discover_runs,
     pack_snapshot_bank,
 )
+from anthropocene_rl.observations.normalization import NormalizationManifest
 from anthropocene_rl.training.overfit import load_stage0_selection
 
 
@@ -256,6 +257,16 @@ def test_local_backend_has_the_same_publish_and_read_contract(tmp_path: Path) ->
 def test_overfit_loader_fetches_a_missing_snapshot_from_dataset_cache(
     tmp_path: Path,
 ) -> None:
+    source_manifest_path, blob_root, _ = _snapshot_bank(tmp_path)
+    source_manifest = SnapshotBankManifest.load(source_manifest_path)
+    normalizer = NormalizationManifest.load(
+        "evidence/stage0-snapshot-bank/provisional-train-normalization.json"
+    )
+    normalizer_path = tmp_path / "normalizer.json"
+    replace(
+        normalizer,
+        partition_manifest_sha256=source_manifest.sha256(),
+    ).save(normalizer_path)
     config = DatasetStoreConfig(
         backend="local",
         local_root=(tmp_path / "remote").as_posix(),
@@ -267,8 +278,8 @@ def test_overfit_loader_fetches_a_missing_snapshot_from_dataset_cache(
         initial_backoff_seconds=0,
     )
     packed = pack_snapshot_bank(
-        snapshot_manifest_path="datasets/manifests/elder-v2-stage0-v1.json",
-        blob_root="datasets/blobs",
+        snapshot_manifest_path=source_manifest_path,
+        blob_root=blob_root,
         staging_root=config.staging_root,
         dataset_id="elder-stage0-test",
         run_id="run-001",
@@ -279,7 +290,9 @@ def test_overfit_loader_fetches_a_missing_snapshot_from_dataset_cache(
     config_path.write_text(json.dumps(config.model_dump(mode="json")), encoding="utf-8")
 
     selection = load_stage0_selection(
+        manifest_path=source_manifest_path,
         blob_root=tmp_path / "empty-local-blobs",
+        normalizer_path=normalizer_path,
         dataset_manifest=packed.manifest_path,
         dataset_store_config=config_path,
     )
