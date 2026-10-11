@@ -42,13 +42,15 @@ A pre-existing object is accepted only when its size and SHA-256 match; a
 different object at the same name is a hard collision. Local staged files are
 never deleted by publication.
 
-## Proposed cloud configuration
+## Cloud configuration
 
-- project: `anthropocene-508912` (existing; currently has no billing account)
-- bucket: `anthropocene-rl-datasets-508912` (proposal; not created)
+- project: `anthropocene-508912` (Google Cloud free trial active)
+- bucket: `anthropocene-rl-datasets-508912` (created and integration-tested)
 - region: `asia-northeast1` (Tokyo)
 - storage class: `STANDARD`
 - flat object namespace; no multi-region replication or Autoclass
+- uniform bucket-level access and public-access prevention are enforced
+- the default seven-day soft-delete policy is active
 
 Tokyo is selected because current Cloud TPU v6e capacity is available in
 `asia-northeast1-b`. Co-locating future TPU workers and the bucket avoids
@@ -60,7 +62,8 @@ At the current roughly $0.02/GiB-month single-region Standard rate, the measured
 Class A writes are roughly $0.005 per 1,000 operations and Class B reads roughly
 $0.0004 per 1,000. Upload ingress is free. Reads to compute in the same region
 are normally free; internet downloads and cross-region training can incur data
-transfer charges. Confirm the live SKU/currency before enabling billing.
+transfer charges. The free trial does not automatically convert to paid billing;
+confirm the live SKU and currency before manually upgrading the account.
 
 ## Authentication and bucket setup
 
@@ -78,12 +81,14 @@ gcloud storage buckets create gs://anthropocene-rl-datasets-508912 \
   --location=asia-northeast1 \
   --default-storage-class=STANDARD \
   --uniform-bucket-level-access
+gcloud storage buckets update gs://anthropocene-rl-datasets-508912 \
+  --public-access-prevention
 ```
 
-Do not run the service-enable or bucket-create commands until a billing account,
-credits, region, and globally unique bucket name have been reviewed. Workload
-Identity or a narrowly scoped service account is preferable for unattended
-remote workers; local development uses Application Default Credentials.
+The live bucket was reviewed before creation. Workload Identity or a narrowly
+scoped service account is preferable for unattended remote workers; local
+development uses user Application Default Credentials. Never copy a personal
+ADC file onto a worker image.
 
 ## Pack, publish, resume, list, and read
 
@@ -130,19 +135,29 @@ For local-only development, replace the config with
 `configs/storage/local-v1.yaml`; packing, publication semantics, discovery,
 cache validation, and readers remain the same without GCS credentials.
 
-## Measured local benchmark
+## Measured local and GCS benchmark
 
 The checked-in stage-0 bank (28 records, 6,035,379 payload bytes) packed into
 one 6,072,320-byte shard in 0.196 seconds of library time. Local publication
 completed in 0.720 seconds; an immediate restart uploaded zero objects and
 deduplicated the existing shard. Full readback verified all 28 records with one
-cache miss and 27 cache hits. The machine-readable result is retained at
-`evidence/gcs-dataset-store/benchmark.json`.
+cache miss and 27 cache hits. The 6,035,379 compressed payload bytes expand to
+17,608,427 bytes (34.28% of the decompressed size). Sharding intentionally does
+not recompress these project-native gzip members.
 
-This validates packing, immutability, resume, discovery, checksum, and cache
-behavior without conflating them with the current network. Repeat the same
-benchmark against GCS after authentication to establish cloud upload and read
-throughput.
+The real GCS run `gcs-smoke-20261011` packed in 0.213 seconds, published one
+6,072,320-byte shard plus a 14,851-byte manifest in 7.807 seconds wall time,
+and wrote 6,087,171 total bytes. This is 0.744 MiB/s effective end-to-end from
+the current connection, including process/API/manifest overhead. A restart took
+2.386 seconds, uploaded zero shards, and deduplicated the existing shard.
+
+Cold-cache verification downloaded the shard and verified all 28 records in
+24.619 seconds (0.235 MiB/s effective, one miss then 27 intra-shard hits). The
+warm-cache repeat took 2.929 seconds with 28 hits and zero misses. The configured
+uploader has four workers, but this one-shard fixture exercised one active
+upload; larger banks overlap up to four finalized shard uploads with continued
+generation. The machine-readable results are retained at
+`evidence/gcs-dataset-store/benchmark.json`.
 
 ## Versioning and recovery
 
