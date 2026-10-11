@@ -18,6 +18,7 @@ from anthropocene_rl.datasets.pilot_plan import (
     PILOT_V3_ACCEPTED_PARTITION_COUNTS,
     build_cultivation_pilot_plan,
     build_normalization_v3_remediation_plan,
+    build_normalization_v3_scope_safe_plan,
     cultivation_pilot_plan_summary,
 )
 from anthropocene_rl.observations.normalization import (
@@ -162,6 +163,19 @@ def test_normalization_v3_remediation_plan_is_fresh_and_disjoint() -> None:
     ) == Counter({"train": 210, "development": 46, "heldout": 44})
     assert remediation.calibration_rollout_steps == 5
     assert summary["normalization_rule"].startswith("fit final elder-normalization-v3")
+
+
+def test_scope_safe_plan_is_a_new_generation_of_the_same_candidate_universe() -> None:
+    remediation = build_normalization_v3_remediation_plan()
+    scope_safe = build_normalization_v3_scope_safe_plan()
+
+    assert scope_safe.bank_id != remediation.bank_id
+    assert scope_safe.bank_version == "3.1.0-scope-safe"
+    assert scope_safe.canonical_sha256() != remediation.canonical_sha256()
+    assert sum(len(plan.snapshot_steps) for plan in scope_safe.trajectories) == 796
+    assert {plan.world_seed for plan in remediation.trajectories}.issubset(
+        {plan.world_seed for plan in scope_safe.trajectories}
+    )
 
 
 def test_frozen_cultivation_pilot_has_every_family_in_every_partition() -> None:

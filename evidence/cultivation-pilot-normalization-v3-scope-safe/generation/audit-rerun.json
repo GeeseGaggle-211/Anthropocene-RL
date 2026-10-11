@@ -1,0 +1,20 @@
+{
+  "errors": [],
+  "manifest_sha256": "1cfabbc6057c063d2bca8d27c4bda861a090d5811e2b02f3fe51adc9fd2a6b83",
+  "partition_counts": {
+    "development": 46,
+    "heldout": 44,
+    "train": 210
+  },
+  "rejection_counts": {
+    "coverage-quota-not-selected": 134,
+    "cultivation-scope-escape-during-calibration": 28,
+    "duplicate-native-identity-group": 28,
+    "incomplete-causal-group": 98,
+    "native-generation-rejected": 12,
+    "requested-stratum-not-achieved": 196
+  },
+  "snapshot_count": 300,
+  "status": "PASS",
+  "warnings": []
+}

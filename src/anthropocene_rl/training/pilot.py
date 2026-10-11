@@ -27,12 +27,7 @@ from torch import Tensor
 from anthropocene_rl.contracts import (
     ACTION_SCHEMA_VERSION,
     CRITIC_SIDECAR_SCHEMA_VERSION,
-    DOMESTIC_HERD_COUNT_OFFSET,
     ENVIRONMENT_SCHEMA_VERSION,
-    FISHING_CAPABILITY_AVAILABLE_OFFSET,
-    FISHING_PRESENT_COUNT_OFFSET,
-    HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET,
-    MOVEMENT_ENABLED_OFFSET,
     OBSERVATION_SCHEMA_VERSION,
     SIMULATOR_COMMIT,
     TENSOR_FEATURE_COUNT,
@@ -60,7 +55,10 @@ from anthropocene_rl.observations.normalization import (
     SemanticNormalizer,
     semantic_normalizer_from_manifest,
 )
-from anthropocene_rl.observations.schema import EncodedObservation, StructuralActionMask
+from anthropocene_rl.observations.schema import (
+    EncodedObservation,
+    cultivation_only_scope_violations,
+)
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
 from anthropocene_rl.training.overfit import (
     _action_l2,
@@ -1580,23 +1578,7 @@ def _assert_cultivation_scope(
 ) -> None:
     """Fail before an excluded learned domain can enter a campaign transition."""
 
-    values = observation.values
-    mask = StructuralActionMask.from_observation(observation)
-    violations: list[str] = []
-    if values[HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
-        violations.append("husbandry-capability-available")
-    if values[DOMESTIC_HERD_COUNT_OFFSET] > 1e-9:
-        violations.append("domestic-herd-present")
-    if mask.herd_retention:
-        violations.append("herd-retention-mask-active")
-    if mask.herd_development:
-        violations.append("herd-development-mask-active")
-    if values[FISHING_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
-        violations.append("fishing-capability-available")
-    if values[FISHING_PRESENT_COUNT_OFFSET] > 1e-9:
-        violations.append("fishing-ground-present")
-    if values[MOVEMENT_ENABLED_OFFSET] > 0.5 or any(mask.movement_candidates[1:]):
-        violations.append("movement-enabled")
+    violations = cultivation_only_scope_violations(observation)
     if violations:
         detail = ", ".join(violations)
         raise RuntimeError(f"Cultivation-only scope escaped for {snapshot_id} at {phase}: {detail}")

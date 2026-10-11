@@ -1,0 +1,149 @@
+{
+  "bank_id": "elder-v2-cultivation-pilot-normalization-v3-scope-safe",
+  "deferred_capabilities": [
+    "movement",
+    "herding",
+    "fishing"
+  ],
+  "family_snapshot_counts": {
+    "F01": 38,
+    "F02": 45,
+    "F03": 45,
+    "F13": 52,
+    "F15": 396,
+    "F16": 100,
+    "F17": 60,
+    "F18": 60
+  },
+  "family_world_counts": {
+    "F01": 38,
+    "F02": 45,
+    "F03": 45,
+    "F13": 52,
+    "F15": 198,
+    "F16": 25,
+    "F17": 20,
+    "F18": 30
+  },
+  "generator_config_sha256": "f7eeaa5ce09cb2e2990fe5bb9a314cf480dbf37d54d29186e119816cc24a3ee2",
+  "independent_world_count": 453,
+  "live_external_dynamics": [
+    "trade",
+    "immigration",
+    "emigration",
+    "fission"
+  ],
+  "normalization_rule": "fit final elder-normalization-v3 from frozen PILOT TRAIN reset plus short legal calibration rollouts; DEVELOPMENT and HELDOUT are transform-only",
+  "partition_world_counts": {
+    "development": 65,
+    "heldout": 70,
+    "train": 318
+  },
+  "promotion_rule": "requested bands are planning inputs only; freeze the bank only after native accepted records pass measured physical-strata and leakage audits",
+  "requested_pairwise_coverage": {
+    "F01": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F02": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F03": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F13": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 219,
+      "possible_pairs": 219
+    },
+    "F15": {
+      "active_factor_count": 7,
+      "fraction": 0.9882352941176471,
+      "observed_pairs": 504,
+      "possible_pairs": 510
+    },
+    "F16": {
+      "active_factor_count": 7,
+      "fraction": 0.9962264150943396,
+      "observed_pairs": 264,
+      "possible_pairs": 265
+    },
+    "F17": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 149,
+      "possible_pairs": 149
+    },
+    "F18": {
+      "active_factor_count": 7,
+      "fraction": 0.9753846153846154,
+      "observed_pairs": 317,
+      "possible_pairs": 325
+    }
+  },
+  "requested_snapshot_count": 796,
+  "selection_rule": "deterministic constrained pairwise rows; partitions resolved from complete world/lineage identity before timestamp selection",
+  "status": "PLAN_READY_NOT_GENERATED",
+  "target_accepted_family_counts": {
+    "F01": 30,
+    "F02": 35,
+    "F03": 35,
+    "F13": 40,
+    "F15": 50,
+    "F16": 40,
+    "F17": 24,
+    "F18": 46
+  },
+  "target_accepted_partition_counts": {
+    "F01": {
+      "development": 4,
+      "heldout": 5,
+      "train": 21
+    },
+    "F02": {
+      "development": 4,
+      "heldout": 6,
+      "train": 25
+    },
+    "F03": {
+      "development": 6,
+      "heldout": 5,
+      "train": 24
+    },
+    "F13": {
+      "development": 7,
+      "heldout": 5,
+      "train": 28
+    },
+    "F15": {
+      "development": 6,
+      "heldout": 6,
+      "train": 38
+    },
+    "F16": {
+      "development": 4,
+      "heldout": 8,
+      "train": 28
+    },
+    "F17": {
+      "development": 3,
+      "heldout": 3,
+      "train": 18
+    },
+    "F18": {
+      "development": 12,
+      "heldout": 6,
+      "train": 28
+    }
+  },
+  "target_accepted_snapshot_count": 300
+}

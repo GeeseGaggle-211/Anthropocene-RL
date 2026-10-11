@@ -33,3 +33,7 @@ evidence/cultivation-ppo-pilot-v1/failed-eight-step/seed-*.json
 # Full per-observation normalization diagnostics are published with run data;
 # Git retains the compact promotion audit and the fitted normalizer manifest.
 evidence/cultivation-pilot-normalization-v3/generation/final-normalization-diagnostics.json
+evidence/cultivation-pilot-normalization-v3-scope-safe/generation/final-normalization-diagnostics.json
+evidence/cultivation-ppo-pilot-normalization-v3*/campaign-summary.json
+evidence/cultivation-ppo-pilot-normalization-v3*/option-a-baseline.json
+evidence/cultivation-ppo-pilot-normalization-v3*/seed-*.json

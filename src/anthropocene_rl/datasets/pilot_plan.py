@@ -77,6 +77,19 @@ def build_normalization_v3_remediation_plan() -> SnapshotBankGenerationConfig:
     )
 
 
+def build_normalization_v3_scope_safe_plan() -> SnapshotBankGenerationConfig:
+    return _build_cultivation_pilot_plan(
+        generation_seed=PILOT_V3_REMEDIATION_GENERATION_SEED,
+        world_seed_offset=10_000,
+        bank_id="elder-v2-cultivation-pilot-normalization-v3-scope-safe",
+        bank_version="3.1.0-scope-safe",
+        partition_salt=("elder-v2-cultivation-pilot-partitions-v8-normalization-v3-12333"),
+        normalization_version=NORMALIZATION_VERSION_V3,
+        accepted_partition_counts=PILOT_V3_ACCEPTED_PARTITION_COUNTS,
+        scope_safe_oversampling=True,
+    )
+
+
 def _build_cultivation_pilot_plan(
     *,
     generation_seed: int,
@@ -86,6 +99,7 @@ def _build_cultivation_pilot_plan(
     partition_salt: str,
     normalization_version: str,
     accepted_partition_counts: dict[str, dict[str, int]] | None = None,
+    scope_safe_oversampling: bool = False,
 ) -> SnapshotBankGenerationConfig:
     trajectories: list[dict[str, Any]] = []
     family_specs: tuple[tuple[str, int, int, dict[str, list[Any]]], ...] = (
@@ -143,6 +157,8 @@ def _build_cultivation_pilot_plan(
         ),
     )
     for family_index, (family, count, seed_start, factors) in enumerate(family_specs):
+        if scope_safe_oversampling:
+            count = {"F01": 38, "F02": 45, "F03": 45, "F13": 52}[family]
         rows = _constrained_pairwise_rows(
             factors,
             count=count,
@@ -269,7 +285,10 @@ def _build_cultivation_pilot_plan(
         "tool_abundance": [0.2, 0.6, 1.2],
         "amenity_coverage": [0.2, 0.45, 0.75, 1.0],
     }
-    fission_candidate_count = 20 if normalization_version == NORMALIZATION_VERSION_V3 else 15
+    if scope_safe_oversampling:
+        fission_candidate_count = 25
+    else:
+        fission_candidate_count = 20 if normalization_version == NORMALIZATION_VERSION_V3 else 15
     fission_rows = _constrained_pairwise_rows(
         fission_factors,
         count=fission_candidate_count,
@@ -305,7 +324,7 @@ def _build_cultivation_pilot_plan(
     for index, row in enumerate(
         _constrained_pairwise_rows(
             memory_factors,
-            count=12,
+            count=20 if scope_safe_oversampling else 12,
             seed=generation_seed + 17,
         )
     ):
@@ -333,7 +352,7 @@ def _build_cultivation_pilot_plan(
     for index, row in enumerate(
         _constrained_pairwise_rows(
             frontier_factors,
-            count=23,
+            count=30 if scope_safe_oversampling else 23,
             seed=generation_seed + 18,
         )
     ):
@@ -489,6 +508,7 @@ def save_cultivation_pilot_plan(
     builders = {
         "v2": build_cultivation_pilot_plan,
         "normalization-v3": build_normalization_v3_remediation_plan,
+        "normalization-v3-scope-safe": build_normalization_v3_scope_safe_plan,
     }
     try:
         config = builders[variant]()

@@ -1,0 +1,289 @@
+{
+  "bank_id": "elder-v2-cultivation-pilot-normalization-v3-scope-safe",
+  "classification_counts": {
+    "controlled-valid-fixture": 265,
+    "synthetic-stress": 35
+  },
+  "fishing_ground_counts": {
+    "0": 300
+  },
+  "lineage_count": 206,
+  "manifest_sha256": "1cfabbc6057c063d2bca8d27c4bda861a090d5811e2b02f3fe51adc9fd2a6b83",
+  "measured_distributions": {
+    "delivered_food_export": {
+      "count": 300,
+      "max": 380.80000000000007,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 145.6
+    },
+    "delivered_food_import": {
+      "count": 300,
+      "max": 12240.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 3.8250000000008697,
+      "p99": 8906.94999999997
+    },
+    "delivered_material_tool_import": {
+      "count": 300,
+      "max": 188.02000000000004,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 71.97420515213003
+    },
+    "delivered_trade_total": {
+      "count": 300,
+      "max": 24480.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 291.94000000000017,
+      "p99": 17813.89999999994
+    },
+    "field_q": {
+      "count": 300,
+      "max": 0.64,
+      "min": 0.12,
+      "p5": 0.16,
+      "p50": 0.39999999999999997,
+      "p95": 0.6020000000000004,
+      "p99": 0.64
+    },
+    "fission_exit_opportunity": {
+      "count": 300,
+      "max": 0.15332137349425573,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.025371406323558544
+    },
+    "fission_pressure": {
+      "count": 300,
+      "max": 1.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 1.0
+    },
+    "food_reserve_years": {
+      "count": 300,
+      "max": 80.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 28.191546864814445,
+      "p95": 80.0,
+      "p99": 80.0
+    },
+    "import_dependence": {
+      "count": 300,
+      "max": 0.45,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0005312500000001208,
+      "p99": 0.45
+    },
+    "maintenance_worker_years": {
+      "count": 300,
+      "max": 15283.549693357765,
+      "min": 7.457142857142856,
+      "p5": 18.708571428571425,
+      "p50": 90.9346606307063,
+      "p95": 4027.3632367144814,
+      "p99": 10875.452202852459
+    },
+    "memory_age_years": {
+      "count": 300,
+      "max": 180.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 60.0,
+      "p99": 180.0
+    },
+    "population": {
+      "count": 300,
+      "max": 1100.0,
+      "min": 45.0,
+      "p5": 81.95,
+      "p50": 232.0,
+      "p95": 850.0,
+      "p99": 1100.0
+    },
+    "retained_field_capital": {
+      "count": 300,
+      "max": 17.919999999999995,
+      "min": 0.44999999999999996,
+      "p5": 1.1199999999999997,
+      "p50": 5.359374999999999,
+      "p95": 13.720000000000004,
+      "p99": 17.919999999999995
+    },
+    "signed_migration": {
+      "count": 300,
+      "max": 34.0,
+      "min": -34.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 1.3000000000002956,
+      "p99": 26.0
+    }
+  },
+  "measured_factor_counts": {
+    "amenity_band": {
+      "moderate": 112,
+      "poor": 68,
+      "strong": 120
+    },
+    "family": {
+      "F01": 30,
+      "F02": 35,
+      "F03": 35,
+      "F13": 40,
+      "F15": 50,
+      "F16": 40,
+      "F17": 24,
+      "F18": 46
+    },
+    "fission_state": {
+      "candidate": 5,
+      "none": 288,
+      "recent-split": 7
+    },
+    "frontier": {
+      "plough": 23,
+      "primitive": 277
+    },
+    "memory_maturity": {
+      "mature": 8,
+      "partial": 78,
+      "young": 214
+    },
+    "migration_sign": {
+      "negative": 7,
+      "positive": 15,
+      "zero": 278
+    },
+    "population_band": {
+      "large": 55,
+      "medium": 162,
+      "small": 83
+    },
+    "q_band": {
+      "high": 74,
+      "low": 82,
+      "moderate": 144
+    },
+    "reserve_band": {
+      "moderate": 3,
+      "poor": 17,
+      "strong": 280
+    },
+    "tool_band": {
+      "moderate": 94,
+      "poor": 131,
+      "strong": 75
+    },
+    "trade_band": {
+      "mild": 15,
+      "none": 275,
+      "strong": 10
+    }
+  },
+  "measured_factor_pairwise_coverage": {
+    "fraction": 0.7147540983606557,
+    "observed_pairs": 436,
+    "possible_pairs": 610
+  },
+  "measured_tag_counts": {
+    "amenity-bottleneck": 54,
+    "cultivation-only": 300,
+    "emigration": 7,
+    "fission-candidate": 5,
+    "food-export": 5,
+    "food-import": 15,
+    "high-q": 74,
+    "immigration": 15,
+    "isolated": 245,
+    "low-q": 82,
+    "material-tool-import": 5,
+    "mature-memory": 8,
+    "migration-negative": 7,
+    "migration-positive": 15,
+    "near-knee-q": 107,
+    "no-herd": 300,
+    "plough-frontier": 23,
+    "post-fission": 7,
+    "pre-fission": 5,
+    "primitive-frontier": 277,
+    "recent-fission": 7,
+    "trade-active": 25,
+    "trade-dependent": 10,
+    "young-memory": 214
+  },
+  "partition_counts": {
+    "development": 46,
+    "heldout": 44,
+    "train": 210
+  },
+  "scenario_family_by_partition": {
+    "F01": {
+      "development": 4,
+      "heldout": 5,
+      "train": 21
+    },
+    "F02": {
+      "development": 4,
+      "heldout": 6,
+      "train": 25
+    },
+    "F03": {
+      "development": 6,
+      "heldout": 5,
+      "train": 24
+    },
+    "F13": {
+      "development": 7,
+      "heldout": 5,
+      "train": 28
+    },
+    "F15": {
+      "development": 6,
+      "heldout": 6,
+      "train": 38
+    },
+    "F16": {
+      "development": 4,
+      "heldout": 8,
+      "train": 28
+    },
+    "F17": {
+      "development": 3,
+      "heldout": 3,
+      "train": 18
+    },
+    "F18": {
+      "development": 12,
+      "heldout": 6,
+      "train": 28
+    }
+  },
+  "snapshot_count": 300,
+  "structural_mask_signatures": {
+    "1010": 300
+  },
+  "world_count": 206,
+  "world_counts_by_partition": {
+    "development": 32,
+    "heldout": 30,
+    "train": 144
+  }
+}

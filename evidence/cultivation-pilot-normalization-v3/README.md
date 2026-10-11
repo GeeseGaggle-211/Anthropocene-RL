@@ -1,6 +1,15 @@
 # Cultivation pilot normalization-v3 remediation
 
-Status: **BANK AND NORMALIZER FROZEN; PPO NOT YET RUN**
+Status: **REJECTED AT FIRST PPO SCOPE GATE; RETAINED AS FAILURE EVIDENCE**
+
+The first PPO collection stopped before any optimizer update because
+`f17-41707-f17-memory-contrast-007-d9-eb55028669cc` activated native husbandry
+capability after its first legal decision. Retrospective inspection showed that
+the bank's own calibration observations already contained nonzero husbandry
+capability, domestic-herd, and herd-action-mask values. The bank remains frozen
+and durable in GCS, but it must not be used for this cultivation-only campaign.
+See `scope-escape-failure.json`. Its replacement is the distinct
+`elder-v2-cultivation-pilot-normalization-v3-scope-safe` generation.
 
 ## Frozen identities
 

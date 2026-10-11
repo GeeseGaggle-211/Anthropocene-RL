@@ -9,12 +9,17 @@ from typing import Any
 
 from anthropocene_rl.contracts import (
     ACTION_SCHEMA_VERSION,
+    DOMESTIC_HERD_COUNT_OFFSET,
     FIELD_DEVELOPMENT_MASK_OFFSET,
     FIELD_RETENTION_MASK_OFFSET,
+    FISHING_CAPABILITY_AVAILABLE_OFFSET,
+    FISHING_PRESENT_COUNT_OFFSET,
     HERD_DEVELOPMENT_MASK_OFFSET,
     HERD_RETENTION_MASK_OFFSET,
+    HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET,
     MOVEMENT_CANDIDATE_COUNT,
     MOVEMENT_CANDIDATE_MASK_OFFSET,
+    MOVEMENT_ENABLED_OFFSET,
     OBSERVATION_SCHEMA_VERSION,
     TENSOR_FEATURE_COUNT,
 )
@@ -34,9 +39,7 @@ class EncodedObservation:
 
     @classmethod
     def from_native(cls, payload: Mapping[str, Any]) -> EncodedObservation:
-        schema_version = int(
-            _pick(payload, "SchemaVersion", "schemaVersion", "schema_version")
-        )
+        schema_version = int(_pick(payload, "SchemaVersion", "schemaVersion", "schema_version"))
         if schema_version != OBSERVATION_SCHEMA_VERSION:
             raise ValueError(f"Unexpected Elder observation schema version: {schema_version}")
         values = tuple(float(value) for value in _pick(payload, "Values", "values"))
@@ -102,6 +105,29 @@ class StructuralActionMask:
         else:
             split = 0.5
         return field_retention, herd_retention, development, split
+
+
+def cultivation_only_scope_violations(observation: EncodedObservation) -> tuple[str, ...]:
+    """Return excluded domains that became physically or structurally active."""
+
+    values = observation.values
+    mask = StructuralActionMask.from_observation(observation)
+    violations: list[str] = []
+    if values[HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
+        violations.append("husbandry-capability-available")
+    if values[DOMESTIC_HERD_COUNT_OFFSET] > 1e-9:
+        violations.append("domestic-herd-present")
+    if mask.herd_retention:
+        violations.append("herd-retention-mask-active")
+    if mask.herd_development:
+        violations.append("herd-development-mask-active")
+    if values[FISHING_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
+        violations.append("fishing-capability-available")
+    if values[FISHING_PRESENT_COUNT_OFFSET] > 1e-9:
+        violations.append("fishing-ground-present")
+    if values[MOVEMENT_ENABLED_OFFSET] > 0.5 or any(mask.movement_candidates[1:]):
+        violations.append("movement-enabled")
+    return tuple(violations)
 
 
 @dataclass(frozen=True)

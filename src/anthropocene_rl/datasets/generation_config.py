@@ -155,8 +155,8 @@ class SnapshotBankGenerationConfig(StrictModel):
         snapshots = sum(len(trajectory.snapshot_steps) for trajectory in self.trajectories)
         if self.bank_kind == "stage0" and not 24 <= snapshots <= 48:
             raise ValueError("Stage-0 generation plan must request 24-48 snapshots")
-        if self.bank_kind == "cultivation-pilot" and not 200 <= snapshots <= 700:
-            raise ValueError("Cultivation pilot generation plan must request 200-700 candidates")
+        if self.bank_kind == "cultivation-pilot" and not 200 <= snapshots <= 800:
+            raise ValueError("Cultivation pilot generation plan must request 200-800 candidates")
         if set(self.capability_experience_thresholds) != set(
             CAPABILITIES_WITH_PROGRESSION_THRESHOLDS
         ):

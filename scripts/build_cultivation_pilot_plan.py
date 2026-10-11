@@ -24,7 +24,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--variant",
-        choices=("v2", "normalization-v3"),
+        choices=("v2", "normalization-v3", "normalization-v3-scope-safe"),
         default="v2",
     )
     args = parser.parse_args()

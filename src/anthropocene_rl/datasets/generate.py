@@ -44,7 +44,10 @@ from anthropocene_rl.datasets.pilot_plan import (
     PILOT_ACCEPTED_FAMILY_COUNTS,
     PILOT_ACCEPTED_PARTITION_COUNTS,
 )
-from anthropocene_rl.observations.schema import EncodedObservation
+from anthropocene_rl.observations.schema import (
+    EncodedObservation,
+    cultivation_only_scope_violations,
+)
 
 
 @dataclass(frozen=True)
@@ -357,12 +360,19 @@ def _ingest_native_result(
             tensor = raw_sample.get("tensor")
             if not isinstance(tensor, dict):
                 raise ValueError("Native calibration tensor is malformed")
+            observation = EncodedObservation.from_native(tensor)
+            violations = cultivation_only_scope_violations(observation)
+            if config.bank_kind == "cultivation-pilot" and violations:
+                raise ValueError(
+                    f"Selected cultivation candidate {record.snapshot_id} contains "
+                    f"an excluded calibration domain: {', '.join(violations)}"
+                )
             samples.append(
                 CalibrationObservation(
                     snapshot_id=record.snapshot_id,
                     partition=record.partition,
                     source=raw_sample["source"],
-                    observation=EncodedObservation.from_native(tensor),
+                    observation=observation,
                     # Measured stratum tags describe the authoritative saved
                     # state. Do not silently carry them onto later rollout
                     # states whose physical strata may have changed.
@@ -430,9 +440,20 @@ def _select_pilot_candidates(
         grouped[key].append(candidate)
 
     duplicate_identity_groups: set[tuple[str, str]] = set()
+    scope_escape_groups: dict[tuple[str, str], tuple[str, ...]] = {}
     complete: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for key, group_candidates in grouped.items():
         if len(group_candidates) != expected_counts[key]:
+            continue
+        violations = sorted(
+            {
+                violation
+                for candidate in group_candidates
+                for violation in _candidate_calibration_scope_violations(candidate)
+            }
+        )
+        if violations:
+            scope_escape_groups[key] = tuple(violations)
             continue
         fingerprints = {
             str(candidate["record"]["native_fingerprint"]).lower() for candidate in group_candidates
@@ -474,6 +495,22 @@ def _select_pilot_candidates(
     accepted_partition_counts = (
         config.pilot_accepted_partition_counts or PILOT_ACCEPTED_PARTITION_COUNTS
     )
+    shortages: list[str] = []
+    for family, quotas in accepted_partition_counts.items():
+        if family == "F15":
+            continue
+        for partition, required in quotas.items():
+            available = sum(
+                len(group_candidates)
+                for key, group_candidates in eligible.items()
+                if key[0] == family and _group_partition(group_candidates) == partition
+            )
+            if available < required:
+                shortages.append(
+                    f"{family}/{partition}: available {available}, required {required}"
+                )
+    if shortages:
+        raise ValueError("Insufficient complete scope-safe groups: " + "; ".join(shortages))
     for family, target_count in PILOT_ACCEPTED_FAMILY_COUNTS.items():
         family_groups = sorted(
             (
@@ -526,7 +563,14 @@ def _select_pilot_candidates(
             continue
         complete_group = key in complete
         duplicate_identity = key in duplicate_identity_groups or key in identity_conflict_groups
-        if duplicate_identity:
+        if key in scope_escape_groups:
+            reason_code = "cultivation-scope-escape-during-calibration"
+            reason = (
+                "A legal calibration rollout activated an excluded pilot domain: "
+                + ", ".join(scope_escape_groups[key])
+                + "."
+            )
+        elif duplicate_identity:
             reason_code = "duplicate-native-identity-group"
             reason = "A causal group repeated a native fingerprint or content identity."
         elif complete_group:
@@ -555,6 +599,19 @@ def _select_pilot_candidates(
                 )
             )
     return selected, tuple(rejected)
+
+
+def _candidate_calibration_scope_violations(candidate: dict[str, Any]) -> tuple[str, ...]:
+    raw_samples = candidate.get("calibration_observations")
+    if not isinstance(raw_samples, list):
+        raise ValueError("Native candidate calibration observations are malformed")
+    violations: set[str] = set()
+    for raw_sample in raw_samples:
+        if not isinstance(raw_sample, dict) or not isinstance(raw_sample.get("tensor"), dict):
+            raise ValueError("Native candidate calibration observation is malformed")
+        observation = EncodedObservation.from_native(raw_sample["tensor"])
+        violations.update(cultivation_only_scope_violations(observation))
+    return tuple(sorted(violations))
 
 
 def _group_partition(group_candidates: list[dict[str, Any]]) -> str:
