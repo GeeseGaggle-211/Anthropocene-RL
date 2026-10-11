@@ -113,11 +113,12 @@
         "content_sha256": "5ef2fc720414671a7d5b9fe66ccb7537b03c4e37264bf38f54083c6d4639f86f",
         "file_id": "1DTwsgDCI3R8qva7jpTMRLRqA44BtCNZo",
         "md5_checksum": "c048bc1f040de9e17591e24ed3504721",
+        "provider_sha256_checksum": "5ef2fc720414671a7d5b9fe66ccb7537b03c4e37264bf38f54083c6d4639f86f",
         "remote_key": "sha256/5e/5ef2fc720414671a7d5b9fe66ccb7537b03c4e37264bf38f54083c6d4639f86f.snapshot",
         "upload_status": "uploaded",
         "uploaded_at": "2026-10-11T10:01:30.462Z",
         "verification_status": "download-verified",
-        "version": null
+        "version": "2"
       },
       "scenario_family": "F01",
       "scenario_version": "stage0-v1",
@@ -246,6 +247,19 @@
       "observation_sha256": "38970a30452079906c8ad68ce05c6c07aedfa76711fda07859e25b86d08e2071",
       "partition": "development",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 211883,
+        "content_sha256": "d3a85149cb6db298a08e5a6ddc56182faf224ccdb1d2a423a333e9c7765bfc94",
+        "file_id": "1MZ8dhoL2iRCPbtdI7J7eT7rwohr-xMqB",
+        "md5_checksum": "5371f880adbe25b745e671eb8cf728e9",
+        "provider_sha256_checksum": "d3a85149cb6db298a08e5a6ddc56182faf224ccdb1d2a423a333e9c7765bfc94",
+        "remote_key": "sha256/d3/d3a85149cb6db298a08e5a6ddc56182faf224ccdb1d2a423a333e9c7765bfc94.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:06:40.562Z",
+        "verification_status": "download-verified",
+        "version": "2"
+      },
       "scenario_family": "F01",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -373,6 +387,19 @@
       "observation_sha256": "7efcdc402e3bb712c6300f34dad70cff20871bdd95e7a49a2ba4685eea7564ee",
       "partition": "development",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 222491,
+        "content_sha256": "be73d7ffe4dec87ad257ea85d9ea104e5d1b6fa976402ee92f94cd0c2dad1160",
+        "file_id": "14MLe-uGZfOy2E7rT_s8vhKLGwoKoiMJU",
+        "md5_checksum": "72364244b1f773ba83497563932222fc",
+        "provider_sha256_checksum": "be73d7ffe4dec87ad257ea85d9ea104e5d1b6fa976402ee92f94cd0c2dad1160",
+        "remote_key": "sha256/be/be73d7ffe4dec87ad257ea85d9ea104e5d1b6fa976402ee92f94cd0c2dad1160.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:06:46.145Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F02",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -501,6 +528,19 @@
       "observation_sha256": "aa2c0dd3103498cc5a6c0cdec3e3a5a4badf16c078d34deaecd93b557ff7f7b2",
       "partition": "heldout",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 205884,
+        "content_sha256": "9343b8fa2edc5f58a6df66c40b3930b9c2c576ea59947cf46d59f3c60dbaef3b",
+        "file_id": "1ReY-_srPDmxjl6E7a3bP3LaWfFMqg2Oa",
+        "md5_checksum": "300bace4ccc8aa4ae61307217e0ce8f9",
+        "provider_sha256_checksum": "9343b8fa2edc5f58a6df66c40b3930b9c2c576ea59947cf46d59f3c60dbaef3b",
+        "remote_key": "sha256/93/9343b8fa2edc5f58a6df66c40b3930b9c2c576ea59947cf46d59f3c60dbaef3b.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:06:51.669Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F02",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -630,6 +670,19 @@
       "observation_sha256": "3b435a8cf5acd781faad0505bec1dfdcc1eb5c14488b5cd91c53a7d1e2fa19fb",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 209289,
+        "content_sha256": "b46e70684fadb9bba2b749613a01d76a2267e2162e345c806fc32f0d3696dd8d",
+        "file_id": "12-IrLat-Vkobd3xWgflOGIBDC2g0VbCX",
+        "md5_checksum": "640c8b2c1bfcfb1c6fde9e8831c8287a",
+        "provider_sha256_checksum": "b46e70684fadb9bba2b749613a01d76a2267e2162e345c806fc32f0d3696dd8d",
+        "remote_key": "sha256/b4/b46e70684fadb9bba2b749613a01d76a2267e2162e345c806fc32f0d3696dd8d.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:06:57.235Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F03",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -758,6 +811,19 @@
       "observation_sha256": "5b5f53de753a6d1f7334a1b0f8ea48eebae53079e961ce078529798b6e176caf",
       "partition": "heldout",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 196928,
+        "content_sha256": "0a6efeac9c877f9a44270fc66bac585cb912d353953bc98317fb5baa0569ed79",
+        "file_id": "16yL6-bNcpKlapuwNTnLs2qDKEZO6Hxl0",
+        "md5_checksum": "e5983a1dbdd42def752f0b064d35a12e",
+        "provider_sha256_checksum": "0a6efeac9c877f9a44270fc66bac585cb912d353953bc98317fb5baa0569ed79",
+        "remote_key": "sha256/0a/0a6efeac9c877f9a44270fc66bac585cb912d353953bc98317fb5baa0569ed79.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:02.647Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F03",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -884,6 +950,19 @@
       "observation_sha256": "16751f1f795c1d39b4acc638f721d5301560b49abdb021251b70646665378fd1",
       "partition": "development",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 220880,
+        "content_sha256": "64aca1fb88640f342cdd0f8d77927cef4c6ced074b040da9b0a2be96876c94d3",
+        "file_id": "1zkBU3L-ntD9VetGrQwBnhoYK02R5a3DS",
+        "md5_checksum": "d2947421624d05abb39c2ca3eb20f9d5",
+        "provider_sha256_checksum": "64aca1fb88640f342cdd0f8d77927cef4c6ced074b040da9b0a2be96876c94d3",
+        "remote_key": "sha256/64/64aca1fb88640f342cdd0f8d77927cef4c6ced074b040da9b0a2be96876c94d3.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:08.856Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F04",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1013,6 +1092,19 @@
       "observation_sha256": "0b79b3a7b425e0cdadf632ffe2e6dabf2bd21bb88a6aadd7415332db732a7631",
       "partition": "heldout",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 209142,
+        "content_sha256": "93666b11b55511e4d4a61c20c91f2d64465acc4e1f6ba0aea52bdf8a2425f754",
+        "file_id": "1sAETkosgOzNlW1z5MQwzXoDJk6RYv8c5",
+        "md5_checksum": "9d7a5eda24c81e894afecdd2967cc48b",
+        "provider_sha256_checksum": "93666b11b55511e4d4a61c20c91f2d64465acc4e1f6ba0aea52bdf8a2425f754",
+        "remote_key": "sha256/93/93666b11b55511e4d4a61c20c91f2d64465acc4e1f6ba0aea52bdf8a2425f754.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:13.628Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F04",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1141,6 +1233,19 @@
       "observation_sha256": "67b6f4be559f52b60d32b6a31469ef75df479f80a082e6858fe2a05c082ade60",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 225310,
+        "content_sha256": "5e13bf7a0f12f08afacf2bc956ddadc21a8bebb39d8c94016e3cb300de53b0da",
+        "file_id": "16w40jmbVB8Hfx9b1-u0RXef0rbbD7d8u",
+        "md5_checksum": "65b0336b2f8a8c1b80f4365c6b6b8e13",
+        "provider_sha256_checksum": "5e13bf7a0f12f08afacf2bc956ddadc21a8bebb39d8c94016e3cb300de53b0da",
+        "remote_key": "sha256/5e/5e13bf7a0f12f08afacf2bc956ddadc21a8bebb39d8c94016e3cb300de53b0da.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:18.945Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F05",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1268,6 +1373,19 @@
       "observation_sha256": "31f0c8cf1fce64e79bca8ab8edecbffaac47e1ffbc1a2357e70994ac2ce98886",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 219898,
+        "content_sha256": "6075da271bbd66c5d662a16e01abb896021a4d259b4bfe8f9ab8c30221354e50",
+        "file_id": "1q072EPNS3o17qOBnMpTZrbbFd6y-lNRd",
+        "md5_checksum": "01ce9acd36c7c24ad13e22339ac190ce",
+        "provider_sha256_checksum": "6075da271bbd66c5d662a16e01abb896021a4d259b4bfe8f9ab8c30221354e50",
+        "remote_key": "sha256/60/6075da271bbd66c5d662a16e01abb896021a4d259b4bfe8f9ab8c30221354e50.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:24.421Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F05",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1394,6 +1512,19 @@
       "observation_sha256": "17762f66491b99d209f94f51f9df94ca252f21b3e99e329a7d9d861daefd3777",
       "partition": "heldout",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 226910,
+        "content_sha256": "30719c6553f2259ce6ec5fb0630eff5fb58bda3c913f0004f5bd41253b312553",
+        "file_id": "1qo_yE2sQ8sTdg-p5BVtmOOa2aQmqoi62",
+        "md5_checksum": "5e1402de8d418a9b402c349f674fb8e5",
+        "provider_sha256_checksum": "30719c6553f2259ce6ec5fb0630eff5fb58bda3c913f0004f5bd41253b312553",
+        "remote_key": "sha256/30/30719c6553f2259ce6ec5fb0630eff5fb58bda3c913f0004f5bd41253b312553.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:29.815Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F06",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1519,6 +1650,19 @@
       "observation_sha256": "6fff865ab04da117d6f5f2449fc8a918a00a7c126dcde931d80a2cd3eb4fb578",
       "partition": "train",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 207699,
+        "content_sha256": "12cb6e6f05363b84365212a6aed3ab9ed64a156c854f1172a76660455ff3a3cd",
+        "file_id": "1ykwqdMHtCruL2PBfbx21FD23t7JKeFBP",
+        "md5_checksum": "1e38186adc0e8dfcffe51dc2d837487e",
+        "provider_sha256_checksum": "12cb6e6f05363b84365212a6aed3ab9ed64a156c854f1172a76660455ff3a3cd",
+        "remote_key": "sha256/12/12cb6e6f05363b84365212a6aed3ab9ed64a156c854f1172a76660455ff3a3cd.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:35.076Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F06",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1645,6 +1789,19 @@
       "observation_sha256": "81313539b8c55d9d9537e2ec3ee173292b80eea48911be83bdd30298048bf37f",
       "partition": "development",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 212362,
+        "content_sha256": "1a5bbdcb2f767327f1b97cf523607ad6768e0795e101d208e7755dbbf9c26af0",
+        "file_id": "1_6mL3p71Ppl8s7j9sle9xQfDlrH_GcSd",
+        "md5_checksum": "3e9803172571a1b295aaac07d687dbe1",
+        "provider_sha256_checksum": "1a5bbdcb2f767327f1b97cf523607ad6768e0795e101d208e7755dbbf9c26af0",
+        "remote_key": "sha256/1a/1a5bbdcb2f767327f1b97cf523607ad6768e0795e101d208e7755dbbf9c26af0.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:40.298Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F07",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1774,6 +1931,19 @@
       "observation_sha256": "3a49ed293072a84fb06bdead8163c0212408f968a495cf39f85805b41e54bcf6",
       "partition": "heldout",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 226349,
+        "content_sha256": "7d5d2e8fb1683da587b5aa1bd9ea368d607809989bb7bd0d500178f2f3059592",
+        "file_id": "1Us75acf0KUUrTrnVKNuXM9whpTNed2iZ",
+        "md5_checksum": "caf5afa45a7a9635ab48aa5981d02b81",
+        "provider_sha256_checksum": "7d5d2e8fb1683da587b5aa1bd9ea368d607809989bb7bd0d500178f2f3059592",
+        "remote_key": "sha256/7d/7d5d2e8fb1683da587b5aa1bd9ea368d607809989bb7bd0d500178f2f3059592.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:45.392Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F07",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -1905,6 +2075,19 @@
       "observation_sha256": "da838586e194ec5b331b127f58a8186cc4e03311262e5de234ce6110eaeb01c4",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 217542,
+        "content_sha256": "e301feebb5d8092017cf697fd96e81695631ad3f99307f9718ee5b838a311c93",
+        "file_id": "1IgGOS-dH3p-CggJgN9eWu3Uj8kpnwrJQ",
+        "md5_checksum": "3cb8c6562d74c30c9d2067d439fc782e",
+        "provider_sha256_checksum": "e301feebb5d8092017cf697fd96e81695631ad3f99307f9718ee5b838a311c93",
+        "remote_key": "sha256/e3/e301feebb5d8092017cf697fd96e81695631ad3f99307f9718ee5b838a311c93.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:50.360Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F08",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2035,6 +2218,19 @@
       "observation_sha256": "38c94a1ff35305ac77da1518a9606537918903b87754e15175aff6f14ac50430",
       "partition": "development",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 216267,
+        "content_sha256": "ba086ffd7eb33b08d6f91989319b474a2a6110455df57d082d2f4aee0e88eed3",
+        "file_id": "1kh4CwdB1uBJ3I4qZ-cxbLdw1pSjSqpCt",
+        "md5_checksum": "5005e705271e2b24802fc1cf7ff42b90",
+        "provider_sha256_checksum": "ba086ffd7eb33b08d6f91989319b474a2a6110455df57d082d2f4aee0e88eed3",
+        "remote_key": "sha256/ba/ba086ffd7eb33b08d6f91989319b474a2a6110455df57d082d2f4aee0e88eed3.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:07:55.563Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F09",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2166,6 +2362,19 @@
       "observation_sha256": "79934ce52de76690119ceeb1528901946235a962f4c891f079a92a72c6112721",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 211796,
+        "content_sha256": "16c2befbb77209d8c8e8ee95ce4d701a18150f56d3bf8bc0f77dacedab780af2",
+        "file_id": "1X-kZW1A4en2VdL-W2XiOBdXaH9CuBk2-",
+        "md5_checksum": "cc4af106903456475a15eee273f3e988",
+        "provider_sha256_checksum": "16c2befbb77209d8c8e8ee95ce4d701a18150f56d3bf8bc0f77dacedab780af2",
+        "remote_key": "sha256/16/16c2befbb77209d8c8e8ee95ce4d701a18150f56d3bf8bc0f77dacedab780af2.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:00.607Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F10",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2294,6 +2503,19 @@
       "observation_sha256": "16ca1979d44de0b5eeabe211b8be284a0fdebc7976e85e1e459e4b20c2edbc8e",
       "partition": "heldout",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 210867,
+        "content_sha256": "3dc182380b95eb10cd394470ce1bd6d4bb85c74390bd0b976b2552654cf55440",
+        "file_id": "19VjGShZ2xE58DmlaeaoCJD9GyyyIxmfs",
+        "md5_checksum": "0a2d226e7011987e1fa1afc6cefc805e",
+        "provider_sha256_checksum": "3dc182380b95eb10cd394470ce1bd6d4bb85c74390bd0b976b2552654cf55440",
+        "remote_key": "sha256/3d/3dc182380b95eb10cd394470ce1bd6d4bb85c74390bd0b976b2552654cf55440.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:05.911Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F11",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2422,6 +2644,19 @@
       "observation_sha256": "a5c575656e643b807fa7fee3e59144afb33a5fd04f55b0928823e5b2adc2d85c",
       "partition": "train",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 222618,
+        "content_sha256": "a79e054094b0648754ca55142c9abaa2f1a182d6efa79ab5f714d9083b97fce2",
+        "file_id": "1nFddV7f3JJBHzhm2001SBtsubkFXnPjQ",
+        "md5_checksum": "4db5ebd915fd9320997b3e8ed4ee4aa8",
+        "provider_sha256_checksum": "a79e054094b0648754ca55142c9abaa2f1a182d6efa79ab5f714d9083b97fce2",
+        "remote_key": "sha256/a7/a79e054094b0648754ca55142c9abaa2f1a182d6efa79ab5f714d9083b97fce2.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:11.334Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F12",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2552,6 +2787,19 @@
       "observation_sha256": "4a661fb238e5237502f819927ddff492cd979dbbff17ac7cd4299b7735092b4f",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 219800,
+        "content_sha256": "3eb924e04fb42aa2ce190f16cd660e8f8de46b6e35a17a032c6becae701b2204",
+        "file_id": "1ibvrqbv8wjmLR0Guf2tJv20uNc38wDSV",
+        "md5_checksum": "4a1b837b1a9a1e091ec4bd779db94369",
+        "provider_sha256_checksum": "3eb924e04fb42aa2ce190f16cd660e8f8de46b6e35a17a032c6becae701b2204",
+        "remote_key": "sha256/3e/3eb924e04fb42aa2ce190f16cd660e8f8de46b6e35a17a032c6becae701b2204.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:16.695Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F13",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2680,6 +2928,19 @@
       "observation_sha256": "ca71fdc3c6e222f79d8b9c305c90bc3ea557672175fd33e3aefa558dfe0e6e70",
       "partition": "heldout",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 206248,
+        "content_sha256": "903f36c807d6ecbbaea922bba530ca65807066cd5f7c83d82ed941d484bbd137",
+        "file_id": "1JrNxsEcAl0AksYgNRFwtbVKiYI-Rd2Pz",
+        "md5_checksum": "1ce8f3ecad49979facf732ddfff6deb1",
+        "provider_sha256_checksum": "903f36c807d6ecbbaea922bba530ca65807066cd5f7c83d82ed941d484bbd137",
+        "remote_key": "sha256/90/903f36c807d6ecbbaea922bba530ca65807066cd5f7c83d82ed941d484bbd137.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:21.635Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F13",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2807,6 +3068,19 @@
       "observation_sha256": "2e51ea5e78f42b1a5bce20618d4d465a8be6764f98704cc96eceeb92154770b7",
       "partition": "development",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 215394,
+        "content_sha256": "351ffae638456b2afb9e52fa4dc8cda58a26d49b71b90ee05801e32d70e9b272",
+        "file_id": "1ocFjc6vwSPxa4x88R3Bm4GA-qIUbqBP0",
+        "md5_checksum": "fd2a09e9177194bd9c81966086c1377a",
+        "provider_sha256_checksum": "351ffae638456b2afb9e52fa4dc8cda58a26d49b71b90ee05801e32d70e9b272",
+        "remote_key": "sha256/35/351ffae638456b2afb9e52fa4dc8cda58a26d49b71b90ee05801e32d70e9b272.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:26.857Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F17",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -2932,6 +3206,19 @@
       "observation_sha256": "e76f123a760c8482764d6ea4dd766f7d41d82eab030fa3761b9eb04e5f156144",
       "partition": "development",
       "physical_years": 60.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 226698,
+        "content_sha256": "ce00b9c83c16d5267d9dc2e50344d22428ce8ee8e7852c314d788925dae4e35c",
+        "file_id": "1OhQWw-UXSeJWMeovQ0LJ-syWObs_socR",
+        "md5_checksum": "b82dfa4cacff5d34c1ed8323c004a9ba",
+        "provider_sha256_checksum": "ce00b9c83c16d5267d9dc2e50344d22428ce8ee8e7852c314d788925dae4e35c",
+        "remote_key": "sha256/ce/ce00b9c83c16d5267d9dc2e50344d22428ce8ee8e7852c314d788925dae4e35c.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:31.944Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F17",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -3058,6 +3345,19 @@
       "observation_sha256": "714d18bea4d2969887ed9c478aa96ed50a09d3ca2796c786fafd2f71d07be69f",
       "partition": "development",
       "physical_years": 180.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 243516,
+        "content_sha256": "53dbbde47287a8679c4d516d7078353da164df97288a15e51bcff07df3eaf5fb",
+        "file_id": "1RANw5zmK-0ymCNymGfGwKgQQLE4vFFn7",
+        "md5_checksum": "a216e6b176fc87a0a42e9d051ab8e388",
+        "provider_sha256_checksum": "53dbbde47287a8679c4d516d7078353da164df97288a15e51bcff07df3eaf5fb",
+        "remote_key": "sha256/53/53dbbde47287a8679c4d516d7078353da164df97288a15e51bcff07df3eaf5fb.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:37.019Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F17",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -3184,6 +3484,19 @@
       "observation_sha256": "f8045d91223c67a346674c3b34ce0a2113c6aacdf25dedc39f58587d22628384",
       "partition": "development",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 213698,
+        "content_sha256": "b800cc2162f1808814adbba49f516aae4b455ceb8389af41200c0ff7c5c03a14",
+        "file_id": "16lLZZPPEtAPbKQKmfag8AN5mQ4jh_DTj",
+        "md5_checksum": "b14a52f9d7400a5b06a97fc0591bc0b4",
+        "provider_sha256_checksum": "b800cc2162f1808814adbba49f516aae4b455ceb8389af41200c0ff7c5c03a14",
+        "remote_key": "sha256/b8/b800cc2162f1808814adbba49f516aae4b455ceb8389af41200c0ff7c5c03a14.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:42.265Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F18",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -3308,6 +3621,19 @@
       "observation_sha256": "0e95ac378129cb7d6de2e8b53c9aa4ab98450479e8688a779062b71d0ec87d34",
       "partition": "development",
       "physical_years": 20.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 218501,
+        "content_sha256": "38f9b35af1f2f1e41feca76241ae5c8edebad2771acf4f48a158c63bb89ae63d",
+        "file_id": "1F7FY6Dlk4VOtRvwUZmNdTRI1Crn_dXTR",
+        "md5_checksum": "1ddda7f2dd232f0d5c70b23b2185d83c",
+        "provider_sha256_checksum": "38f9b35af1f2f1e41feca76241ae5c8edebad2771acf4f48a158c63bb89ae63d",
+        "remote_key": "sha256/38/38f9b35af1f2f1e41feca76241ae5c8edebad2771acf4f48a158c63bb89ae63d.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:47.679Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F18",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -3434,6 +3760,19 @@
       "observation_sha256": "7166d5b5dca49d3f45b54265572bf7b2f9ef5a53bc4d66f192acedda148c4a2d",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 203863,
+        "content_sha256": "63f7d552fb22c0291233620d582b07fee22467b1ac3d68bd8e42ef6902b8f684",
+        "file_id": "1KxG1CAeOkxOgDUqjypxLc-S57t995DS0",
+        "md5_checksum": "4b756be5d4c2445f8f59027c53577760",
+        "provider_sha256_checksum": "63f7d552fb22c0291233620d582b07fee22467b1ac3d68bd8e42ef6902b8f684",
+        "remote_key": "sha256/63/63f7d552fb22c0291233620d582b07fee22467b1ac3d68bd8e42ef6902b8f684.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:52.890Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F18",
       "scenario_version": "stage0-v1",
       "schema": {
@@ -3563,6 +3902,19 @@
       "observation_sha256": "5dd0e6f60272b3b5f35975dc9785dd1a601e2ae0b0068c242534296b7cd6eeba",
       "partition": "train",
       "physical_years": 0.0,
+      "remote_storage": {
+        "backend": "google-drive",
+        "content_bytes": 203842,
+        "content_sha256": "f81b5d9a9ca4fdade8b7ba8eff2fa474850c28b75cf01039b54245aa1d89486c",
+        "file_id": "1jBdaNiijW44hBJ1y2oyXP7AQPhSSEIct",
+        "md5_checksum": "771c4e3a5b72323e93bcdb4779cf8c9c",
+        "provider_sha256_checksum": "f81b5d9a9ca4fdade8b7ba8eff2fa474850c28b75cf01039b54245aa1d89486c",
+        "remote_key": "sha256/f8/f81b5d9a9ca4fdade8b7ba8eff2fa474850c28b75cf01039b54245aa1d89486c.snapshot",
+        "upload_status": "uploaded",
+        "uploaded_at": "2026-10-11T11:08:57.966Z",
+        "verification_status": "metadata-verified",
+        "version": "2"
+      },
       "scenario_family": "F18",
       "scenario_version": "stage0-v1",
       "schema": {

@@ -13,7 +13,7 @@ from anthropocene_rl.datasets.storage import RemoteObject, remote_key_for
 _DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 _FILE_FIELDS = (
-    "id,name,size,md5Checksum,version,modifiedTime,parents,appProperties"
+    "id,name,size,md5Checksum,sha256Checksum,version,modifiedTime,parents,appProperties"
 )
 
 
@@ -109,7 +109,11 @@ class GoogleDriveRemoteStore:
             )
             .execute()
         )
-        return self._to_remote_object(metadata, expected_key=validated_key)
+        # A resumable Drive upload can return the metadata-request version from
+        # ``files.create`` and then advance the object version when the media is
+        # finalized.  Re-read the completed object so the manifest records the
+        # settled version rather than an immediately stale one.
+        return self.get(str(metadata["id"]))
 
     def download(self, file_id: str, destination: Path) -> RemoteObject:
         MediaIoBaseDownload = import_module("googleapiclient.http").MediaIoBaseDownload
@@ -256,6 +260,7 @@ class GoogleDriveRemoteStore:
             key=key,
             size=int(metadata.get("size", 0)),
             md5_checksum=metadata.get("md5Checksum"),
+            sha256_checksum=metadata.get("sha256Checksum"),
             version=str(metadata["version"]) if metadata.get("version") else None,
             modified_time=metadata.get("modifiedTime"),
             content_sha256=content_sha256,

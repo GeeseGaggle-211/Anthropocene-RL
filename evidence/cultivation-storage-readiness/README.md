@@ -49,20 +49,43 @@ evicted the local object, reclaimed 209704 bytes, and restored it through the
 normal training loader without another episode-level transfer. See
 `storage-roundtrip.json`.
 
-The connector OAuth grant is not available to local processes. The implemented
-CLI therefore still needs Application Default Credentials, an authorized-user
-credential file, or a service account that has been granted access to the
-folder. At this evidence point, 1 of 28 Stage-0 blobs has committed remote
-metadata; the remaining 27 must be uploaded with `snapshot-store sync` before
-the local bank is fully evictable. This is an operational credential/sync gate,
-not an architecture blocker.
+Local authorized-user Application Default Credentials were subsequently
+configured for the private test client. The learner CLI uploaded the remaining
+27 Stage-0 blobs, recorded all 28 remote identities atomically, and then
+live-verified all 28 by Drive file ID, content-addressed key, byte count,
+SHA-256 app property, Drive MD5, and Drive's server-computed SHA-256. The first
+live audit exposed that Drive's resumable upload returns metadata version 1
+before media finalization advances the object to version 2. The backend now
+re-reads the completed object, and
+`sync` may refresh only this provider version when verified local bytes, SHA,
+size, MD5, key, and file ID are unchanged. Remote-only audit and prune remain
+strict about unexpected version changes. The regression is covered by the
+snapshot-store tests.
+
+The local CLI round-trip then evicted exactly
+`f01-21002-f01-young-viable-d1-87f7b59c91fe` (211883 bytes) only after its
+remote identity re-verified, and fetched it back through the normal cache path.
+The restored blob matched SHA-256
+`d3a85149cb6db298a08e5a6ddc56182faf224ccdb1d2a423a333e9c7765bfc94`.
+See `storage-live-sync.json`. There is no remaining credential or Stage-0 sync
+gate.
+
+The current OAuth app is External/Testing. Google limits non-basic testing-mode
+refresh tokens to seven days, so this authorized-user credential is suitable
+for the immediate pilot but is not yet a durable unattended credential. Before
+a campaign that may span that boundary, either publish the OAuth app (accepting
+Google's production and verification requirements) or use a service account
+with access only to the snapshot folder. Credential JSON remains outside the
+repository. The full-Drive scope is currently needed because the CLI must reach
+an existing user-created folder without a Google Picker flow.
 
 ## Disk footprint
 
 `disk-footprint.json` records 6,035,379 bytes (5.756 MiB) of Stage-0 blobs,
 154,348,898 bytes (147.199 MiB) of checkpoints, 1,806,597 bytes (1.723 MiB) of
 artifacts, the learner C# build caches, and the frozen simulator checkout/cache.
-After full Drive sync, all 6,035,379 Stage-0 blob bytes are safely reclaimable.
+All 6,035,379 Stage-0 blob bytes are now remotely verified and safely
+reclaimable.
 The 5 GiB LRU ceiling bounds future local snapshot storage; checkpoints remain
 outside this blob-store policy. At the current Stage-0 mean blob size, the
 unlaunched 240-snapshot plan projects to roughly 49.335 MiB of blob bytes.
@@ -74,7 +97,7 @@ ruff check .
 # PASS
 
 pytest -q --basetemp=<short-workspace-temp>
-# 51 passed
+# 53 passed
 
 anthropocene-rl check-manifest
 # PASS; frozen native/schema contract
@@ -102,7 +125,41 @@ python scripts/build_cultivation_pilot_plan.py
 # PLAN_READY_NOT_GENERATED; 240 requested snapshots / 200 worlds
 
 anthropocene-rl snapshot-store status --offline
-# PARTIAL; 28/28 valid locally, 1/28 with remote metadata, 0 unrecoverable
+# PASS locally; 28/28 valid, 28/28 with remote metadata, 0 unrecoverable
+
+anthropocene-rl snapshot-store sync
+# PASS; uploaded 27, deduplicated 1, then reconciled 28/28 settled versions
+
+anthropocene-rl snapshot-store status
+# PASS; 28/28 live remote verification, 0 invalid, 0 unrecoverable
+
+anthropocene-rl snapshot-store prune --max-local-gb 0.005423646420240402
+# PASS; evicted exactly one verified blob and reclaimed 211883 bytes
+
+anthropocene-rl snapshot-store fetch f01-21002-f01-young-viable-d1-87f7b59c91fe
+# PASS; fetched=true; SHA-256 and size verified; cache restored
 ```
 
 The full 200-500-state cultivation campaign was deliberately not launched.
+
+## Training trajectory interpretation
+
+The 25-point deterministic action paths (initial policy plus 24 PPO updates)
+do **not** show a steady increase in cultivation intensity. None of the nine
+runs is monotonic in either active cultivation control. Retained-field
+operation ends above its initial value in 6/9 runs, with a modest mean endpoint
+change of +0.0448, while development budget ends above its initial value in
+only 4/9 runs and averages -0.0534. Individual update-to-update increases occur
+only 49.5% and 44.9% of the time, respectively.
+
+The fixed-policy before/after comparison is more conservative: mean requested
+development budget decreases in all 9/9 runs (mean change -0.1384), and mean
+retained-field operation decreases in 7/9 (mean change -0.0787). F03 is the
+clearest learned effect: all three seeds improve discounted scaled return by
+1.5312 while reducing mean retained-field operation by 0.2473 and development
+budget by 0.0770. F01 and F13 returns remain flat rather than regress; F13 shows
+the only family-level increase in retained-field operation (+0.0558), driven by
+its amenity-constrained adaptation. Thus the readiness evidence supports
+stable, context-sensitive policy movement and selective de-intensification,
+not a universal or steadily increasing cultivation trajectory. See
+`training-trajectory-summary.json`.

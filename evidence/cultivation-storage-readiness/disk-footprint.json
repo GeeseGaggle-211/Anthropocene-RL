@@ -49,5 +49,5 @@
   "snapshot_cache_default_max_bytes": 5368709120,
   "snapshot_cache_default_max_gib": 5.0,
   "stage0_blob_bytes_immediately_reclaimable_after_full_sync": 6035379,
-  "stage0_blob_bytes_verified_remote_at_measurement": 209704
+  "stage0_blob_bytes_verified_remote_at_measurement": 6035379
 }

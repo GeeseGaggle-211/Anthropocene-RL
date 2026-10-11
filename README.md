@@ -141,14 +141,20 @@ uv run anthropocene-rl snapshot-store prune --max-local-gb 5
 uv run anthropocene-rl snapshot-store status
 ```
 
-Uploads are resumable and deduplicate by content key. Drive exposes byte size
-and MD5 for stored binary files, not a server-computed SHA-256; the client checks
-size/MD5 at upload and always computes SHA-256 after download before admitting a
-blob to the cache. Push and fetch enforce the configured cache ceiling; explicit
-prune is also available. Eviction performs a live remote identity check and
-never removes a blob that lacks verified manifest metadata or a matching Drive
-copy. Training and overfit loaders use a valid local cache hit, or fetch and
-verify once on a miss.
+Application Default Credentials in Google's standard local configuration
+location are discovered automatically, so the environment variable is optional
+in that case. Keep OAuth client and authorized-user JSON outside the repository.
+An External/Testing OAuth app's refresh token is short-lived; use a production
+OAuth client or a folder-scoped service account for unattended long campaigns.
+
+Uploads are resumable and deduplicate by content key. For stored binary files,
+the client checks Drive's byte size, MD5, and server-computed SHA-256 as well as
+its private content-identity metadata, and always recomputes SHA-256 after a
+download before admitting a blob to the cache. Push and fetch enforce the
+configured cache ceiling; explicit prune is also available. Eviction performs a
+live remote identity check and never removes a blob that lacks verified manifest
+metadata or a matching Drive copy. Training and overfit loaders use a valid
+local cache hit, or fetch and verify once on a miss.
 
 ## Real one-snapshot mechanics gate
 

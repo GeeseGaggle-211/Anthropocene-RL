@@ -54,6 +54,7 @@ class FakeRemoteStore:
             version="1",
             modified_time="2026-10-11T00:00:00Z",
             content_sha256=content_sha256,
+            sha256_checksum=content_sha256,
         )
         self.objects[file_id] = (payload, remote)
         return remote
@@ -229,6 +230,53 @@ def test_prune_refuses_a_changed_remote_object_version(tmp_path: Path) -> None:
 
     assert result["status"] == "PARTIAL"
     assert "version differs" in result["skipped"][record.snapshot_id]
+    assert manager.cache.path_for(record).is_file()
+
+
+def test_sync_refreshes_version_when_verified_local_bytes_are_unchanged(
+    tmp_path: Path,
+) -> None:
+    _, _record, manifest_path, _ = _mini_manifest(tmp_path)
+    remote = FakeRemoteStore()
+    manager = SnapshotStoreManager(
+        manifest_path=manifest_path,
+        blob_root=tmp_path / "cache",
+        config=_config(tmp_path),
+        remote=remote,
+    )
+    manager.push()
+    file_id, (payload, remote_object) = next(iter(remote.objects.items()))
+    remote.objects[file_id] = (payload, replace(remote_object, version="2"))
+
+    result = manager.sync()
+
+    assert result["status"] == "PASS"
+    updated = SnapshotBankManifest.load(manifest_path)
+    assert updated.records[0].remote_storage is not None
+    assert updated.records[0].remote_storage.version == "2"
+    assert manager.status()["status"] == "PASS"
+
+
+def test_prune_refuses_a_provider_sha256_mismatch(tmp_path: Path) -> None:
+    _, record, manifest_path, _ = _mini_manifest(tmp_path)
+    remote = FakeRemoteStore()
+    manager = SnapshotStoreManager(
+        manifest_path=manifest_path,
+        blob_root=tmp_path / "cache",
+        config=_config(tmp_path),
+        remote=remote,
+    )
+    manager.push()
+    file_id, (payload, remote_object) = next(iter(remote.objects.items()))
+    remote.objects[file_id] = (
+        payload,
+        replace(remote_object, sha256_checksum="0" * 64),
+    )
+
+    result = manager.prune(max_local_bytes=0)
+
+    assert result["status"] == "PARTIAL"
+    assert "provider SHA-256 differs" in result["skipped"][record.snapshot_id]
     assert manager.cache.path_for(record).is_file()
 
 

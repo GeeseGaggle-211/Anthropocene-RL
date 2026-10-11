@@ -62,6 +62,7 @@ class RemoteObject:
     version: str | None
     modified_time: str | None
     content_sha256: str | None
+    sha256_checksum: str | None = None
 
 
 class RemoteBlobStore(Protocol):
@@ -415,6 +416,7 @@ class SnapshotStoreManager:
                         record,
                         remote_object,
                         expected_md5=local_md5,
+                        allow_recorded_version_refresh=True,
                     )
                 except Exception as error:
                     errors.append(f"{record.snapshot_id}: {error}")
@@ -585,6 +587,7 @@ def _remote_errors(
     *,
     expected_file_id: str | None = None,
     expected_md5: str | None = None,
+    allow_recorded_version_refresh: bool = False,
 ) -> list[str]:
     expected_key = remote_key_for(record.content_sha256)
     errors: list[str] = []
@@ -596,6 +599,11 @@ def _remote_errors(
         errors.append("remote size differs from manifest")
     if remote.content_sha256 != record.content_sha256:
         errors.append("remote SHA-256 app property differs from manifest")
+    if (
+        remote.sha256_checksum is not None
+        and remote.sha256_checksum != record.content_sha256
+    ):
+        errors.append("provider SHA-256 differs from manifest")
     if expected_md5 is not None and remote.md5_checksum != expected_md5:
         errors.append("Drive MD5 differs from local bytes")
     metadata = record.remote_storage
@@ -609,6 +617,7 @@ def _remote_errors(
         metadata is not None
         and metadata.version is not None
         and remote.version != metadata.version
+        and not allow_recorded_version_refresh
     ):
         errors.append("Drive object version differs from recorded remote identity")
     return errors
@@ -627,6 +636,7 @@ def _remote_metadata(
         content_sha256=record.content_sha256,
         content_bytes=record.content_bytes,
         md5_checksum=remote.md5_checksum,
+        provider_sha256_checksum=remote.sha256_checksum,
         uploaded_at=remote.modified_time,
         version=remote.version,
     )

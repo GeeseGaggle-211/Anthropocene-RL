@@ -174,6 +174,10 @@ class RemoteBlobMetadata(StrictModel):
     content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     content_bytes: int = Field(gt=0)
     md5_checksum: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    provider_sha256_checksum: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     uploaded_at: str | None = None
     version: str | None = None
 

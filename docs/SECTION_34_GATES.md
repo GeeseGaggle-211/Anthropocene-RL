@@ -128,12 +128,13 @@ verify, and retain a blob on a miss. The default local cap is 5 GiB; LRU pruning
 is enforced after remote transfers, requires a live verified remote copy, and
 cannot delete the only copy.
 
-A Stage-0 F01 object was uploaded at its content-addressed key, downloaded
-through the authenticated Drive connector, byte/hash verified, safely evicted,
-and restored through the pluggable loader. The local CLI uses separate Google
+All 28 Stage-0 objects are uploaded at their content-addressed keys and have
+live-verified remote identities. A blob was safely evicted and restored through
+the local CLI and pluggable loader. The local CLI uses separate Google
 credentials because the app connector's OAuth token is not exposed to local
-processes. Drive's binary metadata supplies size and MD5 but not server-side
-SHA-256, so fetch verification remains authoritative for SHA-256.
+processes. Drive's binary metadata supplies size, MD5, and server-side SHA-256;
+fetch verification additionally recomputes SHA-256 before a blob enters the
+local cache.
 
 ## Prepared cultivation-only pilot bank
 
