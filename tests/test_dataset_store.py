@@ -196,6 +196,34 @@ def test_serialization_shard_readback_manifest_and_cache(tmp_path: Path) -> None
     assert discover_runs(store, "elder-test") == ("run-001",)
 
 
+def test_shard_format_supports_long_descriptive_record_ids(tmp_path: Path) -> None:
+    source, root, payloads = _snapshot_bank(tmp_path)
+    manifest = SnapshotBankManifest.load(source)
+    long_id = "scaleout-" + "isolated-strong-food-import-counterfactual-" * 7
+    records = list(manifest.records)
+    original_id = records[0].snapshot_id
+    records[0] = records[0].model_copy(update={"snapshot_id": long_id})
+    manifest.model_copy(update={"records": tuple(records)}).save(source)
+    payloads[long_id] = payloads.pop(original_id)
+
+    packed = pack_snapshot_bank(
+        snapshot_manifest_path=source,
+        blob_root=root,
+        staging_root=tmp_path / "staging",
+        dataset_id="elder-long-id-test",
+        run_id="run-001",
+        target_shard_bytes=1,
+        anthropocene_git_branch="feature/elder-rl-scaffold",
+        training_git_commit="1" * 40,
+    )
+    store = FakeGcsStore()
+    DatasetPublisher(_config(tmp_path), store).publish(packed.manifest_path)
+    published = DatasetRunManifest.load(packed.manifest_path)
+    reader = DatasetReader(published, store=store, cache_root=tmp_path / "cache")
+
+    assert reader.read_record(long_id) == payloads[long_id]
+
+
 def test_checksum_validation_rejects_corrupt_cache(tmp_path: Path) -> None:
     manifest_path, payloads = _pack(tmp_path)
     store = FakeGcsStore()

@@ -227,7 +227,9 @@ def _write_shard(
         )
         + "\n"
     ).encode()
-    with tarfile.open(path, mode="w", format=tarfile.USTAR_FORMAT) as archive:
+    # PAX preserves deterministic POSIX metadata while supporting descriptive
+    # record IDs whose member paths exceed USTAR's 255-byte name/prefix limit.
+    with tarfile.open(path, mode="w", format=tarfile.PAX_FORMAT) as archive:
         index_info = _tar_info("shard-index.json", len(index_bytes))
         archive.addfile(index_info, io.BytesIO(index_bytes))
         for source, record in zip(sources, records, strict=True):
