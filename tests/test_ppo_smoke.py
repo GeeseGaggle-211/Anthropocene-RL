@@ -6,7 +6,7 @@ pytest.importorskip("torch")
 
 import torch
 
-from anthropocene_rl.policies.elder_mlp import ElderActorCritic
+from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
 from anthropocene_rl.training.ppo import PPOConfig, PPOTrainer, RolloutBatch
 from anthropocene_rl.training.smoke import run_ppo_smoke
 
@@ -59,6 +59,10 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["optimization_epochs_completed"] == 2.0
     assert metrics["optimization_actor_epochs_completed"] == 1.0
     assert metrics["target_kl_early_stop"] == 1.0
+    assert metrics["actor_pre_clip_grad_norm_max"] > 0.0
+    assert metrics["critic_pre_clip_grad_norm_max"] > 0.0
+    assert metrics["total_pre_clip_grad_norm_max"] > 0.0
+    assert math.isfinite(metrics["post_update_critic_explained_variance"])
 
     with torch.no_grad():
         evaluated = model.actor.evaluate_actions(
@@ -92,3 +96,41 @@ def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:
             assert 0.0 <= rate <= 1.0
             derivative = layer["activation"]["mean_tanh_derivative"]
             assert 0.0 <= derivative <= 1.0
+
+
+def test_critic_layer_norm_is_independent_and_diagnostic_safe() -> None:
+    torch.manual_seed(89)
+    baseline = ElderActorCritic(ElderActorCriticConfig(initial_log_std=-1.0))
+    torch.manual_seed(89)
+    normalized = ElderActorCritic(
+        ElderActorCriticConfig(
+            initial_log_std=-1.0,
+            critic_layer_norm=True,
+        )
+    )
+
+    baseline_actor = baseline.actor.state_dict()
+    normalized_actor = normalized.actor.state_dict()
+    assert baseline_actor.keys() == normalized_actor.keys()
+    for key in baseline_actor:
+        assert torch.equal(baseline_actor[key], normalized_actor[key])
+
+    assert not any(isinstance(module, torch.nn.LayerNorm) for module in normalized.actor.modules())
+    assert sum(
+        isinstance(module, torch.nn.LayerNorm) for module in normalized.critic.modules()
+    ) == 2
+
+    diagnostics = normalized.hidden_activation_diagnostics(torch.randn(12, 512) * 3.0)
+    assert diagnostics["actor"]["layer_norm"] is False
+    assert diagnostics["critic"]["layer_norm"] is True
+    for layer in diagnostics["critic"]["layers"]:
+        assert math.isfinite(layer["linear_output"]["max_abs"])
+        assert math.isfinite(layer["preactivation"]["max_abs"])
+
+
+def test_legacy_actor_critic_config_defaults_to_no_layer_norm() -> None:
+    config = ElderActorCriticConfig(
+        **{"activation": "tanh", "initial_log_std": -1.0}
+    )
+    assert config.actor_layer_norm is False
+    assert config.critic_layer_norm is False

@@ -376,6 +376,8 @@ def main() -> int:
     pilot.add_argument("--ppo-epochs", type=int, default=8)
     pilot.add_argument("--minibatch-size", type=int, default=64)
     pilot.add_argument("--target-kl", type=float, default=0.05)
+    pilot.add_argument("--actor-layer-norm", action="store_true")
+    pilot.add_argument("--critic-layer-norm", action="store_true")
     args = parser.parse_args()
 
     if args.command == "check-manifest":
@@ -631,6 +633,7 @@ def main() -> int:
         print(json.dumps(diagnostics, sort_keys=True))
         return 0 if diagnostics["status"] == "PASS" else 1
     if args.command == "cultivation-pilot":
+        from anthropocene_rl.policies.elder_mlp import ElderActorCriticConfig
         from anthropocene_rl.training.pilot import PilotConfig, run_cultivation_pilot
         from anthropocene_rl.training.ppo import PPOConfig
 
@@ -666,6 +669,11 @@ def main() -> int:
                 epochs=args.ppo_epochs,
                 minibatch_size=args.minibatch_size,
                 target_kl=args.target_kl,
+            ),
+            actor_critic_config=ElderActorCriticConfig(
+                initial_log_std=-1.0,
+                actor_layer_norm=args.actor_layer_norm,
+                critic_layer_norm=args.critic_layer_norm,
             ),
         )
         print(

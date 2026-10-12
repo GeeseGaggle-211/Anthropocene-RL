@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import torch
@@ -87,6 +88,11 @@ class PPOTrainer:
         advantages = (advantages - advantages.mean()) / (
             advantages.std(unbiased=False) + 1e-8
         )
+        with torch.no_grad():
+            pre_update_critic = critic_fit_diagnostics(
+                self.model.critic(batch.observations),
+                batch.returns,
+            )
         count = batch.observations.shape[0]
         minibatch = min(self.config.minibatch_size, count)
         metric_totals = {
@@ -105,6 +111,9 @@ class PPOTrainer:
         policy_frozen = False
         continuous_head_gradient_max = [0.0] * 4
         movement_head_gradient_max = 0.0
+        actor_pre_clip_grad_norm_max = 0.0
+        critic_pre_clip_grad_norm_max = 0.0
+        total_pre_clip_grad_norm_max = 0.0
 
         for _ in range(self.config.epochs):
             actor_enabled = not policy_frozen
@@ -172,9 +181,21 @@ class PPOTrainer:
                         float(torch.max(torch.abs(movement_weight_grad)).detach()),
                         float(torch.max(torch.abs(movement_bias_grad)).detach()),
                     )
-                torch.nn.utils.clip_grad_norm_(
+                    actor_pre_clip_grad_norm_max = max(
+                        actor_pre_clip_grad_norm_max,
+                        _gradient_l2_norm(self.model.actor.parameters()),
+                    )
+                critic_pre_clip_grad_norm_max = max(
+                    critic_pre_clip_grad_norm_max,
+                    _gradient_l2_norm(self.model.critic.parameters()),
+                )
+                total_pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
                     self.config.max_grad_norm,
+                )
+                total_pre_clip_grad_norm_max = max(
+                    total_pre_clip_grad_norm_max,
+                    float(total_pre_clip_grad_norm.detach()),
                 )
                 self.optimizer.step()
 
@@ -229,6 +250,7 @@ class PPOTrainer:
                 batch.movement_indices,
             )
             value = self.model.critic(batch.observations)
+            post_update_critic = critic_fit_diagnostics(value, batch.returns)
             log_ratio = evaluated.log_prob - batch.old_log_prob
             ratio = torch.exp(log_ratio)
             metrics.update(
@@ -253,6 +275,21 @@ class PPOTrainer:
                         minibatches_completed
                     ),
                     "target_kl_early_stop": float(early_stop_triggered),
+                    "actor_pre_clip_grad_norm_max": actor_pre_clip_grad_norm_max,
+                    "critic_pre_clip_grad_norm_max": critic_pre_clip_grad_norm_max,
+                    "total_pre_clip_grad_norm_max": total_pre_clip_grad_norm_max,
+                }
+            )
+            metrics.update(
+                {
+                    f"pre_update_critic_{key}": value
+                    for key, value in pre_update_critic.items()
+                }
+            )
+            metrics.update(
+                {
+                    f"post_update_critic_{key}": value
+                    for key, value in post_update_critic.items()
                 }
             )
 
@@ -277,3 +314,31 @@ class PPOTrainer:
         )
         metrics["movement_head_grad_max"] = movement_head_gradient_max
         return metrics
+
+
+def critic_fit_diagnostics(prediction: Tensor, target: Tensor) -> dict[str, float]:
+    """Describe critic fit on one fixed observation/target cohort."""
+
+    residual = target - prediction
+    target_variance = torch.var(target, unbiased=False)
+    residual_variance = torch.var(residual, unbiased=False)
+    denominator = torch.clamp(target_variance, min=1e-12)
+    mse = torch.mean(torch.square(residual))
+    return {
+        "prediction_mean": float(torch.mean(prediction).detach()),
+        "prediction_std": float(torch.std(prediction, unbiased=False).detach()),
+        "target_mean": float(torch.mean(target).detach()),
+        "target_std": float(torch.std(target, unbiased=False).detach()),
+        "mse": float(mse.detach()),
+        "normalized_mse": float((mse / denominator).detach()),
+        "bias": float(torch.mean(prediction - target).detach()),
+        "explained_variance": float((1.0 - residual_variance / denominator).detach()),
+    }
+
+
+def _gradient_l2_norm(parameters: Iterable[Tensor]) -> float:
+    squared = torch.zeros((), dtype=torch.float64)
+    for parameter in parameters:
+        if parameter.grad is not None:
+            squared += torch.sum(parameter.grad.detach().double().square()).cpu()
+    return float(torch.sqrt(squared))
