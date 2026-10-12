@@ -1,0 +1,84 @@
+name: elder-broad-domain-50d-full-v3
+status: prepared-for-full-duration-continuation
+campaign_scope: broad-domain
+proof_of_readiness:
+  campaign: elder-broad-domain-50d-v2
+  learner_commit: 91c5ccee0a35a03c1df60ecdd79c43c833593a6f
+  evidence_sha256: 8030dad941c4d21b14612292963e161f28e2e0eccc3ceba866c88b41af73d0e1
+  disposition: completed-last-pilot
+simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+snapshot_manifest: datasets/manifests/elder-v2-broad-domain-50d-v2.json
+snapshot_manifest_identity_sha256: 10ab09c73942cc3e2bea0bef409c6682a909d07022b0fb1d529d3b566979e736
+snapshot_dataset_uri: gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-v2/2026-10-12-manifest-10ab09c7/manifest.json
+normalizer: evidence/elder-broad-domain-50d-v2/bank/final-train-normalization.json
+resume_checkpoint_directory: checkpoints/elder-broad-domain-50d-v2
+output_checkpoint_directory: checkpoints/elder-broad-domain-50d-full-v3
+output_evidence_directory: evidence/elder-broad-domain-50d-full-v3
+neural_seeds: [1701, 1901, 2101]
+resume_updates:
+  1701: 30
+  1901: 40
+  2101: 40
+network:
+  actor: [512, 256, 256, active-hybrid-heads]
+  critic: [512, 256, 256, scalar-value]
+  activation: tanh
+  actor_layer_norm: false
+  critic_layer_norm: true
+  shared_trunk: false
+  recurrent: false
+  privileged_critic: false
+sampling:
+  kind: exact-balanced-family-within-family-shuffled-cycle
+  families: [F01, F02, F03, F04, F05, F06, F07, F13, F14, F15, F16, F17, F18]
+  optimization_partition: train
+  base_snapshots_per_update: 13
+  rollouts_per_snapshot: 4
+  group_relative_first_decision: true
+  rollout_episodes_per_update: 52
+  decisions_per_episode: 50
+  total_updates_per_seed: 500
+  replay_verification_interval_training_episodes: 20
+  collector_workers: 8
+evaluation:
+  workers: 8
+  interval_updates: 20
+  decisions_per_episode: 50
+  checkpoint_selection: minimize-max-relative-qol-population-gap-to-option-a
+  diagnostic_partition: full-development
+  heuristic_parity_tolerance: 0.10
+  required_consecutive_new_parity_checkpoints: 2
+  heldout_use: sealed-not-evaluated-because-v2-consumed-it
+stopping:
+  hard:
+    - contract-replay-numerical-or-reward-denominator-failure
+    - post-update-kl-above-0.15
+    - hidden-activation-health-failure-on-two-evaluations
+    - continuous-log-std-at-collapse-floor-on-two-evaluations
+  success: two-consecutive-new-full-development-parity-checkpoints
+  plateau:
+    minimum_added_updates: 100
+    evaluation_intervals: 5
+    minimum_best-distance-improvement: 0.01
+optimizer:
+  critic_learning_rate: 0.001
+  actor_learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.001
+  max_grad_norm: 0.5
+  gradient_clip_mode: separate
+  value_target_normalization: running-popart
+  epochs: 3
+  minibatch_size: 256
+  target_kl: 0.02
+curriculum_policy:
+  current_bank_role: proof-of-readiness-and-full-duration-base-curriculum
+  short_disposable_pilots_after_this_point: false
+  additional_scenarios: add-in-a-new-frozen-generation-before-the-next-full-train
+  new_generation_requires: [group-safe-split, native-audit, train-only-normalizer]
+  architecture_change_requires: demonstrated-representational-failure
+storage:
+  backend: gcs
+  bucket: anthropocene-rl-datasets-508912
+  local_cache_gib: 5.0

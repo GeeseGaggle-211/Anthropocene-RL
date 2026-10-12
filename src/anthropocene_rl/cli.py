@@ -361,6 +361,11 @@ def main() -> int:
         type=Path,
         default=Path("checkpoints/cultivation-ppo-pilot-v1"),
     )
+    pilot.add_argument(
+        "--resume-checkpoint-directory",
+        type=Path,
+        help="Resume each neural seed from its verified campaign checkpoint",
+    )
     pilot.add_argument("--seeds", default="1701,1901,2101")
     pilot.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     pilot.add_argument(
@@ -382,6 +387,16 @@ def main() -> int:
     pilot.add_argument("--replay-verification-interval", type=int, default=1)
     pilot.add_argument("--collector-workers", type=int, default=1)
     pilot.add_argument("--evaluation-workers", type=int, default=1)
+    pilot.add_argument(
+        "--checkpoint-selection",
+        choices=("development-probe-return", "development-heuristic-parity"),
+        default="development-probe-return",
+    )
+    pilot.add_argument("--heuristic-parity-tolerance", type=float, default=0.10)
+    pilot.add_argument("--heuristic-parity-patience", type=int, default=0)
+    pilot.add_argument("--parity-plateau-evaluations", type=int, default=0)
+    pilot.add_argument("--parity-plateau-min-added-updates", type=int, default=100)
+    pilot.add_argument("--parity-plateau-min-improvement", type=float, default=0.01)
     pilot.add_argument("--learning-rate", type=float, default=1e-3)
     pilot.add_argument("--actor-learning-rate", type=float, default=3e-4)
     pilot.add_argument("--ppo-epochs", type=int, default=8)
@@ -677,6 +692,7 @@ def main() -> int:
             dataset_store_config=args.dataset_store_config,
             evidence_directory=args.evidence_directory,
             checkpoint_directory=args.checkpoint_directory,
+            resume_checkpoint_directory=args.resume_checkpoint_directory,
             config=PilotConfig(
                 seeds=seeds,
                 device=args.device,
@@ -696,6 +712,16 @@ def main() -> int:
                 replay_verification_interval=args.replay_verification_interval,
                 collector_workers=args.collector_workers,
                 evaluation_workers=args.evaluation_workers,
+                checkpoint_selection=args.checkpoint_selection,
+                heuristic_parity_tolerance=args.heuristic_parity_tolerance,
+                heuristic_parity_patience=args.heuristic_parity_patience,
+                parity_plateau_evaluations=args.parity_plateau_evaluations,
+                parity_plateau_min_added_updates=(
+                    args.parity_plateau_min_added_updates
+                ),
+                parity_plateau_min_improvement=(
+                    args.parity_plateau_min_improvement
+                ),
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,

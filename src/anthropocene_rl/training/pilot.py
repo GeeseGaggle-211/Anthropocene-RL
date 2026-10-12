@@ -114,6 +114,7 @@ BROAD_DOMAIN_FAMILIES = (
     "F18",
 )
 CampaignScope = Literal["cultivation-only", "broad-domain"]
+CheckpointSelection = Literal["development-probe-return", "development-heuristic-parity"]
 DEFAULT_MANIFEST = Path("datasets/manifests/elder-v2-cultivation-pilot-v1.json")
 DEFAULT_NORMALIZER = Path("evidence/cultivation-pilot-v1/final-train-normalization.json")
 DEFAULT_BLOB_ROOT = Path("datasets/blobs")
@@ -148,6 +149,12 @@ class PilotConfig:
     replay_verification_interval: int = 1
     collector_workers: int = 1
     evaluation_workers: int = 1
+    checkpoint_selection: CheckpointSelection = "development-probe-return"
+    heuristic_parity_tolerance: float = 0.10
+    heuristic_parity_patience: int = 0
+    parity_plateau_evaluations: int = 0
+    parity_plateau_min_added_updates: int = 100
+    parity_plateau_min_improvement: float = 0.01
 
     @property
     def families(self) -> tuple[str, ...]:
@@ -192,6 +199,25 @@ class PilotConfig:
             raise ValueError("collector_workers must fit within episodes_per_update")
         if self.evaluation_workers < 1:
             raise ValueError("evaluation_workers must be positive")
+        if self.checkpoint_selection not in (
+            "development-probe-return",
+            "development-heuristic-parity",
+        ):
+            raise ValueError("Unsupported checkpoint selection rule")
+        if not 0.0 < self.heuristic_parity_tolerance < 1.0:
+            raise ValueError("heuristic_parity_tolerance must fall between zero and one")
+        if self.heuristic_parity_patience < 0:
+            raise ValueError("heuristic_parity_patience cannot be negative")
+        if self.parity_plateau_evaluations < 0:
+            raise ValueError("parity_plateau_evaluations cannot be negative")
+        if self.parity_plateau_min_added_updates < 0:
+            raise ValueError("parity_plateau_min_added_updates cannot be negative")
+        if self.parity_plateau_min_improvement < 0:
+            raise ValueError("parity_plateau_min_improvement cannot be negative")
+        if self.checkpoint_selection != "development-heuristic-parity" and (
+            self.heuristic_parity_patience or self.parity_plateau_evaluations
+        ):
+            raise ValueError("Parity stopping rules require heuristic-parity selection")
         if self.device != "cpu" and self.collector_workers != 1:
             raise ValueError("Parallel native collection currently requires the CPU policy")
         if self.device != "cpu" and self.evaluation_workers != 1:
@@ -402,6 +428,7 @@ def run_cultivation_pilot(
     dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
     evidence_directory: str | Path = DEFAULT_EVIDENCE_DIRECTORY,
     checkpoint_directory: str | Path = DEFAULT_CHECKPOINT_DIRECTORY,
+    resume_checkpoint_directory: str | Path | None = None,
     config: PilotConfig | None = None,
     ppo_config: PPOConfig | None = None,
     actor_critic_config: ElderActorCriticConfig | None = None,
@@ -419,6 +446,9 @@ def run_cultivation_pilot(
     actor_critic_config = actor_critic_config or ElderActorCriticConfig(initial_log_std=-1.0)
     evidence_dir = Path(evidence_directory)
     checkpoint_dir = Path(checkpoint_directory)
+    resume_checkpoint_dir = (
+        Path(resume_checkpoint_directory) if resume_checkpoint_directory is not None else None
+    )
     bridge_path = Path(bridge_dll).resolve()
     if not bridge_path.is_file():
         raise FileNotFoundError(f"Native bridge is missing at {bridge_path}")
@@ -498,6 +528,11 @@ def run_cultivation_pilot(
             bridge_path=bridge_path,
             dotnet=dotnet,
             checkpoint_path=checkpoint_dir / f"seed-{seed}.pt",
+            resume_checkpoint_path=(
+                _resolve_resume_checkpoint(resume_checkpoint_dir, seed)
+                if resume_checkpoint_dir is not None
+                else None
+            ),
             config=config,
             ppo_config=ppo_config,
             actor_config=actor_critic_config,
@@ -528,6 +563,9 @@ def run_cultivation_pilot(
         "identities": identities,
         "configuration": {
             "pilot": asdict(config),
+            "resume_checkpoint_directory": (
+                str(resume_checkpoint_dir) if resume_checkpoint_dir is not None else None
+            ),
             "ppo": asdict(ppo_config),
             "actor_critic": asdict(actor_critic_config),
             "reset_sampler": {
@@ -601,6 +639,7 @@ def _run_seed(
     bridge_path: Path,
     dotnet: str,
     checkpoint_path: Path,
+    resume_checkpoint_path: Path | None,
     config: PilotConfig,
     ppo_config: PPOConfig,
     actor_config: ElderActorCriticConfig,
@@ -614,6 +653,28 @@ def _run_seed(
     )
     trainer = PPOTrainer(model, ppo_config)
     sampler = BalancedFamilySampler(train, seed, config.families)
+    resume_info: dict[str, Any] | None = None
+    resume_update = 0
+    if resume_checkpoint_path is not None:
+        resume_info = _load_campaign_checkpoint(
+            path=resume_checkpoint_path,
+            model=model,
+            trainer=trainer,
+            actor_config=actor_config,
+            ppo_config=ppo_config,
+            pilot_config=config,
+            normalizer=dataset.normalizer,
+            expected_identities=_seed_checkpoint_identities(dataset, bridge_path, seed, 0),
+            device=device,
+        )
+        resume_update = int(resume_info["update"])
+        if resume_update >= config.updates:
+            raise ValueError(
+                f"Seed {seed} checkpoint update {resume_update} is not below the "
+                f"configured total update budget {config.updates}"
+            )
+        for _ in range(resume_update):
+            sampler.sample(config.episodes_per_update)
     timings = _Timing()
     first_selection = dataset.selection(train[0])
     envs = tuple(
@@ -646,6 +707,15 @@ def _run_seed(
     fixed_critic_targets: Tensor | None = None
     activation_probe_curve: list[dict[str, Any]] = []
     critic_fit_curve: list[dict[str, Any]] = []
+    completed_update = resume_update
+    early_stop_reason: str | None = None
+    parity_streak = 0
+    parity_distance_curve: list[dict[str, Any]] = []
+    activation_failure_streak = 0
+    log_std_failure_streak = 0
+    progress_checkpoint_path = checkpoint_path.with_name(
+        f"{checkpoint_path.stem}.latest{checkpoint_path.suffix}"
+    )
 
     initial_evaluation = _evaluate_records(
         dataset=dataset,
@@ -662,11 +732,55 @@ def _run_seed(
         value_normalization=(trainer.value_mean, trainer.value_std),
     )
     evaluation_curve.append(
-        {"update": 0, "partition": "development-probe", **initial_evaluation["summary"]}
+        {
+            "update": resume_update,
+            "partition": "development-probe",
+            **initial_evaluation["summary"],
+        }
     )
     initial_development_probe_score = float(
         initial_evaluation["summary"]["discounted_scaled_return"]["mean"]
     )
+    initial_selection_evaluation = initial_evaluation
+    initial_selection_diagnostics: dict[str, Any] | None = None
+    if config.checkpoint_selection == "development-heuristic-parity":
+        initial_selection_evaluation = _evaluate_records(
+            dataset=dataset,
+            records=development,
+            bridge_path=bridge_path,
+            dotnet=dotnet,
+            episode_steps=config.evaluation_steps,
+            horizon_years=config.horizon_years,
+            reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
+            policy="learned",
+            model=model,
+            device=device,
+            value_normalization=(trainer.value_mean, trainer.value_std),
+        )
+        initial_selection_diagnostics = _heuristic_parity(
+            initial_selection_evaluation,
+            option_a["development"],
+            tolerance=config.heuristic_parity_tolerance,
+        )
+        evaluation_curve.append(
+            {
+                "update": resume_update,
+                "partition": "development",
+                "checkpoint_selection": initial_selection_diagnostics,
+                **initial_selection_evaluation["summary"],
+            }
+        )
+    initial_selection_score = _checkpoint_selection_score(
+        initial_selection_evaluation,
+        option_a["development"],
+        mode=config.checkpoint_selection,
+        tolerance=config.heuristic_parity_tolerance,
+    )[0]
+    if resume_update:
+        best_score = initial_selection_score
+        best_update = resume_update
+        best_state = _capture_training_state(model, trainer)
     fixed_development_observations = _fixed_reset_observations(
         dataset=dataset,
         records=development_probe,
@@ -678,7 +792,7 @@ def _run_seed(
 
     training_started = time.perf_counter()
     try:
-        for update in range(1, config.updates + 1):
+        for update in range(resume_update + 1, config.updates + 1):
             records = sampler.sample(config.episodes_per_update)
             collected = _collect_update_parallel(
                 envs=envs,
@@ -702,7 +816,7 @@ def _run_seed(
                 )
                 activation_probe_curve.append(
                     _activation_probe_row(
-                        update=0,
+                        update=resume_update,
                         model=model,
                         train_observations=fixed_training_observations,
                         development_observations=fixed_development_observations,
@@ -710,7 +824,7 @@ def _run_seed(
                 )
                 critic_fit_curve.append(
                     {
-                        "update": 0,
+                        "update": resume_update,
                         **_critic_probe_diagnostics(
                             model,
                             fixed_training_observations,
@@ -728,6 +842,7 @@ def _run_seed(
                 "ppo": metrics,
             }
             learning_curve.append(row)
+            completed_update = update
             for family, count in collected["snapshot_visitation"].items():
                 visitation_snapshots[family] += int(count)
             for family, count in collected["transition_visitation"].items():
@@ -755,10 +870,39 @@ def _run_seed(
                 movement_head_gradient_max,
                 metrics["movement_head_grad_max"],
             )
+            runtime_failure = _runtime_failure_reason(
+                collected=collected,
+                metrics=metrics,
+                campaign_scope=config.campaign_scope,
+            )
+            if runtime_failure is not None:
+                early_stop_reason = runtime_failure
+                if best_state is None:
+                    best_score = initial_selection_score
+                    best_update = update
+                    best_state = _capture_training_state(model, trainer)
+                _save_progress_checkpoint(
+                    path=progress_checkpoint_path,
+                    model=model,
+                    trainer=trainer,
+                    actor_config=actor_config,
+                    ppo_config=ppo_config,
+                    pilot_config=config,
+                    normalizer=dataset.normalizer,
+                    identities=_seed_checkpoint_identities(
+                        dataset, bridge_path, seed, update
+                    ),
+                )
+                break
             if update % config.evaluation_interval == 0 or update == config.updates:
+                selection_records = (
+                    development
+                    if config.checkpoint_selection == "development-heuristic-parity"
+                    else development_probe
+                )
                 evaluated = _evaluate_records(
                     dataset=dataset,
-                    records=development_probe,
+                    records=selection_records,
                     bridge_path=bridge_path,
                     dotnet=dotnet,
                     episode_steps=config.evaluation_steps,
@@ -770,25 +914,36 @@ def _run_seed(
                     device=device,
                     value_normalization=(trainer.value_mean, trainer.value_std),
                 )
+                score, selection_diagnostics = _checkpoint_selection_score(
+                    evaluated,
+                    option_a["development"],
+                    mode=config.checkpoint_selection,
+                    tolerance=config.heuristic_parity_tolerance,
+                )
                 critic_health = _critic_health_window(learning_curve)
                 evaluation_curve.append(
                     {
                         "update": update,
-                        "partition": "development-probe",
+                        "partition": (
+                            "development"
+                            if config.checkpoint_selection
+                            == "development-heuristic-parity"
+                            else "development-probe"
+                        ),
                         "critic_health": critic_health,
+                        "checkpoint_selection": selection_diagnostics,
                         **evaluated["summary"],
                     }
                 )
                 assert fixed_training_observations is not None
                 assert fixed_critic_targets is not None
-                activation_probe_curve.append(
-                    _activation_probe_row(
-                        update=update,
-                        model=model,
-                        train_observations=fixed_training_observations,
-                        development_observations=fixed_development_observations,
-                    )
+                activation_probe = _activation_probe_row(
+                    update=update,
+                    model=model,
+                    train_observations=fixed_training_observations,
+                    development_observations=fixed_development_observations,
                 )
+                activation_probe_curve.append(activation_probe)
                 critic_fit_curve.append(
                     {
                         "update": update,
@@ -800,7 +955,6 @@ def _run_seed(
                         ),
                     }
                 )
-                score = float(evaluated["summary"]["discounted_scaled_return"]["mean"])
                 if score > best_score:
                     best_score = score
                     best_update = update
@@ -809,6 +963,66 @@ def _run_seed(
                     best_health_score = score
                     best_health_update = update
                     best_health_state = _capture_training_state(model, trainer)
+                if selection_diagnostics is not None:
+                    parity_streak = (
+                        parity_streak + 1
+                        if selection_diagnostics["within_tolerance"]
+                        else 0
+                    )
+                    parity_distance_curve.append(
+                        {
+                            "update": update,
+                            **selection_diagnostics,
+                            "consecutive_passes": parity_streak,
+                        }
+                    )
+                activation_healthy = _activation_probe_healthy(
+                    activation_probe,
+                    network="actor",
+                ) and _activation_probe_healthy(
+                    activation_probe,
+                    network="critic",
+                )
+                activation_failure_streak = (
+                    0 if activation_healthy else activation_failure_streak + 1
+                )
+                log_std_failure_streak = (
+                    log_std_failure_streak + 1
+                    if _log_std_collapsed(metrics)
+                    else 0
+                )
+                _save_progress_checkpoint(
+                    path=progress_checkpoint_path,
+                    model=model,
+                    trainer=trainer,
+                    actor_config=actor_config,
+                    ppo_config=ppo_config,
+                    pilot_config=config,
+                    normalizer=dataset.normalizer,
+                    identities=_seed_checkpoint_identities(
+                        dataset, bridge_path, seed, update
+                    ),
+                )
+                if activation_failure_streak >= 2:
+                    early_stop_reason = "hidden-activation-health-failed-twice"
+                elif log_std_failure_streak >= 2:
+                    early_stop_reason = "continuous-policy-log-std-collapsed-twice"
+                elif (
+                    config.heuristic_parity_patience
+                    and parity_streak >= config.heuristic_parity_patience
+                ):
+                    early_stop_reason = "heuristic-parity-confirmed"
+                elif _parity_plateau_reached(
+                    parity_distance_curve,
+                    resume_update=resume_update,
+                    completed_update=update,
+                    evaluations=config.parity_plateau_evaluations,
+                    minimum_added_updates=config.parity_plateau_min_added_updates,
+                    minimum_improvement=config.parity_plateau_min_improvement,
+                ):
+                    early_stop_reason = "heuristic-parity-plateau"
+                if early_stop_reason is not None:
+                    break
     finally:
         for env in envs:
             env.close()
@@ -822,7 +1036,7 @@ def _run_seed(
     ):
         raise RuntimeError("Pilot seed produced no selected checkpoint")
     final_activation_probe = _activation_probe_row(
-        update=config.updates,
+        update=completed_update,
         model=model,
         train_observations=fixed_training_observations,
         development_observations=fixed_development_observations,
@@ -849,7 +1063,7 @@ def _run_seed(
         value_normalization=(trainer.value_mean, trainer.value_std),
     )
     terminal_checkpoint = {
-        "update": config.updates,
+        "update": completed_update,
         "development": terminal_development_evaluation,
         "baseline_comparison": _compare_evaluations(
             terminal_development_evaluation,
@@ -878,7 +1092,7 @@ def _run_seed(
             "update": best_health_update,
             "development_probe_score": best_health_score,
             "critic_health": _critic_health_window(
-                learning_curve[:best_health_update]
+                _learning_curve_through(learning_curve, best_health_update)
             ),
             "development": health_evaluation,
             "baseline_comparison": _compare_evaluations(
@@ -902,7 +1116,14 @@ def _run_seed(
         fixed_critic_targets,
         trainer=trainer,
     )
-    selected_critic_health = _critic_health_window(learning_curve[:best_update])
+    selected_critic_health = _critic_health_window(
+        _learning_curve_through(learning_curve, best_update)
+    )
+    if best_update == resume_update and resume_update:
+        selected_critic_health = _evaluation_critic_health(
+            initial_selection_evaluation,
+            source="resumed-checkpoint-full-development",
+        )
     inactive_head_audit = _inactive_head_gradient_audit(model, last_batch)
 
     final_evaluation = {
@@ -1015,24 +1236,29 @@ def _run_seed(
         "critic_finite": math.isfinite(critic_start) and math.isfinite(critic_end),
         "actor_activations_healthy": actor_activation_healthy,
         "critic_activations_healthy": critic_activation_healthy,
+        "continuous_policy_variance_healthy": log_std_failure_streak < 2,
         "selected_checkpoint_critic_health": bool(selected_critic_health["eligible"]),
         "final_checkpoint_critic_health": bool(final_critic_health["eligible"]),
     }
     development_comparison = comparisons["development"]
     self_sufficiency = final_evaluation["development"]["self_sufficiency"]
     family_relative = development_comparison["by_family_mean_relative_difference"]
-    promotion_gates = {
-        "selected_checkpoint_not_worse_than_initial_probe": (
-            best_score >= initial_development_probe_score - 1e-12
-        ),
-        "development_mean_relative_return_at_least_minus_two_percent": (
-            development_comparison["relative_return_difference"]["mean"] >= -0.02
-        ),
-        "development_median_relative_return_at_or_above_baseline": (
-            development_comparison["relative_return_difference"]["p50"] >= 0.0
-        ),
-        "development_all_family_mean_relative_returns_at_least_minus_five_percent": (
-            bool(family_relative) and min(family_relative.values()) >= -0.05
+    selected_parity = _heuristic_parity(
+        final_evaluation["development"],
+        option_a["development"],
+        tolerance=config.heuristic_parity_tolerance,
+    )
+    parity_confirmed = (
+        config.heuristic_parity_patience == 0
+        or max(
+            (int(row["consecutive_passes"]) for row in parity_distance_curve),
+            default=0,
+        )
+        >= config.heuristic_parity_patience
+    )
+    common_promotion_gates = {
+        "selected_checkpoint_not_worse_than_initial_selection": (
+            best_score >= initial_selection_score - 1e-12
         ),
         "development_trade_contrast_evaluable": bool(
             self_sufficiency["trade_contrast_evaluable"]
@@ -1041,6 +1267,32 @@ def _run_seed(
             self_sufficiency["universal_self_sufficiency_signal"] is False
         ),
     }
+    if config.checkpoint_selection == "development-heuristic-parity":
+        promotion_gates = {
+            **common_promotion_gates,
+            "development_qol_within_heuristic_tolerance": bool(
+                selected_parity["qol"]["within_tolerance"]
+            ),
+            "development_population_within_heuristic_tolerance": bool(
+                selected_parity["population"]["within_tolerance"]
+            ),
+            "heuristic_parity_confirmed_on_consecutive_new_checkpoints": (
+                parity_confirmed
+            ),
+        }
+    else:
+        promotion_gates = {
+            **common_promotion_gates,
+            "development_mean_relative_return_at_least_minus_two_percent": (
+                development_comparison["relative_return_difference"]["mean"] >= -0.02
+            ),
+            "development_median_relative_return_at_or_above_baseline": (
+                development_comparison["relative_return_difference"]["p50"] >= 0.0
+            ),
+            "development_all_family_mean_relative_returns_at_least_minus_five_percent": (
+                bool(family_relative) and min(family_relative.values()) >= -0.05
+            ),
+        }
     return {
         "seed": seed,
         "status": (
@@ -1055,16 +1307,43 @@ def _run_seed(
             else "NO_GO"
         ),
         "selected_update": best_update,
+        "completed_update": completed_update,
+        "resume": {
+            "checkpoint": str(resume_checkpoint_path) if resume_checkpoint_path else None,
+            "checkpoint_sha256": (
+                resume_info["sha256"] if resume_info is not None else None
+            ),
+            "from_update": resume_update,
+            "updates_added": completed_update - resume_update,
+        },
+        "early_stop_reason": early_stop_reason,
+        "checkpoint_selection": {
+            "mode": config.checkpoint_selection,
+            "initial_score": initial_selection_score,
+            "selected_score": best_score,
+            "heuristic_parity_tolerance": config.heuristic_parity_tolerance,
+            "heuristic_parity_patience": config.heuristic_parity_patience,
+            "selected_heuristic_parity": selected_parity,
+            "parity_curve": parity_distance_curve,
+            "parity_confirmed": parity_confirmed,
+        },
         "initial_development_probe_score": initial_development_probe_score,
-        "selected_development_probe_score": best_score,
+        "selected_development_probe_score": (
+            best_score
+            if config.checkpoint_selection == "development-probe-return"
+            else None
+        ),
         "selected_minus_initial_development_probe_score": (
             best_score - initial_development_probe_score
+            if config.checkpoint_selection == "development-probe-return"
+            else None
         ),
         "gates": {**validation_gates, **promotion_gates},
         "validation_gates": validation_gates,
         "promotion_gates": promotion_gates,
         "training": {
             "transitions": sum(int(row["transitions"]) for row in learning_curve),
+            "transition_scope": "updates-added-in-this-run",
             "elapsed_seconds": training_seconds,
             "learning_curve": learning_curve,
             "evaluation_curve": evaluation_curve,
@@ -1884,6 +2163,148 @@ def _capture_training_state(
     }
 
 
+def _learning_curve_through(
+    learning_curve: list[dict[str, Any]],
+    update: int,
+) -> list[dict[str, Any]]:
+    return [row for row in learning_curve if int(row["update"]) <= update]
+
+
+def _heuristic_parity(
+    learned: dict[str, Any],
+    baseline: dict[str, Any],
+    *,
+    tolerance: float,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"tolerance": tolerance}
+    distances: list[float] = []
+    for label, summary_key in (("qol", "final_qol"), ("population", "final_population")):
+        learned_mean = float(learned["summary"][summary_key]["mean"])
+        baseline_mean = float(baseline["summary"][summary_key]["mean"])
+        if abs(baseline_mean) <= 1e-12:
+            raise ValueError(f"Option-A {summary_key} mean is zero; parity is undefined")
+        relative_difference = learned_mean / baseline_mean - 1.0
+        absolute_relative_difference = abs(relative_difference)
+        distances.append(absolute_relative_difference)
+        result[label] = {
+            "learned_mean": learned_mean,
+            "heuristic_mean": baseline_mean,
+            "relative_difference": relative_difference,
+            "absolute_relative_difference": absolute_relative_difference,
+            "within_tolerance": absolute_relative_difference <= tolerance,
+        }
+    result["distance"] = max(distances)
+    result["within_tolerance"] = all(
+        bool(result[label]["within_tolerance"]) for label in ("qol", "population")
+    )
+    return result
+
+
+def _checkpoint_selection_score(
+    evaluated: dict[str, Any],
+    development_baseline: dict[str, Any],
+    *,
+    mode: CheckpointSelection,
+    tolerance: float,
+) -> tuple[float, dict[str, Any] | None]:
+    if mode == "development-probe-return":
+        return (
+            float(evaluated["summary"]["discounted_scaled_return"]["mean"]),
+            None,
+        )
+    parity = _heuristic_parity(
+        evaluated,
+        development_baseline,
+        tolerance=tolerance,
+    )
+    return -float(parity["distance"]), parity
+
+
+def _evaluation_critic_health(
+    evaluation: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    diagnostics = evaluation["summary"].get(
+        "critic_initial_value_vs_realized_horizon",
+        {},
+    )
+    explained_variance = diagnostics.get("explained_variance")
+    normalized_mse = diagnostics.get("normalized_mse")
+    return {
+        "source": source,
+        "explained_variance": explained_variance,
+        "normalized_mse": normalized_mse,
+        "eligible": bool(
+            diagnostics.get("evaluable")
+            and explained_variance is not None
+            and float(explained_variance) >= 0.20
+            and normalized_mse is not None
+            and float(normalized_mse) <= 0.80
+        ),
+        "thresholds": {
+            "explained_variance_min": 0.20,
+            "normalized_mse_max": 0.80,
+        },
+    }
+
+
+def _runtime_failure_reason(
+    *,
+    collected: dict[str, Any],
+    metrics: dict[str, float],
+    campaign_scope: CampaignScope,
+) -> str | None:
+    contract_keys = (
+        "illegal_action_count",
+        "requested_sample_mismatches",
+        "non_finite_count",
+        "replay_failures",
+        "reward_denominator_violations",
+    )
+    if campaign_scope == "cultivation-only":
+        contract_keys += ("non_stay_requested_count",)
+    failed = [key for key in contract_keys if int(collected[key])]
+    if failed:
+        return "contract-or-numerics:" + ",".join(failed)
+    numeric_metrics = [
+        float(value)
+        for value in metrics.values()
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+    if any(not math.isfinite(value) for value in numeric_metrics):
+        return "non-finite-ppo-metric"
+    if float(metrics["post_update_approx_kl"]) > 0.15:
+        return "post-update-kl-above-0.15"
+    return None
+
+
+def _log_std_collapsed(metrics: dict[str, float], *, floor: float = -4.5) -> bool:
+    return any(
+        float(metrics[f"continuous_head_{head}_log_std"]) <= floor
+        for head in range(4)
+    )
+
+
+def _parity_plateau_reached(
+    curve: list[dict[str, Any]],
+    *,
+    resume_update: int,
+    completed_update: int,
+    evaluations: int,
+    minimum_added_updates: int,
+    minimum_improvement: float,
+) -> bool:
+    if evaluations <= 0 or completed_update - resume_update < minimum_added_updates:
+        return False
+    if len(curve) < evaluations + 1:
+        return False
+    distances = np.asarray([float(row["distance"]) for row in curve], dtype=np.float64)
+    running_best = np.minimum.accumulate(distances)
+    improvement = float(running_best[-evaluations - 1] - running_best[-1])
+    return improvement < minimum_improvement
+
+
 def _critic_health_window(
     learning_curve: list[dict[str, Any]],
     *,
@@ -2607,26 +3028,39 @@ def _compare_evaluations(learned: dict[str, Any], baseline: dict[str, Any]) -> d
 
 
 def _cultivation_trajectory(seed_reports: list[dict[str, Any]]) -> dict[str, Any]:
-    update_count = len(seed_reports[0]["training"]["learning_curve"])
+    by_seed = {
+        int(report["seed"]): {
+            int(row["update"]): row for row in report["training"]["learning_curve"]
+        }
+        for report in seed_reports
+    }
+    updates = sorted(
+        {
+            update
+            for rows in by_seed.values()
+            for update in rows
+        }
+    )
     rows: list[dict[str, Any]] = []
-    for index in range(update_count):
+    for update in updates:
+        available = [
+            (seed, seed_rows[update])
+            for seed, seed_rows in sorted(by_seed.items())
+            if update in seed_rows
+        ]
         requested_field = [
-            report["training"]["learning_curve"][index]["actions"]["requested"]["field_operation"]
-            for report in seed_reports
+            row["actions"]["requested"]["field_operation"] for _, row in available
         ]
         realized_field = [
-            report["training"]["learning_curve"][index]["actions"]["realized"]["field_operation"]
-            for report in seed_reports
+            row["actions"]["realized"]["field_operation"] for _, row in available
         ]
         requested_development = [
-            report["training"]["learning_curve"][index]["actions"]["requested"][
-                "development_budget"
-            ]
-            for report in seed_reports
+            row["actions"]["requested"]["development_budget"] for _, row in available
         ]
         rows.append(
             {
-                "update": index + 1,
+                "update": update,
+                "contributing_seeds": [seed for seed, _ in available],
                 "requested_field_operation_mean": float(np.mean(requested_field)),
                 "requested_field_operation_by_seed": requested_field,
                 "realized_field_operation_mean": float(np.mean(realized_field)),
@@ -2635,6 +3069,14 @@ def _cultivation_trajectory(seed_reports: list[dict[str, Any]]) -> dict[str, Any
                 "requested_development_budget_by_seed": requested_development,
             }
         )
+    if not rows:
+        return {
+            "updates": [],
+            "requested_field_operation": None,
+            "requested_development_budget": None,
+            "steady_increase_in_cultivation_intensity": False,
+            "interpretation_rule": "No training updates were available",
+        }
     field = np.asarray([row["requested_field_operation_mean"] for row in rows], dtype=np.float64)
     development = np.asarray(
         [row["requested_development_budget_mean"] for row in rows], dtype=np.float64
@@ -2657,7 +3099,11 @@ def _trend(values: np.ndarray) -> dict[str, Any]:
     deltas = np.diff(values)
     endpoint = float(values[-1] - values[0])
     nonnegative = float(np.mean(deltas >= -1e-3)) if len(deltas) else 0.0
-    slope = float(np.polyfit(np.arange(len(values)), values, 1)[0])
+    slope = (
+        float(np.polyfit(np.arange(len(values)), values, 1)[0])
+        if len(values) >= 2
+        else 0.0
+    )
     return {
         "first": float(values[0]),
         "last": float(values[-1]),
@@ -2699,6 +3145,10 @@ def _validation_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool
         ),
         "all_three_seeds_critic_activations_healthy": all(
             report["validation_gates"]["critic_activations_healthy"]
+            for report in seed_reports
+        ),
+        "all_three_seeds_continuous_policy_variance_healthy": all(
+            report["validation_gates"]["continuous_policy_variance_healthy"]
             for report in seed_reports
         ),
         "all_three_selected_checkpoints_critic_healthy": all(
@@ -2919,6 +3369,147 @@ def _seed_checkpoint_identities(
         "neural_seed": seed,
         "selected_update": selected_update,
     }
+
+
+def _resolve_resume_checkpoint(directory: Path, seed: int) -> Path:
+    candidates = (
+        directory / f"seed-{seed}.latest.pt",
+        directory / f"seed-{seed}.pt",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        f"No resume checkpoint for seed {seed} in {directory}; expected "
+        f"{candidates[0].name} or {candidates[1].name}"
+    )
+
+
+def _load_campaign_checkpoint(
+    *,
+    path: Path,
+    model: ElderActorCritic,
+    trainer: PPOTrainer,
+    actor_config: ElderActorCriticConfig,
+    ppo_config: PPOConfig,
+    pilot_config: PilotConfig,
+    normalizer: SemanticNormalizer,
+    expected_identities: dict[str, Any],
+    device: torch.device,
+) -> dict[str, Any]:
+    loaded = torch.load(path, map_location=device, weights_only=False)
+    if loaded.get("checkpoint_schema_version") != "elder-ppo-campaign-checkpoint-v2":
+        raise ValueError(f"Unsupported campaign checkpoint schema in {path}")
+    if loaded.get("actor_critic_config") != asdict(actor_config):
+        raise ValueError("Resume checkpoint actor/critic configuration does not match")
+    if loaded.get("ppo_config") != asdict(ppo_config):
+        raise ValueError("Resume checkpoint PPO configuration does not match")
+    loaded_normalizer = NormalizationManifest(**loaded["normalizer"])
+    loaded_normalizer.validate()
+    if asdict(loaded_normalizer) != asdict(normalizer.manifest):
+        raise ValueError("Resume checkpoint normalizer does not match the frozen campaign")
+
+    prior_pilot = loaded.get("pilot_config", {})
+    training_keys = (
+        "device",
+        "episodes_per_update",
+        "rollouts_per_snapshot",
+        "group_relative_first_decision",
+        "episode_steps",
+        "evaluation_steps",
+        "horizon_years",
+        "lambda_ref",
+        "lambda_reference_years",
+        "reward_scale",
+        "campaign_scope",
+        "replay_verification_interval",
+        "collector_workers",
+    )
+    current_pilot = asdict(pilot_config)
+    mismatched_pilot = {
+        key: {"checkpoint": prior_pilot.get(key), "current": current_pilot[key]}
+        for key in training_keys
+        if prior_pilot.get(key) != current_pilot[key]
+    }
+    if mismatched_pilot:
+        raise ValueError(
+            "Resume checkpoint changes training semantics: "
+            + json.dumps(mismatched_pilot, sort_keys=True)
+        )
+
+    loaded_identities = loaded.get("identities", {})
+    identity_keys = (
+        "simulator_commit",
+        "snapshot_manifest_sha256",
+        "normalizer_partition_id",
+        "normalizer_sha256",
+        "configuration_hash",
+        "native_build_hash",
+        "observation_schema_hash",
+        "runtime_bridge_sha256",
+        "observation_schema_version",
+        "action_schema_version",
+        "environment_schema_version",
+        "critic_sidecar_schema_version",
+        "tensor_feature_count",
+        "neural_seed",
+    )
+    mismatched_identities = {
+        key: {
+            "checkpoint": loaded_identities.get(key),
+            "current": expected_identities.get(key),
+        }
+        for key in identity_keys
+        if loaded_identities.get(key) != expected_identities.get(key)
+    }
+    if mismatched_identities:
+        raise ValueError(
+            "Resume checkpoint identity mismatch: "
+            + json.dumps(mismatched_identities, sort_keys=True)
+        )
+    update = int(loaded_identities.get("selected_update", 0))
+    if update < 1:
+        raise ValueError("Resume checkpoint does not identify a positive selected update")
+    model.load_state_dict(loaded["model_state_dict"])
+    trainer.load_state_dict(copy.deepcopy(loaded["trainer_state_dict"]))
+    _restore_rng_state(loaded["rng"])
+    digest, size = sha256_file(path)
+    return {
+        "path": str(path),
+        "sha256": digest,
+        "bytes": size,
+        "update": update,
+        "source_learner_commit": loaded_identities.get("learner_commit"),
+    }
+
+
+def _save_progress_checkpoint(
+    *,
+    path: Path,
+    model: ElderActorCritic,
+    trainer: PPOTrainer,
+    actor_config: ElderActorCriticConfig,
+    ppo_config: PPOConfig,
+    pilot_config: PilotConfig,
+    normalizer: SemanticNormalizer,
+    identities: dict[str, Any],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "checkpoint_schema_version": "elder-ppo-campaign-checkpoint-v2",
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": trainer.optimizer.state_dict(),
+        "trainer_state_dict": trainer.state_dict(),
+        "actor_critic_config": asdict(actor_config),
+        "ppo_config": asdict(ppo_config),
+        "pilot_config": asdict(pilot_config),
+        "normalizer": asdict(normalizer.manifest),
+        "identities": identities,
+        "rng": _capture_rng_state(),
+    }
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    torch.save(payload, temporary)
+    os.replace(temporary, path)
 
 
 def _save_and_verify_campaign_checkpoint(

@@ -90,3 +90,45 @@ hashes, learning/evaluation curves, family/world comparisons with Option A,
 throughput metrics, cultivation-intensity trajectory, self-sufficiency signal,
 and go/no-go assessment. Publish large run artifacts and checkpoints to GCS;
 commit only compact evidence and provenance.
+
+## Powered PoR completion and training disposition
+
+The 40-update, K=4 campaign completed on all three neural seeds at learner
+commit `91c5ccee0a35a03c1df60ecdd79c43c833593a6f`. It collected approximately
+103,600 transitions per seed. Every contract, replay, requested-action,
+inactive-head, numerical, checkpoint, scope, and PPO stability gate passed.
+The immutable run bundle is
+`gs://anthropocene-rl-datasets-508912/run-objects/sha256/7e/7e1baeefa245b17119bb91971e89ff6e5a7d82ce62fb901b2e5a271707fe240e.tar`.
+
+This result is proof of readiness, not a promoted welfare result. Full
+DEVELOPMENT comparison with Option A was:
+
+| Seed | QoL difference | Population difference | Disposition |
+|---|---:|---:|---|
+| 1701 | -2.97% | -13.59% | population outside the +/-10% target |
+| 1901 | -7.70% | -13.23% | population outside the +/-10% target |
+| 2101 | -4.59% | -0.50% | inside the target on both measures |
+
+There is no observed architecture-collapse signal. Actor and critic hidden
+probes remained below the declared Tanh saturation trigger, continuous-head
+log standard deviations remained near `-1`, actor means were not stuck at
+endpoints, and critic DEVELOPMENT explained variance was positive. The policy
+also moved during training; it was not excessively stable. The unresolved
+issue is therefore duration and cross-world generalization, not a demonstrated
+failure of the separate feed-forward MLP.
+
+No further disposable short PPO pilots are planned. The declaration in
+`configs/training/elder-broad-domain-50d-full-v3.yaml` resumes the exact PoR
+model, optimizer, PopArt, and RNG states and treats 500 as the total update
+budget. Full DEVELOPMENT is evaluated every 20 updates. Checkpoint selection
+minimizes the worse of the absolute QoL and population gaps relative to Option
+A, and success requires both gaps to remain within 10% on two consecutive new
+checkpoints for every seed. HELDOUT remains sealed because v2 already consumed
+it.
+
+Additional scenario curricula belong to a new frozen manifest generation with
+a group-safe split, native audit, and TRAIN-only normalizer. They do not require
+a separate short PPO pilot per scenario: the first checkpoints of the same
+full training run serve as retained safety gates. A hidden-activation collapse,
+continuous-variance collapse, contract failure, KL hard breach, or declared
+plateau is the boundary for review rather than an arbitrary pilot-length stop.
