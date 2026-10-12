@@ -60,6 +60,14 @@ The critic uses running PopArt-style value-target normalization, critic-only
 LayerNorm, and separate actor/critic clipping. The actor remains the existing
 Tanh MLP without LayerNorm.
 
+The powered runner also neutralizes random first-layer influence from tensor
+columns with zero nonzero support in PILOT TRAIN while leaving those columns
+trainable when a sparse event appears. It records per-head log standard
+deviation and mean-endpoint rates, critic value-head size, clip/KL early-stop
+statistics, and DEVELOPMENT reset-value explained variance. Presence-bit
+changes are explicitly deferred because they would create a new observation
+schema generation.
+
 An eight-worker 50-decision preflight collected 2,577 transitions in 48 seconds
 and passed all contract, replay, finite-value, reward-denominator, and
 per-state inactive-head gradient gates. The corresponding single-worker

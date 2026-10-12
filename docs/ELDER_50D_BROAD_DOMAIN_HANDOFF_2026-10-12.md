@@ -35,6 +35,9 @@ The exact declaration is `configs/training/elder-broad-domain-50d-v2.yaml`.
 - Actor learning rate `3e-4`; critic learning rate `1e-3`.
 - Separate actor/critic gradient clipping; target KL `0.02`.
 - Positive entropy coefficient `0.001`.
+- First-layer actor and critic columns with zero nonzero support in PILOT TRAIN
+  are initialized to zero. They remain trainable if a longer trajectory later
+  activates a husbandry, movement, contact, or other sparse input.
 - One base TRAIN snapshot per family, four on-policy trajectories per snapshot,
   and a leave-one-out group-relative advantage at the first decision.
 - 40 updates, up to 104,000 transitions per seed.
@@ -43,6 +46,18 @@ The exact declaration is `configs/training/elder-broad-domain-50d-v2.yaml`.
   evaluation replay remains exhaustive.
 - DEVELOPMENT selects checkpoints. HELDOUT is evaluated only on the final
   selected checkpoint and is not used for optimizer or configuration changes.
+
+The executable records all four continuous-head log standard deviations,
+actor-mean endpoint rates, critic value-head norms, clip fraction, KL and
+target-KL early stops on every update. DEVELOPMENT evaluations additionally
+measure reset-value explained variance against the realized 50-decision
+discounted return. Presence-bit or absent-value encoding changes remain a
+future schema generation and are not mixed into this frozen cohort.
+
+The command-line forwarding of `rollouts_per_snapshot` and
+`group_relative_first_decision` has a regression test. A superseded K=1
+preflight seed exposed the missing forwarding before the powered campaign and
+is retained only as a diagnostic, never as campaign evidence.
 
 The frozen native bridge supports only `RandomStream=0`; keyed randomness is
 owned by snapshot state. This was confirmed by an explicit clean interface

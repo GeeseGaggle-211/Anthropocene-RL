@@ -682,6 +682,8 @@ def main() -> int:
                 device=args.device,
                 updates=args.updates,
                 episodes_per_update=args.episodes_per_update,
+                rollouts_per_snapshot=args.rollouts_per_snapshot,
+                group_relative_first_decision=args.group_relative_first_decision,
                 episode_steps=args.episode_steps,
                 evaluation_interval=args.evaluation_interval,
                 evaluation_steps=args.evaluation_steps,

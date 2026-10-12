@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 import pytest
 
@@ -132,3 +134,52 @@ def test_group_relative_advantage_changes_only_the_first_decision() -> None:
     assert [row[0] for row in adjusted] == pytest.approx(
         [-4.0, -4.0 / 3.0, 4.0 / 3.0, 4.0]
     )
+
+
+def test_cultivation_pilot_cli_forwards_group_rollout_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from anthropocene_rl import cli
+    from anthropocene_rl.training import pilot
+
+    captured: dict[str, object] = {}
+
+    def fake_run_cultivation_pilot(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "status": "PASS",
+            "validation_status": "PASS",
+            "promotion_status": "PASS",
+            "evidence_sha256": "0" * 64,
+        }
+
+    monkeypatch.setattr(pilot, "run_cultivation_pilot", fake_run_cultivation_pilot)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "anthropocene-rl",
+            "cultivation-pilot",
+            "--campaign-scope",
+            "broad-domain",
+            "--updates",
+            "2",
+            "--episodes-per-update",
+            "13",
+            "--rollouts-per-snapshot",
+            "4",
+            "--group-relative-first-decision",
+            "--episode-steps",
+            "50",
+            "--evaluation-interval",
+            "1",
+            "--evaluation-steps",
+            "50",
+        ],
+    )
+
+    assert cli.main() == 0
+    config = captured["config"]
+    assert isinstance(config, PilotConfig)
+    assert config.rollouts_per_snapshot == 4
+    assert config.group_relative_first_decision is True

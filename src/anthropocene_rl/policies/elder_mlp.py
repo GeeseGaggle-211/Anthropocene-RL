@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import torch
@@ -200,6 +201,27 @@ class ElderActorCritic(nn.Module):
 
     def value(self, observation: Tensor) -> Tensor:
         return self.critic(observation)
+
+    @torch.no_grad()
+    def zero_input_columns(self, indices: Iterable[int]) -> tuple[int, ...]:
+        """Remove random first-layer influence from inputs unseen during fitting.
+
+        Columns can learn normally if the corresponding feature later appears in
+        an on-policy rollout.  This only makes their pre-observation behaviour
+        neutral instead of depending on the orthogonal initializer.
+        """
+
+        resolved = tuple(sorted({int(index) for index in indices}))
+        if any(index < 0 or index >= TENSOR_FEATURE_COUNT for index in resolved):
+            raise ValueError("Input column index is outside the Elder tensor")
+        if not resolved:
+            return resolved
+        for backbone in (self.actor.backbone, self.critic.backbone):
+            first = backbone.net[0]
+            if not isinstance(first, nn.Linear):  # pragma: no cover - invariant
+                raise TypeError("Elder backbone must start with a linear layer")
+            first.weight[:, resolved] = 0.0
+        return resolved
 
     @torch.no_grad()
     def hidden_activation_diagnostics(self, observation: Tensor) -> dict[str, object]:
