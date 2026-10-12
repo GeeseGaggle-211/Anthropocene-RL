@@ -14,12 +14,12 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/datasets/elder-broad-domain-50d-v1.yaml"),
+        default=Path("configs/datasets/elder-broad-domain-50d-v2.yaml"),
     )
     parser.add_argument(
         "--summary",
         type=Path,
-        default=Path("evidence/elder-broad-domain-50d-v1/plan-summary.json"),
+        default=Path("evidence/elder-broad-domain-50d-v2/plan-summary.json"),
     )
     args = parser.parse_args()
     summary = save_elder_broad_domain_plan(

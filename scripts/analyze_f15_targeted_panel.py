@@ -52,6 +52,11 @@ def main() -> None:
     success = len(complete_pairs) >= 2 and deterministic
     group_metadata = {row["group_id"]: row for row in metadata["groups"]}
     completed = [group_metadata[group_id] for group_id in complete_pairs]
+    capture_decisions = Counter(
+        int(candidates[0]["record"]["decision_index"])
+        for group_id, candidates in candidates_by_group.items()
+        if group_id in complete_pairs
+    )
 
     payload = {
         "status": "PASS" if success else "NATIVE_SCENARIO_CONSTRUCTION_BLOCKED",
@@ -65,6 +70,7 @@ def main() -> None:
                 "outcome_fields_used_for_seed_selection"
             ],
             "success_gate": metadata["success_gate"],
+            "shared_capture_rule": metadata.get("shared_capture_rule"),
         },
         "result": {
             "candidate_count": len(result["candidates"]),
@@ -72,6 +78,7 @@ def main() -> None:
             "complete_pair_count": len(complete_pairs),
             "complete_pair_ids": complete_pairs,
             "complete_pair_metadata": completed,
+            "complete_pair_capture_decisions": dict(sorted(capture_decisions.items())),
             "rejection_reasons": dict(sorted(rejection_reasons.items())),
         },
         "deterministic_reproduction": {
@@ -103,7 +110,12 @@ def main() -> None:
             ),
         },
         "interpretation": (
-            "The frozen constructor and bounded sampling recipe did not reliably "
+            "Shared event-aligned capture supplied enough deterministic, naturally "
+            "delivered import/export pairs to clear the bounded construction gate. "
+            "This changes snapshot timing only and provides no evidence of a native "
+            "defect or MLP representational failure."
+            if success
+            else "The frozen constructor and bounded sampling recipe did not reliably "
             "supply the required causal contrast. This is not evidence of a native "
             "crash, simulator defect, or MLP representational failure."
         ),
@@ -119,22 +131,28 @@ def main() -> None:
         (
             f"The predeclared 24-pair / 48-record panel produced "
             f"{len(result['candidates'])} accepted records and "
-            f"{len(complete_pairs)} complete causal pair. The success gate required "
+            f"{len(complete_pairs)} complete causal pairs. The success gate required "
             "at least two complete pairs."
         ),
         "",
         f"- Complete pair: {', '.join(complete_pairs) or 'none'}",
+        f"- Capture-decision distribution: {dict(sorted(capture_decisions.items()))}",
         f"- Rejection reasons: {dict(sorted(rejection_reasons.items()))}",
         f"- Deterministic byte-for-byte reproduction: {deterministic}",
         f"- Native result SHA-256: `{_sha256(raw_a)}`",
         f"- Frozen native SHA: `{result['native_simulator_sha']}`",
         "",
-        "No crash, replay failure, schema failure, non-determinism, or native defect was observed. "
-        "The blocker is the reliability of realizing both delivered-trade directions at one "
-        "declared timestamp under the current frozen scenario constructor.",
+        (
+            "No crash, replay failure, schema failure, non-determinism, or native defect was "
+            "observed. The bounded gate passed using the existing deterministic heuristic "
+            "counterparties and ordinary native delivered-trade ledger."
+            if success
+            else "No crash, replay failure, schema failure, non-determinism, or native defect "
+            "was observed. The blocker is the reliability of realizing both delivered-trade "
+            "directions at one declared timestamp under the current frozen scenario constructor."
+        ),
         "",
-        "The result provides no evidence for escalating beyond the feed-forward MLP: policy "
-        "training did not begin because a valid frozen bank was not available.",
+        "The result provides no evidence for escalating beyond the feed-forward MLP.",
     ]
     args.output_markdown.parent.mkdir(parents=True, exist_ok=True)
     args.output_markdown.write_text("\n".join(lines) + "\n", encoding="utf-8")

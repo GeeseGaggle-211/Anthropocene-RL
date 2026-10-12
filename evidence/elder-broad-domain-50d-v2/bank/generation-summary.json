@@ -1,0 +1,24 @@
+{
+  "audit_status": "PASS",
+  "blob_root": "datasets/blobs",
+  "deterministic_regeneration": true,
+  "generator_config_sha256": "a9cb4620ecbff98053c3cda18b25bde91ed707735c7ef196ffc4c30aabbe623e",
+  "manifest_path": "datasets/manifests/elder-v2-broad-domain-50d-v2.json",
+  "manifest_sha256": "10ab09c73942cc3e2bea0bef409c6682a909d07022b0fb1d529d3b566979e736",
+  "native_result_sha256": "397f5bfa1954bf33c3f9288033e1fcf17c52fe4b634deb98cfefd8fd8878b6e7",
+  "normalization_status": "FINAL_PILOT_TRAIN_ONLY_NORMALIZER:elder-normalization-v3",
+  "partition_counts": {
+    "development": 73,
+    "heldout": 79,
+    "train": 347
+  },
+  "rejection_counts": {
+    "coverage-quota-not-selected": 148,
+    "duplicate-native-identity-group": 16,
+    "incomplete-causal-group": 23,
+    "native-generation-rejected": 5,
+    "requested-stratum-not-achieved": 89,
+    "requested-stratum-unreachable": 20
+  },
+  "snapshot_count": 499
+}

@@ -19,6 +19,7 @@ from anthropocene_rl.datasets.pilot_plan import (
 from anthropocene_rl.observations.normalization import NORMALIZATION_VERSION_V3
 
 BROAD_DOMAIN_GENERATION_SEED = 7_117_001
+BROAD_DOMAIN_SCENARIO_VERSION = "elder-broad-domain-50d-v2"
 BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS = {
     "F01": 30,
     "F02": 35,
@@ -574,9 +575,9 @@ def build_elder_broad_domain_plan() -> SnapshotBankGenerationConfig:
         {
             "config_schema_version": "snapshot-bank-generation-v1",
             "bank_kind": "elder-broad-domain",
-            "bank_id": "elder-v2-broad-domain-50d-pilot-v1",
-            "bank_version": "1.0.0-50d-candidate",
-            "native_generator_version": "snapshot-bank-native-v1",
+            "bank_id": "elder-v2-broad-domain-50d-pilot-v2",
+            "bank_version": "2.0.0-50d-event-aligned-candidate",
+            "native_generator_version": "snapshot-bank-native-v2",
             "generation_seed": BROAD_DOMAIN_GENERATION_SEED,
             "world": {
                 "width": 48,
@@ -592,6 +593,7 @@ def build_elder_broad_domain_plan() -> SnapshotBankGenerationConfig:
                 "heldout_fraction": 0.15,
             },
             "calibration_rollout_steps": 5,
+            "f15_shared_capture_horizon_steps": 5,
             "verify_deterministic_regeneration": True,
             "local_movement_radius": 1.0,
             "capability_experience_thresholds": {
@@ -658,6 +660,9 @@ def broad_domain_plan_summary(config: SnapshotBankGenerationConfig) -> dict[str,
         "requested_pairwise_coverage": pairwise,
         "primary_episode_decisions": 50,
         "nominal_episode_years": 1_000,
+        "f15_shared_capture_horizon_decisions": (
+            config.f15_shared_capture_horizon_steps
+        ),
         "active_policy_domains": ["cultivation", "husbandry", "movement"],
         "live_native_dynamics": ["trade", "immigration", "emigration", "fission"],
         "excluded_policy_domains": ["fishing"],
@@ -714,7 +719,7 @@ def _trajectory(
     return {
         "trajectory_id": trajectory_id,
         "scenario_family": scenario_family,
-        "scenario_version": "elder-broad-domain-50d-v1",
+        "scenario_version": BROAD_DOMAIN_SCENARIO_VERSION,
         "world_seed": world_seed,
         "trajectory_family": trajectory_family,
         "lineage_id": lineage_id or trajectory_id,

@@ -131,6 +131,7 @@ class SnapshotBankGenerationConfig(StrictModel):
     world: WorldGenerationConfig
     partition: PartitionConfig
     calibration_rollout_steps: int = Field(default=3, ge=1, le=5)
+    f15_shared_capture_horizon_steps: int = Field(default=0, ge=0, le=5)
     verify_deterministic_regeneration: bool = True
     local_movement_radius: float = Field(gt=0)
     capability_experience_thresholds: dict[str, float]
@@ -150,6 +151,12 @@ class SnapshotBankGenerationConfig(StrictModel):
             NORMALIZATION_VERSION_V3,
         }:
             raise ValueError("Unsupported normalization version")
+        if self.f15_shared_capture_horizon_steps and self.bank_kind != (
+            "elder-broad-domain"
+        ):
+            raise ValueError(
+                "F15 shared event capture is only valid for broad-domain banks"
+            )
         ids = [trajectory.trajectory_id for trajectory in self.trajectories]
         if len(ids) != len(set(ids)):
             raise ValueError("trajectory_id values must be unique")
@@ -290,6 +297,8 @@ class SnapshotBankGenerationConfig(StrictModel):
             payload.pop("bank_kind", None)
         if "normalization_version" not in self.model_fields_set:
             payload.pop("normalization_version", None)
+        if "f15_shared_capture_horizon_steps" not in self.model_fields_set:
+            payload.pop("f15_shared_capture_horizon_steps", None)
         if "pilot_accepted_partition_counts" not in self.model_fields_set:
             payload.pop("pilot_accepted_partition_counts", None)
         if "broad_domain_accepted_partition_counts" not in self.model_fields_set:

@@ -20,6 +20,8 @@ def test_broad_domain_plan_is_deterministic_and_quota_safe(tmp_path) -> None:
     assert len(first.trajectories) > 400
     assert sum(len(item.snapshot_steps) for item in first.trajectories) == 800
     assert sum(BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS.values()) == 499
+    assert first.f15_shared_capture_horizon_steps == 5
+    assert first.bank_version == "2.0.0-50d-event-aligned-candidate"
 
     resolved, _ = first.resolve_partitions()
     capacity: dict[str, Counter[str]] = {
@@ -54,6 +56,7 @@ def test_broad_domain_plan_serialization_roundtrip(tmp_path) -> None:
     assert loaded.canonical_sha256() == summary["generator_config_sha256"]
     assert summary == broad_domain_plan_summary(loaded)
     assert summary["primary_episode_decisions"] == 50
+    assert summary["f15_shared_capture_horizon_decisions"] == 5
     assert summary["active_policy_domains"] == [
         "cultivation",
         "husbandry",

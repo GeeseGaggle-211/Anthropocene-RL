@@ -2,20 +2,24 @@
 
 Date: 2026-10-12
 
-Status: proposal for review; no further generation is authorized by this document.
+Status: implemented and validated in broad-domain generation v2.
 
 ## Decision boundary
 
-The broad-domain 50-decision bank is blocked before manifest promotion. The
-frozen native simulator is stable and deterministic, but the current fixed-time
-F15 constructor does not reliably produce the required paired mild-food-import
-and food-surplus-export states. The bounded remediation panel produced one
-complete independent TRAIN pair; its predeclared gate required at least two.
+The v1 broad-domain bank was blocked before manifest promotion because the
+fixed-time F15 constructor did not reliably produce paired mild-food-import and
+food-surplus-export states. The versioned shared-event rule below resolved that
+construction problem without modifying the frozen native simulator.
 
-This is `NATIVE_SCENARIO_CONSTRUCTION_BLOCKED`, not a simulator crash, physics
-defect, observation-schema defect, or feed-forward MLP failure. Normalization,
-LayerNorm, activation choice, PPO, and policy capacity cannot cause a failure
-that occurs before a valid snapshot bank exists.
+The v1 result was `NATIVE_SCENARIO_CONSTRUCTION_BLOCKED`, not a simulator crash,
+physics defect, observation-schema defect, or feed-forward MLP failure. The v2
+bank now passes; that success still provides no reason to change the MLP.
+
+The native world already contains deterministic heuristic-controlled
+settlements that participate in ordinary trade, and later fission can create
+additional partners during long episodes. V2 therefore uses those natural
+counterparties and the native delivered-trade ledger. It does not inject goods,
+create a privileged counterparty, or expose future trade to the actor.
 
 ## Existing native measurement contract
 
@@ -61,7 +65,7 @@ The missing determinant is therefore not basic contact construction. It is the
 coincidence of the required delivered direction in both siblings at one fixed
 measurement interval.
 
-## Proposed v2 capture rule
+## Implemented v2 capture rule
 
 Replace fixed per-trajectory timestamps for this one F15 contrast with a
 versioned, group-level event-aligned rule:
@@ -109,9 +113,9 @@ Use new generator/scenario/config versions and a new canonical configuration
 SHA. The current failed artifacts remain immutable diagnostics and must not be
 promoted into the new bank.
 
-## Finite validation proposal
+## Finite validation result
 
-After owner approval, run one v2 validation panel with these frozen limits:
+The approved v2 panel ran with these frozen limits:
 
 - at most 24 new independent causal pairs;
 - no more than three predeclared factor configurations;
@@ -121,13 +125,18 @@ After owner approval, run one v2 validation panel with these frozen limits:
 - all existing SaveCodec, Reset/Step, replay, finite-time, mask, fishing,
   configuration, schema, and identity gates unchanged.
 
-Success requires at least two complete, unique, scope-valid TRAIN pairs and an
-unchanged full-bank selector that can meet all F15 contrast and 17/4/4
-TRAIN/DEVELOPMENT/HELDOUT pair quotas. Failure at the fixed cap returns to
-`NATIVE_SCENARIO_CONSTRUCTION_BLOCKED`; it does not authorize a fifth search,
-gate relaxation, or native behavior change.
+It produced four complete, unique, scope-valid TRAIN pairs, versus a gate of
+two. Two pairs aligned at decision 1 and two at decision 2. The repeated native
+result and all eight SaveCodec blobs were byte-identical; native-result SHA-256:
+`84890c689a1d0df81892d38ba2742c7bcfdb1b0c81332b813d13409c8fa18394`.
 
-## What follows only after a bank passes
+The full 800-candidate v2 generation then produced 686 valid candidates and
+promoted exactly 499 snapshots, including five complete pairs for every F15
+contrast. Both full native generations matched deterministically. Manifest
+identity SHA-256:
+`10ab09c73942cc3e2bea0bef409c6682a909d07022b0fb1d529d3b566979e736`.
+
+## What follows after the passing bank
 
 1. Freeze and publish the complete manifest and blobs to GCS.
 2. Fit a fresh normalization-v3 artifact from broad-domain TRAIN resets plus

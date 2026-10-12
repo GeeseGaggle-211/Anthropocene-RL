@@ -1,0 +1,107 @@
+{
+  "deterministic_reproduction": {
+    "native_result_bytes_identical": true,
+    "native_result_sha256_a": "84890c689a1d0df81892d38ba2742c7bcfdb1b0c81332b813d13409c8fa18394",
+    "native_result_sha256_b": "84890c689a1d0df81892d38ba2742c7bcfdb1b0c81332b813d13409c8fa18394",
+    "passed": true,
+    "snapshot_count_a": 8,
+    "snapshot_count_b": 8,
+    "snapshot_sets_identical": true
+  },
+  "diagnostic_config_sha256": "ae3ac3704bff1d4b04ca4ee1db64158dd8dc7ffe61bc831b7b9c20dff2d8d5cf",
+  "interpretation": "Shared event-aligned capture supplied enough deterministic, naturally delivered import/export pairs to clear the bounded construction gate. This changes snapshot timing only and provides no evidence of a native defect or MLP representational failure.",
+  "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "panel_contract": {
+    "factor_config_count": 3,
+    "outcome_fields_used_for_seed_selection": [],
+    "requested_pair_count": 24,
+    "requested_record_count": 48,
+    "selection_rule": "first 24 unused world seeds at or above 73001 assigned TRAIN by the frozen pre-outcome partition contract",
+    "shared_capture_rule": "earliest shared decision from 1 through 5 where mild-import has positive delivered food imports and surplus-export has positive delivered food exports",
+    "success_gate": "at least two complete, unique, scope-valid TRAIN pairs reproduced deterministically; otherwise NATIVE_SCENARIO_CONSTRUCTION_BLOCKED"
+  },
+  "promotion_eligible": false,
+  "result": {
+    "candidate_count": 8,
+    "complete_pair_capture_decisions": {
+      "1": 2,
+      "2": 2
+    },
+    "complete_pair_count": 4,
+    "complete_pair_ids": [
+      "f15-import-export-event-aligned-002",
+      "f15-import-export-event-aligned-007",
+      "f15-import-export-event-aligned-017",
+      "f15-import-export-event-aligned-021"
+    ],
+    "complete_pair_metadata": [
+      {
+        "amenity_coverage": 0.8,
+        "factor_config": 1,
+        "field_q": 0.4,
+        "group_id": "f15-import-export-event-aligned-002",
+        "partition": "train",
+        "population": 130,
+        "reserve_intervals": 0.25,
+        "site_support_quantile": 0.2,
+        "snapshot_step": 1,
+        "source_pair": "f15-open-economy-pair-007",
+        "tool_abundance": 0.15,
+        "world_seed": 73002
+      },
+      {
+        "amenity_coverage": 0.8,
+        "factor_config": 1,
+        "field_q": 0.4,
+        "group_id": "f15-import-export-event-aligned-007",
+        "partition": "train",
+        "population": 130,
+        "reserve_intervals": 0.25,
+        "site_support_quantile": 0.2,
+        "snapshot_step": 1,
+        "source_pair": "f15-open-economy-pair-007",
+        "tool_abundance": 0.15,
+        "world_seed": 73010
+      },
+      {
+        "amenity_coverage": 1.0,
+        "factor_config": 3,
+        "field_q": 0.48,
+        "group_id": "f15-import-export-event-aligned-017",
+        "partition": "train",
+        "population": 180,
+        "reserve_intervals": 0.25,
+        "site_support_quantile": 0.5,
+        "snapshot_step": 2,
+        "source_pair": "f15-open-economy-pair-022",
+        "tool_abundance": 0.8,
+        "world_seed": 73025
+      },
+      {
+        "amenity_coverage": 1.0,
+        "factor_config": 3,
+        "field_q": 0.48,
+        "group_id": "f15-import-export-event-aligned-021",
+        "partition": "train",
+        "population": 180,
+        "reserve_intervals": 0.25,
+        "site_support_quantile": 0.5,
+        "snapshot_step": 2,
+        "source_pair": "f15-open-economy-pair-022",
+        "tool_abundance": 0.8,
+        "world_seed": 73031
+      }
+    ],
+    "rejection_count": 40,
+    "rejection_reasons": {
+      "InvalidOperationException: Requested stratum was not achieved: shared F15 delivered-direction event within the fixed capture horizon.": 40
+    }
+  },
+  "scope_checks": {
+    "all_accepted_fishing_excluded": true,
+    "all_accepted_replay_verified": true,
+    "all_accepted_train": true
+  },
+  "source_campaign_config_sha256": "70bece532630d25a7db954beff7df5d0b1b402b204fddbaffbed6ce1bb089953",
+  "status": "PASS"
+}
