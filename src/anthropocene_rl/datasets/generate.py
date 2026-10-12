@@ -12,7 +12,8 @@ import json
 import os
 import subprocess
 import tempfile
-from collections import defaultdict
+from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from anthropocene_rl.contracts import (
 )
 from anthropocene_rl.datasets.audit import SnapshotBankAuditReport, audit_snapshot_bank
 from anthropocene_rl.datasets.blobs import ContentAddressedBlobStore
+from anthropocene_rl.datasets.broad_domain_plan import BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS
 from anthropocene_rl.datasets.coverage import save_coverage_report
 from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationConfig
 from anthropocene_rl.datasets.models import (
@@ -46,6 +48,7 @@ from anthropocene_rl.datasets.pilot_plan import (
 )
 from anthropocene_rl.observations.schema import (
     EncodedObservation,
+    broad_domain_scope_violations,
     cultivation_only_scope_violations,
 )
 
@@ -83,6 +86,7 @@ def generate_snapshot_bank(
     config = SnapshotBankGenerationConfig.load(config_path)
     _validate_frozen_simulator(simulator)
     dll = _build_native_generator(root, simulator, dotnet)
+    paths.evidence_directory.mkdir(parents=True, exist_ok=True)
 
     native_payload = config.native_payload()
     with tempfile.TemporaryDirectory(prefix="anthropocene-snapshot-bank-") as temporary:
@@ -99,6 +103,11 @@ def generate_snapshot_bank(
             output=temporary_root / "first",
             project_root=root,
         )
+        _validate_native_result(first_result, config)
+        _save_json(
+            paths.evidence_directory / "native-candidate-summary.json",
+            _native_candidate_summary(first_result, config),
+        )
         # This field means regeneration was actually checked and matched.  A
         # disabled check must not be reported as successful verification.
         deterministic = False
@@ -114,7 +123,6 @@ def generate_snapshot_bank(
             if not deterministic:
                 raise ValueError("Native regeneration changed for the same declared seed/config")
 
-        _validate_native_result(first_result, config)
         manifest, samples = _ingest_native_result(
             first_result,
             native_directory=first_directory,
@@ -123,7 +131,6 @@ def generate_snapshot_bank(
         )
 
     paths.manifest.parent.mkdir(parents=True, exist_ok=True)
-    paths.evidence_directory.mkdir(parents=True, exist_ok=True)
     manifest.save(paths.manifest)
     coverage_json = paths.evidence_directory / "coverage.json"
     coverage_markdown = paths.evidence_directory / "coverage.md"
@@ -137,6 +144,7 @@ def generate_snapshot_bank(
         blob_root=paths.blob_root,
         require_stage0_coverage=config.bank_kind == "stage0",
         require_cultivation_pilot_coverage=config.bank_kind == "cultivation-pilot",
+        require_broad_domain_coverage=config.bank_kind == "elder-broad-domain",
     )
     _save_json(paths.evidence_directory / "audit.json", audit.model_dump(mode="json"))
     if not audit.passed:
@@ -208,6 +216,7 @@ def audit_manifest_file(
     coverage_markdown_path: str | Path | None = None,
     require_stage0_coverage: bool = True,
     require_cultivation_pilot_coverage: bool = False,
+    require_broad_domain_coverage: bool = False,
     verify_blobs: bool = True,
 ) -> SnapshotBankAuditReport:
     manifest = SnapshotBankManifest.load(manifest_path)
@@ -217,6 +226,7 @@ def audit_manifest_file(
         blob_root=resolved_blob_root,
         require_stage0_coverage=require_stage0_coverage,
         require_cultivation_pilot_coverage=require_cultivation_pilot_coverage,
+        require_broad_domain_coverage=require_broad_domain_coverage,
         verify_blobs=verify_blobs,
     )
     if report_path is not None:
@@ -315,6 +325,40 @@ def _validate_native_result(result: dict[str, Any], config: SnapshotBankGenerati
         raise ValueError("Native result candidate collections are malformed")
 
 
+def _native_candidate_summary(
+    result: dict[str, Any], config: SnapshotBankGenerationConfig
+) -> dict[str, Any]:
+    """Persist compact native feasibility evidence before promotion selection."""
+
+    candidates = result["candidates"]
+    rejected = result["rejected_candidates"]
+    accepted_families: Counter[str] = Counter()
+    accepted_partitions: Counter[str] = Counter()
+    for candidate in candidates:
+        record = candidate.get("record", {})
+        accepted_families[str(record.get("scenario_family", "missing"))] += 1
+        accepted_partitions[str(record.get("partition", "missing"))] += 1
+    rejection_reasons = Counter(
+        str(candidate.get("reason_code", "missing")) for candidate in rejected
+    )
+    rejected_families = Counter(
+        str(candidate.get("scenario_family", "missing")) for candidate in rejected
+    )
+    return {
+        "status": str(result.get("status", "missing")),
+        "bank_id": config.bank_id,
+        "generator_config_sha256": config.canonical_sha256(),
+        "native_simulator_sha": result.get("native_simulator_sha"),
+        "native_build_hash": result.get("native_build_hash"),
+        "candidate_count": len(candidates),
+        "native_rejection_count": len(rejected),
+        "candidate_family_counts": dict(sorted(accepted_families.items())),
+        "candidate_partition_counts": dict(sorted(accepted_partitions.items())),
+        "native_rejection_family_counts": dict(sorted(rejected_families.items())),
+        "native_rejection_reason_counts": dict(sorted(rejection_reasons.items())),
+    }
+
+
 def _ingest_native_result(
     result: dict[str, Any],
     *,
@@ -329,6 +373,11 @@ def _ingest_native_result(
     selection_rejections: tuple[RejectedCandidate, ...] = ()
     if config.bank_kind == "cultivation-pilot":
         raw_candidates, selection_rejections = _select_pilot_candidates(
+            raw_candidates,
+            config=config,
+        )
+    elif config.bank_kind == "elder-broad-domain":
+        raw_candidates, selection_rejections = _select_broad_domain_candidates(
             raw_candidates,
             config=config,
         )
@@ -366,6 +415,12 @@ def _ingest_native_result(
                 raise ValueError(
                     f"Selected cultivation candidate {record.snapshot_id} contains "
                     f"an excluded calibration domain: {', '.join(violations)}"
+                )
+            broad_violations = broad_domain_scope_violations(observation)
+            if config.bank_kind == "elder-broad-domain" and broad_violations:
+                raise ValueError(
+                    f"Selected broad-domain candidate {record.snapshot_id} contains "
+                    f"an excluded calibration domain: {', '.join(broad_violations)}"
                 )
             samples.append(
                 CalibrationObservation(
@@ -420,6 +475,48 @@ def _select_pilot_candidates(
     preserves five complete pairs of each declared causal contrast.
     """
 
+    return _select_grouped_candidates(
+        candidates,
+        config=config,
+        accepted_family_counts=PILOT_ACCEPTED_FAMILY_COUNTS,
+        accepted_partition_counts=(
+            config.pilot_accepted_partition_counts or PILOT_ACCEPTED_PARTITION_COUNTS
+        ),
+        calibration_scope_violations=_candidate_calibration_scope_violations,
+        scope_reason_code="cultivation-scope-escape-during-calibration",
+        selection_metadata_key="pilot_selection_policy",
+    )
+
+
+def _select_broad_domain_candidates(
+    candidates: list[Any],
+    *,
+    config: SnapshotBankGenerationConfig,
+) -> tuple[list[dict[str, Any]], tuple[RejectedCandidate, ...]]:
+    accepted = config.broad_domain_accepted_partition_counts
+    if accepted is None:
+        raise ValueError("Broad-domain selection requires accepted partition counts")
+    return _select_grouped_candidates(
+        candidates,
+        config=config,
+        accepted_family_counts=BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS,
+        accepted_partition_counts=accepted,
+        calibration_scope_violations=_candidate_broad_domain_scope_violations,
+        scope_reason_code="broad-domain-scope-escape-during-calibration",
+        selection_metadata_key="broad_domain_selection_policy",
+    )
+
+
+def _select_grouped_candidates(
+    candidates: list[Any],
+    *,
+    config: SnapshotBankGenerationConfig,
+    accepted_family_counts: dict[str, int],
+    accepted_partition_counts: dict[str, dict[str, int]],
+    calibration_scope_violations: Callable[[dict[str, Any]], tuple[str, ...]],
+    scope_reason_code: str,
+    selection_metadata_key: str,
+) -> tuple[list[dict[str, Any]], tuple[RejectedCandidate, ...]]:
     expected_counts: dict[tuple[str, str], int] = defaultdict(int)
     for trajectory in config.trajectories:
         group = trajectory.counterfactual_group_id or trajectory.lineage_id
@@ -449,7 +546,7 @@ def _select_pilot_candidates(
             {
                 violation
                 for candidate in group_candidates
-                for violation in _candidate_calibration_scope_violations(candidate)
+                for violation in calibration_scope_violations(candidate)
             }
         )
         if violations:
@@ -492,9 +589,6 @@ def _select_pilot_candidates(
     # duplicate by construction.
     selected_fingerprints.clear()
     selected_content_hashes.clear()
-    accepted_partition_counts = (
-        config.pilot_accepted_partition_counts or PILOT_ACCEPTED_PARTITION_COUNTS
-    )
     shortages: list[str] = []
     for family, quotas in accepted_partition_counts.items():
         if family == "F15":
@@ -506,12 +600,42 @@ def _select_pilot_candidates(
                 if key[0] == family and _group_partition(group_candidates) == partition
             )
             if available < required:
+                complete_count = sum(
+                    len(group_candidates)
+                    for key, group_candidates in complete.items()
+                    if key[0] == family
+                    and _group_partition(group_candidates) == partition
+                )
+                scope_escape_count = sum(
+                    len(grouped[key])
+                    for key in scope_escape_groups
+                    if key[0] == family
+                    and _group_partition(grouped[key]) == partition
+                )
+                duplicate_identity_count = sum(
+                    len(grouped[key])
+                    for key in duplicate_identity_groups | identity_conflict_groups
+                    if key[0] == family
+                    and _group_partition(grouped[key]) == partition
+                )
+                incomplete_count = sum(
+                    len(group_candidates)
+                    for key, group_candidates in grouped.items()
+                    if key[0] == family
+                    and key not in complete
+                    and key not in scope_escape_groups
+                    and key not in duplicate_identity_groups
+                    and _group_partition(group_candidates) == partition
+                )
                 shortages.append(
-                    f"{family}/{partition}: available {available}, required {required}"
+                    f"{family}/{partition}: eligible {available}, required {required}; "
+                    f"complete {complete_count}, scope-escape {scope_escape_count}, "
+                    f"identity-conflict {duplicate_identity_count}, "
+                    f"incomplete-records {incomplete_count}"
                 )
     if shortages:
         raise ValueError("Insufficient complete scope-safe groups: " + "; ".join(shortages))
-    for family, target_count in PILOT_ACCEPTED_FAMILY_COUNTS.items():
+    for family, target_count in accepted_family_counts.items():
         family_groups = sorted(
             (
                 (key, group_candidates)
@@ -522,7 +646,7 @@ def _select_pilot_candidates(
         )
         quotas = accepted_partition_counts[family]
         if sum(quotas.values()) != target_count:
-            raise ValueError(f"Pilot partition quotas do not sum for {family}")
+            raise ValueError(f"Accepted partition quotas do not sum for {family}")
         if family == "F15":
             chosen = _select_f15_partitioned_groups(family_groups, quotas)
         else:
@@ -564,9 +688,9 @@ def _select_pilot_candidates(
         complete_group = key in complete
         duplicate_identity = key in duplicate_identity_groups or key in identity_conflict_groups
         if key in scope_escape_groups:
-            reason_code = "cultivation-scope-escape-during-calibration"
+            reason_code = scope_reason_code
             reason = (
-                "A legal calibration rollout activated an excluded pilot domain: "
+                "A legal calibration rollout activated an excluded campaign domain: "
                 + ", ".join(scope_escape_groups[key])
                 + "."
             )
@@ -582,7 +706,9 @@ def _select_pilot_candidates(
         for candidate in group_candidates:
             record = candidate["record"]
             metadata = dict(record.get("selection_metadata", {}))
-            metadata["pilot_selection_policy"] = "complete-groups-family-partition-exact-quota-v2"
+            metadata[selection_metadata_key] = (
+                "complete-groups-family-partition-exact-quota-v3"
+            )
             rejected.append(
                 RejectedCandidate(
                     candidate_id=str(record["snapshot_id"]),
@@ -611,6 +737,21 @@ def _candidate_calibration_scope_violations(candidate: dict[str, Any]) -> tuple[
             raise ValueError("Native candidate calibration observation is malformed")
         observation = EncodedObservation.from_native(raw_sample["tensor"])
         violations.update(cultivation_only_scope_violations(observation))
+    return tuple(sorted(violations))
+
+
+def _candidate_broad_domain_scope_violations(
+    candidate: dict[str, Any],
+) -> tuple[str, ...]:
+    raw_samples = candidate.get("calibration_observations")
+    if not isinstance(raw_samples, list):
+        raise ValueError("Native candidate calibration observations are malformed")
+    violations: set[str] = set()
+    for raw_sample in raw_samples:
+        if not isinstance(raw_sample, dict) or not isinstance(raw_sample.get("tensor"), dict):
+            raise ValueError("Native candidate calibration observation is malformed")
+        observation = EncodedObservation.from_native(raw_sample["tensor"])
+        violations.update(broad_domain_scope_violations(observation))
     return tuple(sorted(violations))
 
 

@@ -1,0 +1,33 @@
+{
+  "status": "PREFLIGHT_COMPLETE_NOT_PROMOTED",
+  "accounting": {
+    "requested_records": 710,
+    "native_candidates": 651,
+    "native_rejections": 59,
+    "closed": true
+  },
+  "generator_config_sha256": "b5b13a2f08ecf12bf69cc03ef80c04cf96a14b5a2f99efca6decac9ce77df5d8",
+  "full_ledger_sha256": "77fef1c25774fce3a4c667518fb214b830e967bae296c09431dae68dd2470fc3",
+  "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "native_build_hash": "a9b73c9cb60c4bd99116633ac40e67e5",
+  "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+  "observation_schema_hash": "a849c64c642f0cf68f20dd0a6d79ba731e20fcb51e71c7e9dedca7148bddf7f9",
+  "native_rejection_reason_counts": {
+    "native-generation-rejected": 5,
+    "requested-stratum-not-achieved": 34,
+    "requested-stratum-unreachable": 20
+  },
+  "native_rejection_family_counts": {
+    "F05": 7,
+    "F06": 1,
+    "F07": 12,
+    "F15": 38,
+    "F17": 1
+  },
+  "identity": {
+    "cross_group_conflict_group_count": 0,
+    "cross_group_duplicate_content": {},
+    "cross_group_duplicate_fingerprints": {}
+  },
+  "interpretation": "The first pass established outcome-blind group eligibility and construction attrition. It did not produce a promotable bank."
+}

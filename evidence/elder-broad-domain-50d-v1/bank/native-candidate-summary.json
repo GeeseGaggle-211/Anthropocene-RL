@@ -1,0 +1,41 @@
+{
+  "bank_id": "elder-v2-broad-domain-50d-pilot-v1",
+  "candidate_count": 697,
+  "candidate_family_counts": {
+    "F01": 40,
+    "F02": 46,
+    "F03": 48,
+    "F04": 54,
+    "F05": 47,
+    "F06": 59,
+    "F07": 48,
+    "F13": 46,
+    "F14": 70,
+    "F15": 106,
+    "F16": 56,
+    "F17": 35,
+    "F18": 42
+  },
+  "candidate_partition_counts": {
+    "development": 99,
+    "heldout": 111,
+    "train": 487
+  },
+  "generator_config_sha256": "70bece532630d25a7db954beff7df5d0b1b402b204fddbaffbed6ce1bb089953",
+  "native_build_hash": "b148b78a9ed14419aa6bc0ea27802a0c",
+  "native_rejection_count": 103,
+  "native_rejection_family_counts": {
+    "F05": 7,
+    "F06": 1,
+    "F07": 12,
+    "F15": 82,
+    "F17": 1
+  },
+  "native_rejection_reason_counts": {
+    "native-generation-rejected": 5,
+    "requested-stratum-not-achieved": 78,
+    "requested-stratum-unreachable": 20
+  },
+  "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "status": "PASS"
+}

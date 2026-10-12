@@ -117,7 +117,7 @@ namespace Anthropocene.SnapshotBank
             byte[] fixture = SaveCodec.Save(built.World);
             int maximumStep = trajectory.SnapshotSteps.Max();
             var environment = new NativeElderEnvironment();
-            var reset = environment.Reset(Request(fixture,
+            var reset = environment.Reset(Request(plan, fixture,
                 built.ControlledCampId, Math.Max(1, maximumStep + 1),
                 SaveCodec.ConfigurationHash(built.World.Config)));
             ElderObservation observation = reset.Observation;
@@ -171,7 +171,7 @@ namespace Anthropocene.SnapshotBank
             var environment = new NativeElderEnvironment();
             string expectedConfigurationHash =
                 SaveCodec.ConfigurationHash(roundtrip.Config);
-            var reset = environment.Reset(Request(canonical,
+            var reset = environment.Reset(Request(plan, canonical,
                 controlledCamp, plan.CalibrationRolloutSteps,
                 expectedConfigurationHash));
             configurationHash = reset.ConfigurationHash;
@@ -192,7 +192,7 @@ namespace Anthropocene.SnapshotBank
             for (int step = 0; step < plan.CalibrationRolloutSteps; step++)
             {
                 var advanced = environment.Step(CalibrationDirective(
-                    current, step));
+                    plan, current, step));
                 if (first == null) first = advanced;
                 if (!(advanced.ElapsedYears > 0) ||
                     double.IsNaN(advanced.ElapsedYears) ||
@@ -683,8 +683,9 @@ namespace Anthropocene.SnapshotBank
                     "Encoded observation contains NaN/Inf.");
         }
 
-        private static ElderResetRequest Request(byte[] snapshot, int camp,
-            int limit, string expectedConfigurationHash) =>
+        private static ElderResetRequest Request(GenerationPlan plan,
+            byte[] snapshot, int camp, int limit,
+            string expectedConfigurationHash) =>
             new ElderResetRequest
         {
             Snapshot = snapshot,
@@ -694,7 +695,8 @@ namespace Anthropocene.SnapshotBank
             Options = new ElderEnvironmentOptions
             {
                 EpisodeDecisionLimit = Math.Max(1, limit),
-                MovementEnabled = false,
+                MovementEnabled = plan.BankKind == "elder-broad-domain" ||
+                    plan.BankKind == "elder-broad-domain-diagnostic",
                 SyntheticShocksEnabled = false,
                 IncludeTrainingCriticSidecar = true
             },
@@ -707,8 +709,21 @@ namespace Anthropocene.SnapshotBank
             => Directive(observation, step, .15 + .10 * (step % 3));
 
         private static ElderDirective CalibrationDirective(
-            ElderObservation observation, int step)
-            => Directive(observation, step, .10 + .15 * (step % 3));
+            GenerationPlan plan, ElderObservation observation, int step)
+        {
+            var directive = Directive(observation, step,
+                .10 + .15 * (step % 3));
+            if ((plan.BankKind != "elder-broad-domain" &&
+                    plan.BankKind != "elder-broad-domain-diagnostic") || step != 2)
+                return directive;
+            for (int candidate = 0; candidate < 7; candidate++)
+                if (observation.Mask.AllowsMovement(candidate))
+                {
+                    directive.MovementCandidate = candidate;
+                    break;
+                }
+            return directive;
+        }
 
         private static ElderDirective Directive(ElderObservation observation,
             int step, double development)
@@ -835,8 +850,18 @@ namespace Anthropocene.SnapshotBank
                 (snapshots < 200 || snapshots > 800))
                 throw new InvalidDataException(
                     "Cultivation pilot plan must request 200-800 candidates.");
+            if (plan.BankKind == "elder-broad-domain" &&
+                (snapshots < 400 || snapshots > 800))
+                throw new InvalidDataException(
+                    "Broad-domain plan must request 400-800 candidates.");
+            if (plan.BankKind == "elder-broad-domain-diagnostic" &&
+                (snapshots < 2 || snapshots > 48))
+                throw new InvalidDataException(
+                    "Broad-domain diagnostic plan must request 2-48 candidates.");
             if (plan.BankKind != "stage0" &&
-                plan.BankKind != "cultivation-pilot")
+                plan.BankKind != "cultivation-pilot" &&
+                plan.BankKind != "elder-broad-domain" &&
+                plan.BankKind != "elder-broad-domain-diagnostic")
                 throw new InvalidDataException(
                     "Unsupported snapshot-bank kind.");
         }

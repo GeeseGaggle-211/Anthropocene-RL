@@ -14,7 +14,10 @@ from anthropocene_rl.contracts import (
     TENSOR_FEATURE_COUNT,
 )
 from anthropocene_rl.datasets.generate import _candidate_calibration_scope_violations
-from anthropocene_rl.observations.schema import EncodedObservation
+from anthropocene_rl.observations.schema import (
+    EncodedObservation,
+    broad_domain_scope_violations,
+)
 from anthropocene_rl.training.pilot import _assert_cultivation_scope
 
 
@@ -64,3 +67,18 @@ def test_generation_detects_scope_escape_in_calibration_rollout() -> None:
     }
 
     assert _candidate_calibration_scope_violations(candidate) == ("husbandry-capability-available",)
+
+
+def test_broad_domain_scope_allows_movement_and_husbandry_but_not_fishing() -> None:
+    permitted = _observation(
+        HUSBANDRY_CAPABILITY_AVAILABLE_OFFSET,
+        DOMESTIC_HERD_COUNT_OFFSET,
+        HERD_RETENTION_MASK_OFFSET,
+        HERD_DEVELOPMENT_MASK_OFFSET,
+        MOVEMENT_ENABLED_OFFSET,
+        MOVEMENT_CANDIDATE_MASK_OFFSET + 1,
+    )
+    assert broad_domain_scope_violations(permitted) == ()
+    assert broad_domain_scope_violations(
+        _observation(FISHING_CAPABILITY_AVAILABLE_OFFSET, FISHING_PRESENT_COUNT_OFFSET)
+    ) == ("fishing-capability-available", "fishing-ground-present")

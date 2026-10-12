@@ -161,6 +161,7 @@ def main() -> int:
     audit_bank.add_argument("--coverage-markdown", type=Path)
     audit_bank.add_argument("--no-stage0-coverage", action="store_true")
     audit_bank.add_argument("--cultivation-pilot-coverage", action="store_true")
+    audit_bank.add_argument("--broad-domain-coverage", action="store_true")
     audit_bank.add_argument("--skip-blob-verification", action="store_true")
     overfit = sub.add_parser("overfit-one-snapshot")
     overfit.add_argument(
@@ -520,9 +521,12 @@ def main() -> int:
             coverage_json_path=args.coverage_json,
             coverage_markdown_path=args.coverage_markdown,
             require_stage0_coverage=(
-                not args.no_stage0_coverage and not args.cultivation_pilot_coverage
+                not args.no_stage0_coverage
+                and not args.cultivation_pilot_coverage
+                and not args.broad_domain_coverage
             ),
             require_cultivation_pilot_coverage=args.cultivation_pilot_coverage,
+            require_broad_domain_coverage=args.broad_domain_coverage,
             verify_blobs=not args.skip_blob_verification,
         )
         print(json.dumps(report.model_dump(mode="json"), sort_keys=True))

@@ -19,7 +19,9 @@ namespace Anthropocene.SnapshotBank
         public ScenarioBuildResult Build(TrajectoryPlan trajectory)
         {
             var world = SaveCodec.Load(BaseWorld(trajectory.WorldSeed));
-            int controlledPlayer = plan.BankKind == "cultivation-pilot" ? 1 : 0;
+            int controlledPlayer = plan.BankKind == "cultivation-pilot" ||
+                plan.BankKind == "elder-broad-domain" ||
+                plan.BankKind == "elder-broad-domain-diagnostic" ? 1 : 0;
             var camp = world.Camps.Where(item => item.Player == controlledPlayer)
                 .OrderBy(item => item.Id).FirstOrDefault()
                 ?? throw new InvalidOperationException(
@@ -66,7 +68,9 @@ namespace Anthropocene.SnapshotBank
                 plan.World.AnnualHumanGrowthRate;
             config.EconomicAllocation =
                 EconomicAllocationStrategy.DemandControl;
-            if (plan.BankKind == "cultivation-pilot")
+            if (plan.BankKind == "cultivation-pilot" ||
+                plan.BankKind == "elder-broad-domain" ||
+                plan.BankKind == "elder-broad-domain-diagnostic")
             {
                 config.TradeEnabled = true;
                 config.ImmigrationEnabled = true;

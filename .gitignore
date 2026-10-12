@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.native_tmp/
+.pytest_tmp/
 .coverage
 htmlcov/
 build/
@@ -37,3 +39,13 @@ evidence/cultivation-pilot-normalization-v3-scope-safe/generation/final-normaliz
 evidence/cultivation-ppo-pilot-normalization-v3*/campaign-summary.json
 evidence/cultivation-ppo-pilot-normalization-v3*/option-a-baseline.json
 evidence/cultivation-ppo-pilot-normalization-v3*/seed-*.json
+
+# Broad-domain generator binaries and full native traces are published to GCS.
+# Git keeps the generator/config, compact hash-anchored summaries, and handoff.
+evidence/elder-broad-domain-50d-v1/**/snapshots/
+evidence/elder-broad-domain-50d-v1/**/native-result.json
+evidence/elder-broad-domain-50d-v1/**/resolved-*.json
+evidence/elder-broad-domain-50d-v1/f15-import-export-diagnostic/analysis.json
+evidence/elder-broad-domain-50d-v1/failed-generation-710/attrition-ledger.json
+evidence/elder-broad-domain-50d-v1/failed-generation-710/stdout.log
+evidence/elder-broad-domain-50d-v1/partition-salt-search.json
