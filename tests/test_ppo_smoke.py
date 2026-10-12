@@ -68,6 +68,8 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["paired_total_pre_clip_grad_norm_mean"] > 0.0
     assert 0.0 < metrics["joint_clip_factor_min"] <= 1.0
     assert metrics["joint_clip_factor_min"] <= metrics["joint_clip_factor_mean"] <= 1.0
+    assert metrics["actor_clip_factor_min"] == metrics["joint_clip_factor_min"]
+    assert metrics["critic_clip_factor_min"] == metrics["joint_clip_factor_min"]
     assert metrics["actor_parameter_update_l2"] > 0.0
     assert metrics["actor_backbone_parameter_update_l2"] > 0.0
     assert metrics["actor_continuous_head_parameter_update_l2"] > 0.0
@@ -91,6 +93,47 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["post_update_approx_kl"] == pytest.approx(float(expected_kl))
     assert metrics["post_update_clip_fraction"] == pytest.approx(float(expected_clip_fraction))
     assert metrics["post_update_value_mse"] == pytest.approx(float(expected_value_mse))
+
+
+def test_ppo_can_clip_actor_and_critic_separately_for_shadow_audits() -> None:
+    torch.manual_seed(41)
+    count = 32
+    observation = torch.randn(count, 512) * 0.2
+    observation[:, 80:84] = 0.0
+    observation[:, 80] = 1.0
+    observation[:, 82] = 1.0
+    observation[:, 482:490] = 0.0
+    observation[:, 482] = 1.0
+    model = ElderActorCritic()
+    with torch.no_grad():
+        sampled = model.actor.sample(observation)
+        value = model.critic(observation)
+    advantage = torch.linspace(-2.0, 2.0, count)
+    batch = RolloutBatch(
+        observations=observation,
+        continuous_actions=sampled.continuous,
+        movement_indices=sampled.movement_index,
+        old_log_prob=sampled.log_prob,
+        advantages=advantage,
+        returns=value + 4.0 * advantage,
+    )
+    trainer = PPOTrainer(
+        model,
+        PPOConfig(
+            epochs=1,
+            minibatch_size=16,
+            entropy_coefficient=0.0,
+            target_kl=None,
+            gradient_clip_mode="separate",
+        ),
+    )
+    metrics = trainer.update(batch)
+
+    assert 0.0 < metrics["actor_clip_factor_min"] <= 1.0
+    assert 0.0 < metrics["critic_clip_factor_min"] <= 1.0
+    assert 0.0 < metrics["joint_clip_factor_min"] <= 1.0
+    assert metrics["actor_parameter_update_l2"] > 0.0
+    assert metrics["critic_parameter_update_l2"] > 0.0
 
 
 def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:

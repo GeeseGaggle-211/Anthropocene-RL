@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from torch import Tensor
@@ -22,6 +23,7 @@ class PPOConfig:
     epochs: int = 4
     minibatch_size: int = 64
     target_kl: float | None = 0.05
+    gradient_clip_mode: Literal["joint", "separate"] = "joint"
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,8 @@ class PPOTrainer:
         batch.validate()
         if self.config.target_kl is not None and self.config.target_kl <= 0:
             raise ValueError("target_kl must be positive or None")
+        if self.config.gradient_clip_mode not in ("joint", "separate"):
+            raise ValueError("gradient_clip_mode must be joint or separate")
         advantages = batch.advantages
         advantages = (advantages - advantages.mean()) / (
             advantages.std(unbiased=False) + 1e-8
@@ -124,6 +128,8 @@ class PPOTrainer:
         paired_critic_grad_norms: list[float] = []
         paired_total_grad_norms: list[float] = []
         joint_clip_factors: list[float] = []
+        actor_clip_factors: list[float] = []
+        critic_clip_factors: list[float] = []
 
         for _ in range(self.config.epochs):
             actor_enabled = not policy_frozen
@@ -206,13 +212,27 @@ class PPOTrainer:
                     critic_pre_clip_grad_norm_max,
                     critic_pre_clip_grad_norm,
                 )
-                total_pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm,
-                )
-                total_pre_clip_grad_norm_value = float(
-                    total_pre_clip_grad_norm.detach()
-                )
+                if self.config.gradient_clip_mode == "joint":
+                    total_pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.config.max_grad_norm,
+                    )
+                    total_pre_clip_grad_norm_value = float(
+                        total_pre_clip_grad_norm.detach()
+                    )
+                else:
+                    total_pre_clip_grad_norm_value = _gradient_l2_norm(
+                        self.model.parameters()
+                    )
+                    if actor_enabled:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.actor.parameters(),
+                            self.config.max_grad_norm,
+                        )
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.critic.parameters(),
+                        self.config.max_grad_norm,
+                    )
                 total_pre_clip_grad_norm_max = max(
                     total_pre_clip_grad_norm_max,
                     total_pre_clip_grad_norm_value,
@@ -220,13 +240,34 @@ class PPOTrainer:
                 paired_actor_grad_norms.append(actor_pre_clip_grad_norm)
                 paired_critic_grad_norms.append(critic_pre_clip_grad_norm)
                 paired_total_grad_norms.append(total_pre_clip_grad_norm_value)
-                joint_clip_factors.append(
-                    min(
-                        1.0,
-                        self.config.max_grad_norm
-                        / max(total_pre_clip_grad_norm_value, 1e-12),
-                    )
+                joint_clip_factor = min(
+                    1.0,
+                    self.config.max_grad_norm
+                    / max(total_pre_clip_grad_norm_value, 1e-12),
                 )
+                joint_clip_factors.append(joint_clip_factor)
+                if self.config.gradient_clip_mode == "joint":
+                    actor_clip_factors.append(
+                        joint_clip_factor if actor_enabled else 1.0
+                    )
+                    critic_clip_factors.append(joint_clip_factor)
+                else:
+                    actor_clip_factors.append(
+                        min(
+                            1.0,
+                            self.config.max_grad_norm
+                            / max(actor_pre_clip_grad_norm, 1e-12),
+                        )
+                        if actor_enabled
+                        else 1.0
+                    )
+                    critic_clip_factors.append(
+                        min(
+                            1.0,
+                            self.config.max_grad_norm
+                            / max(critic_pre_clip_grad_norm, 1e-12),
+                        )
+                    )
                 self.optimizer.step()
 
                 with torch.no_grad():
@@ -319,6 +360,10 @@ class PPOTrainer:
                     ),
                     "joint_clip_factor_mean": _mean(joint_clip_factors),
                     "joint_clip_factor_min": min(joint_clip_factors),
+                    "actor_clip_factor_mean": _mean(actor_clip_factors),
+                    "actor_clip_factor_min": min(actor_clip_factors),
+                    "critic_clip_factor_mean": _mean(critic_clip_factors),
+                    "critic_clip_factor_min": min(critic_clip_factors),
                     "actor_parameter_update_l2": _parameter_delta_l2(
                         self.model.actor, actor_before
                     ),
