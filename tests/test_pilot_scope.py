@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -175,6 +176,14 @@ def test_cultivation_pilot_cli_forwards_group_rollout_configuration(
             "1",
             "--evaluation-steps",
             "50",
+            "--resume-checkpoint-directory",
+            "checkpoints/source",
+            "--checkpoint-selection",
+            "development-heuristic-parity",
+            "--heuristic-parity-patience",
+            "2",
+            "--parity-plateau-evaluations",
+            "5",
         ],
     )
 
@@ -183,3 +192,7 @@ def test_cultivation_pilot_cli_forwards_group_rollout_configuration(
     assert isinstance(config, PilotConfig)
     assert config.rollouts_per_snapshot == 4
     assert config.group_relative_first_decision is True
+    assert config.checkpoint_selection == "development-heuristic-parity"
+    assert config.heuristic_parity_patience == 2
+    assert config.parity_plateau_evaluations == 5
+    assert captured["resume_checkpoint_directory"] == Path("checkpoints/source")

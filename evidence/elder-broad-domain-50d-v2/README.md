@@ -76,6 +76,32 @@ workers while retaining exhaustive replay. The frozen native interface accepts o
 `RandomStream=0`; snapshot state owns keyed randomness, so repeated rollouts
 share the native future while policy actions remain independently sampled.
 
+## Powered training result
+
+The corrected K=4 campaign completed at learner commit
+`91c5ccee0a35a03c1df60ecdd79c43c833593a6f`. All three seeds passed the hard
+contract, replay, numerical, structural-mask, inactive-gradient, checkpoint,
+critic-finiteness, activation-health, and PPO-stability gates. Each seed saw
+approximately 103,600 transitions over 40 updates.
+
+The campaign remains `NO_GO` for welfare promotion. Against Option A on full
+DEVELOPMENT, seed 1701 was -2.97% on mean QoL and -13.59% on mean population;
+seed 1901 was -7.70% and -13.23%; seed 2101 was -4.59% and -0.50%. Thus only
+seed 2101 independently met the declared +/-10% joint QoL/population target.
+The campaign must not be described as passing by pooling the three seeds.
+
+The hidden-layer and exploration diagnostics do not show architecture
+collapse: selected actor/critic probes stayed below the 10% Tanh saturation
+trigger, log standard deviations stayed near `-1`, and actor means did not
+stick at endpoints. This makes v2 the final proof-of-readiness run. The next
+stage is the durable full-duration continuation declared in
+`configs/training/elder-broad-domain-50d-full-v3.yaml`, not another short pilot.
+
+Cultivation intensity did not rise monotonically. Requested field operation
+rose on average, but requested Development budget fell, so the result is a
+shift in the cultivation mix rather than a steady universal increase. No seed
+showed the declared universal-self-sufficiency signal.
+
 ## Storage
 
 The frozen bank is published at
