@@ -138,9 +138,81 @@ def run_action_credit_audit(
         "seeds": reports,
         "assessment": assessment,
     }
-    result["evidence_sha256"] = hashlib.sha256(
-        json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
-    ).hexdigest()
+    result["evidence_sha256"] = _evidence_sha256(result)
+    _write_json(evidence_dir / "summary.json", result)
+    return result
+
+
+def combine_action_credit_audits(
+    *,
+    input_directories: tuple[str | Path, ...],
+    evidence_directory: str | Path,
+    expected_seeds: tuple[int, ...] = (1701, 1901, 2101),
+) -> dict[str, Any]:
+    """Combine isolated per-seed audits without rerunning native trajectories."""
+
+    if not input_directories:
+        raise ValueError("At least one action-credit evidence directory is required")
+    if not expected_seeds or len(set(expected_seeds)) != len(expected_seeds):
+        raise ValueError("Expected audit seeds must be distinct")
+
+    summaries: list[dict[str, Any]] = []
+    reports_by_seed: dict[int, dict[str, Any]] = {}
+    consistency_fields = (
+        "scope",
+        "partitions_read",
+        "heldout_read",
+        "development_read",
+        "perturbation",
+        "thresholds",
+        "dataset",
+    )
+    for input_directory in input_directories:
+        source = Path(input_directory)
+        summary = json.loads((source / "summary.json").read_text(encoding="utf-8"))
+        recorded_digest = summary.get("evidence_sha256")
+        if recorded_digest != _evidence_sha256(summary):
+            raise ValueError(f"Action-credit evidence digest mismatch in {source}")
+        reports = summary.get("seeds")
+        if not isinstance(reports, list) or len(reports) != 1:
+            raise ValueError(f"Expected exactly one isolated seed report in {source}")
+        report = reports[0]
+        seed = int(report["seed"])
+        if seed in reports_by_seed:
+            raise ValueError(f"Duplicate action-credit evidence for seed {seed}")
+        stored_report = json.loads(
+            (source / f"seed-{seed}.json").read_text(encoding="utf-8")
+        )
+        if stored_report != report:
+            raise ValueError(f"Seed report and summary disagree for seed {seed}")
+        reports_by_seed[seed] = report
+        summaries.append(summary)
+
+    if set(reports_by_seed) != set(expected_seeds):
+        raise ValueError(
+            "Combined action-credit evidence does not match the expected seeds: "
+            f"expected={sorted(expected_seeds)} actual={sorted(reports_by_seed)}"
+        )
+    reference = summaries[0]
+    for summary in summaries[1:]:
+        for field in consistency_fields:
+            if summary.get(field) != reference.get(field):
+                raise ValueError(
+                    f"Action-credit evidence field {field!r} differs across seeds"
+                )
+
+    reports = [reports_by_seed[seed] for seed in expected_seeds]
+    assessment = _campaign_assessment(reports)
+    result = {
+        "status": assessment["status"],
+        **{field: reference[field] for field in consistency_fields},
+        "seeds": reports,
+        "assessment": assessment,
+    }
+    result["evidence_sha256"] = _evidence_sha256(result)
+    evidence_dir = Path(evidence_directory)
+    for report in reports:
+        _write_json(evidence_dir / f"seed-{report['seed']}.json", report)
     _write_json(evidence_dir / "summary.json", result)
     return result
 
@@ -834,3 +906,15 @@ def _direction(value: float, tolerance: float = 1e-12) -> int:
 
 def _fraction(numerator: int, denominator: int) -> float:
     return numerator / denominator if denominator else math.nan
+
+
+def _evidence_sha256(result: dict[str, Any]) -> str:
+    payload = {key: value for key, value in result.items() if key != "evidence_sha256"}
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()

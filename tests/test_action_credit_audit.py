@@ -1,4 +1,14 @@
-from anthropocene_rl.training.action_credit_audit import _campaign_assessment, _direction
+import json
+from pathlib import Path
+
+import pytest
+
+from anthropocene_rl.training.action_credit_audit import (
+    _campaign_assessment,
+    _direction,
+    _evidence_sha256,
+    combine_action_credit_audits,
+)
 
 
 def _report(
@@ -59,3 +69,75 @@ def test_campaign_assessment_requires_two_seed_replication() -> None:
     ]
     assessment = _campaign_assessment(reports)
     assert assessment["status"] == "ACTION_CREDIT_FAILURE"
+
+
+def test_combines_isolated_seed_evidence_with_identity_checks(tmp_path: Path) -> None:
+    inputs: list[Path] = []
+    for seed in (1701, 1901, 2101):
+        source = tmp_path / f"input-{seed}"
+        source.mkdir()
+        report = _report(seed)
+        summary = {
+            "status": "INCONCLUSIVE",
+            "scope": "train-only-paired-action-credit-audit",
+            "partitions_read": ["train"],
+            "heldout_read": False,
+            "development_read": False,
+            "perturbation": 0.1,
+            "thresholds": {"example": 1.0},
+            "dataset": {"manifest_sha256": "a" * 64},
+            "seeds": [report],
+            "assessment": _campaign_assessment([report]),
+        }
+        summary["evidence_sha256"] = _evidence_sha256(summary)
+        (source / f"seed-{seed}.json").write_text(
+            json.dumps(report), encoding="utf-8"
+        )
+        (source / "summary.json").write_text(
+            json.dumps(summary), encoding="utf-8"
+        )
+        inputs.append(source)
+
+    result = combine_action_credit_audits(
+        input_directories=tuple(inputs),
+        evidence_directory=tmp_path / "combined",
+    )
+
+    assert result["status"] == "CLEAR_DIAGNOSTIC_PASS"
+    assert [report["seed"] for report in result["seeds"]] == [1701, 1901, 2101]
+    assert result["evidence_sha256"] == _evidence_sha256(result)
+    assert (tmp_path / "combined" / "summary.json").is_file()
+
+
+def test_combine_rejects_mismatched_dataset_identity(tmp_path: Path) -> None:
+    inputs: list[Path] = []
+    for index, seed in enumerate((1701, 1901, 2101)):
+        source = tmp_path / f"input-{seed}"
+        source.mkdir()
+        report = _report(seed)
+        summary = {
+            "status": "INCONCLUSIVE",
+            "scope": "train-only-paired-action-credit-audit",
+            "partitions_read": ["train"],
+            "heldout_read": False,
+            "development_read": False,
+            "perturbation": 0.1,
+            "thresholds": {"example": 1.0},
+            "dataset": {"manifest_sha256": str(index)},
+            "seeds": [report],
+            "assessment": _campaign_assessment([report]),
+        }
+        summary["evidence_sha256"] = _evidence_sha256(summary)
+        (source / f"seed-{seed}.json").write_text(
+            json.dumps(report), encoding="utf-8"
+        )
+        (source / "summary.json").write_text(
+            json.dumps(summary), encoding="utf-8"
+        )
+        inputs.append(source)
+
+    with pytest.raises(ValueError, match="dataset"):
+        combine_action_credit_audits(
+            input_directories=tuple(inputs),
+            evidence_directory=tmp_path / "combined",
+        )
