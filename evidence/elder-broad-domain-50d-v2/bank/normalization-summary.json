@@ -1,0 +1,6301 @@
+{
+  "bank_id": "elder-v2-broad-domain-50d-pilot-v2",
+  "features": [
+    {
+      "fitted_c_i": 6.140848958418544,
+      "index": 0,
+      "kind": "positive_log1p",
+      "name": "core.population",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.309051411940409,
+      "index": 1,
+      "kind": "positive_ratio_log",
+      "name": "core.connected-consumers",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.771243749161422,
+      "index": 2,
+      "kind": "positive_log1p",
+      "name": "core.previous-interval-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 2.771243749161422,
+      "index": 3,
+      "kind": "positive_log1p",
+      "name": "core.next-interval-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.200863730039238,
+      "index": 4,
+      "kind": "positive_log1p",
+      "name": "core.deficit-age-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 5,
+      "kind": "bounded01",
+      "name": "core.qol",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 6,
+      "kind": "bounded01",
+      "name": "core.food-needs-met",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 7,
+      "kind": "bounded01",
+      "name": "core.water-needs-met",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 8,
+      "kind": "bounded01",
+      "name": "core.clothing-coverage",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 9,
+      "kind": "bounded01",
+      "name": "core.housing-coverage",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.6945216582153466,
+      "index": 10,
+      "kind": "positive_ratio_log",
+      "name": "core.food-reserve-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 5.132251593662166,
+      "index": 11,
+      "kind": "positive_log1p",
+      "name": "core.movement-age-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.365316677288276,
+      "index": 12,
+      "kind": "positive_log1p",
+      "name": "core.fission-age-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 13,
+      "kind": "signed_asinh",
+      "name": "core.realized-migration-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 14,
+      "kind": "binary",
+      "name": "core.is-village",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 15,
+      "kind": "signed_asinh",
+      "name": "core.realized-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 16,
+      "kind": "bounded01",
+      "name": "fields.retained-tiles",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 17,
+      "kind": "bounded01",
+      "name": "fields.current-operation",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 18,
+      "kind": "positive_log1p",
+      "name": "fields.maintenance-worker-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 19,
+      "kind": "positive_ratio_log",
+      "name": "fields.current-food-support",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 20,
+      "kind": "positive_ratio_log",
+      "name": "fields.future-food-support",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 21,
+      "kind": "positive_ratio_log",
+      "name": "fields.rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 22,
+      "kind": "positive_ratio_log",
+      "name": "fields.retained-capital-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 23,
+      "kind": "bounded01",
+      "name": "fields.current-intensity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.5350264792820728,
+      "index": 24,
+      "kind": "positive_log1p",
+      "name": "herd-summary.animals",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 25,
+      "kind": "positive_log1p",
+      "name": "herd-summary.groups",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 26,
+      "kind": "bounded01",
+      "name": "herd-summary.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 27,
+      "kind": "bounded01",
+      "name": "herd-summary.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.1257498572570146,
+      "index": 28,
+      "kind": "positive_ratio_log",
+      "name": "herd-summary.zero-displacement-capacity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.1257498572570146,
+      "index": 29,
+      "kind": "positive_ratio_log",
+      "name": "herd-summary.absolute-capacity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.1257498572570146,
+      "index": 30,
+      "kind": "positive_ratio_log",
+      "name": "herd-summary.water-capacity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 0.2487623138923791,
+      "index": 31,
+      "kind": "positive_log1p",
+      "name": "herd-summary.current-management-worker-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.1072107392856276,
+      "index": 32,
+      "kind": "positive_log1p",
+      "name": "herd-summary.current-animal-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.1714198085896155,
+      "index": 33,
+      "kind": "positive_log1p",
+      "name": "herd-summary.human-food-displaced",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 34,
+      "kind": "bounded01",
+      "name": "herd-summary.birth-trend",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 35,
+      "kind": "bounded01",
+      "name": "herd-summary.mortality-trend",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 36,
+      "kind": "bounded01",
+      "name": "herd-summary.slaughter-trend",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 37,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-37",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 38,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-38",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 39,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-39",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 40,
+      "kind": "binary",
+      "name": "previous-decision.present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 41,
+      "kind": "bounded01",
+      "name": "previous-decision.requested-field-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 42,
+      "kind": "bounded01",
+      "name": "previous-decision.accepted-field-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 43,
+      "kind": "bounded01",
+      "name": "previous-decision.realized-field-operation",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 44,
+      "kind": "bounded01",
+      "name": "previous-decision.requested-herd-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 45,
+      "kind": "bounded01",
+      "name": "previous-decision.accepted-herd-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 46,
+      "kind": "bounded01",
+      "name": "previous-decision.realized-herd-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 47,
+      "kind": "bounded01",
+      "name": "previous-decision.requested-development-budget",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 48,
+      "kind": "bounded01",
+      "name": "previous-decision.accepted-development-budget",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 49,
+      "kind": "bounded01",
+      "name": "previous-decision.realized-development-budget",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 50,
+      "kind": "bounded01",
+      "name": "previous-decision.requested-field-share",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 51,
+      "kind": "bounded01",
+      "name": "previous-decision.accepted-field-share",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 52,
+      "kind": "bounded01",
+      "name": "previous-decision.realized-field-share",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.4649735207179269,
+      "index": 53,
+      "kind": "positive_log1p",
+      "name": "previous-decision.intervention-count",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 2.771243749161422,
+      "index": 54,
+      "kind": "positive_log1p",
+      "name": "previous-decision.elapsed-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 55,
+      "kind": "binary",
+      "name": "previous-decision.movement-accepted",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 56,
+      "kind": "binary",
+      "name": "fission-history.candidate-present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 57,
+      "kind": "binary",
+      "name": "fission-history.recent-split",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 58,
+      "kind": "bounded01",
+      "name": "fission-history.pressure",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.326138719557091,
+      "index": 59,
+      "kind": "signed_asinh",
+      "name": "fission-history.expected-stayer-gain",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 60,
+      "kind": "bounded01",
+      "name": "fission-history.expected-daughter-qol",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 61,
+      "kind": "bounded01",
+      "name": "fission-history.exit-opportunity-pressure",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.6292762758658692,
+      "index": 62,
+      "kind": "positive_log1p",
+      "name": "fission-history.recent-daughter-population",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 63,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-63",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 64,
+      "kind": "binary",
+      "name": "capabilities.field-retention.available",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.6375580286012017,
+      "index": 65,
+      "kind": "capability_experience",
+      "name": "capabilities.field-retention.experience",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 66,
+      "kind": "bounded01",
+      "name": "capabilities.field-retention.progress",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 67,
+      "kind": "binary",
+      "name": "capabilities.herd-management.available",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.3690702464285422,
+      "index": 68,
+      "kind": "capability_experience",
+      "name": "capabilities.herd-management.experience",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 69,
+      "kind": "bounded01",
+      "name": "capabilities.herd-management.progress",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 70,
+      "kind": "binary",
+      "name": "capabilities.resident-fishing.available",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 4.559598099593025,
+      "index": 71,
+      "kind": "capability_experience",
+      "name": "capabilities.resident-fishing.experience",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 72,
+      "kind": "bounded01",
+      "name": "capabilities.resident-fishing.progress",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 73,
+      "kind": "binary",
+      "name": "capabilities.fixed-construction.available",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 74,
+      "kind": "capability_experience",
+      "name": "capabilities.fixed-construction.experience",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 75,
+      "kind": "bounded01",
+      "name": "capabilities.fixed-construction.progress",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 76,
+      "kind": "binary",
+      "name": "capabilities.local-trade.available",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 77,
+      "kind": "capability_experience",
+      "name": "capabilities.local-trade.experience",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 78,
+      "kind": "bounded01",
+      "name": "capabilities.local-trade.progress",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 79,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-79",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 80,
+      "kind": "binary",
+      "name": "continuous-action-mask.field-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 81,
+      "kind": "binary",
+      "name": "continuous-action-mask.herd-retention",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 82,
+      "kind": "binary",
+      "name": "continuous-action-mask.field-development",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 83,
+      "kind": "binary",
+      "name": "continuous-action-mask.herd-development",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 84,
+      "kind": "bounded01",
+      "name": "institutional-memory.qol.20y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 85,
+      "kind": "bounded01",
+      "name": "institutional-memory.qol.60y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 86,
+      "kind": "bounded01",
+      "name": "institutional-memory.qol.180y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 87,
+      "kind": "bounded01",
+      "name": "institutional-memory.food-security.20y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 88,
+      "kind": "bounded01",
+      "name": "institutional-memory.food-security.60y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 89,
+      "kind": "bounded01",
+      "name": "institutional-memory.food-security.180y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 90,
+      "kind": "bounded01",
+      "name": "institutional-memory.water-security.20y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 91,
+      "kind": "bounded01",
+      "name": "institutional-memory.water-security.60y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 92,
+      "kind": "bounded01",
+      "name": "institutional-memory.water-security.180y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.942287126265539,
+      "index": 93,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.food-reserves.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.7836226263637767,
+      "index": 94,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.food-reserves.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.7127417973723698,
+      "index": 95,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.food-reserves.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 96,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.population-pressure.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 97,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.population-pressure.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 98,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.population-pressure.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 0.006583359041840202,
+      "index": 99,
+      "kind": "signed_asinh",
+      "name": "institutional-memory.realized-migration.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0009606147934678194
+      },
+      "scale_fit_mode": "shared:memory-realized-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.006583359041840202,
+      "index": 100,
+      "kind": "signed_asinh",
+      "name": "institutional-memory.realized-migration.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:memory-realized-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.006583359041840202,
+      "index": 101,
+      "kind": "signed_asinh",
+      "name": "institutional-memory.realized-migration.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:memory-realized-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.971518148692565,
+      "index": 102,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.field-pressure.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.967499503788741,
+      "index": 103,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.field-pressure.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.955684099767266,
+      "index": 104,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.field-pressure.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 8.397862087641604,
+      "index": 105,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.herd-pressure.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 8.357258308802843,
+      "index": 106,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.herd-pressure.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 9.057536958941668,
+      "index": 107,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.herd-pressure.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 108,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.fishing-pressure.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 109,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.fishing-pressure.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 110,
+      "kind": "positive_ratio_log",
+      "name": "institutional-memory.fishing-pressure.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 0.24178158311883058,
+      "index": 111,
+      "kind": "signed_asinh",
+      "name": "institutional-memory.realized-trade-utility.20y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:memory-realized-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.24178158311883058,
+      "index": 112,
+      "kind": "signed_asinh",
+      "name": "institutional-memory.realized-trade-utility.60y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:memory-realized-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.24178158311883058,
+      "index": 113,
+      "kind": "signed_asinh",
+      "name": "institutional-memory.realized-trade-utility.180y",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:memory-realized-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 114,
+      "kind": "bounded01",
+      "name": "institutional-memory.realized-development.20y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 115,
+      "kind": "bounded01",
+      "name": "institutional-memory.realized-development.60y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 116,
+      "kind": "bounded01",
+      "name": "institutional-memory.realized-development.180y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 117,
+      "kind": "bounded01",
+      "name": "institutional-memory-maturity.20y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 118,
+      "kind": "bounded01",
+      "name": "institutional-memory-maturity.60y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 119,
+      "kind": "bounded01",
+      "name": "institutional-memory-maturity.180y",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 120,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-120",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 121,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-121",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 122,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-122",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 123,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-123",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 124,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-124",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 125,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-125",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 126,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-126",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 127,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-127",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 128,
+      "kind": "binary",
+      "name": "sites.0.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 129,
+      "kind": "binary",
+      "name": "sites.0.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.5789019231625656,
+      "index": 130,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.5789019231625656,
+      "index": 131,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.309051411940409,
+      "index": 132,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.309051411940409,
+      "index": 133,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.309051411940409,
+      "index": 134,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.5789019231625656,
+      "index": 135,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 136,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 137,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 138,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 139,
+      "kind": "positive_ratio_log",
+      "name": "sites.0.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 140,
+      "kind": "binary",
+      "name": "sites.1.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 141,
+      "kind": "binary",
+      "name": "sites.1.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 142,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 143,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.482148355278769,
+      "index": 144,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.482148355278769,
+      "index": 145,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.482148355278769,
+      "index": 146,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 147,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 148,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 149,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 150,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.5789019231625656,
+      "index": 151,
+      "kind": "positive_ratio_log",
+      "name": "sites.1.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 152,
+      "kind": "binary",
+      "name": "sites.2.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 153,
+      "kind": "binary",
+      "name": "sites.2.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 154,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 155,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.423591884497679,
+      "index": 156,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.423591884497679,
+      "index": 157,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.423591884497679,
+      "index": 158,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 12.575420555975077,
+      "index": 159,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 160,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 161,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 162,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.5789019231625656,
+      "index": 163,
+      "kind": "positive_ratio_log",
+      "name": "sites.2.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 164,
+      "kind": "binary",
+      "name": "sites.3.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 165,
+      "kind": "binary",
+      "name": "sites.3.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 166,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 167,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.5453409151630764,
+      "index": 168,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.5453409151630764,
+      "index": 169,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.5453409151630764,
+      "index": 170,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.9656472730442496,
+      "index": 171,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 172,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 173,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 174,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 175,
+      "kind": "positive_ratio_log",
+      "name": "sites.3.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 176,
+      "kind": "binary",
+      "name": "sites.4.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 177,
+      "kind": "binary",
+      "name": "sites.4.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 178,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 179,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.270248868157707,
+      "index": 180,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.270248868157707,
+      "index": 181,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.270248868157707,
+      "index": 182,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.9656472730442496,
+      "index": 183,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 184,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 185,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 186,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 187,
+      "kind": "positive_ratio_log",
+      "name": "sites.4.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 188,
+      "kind": "binary",
+      "name": "sites.5.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 189,
+      "kind": "binary",
+      "name": "sites.5.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 190,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 191,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.482148355278769,
+      "index": 192,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.482148355278769,
+      "index": 193,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.482148355278769,
+      "index": 194,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.6888128697876654,
+      "index": 195,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 196,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 197,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 198,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.200863730039238,
+      "index": 199,
+      "kind": "positive_ratio_log",
+      "name": "sites.5.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 200,
+      "kind": "binary",
+      "name": "sites.6.current",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 201,
+      "kind": "binary",
+      "name": "sites.6.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 202,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.human-food",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 3.836288501272084,
+      "index": 203,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.human-food-after-herd",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.3690702464285422,
+      "index": 204,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.herd-zero-displacement",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.3690702464285422,
+      "index": 205,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.herd-absolute",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.3690702464285422,
+      "index": 206,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.herd-water",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 2.9656472730442496,
+      "index": 207,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.fixed-shelter",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 208,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 209,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.absolute-recurring-labor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.8272761580780035,
+      "index": 210,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.retained-field-service",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 4.200863730039238,
+      "index": 211,
+      "kind": "positive_ratio_log",
+      "name": "sites.6.lost-rebuild-burden",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "finite-zero-ratio"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 212,
+      "kind": "distance_asinh",
+      "name": "fishing.0.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 213,
+      "kind": "binary",
+      "name": "fishing.0.incumbent",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 214,
+      "kind": "binary",
+      "name": "fishing.0.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 215,
+      "kind": "positive_log1p",
+      "name": "fishing.0.yield-per-fisher-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 216,
+      "kind": "positive_log1p",
+      "name": "fishing.0.food-potential",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 217,
+      "kind": "positive_log1p",
+      "name": "fishing.0.biomass",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 218,
+      "kind": "bounded01",
+      "name": "fishing.0.condition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 219,
+      "kind": "positive_log1p",
+      "name": "fishing.0.current-capital",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 220,
+      "kind": "bounded01",
+      "name": "fishing.0.current-intensity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 221,
+      "kind": "bounded01",
+      "name": "fishing.0.operation-fraction",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 222,
+      "kind": "positive_log1p",
+      "name": "fishing.0.maintenance-worker-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 223,
+      "kind": "positive_log1p",
+      "name": "fishing.0.reserved",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 224,
+      "kind": "distance_asinh",
+      "name": "fishing.1.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 225,
+      "kind": "binary",
+      "name": "fishing.1.incumbent",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 226,
+      "kind": "binary",
+      "name": "fishing.1.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 227,
+      "kind": "positive_log1p",
+      "name": "fishing.1.yield-per-fisher-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 228,
+      "kind": "positive_log1p",
+      "name": "fishing.1.food-potential",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 229,
+      "kind": "positive_log1p",
+      "name": "fishing.1.biomass",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 230,
+      "kind": "bounded01",
+      "name": "fishing.1.condition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 231,
+      "kind": "positive_log1p",
+      "name": "fishing.1.current-capital",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 232,
+      "kind": "bounded01",
+      "name": "fishing.1.current-intensity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 233,
+      "kind": "bounded01",
+      "name": "fishing.1.operation-fraction",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 234,
+      "kind": "positive_log1p",
+      "name": "fishing.1.maintenance-worker-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 235,
+      "kind": "positive_log1p",
+      "name": "fishing.1.reserved",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 236,
+      "kind": "distance_asinh",
+      "name": "fishing.2.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 237,
+      "kind": "binary",
+      "name": "fishing.2.incumbent",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 238,
+      "kind": "binary",
+      "name": "fishing.2.known",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 239,
+      "kind": "positive_log1p",
+      "name": "fishing.2.yield-per-fisher-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 240,
+      "kind": "positive_log1p",
+      "name": "fishing.2.food-potential",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 241,
+      "kind": "positive_log1p",
+      "name": "fishing.2.biomass",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 242,
+      "kind": "bounded01",
+      "name": "fishing.2.condition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 243,
+      "kind": "positive_log1p",
+      "name": "fishing.2.current-capital",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 244,
+      "kind": "bounded01",
+      "name": "fishing.2.current-intensity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 245,
+      "kind": "bounded01",
+      "name": "fishing.2.operation-fraction",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 246,
+      "kind": "positive_log1p",
+      "name": "fishing.2.maintenance-worker-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 247,
+      "kind": "positive_log1p",
+      "name": "fishing.2.reserved",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 0.6589393243583083,
+      "index": 248,
+      "kind": "positive_log1p",
+      "name": "herd-groups.0.animals",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 249,
+      "kind": "bounded01",
+      "name": "herd-groups.0.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 250,
+      "kind": "bounded01",
+      "name": "herd-groups.0.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.3062702284434951,
+      "index": 251,
+      "kind": "positive_log1p",
+      "name": "herd-groups.0.food-per-animal",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3382117242498206,
+      "index": 252,
+      "kind": "positive_log1p",
+      "name": "herd-groups.0.water-per-animal",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 253,
+      "kind": "positive_log1p",
+      "name": "herd-groups.0.animal-food-per-animal",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 254,
+      "kind": "bounded01",
+      "name": "herd-groups.0.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 255,
+      "kind": "bounded01",
+      "name": "herd-groups.0.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 256,
+      "kind": "positive_log1p",
+      "name": "herd-groups.1.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 257,
+      "kind": "bounded01",
+      "name": "herd-groups.1.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 258,
+      "kind": "bounded01",
+      "name": "herd-groups.1.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 259,
+      "kind": "positive_log1p",
+      "name": "herd-groups.1.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 260,
+      "kind": "positive_log1p",
+      "name": "herd-groups.1.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 261,
+      "kind": "positive_log1p",
+      "name": "herd-groups.1.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 262,
+      "kind": "bounded01",
+      "name": "herd-groups.1.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 263,
+      "kind": "bounded01",
+      "name": "herd-groups.1.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 264,
+      "kind": "positive_log1p",
+      "name": "herd-groups.2.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 265,
+      "kind": "bounded01",
+      "name": "herd-groups.2.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 266,
+      "kind": "bounded01",
+      "name": "herd-groups.2.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 267,
+      "kind": "positive_log1p",
+      "name": "herd-groups.2.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 268,
+      "kind": "positive_log1p",
+      "name": "herd-groups.2.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 269,
+      "kind": "positive_log1p",
+      "name": "herd-groups.2.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 270,
+      "kind": "bounded01",
+      "name": "herd-groups.2.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 271,
+      "kind": "bounded01",
+      "name": "herd-groups.2.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 272,
+      "kind": "positive_log1p",
+      "name": "herd-groups.3.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 273,
+      "kind": "bounded01",
+      "name": "herd-groups.3.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 274,
+      "kind": "bounded01",
+      "name": "herd-groups.3.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 275,
+      "kind": "positive_log1p",
+      "name": "herd-groups.3.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 276,
+      "kind": "positive_log1p",
+      "name": "herd-groups.3.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 277,
+      "kind": "positive_log1p",
+      "name": "herd-groups.3.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 278,
+      "kind": "bounded01",
+      "name": "herd-groups.3.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 279,
+      "kind": "bounded01",
+      "name": "herd-groups.3.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 280,
+      "kind": "positive_log1p",
+      "name": "herd-groups.4.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 281,
+      "kind": "bounded01",
+      "name": "herd-groups.4.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 282,
+      "kind": "bounded01",
+      "name": "herd-groups.4.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 283,
+      "kind": "positive_log1p",
+      "name": "herd-groups.4.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 284,
+      "kind": "positive_log1p",
+      "name": "herd-groups.4.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 285,
+      "kind": "positive_log1p",
+      "name": "herd-groups.4.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 286,
+      "kind": "bounded01",
+      "name": "herd-groups.4.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 287,
+      "kind": "bounded01",
+      "name": "herd-groups.4.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 288,
+      "kind": "positive_log1p",
+      "name": "herd-groups.5.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 289,
+      "kind": "bounded01",
+      "name": "herd-groups.5.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 290,
+      "kind": "bounded01",
+      "name": "herd-groups.5.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 291,
+      "kind": "positive_log1p",
+      "name": "herd-groups.5.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 292,
+      "kind": "positive_log1p",
+      "name": "herd-groups.5.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 293,
+      "kind": "positive_log1p",
+      "name": "herd-groups.5.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 294,
+      "kind": "bounded01",
+      "name": "herd-groups.5.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 295,
+      "kind": "bounded01",
+      "name": "herd-groups.5.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 296,
+      "kind": "positive_log1p",
+      "name": "herd-groups.6.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 297,
+      "kind": "bounded01",
+      "name": "herd-groups.6.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 298,
+      "kind": "bounded01",
+      "name": "herd-groups.6.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 299,
+      "kind": "positive_log1p",
+      "name": "herd-groups.6.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 300,
+      "kind": "positive_log1p",
+      "name": "herd-groups.6.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 301,
+      "kind": "positive_log1p",
+      "name": "herd-groups.6.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 302,
+      "kind": "bounded01",
+      "name": "herd-groups.6.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 303,
+      "kind": "bounded01",
+      "name": "herd-groups.6.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 304,
+      "kind": "positive_log1p",
+      "name": "herd-groups.7.animals",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 305,
+      "kind": "bounded01",
+      "name": "herd-groups.7.nutrition",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 306,
+      "kind": "bounded01",
+      "name": "herd-groups.7.management-fulfilment",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 307,
+      "kind": "positive_log1p",
+      "name": "herd-groups.7.food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 308,
+      "kind": "positive_log1p",
+      "name": "herd-groups.7.water-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 309,
+      "kind": "positive_log1p",
+      "name": "herd-groups.7.animal-food-per-animal",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 310,
+      "kind": "bounded01",
+      "name": "herd-groups.7.birth-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 311,
+      "kind": "bounded01",
+      "name": "herd-groups.7.mortality-rate",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.380238966019955,
+      "index": 312,
+      "kind": "positive_log1p",
+      "name": "commodities.hand-tools.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 313,
+      "kind": "positive_log1p",
+      "name": "commodities.hand-tools.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 314,
+      "kind": "positive_log1p",
+      "name": "commodities.hand-tools.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 315,
+      "kind": "positive_log1p",
+      "name": "commodities.hand-tools.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 316,
+      "kind": "positive_log1p",
+      "name": "commodities.hand-tools.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 317,
+      "kind": "positive_log1p",
+      "name": "commodities.hand-tools.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 318,
+      "kind": "binary",
+      "name": "commodities.hand-tools.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 319,
+      "kind": "binary",
+      "name": "commodities.hand-tools.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.1321974373409796,
+      "index": 320,
+      "kind": "positive_log1p",
+      "name": "commodities.pots.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3185404002736638,
+      "index": 321,
+      "kind": "positive_log1p",
+      "name": "commodities.pots.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 322,
+      "kind": "positive_log1p",
+      "name": "commodities.pots.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3185404002736638,
+      "index": 323,
+      "kind": "positive_log1p",
+      "name": "commodities.pots.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 324,
+      "kind": "positive_log1p",
+      "name": "commodities.pots.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.002109704641350211,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 325,
+      "kind": "positive_log1p",
+      "name": "commodities.pots.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 326,
+      "kind": "binary",
+      "name": "commodities.pots.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 327,
+      "kind": "binary",
+      "name": "commodities.pots.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 328,
+      "kind": "positive_log1p",
+      "name": "commodities.cloth.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 329,
+      "kind": "positive_log1p",
+      "name": "commodities.cloth.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 330,
+      "kind": "positive_log1p",
+      "name": "commodities.cloth.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 331,
+      "kind": "positive_log1p",
+      "name": "commodities.cloth.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 332,
+      "kind": "positive_log1p",
+      "name": "commodities.cloth.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 333,
+      "kind": "positive_log1p",
+      "name": "commodities.cloth.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 334,
+      "kind": "binary",
+      "name": "commodities.cloth.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 335,
+      "kind": "binary",
+      "name": "commodities.cloth.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 3.377159785094606,
+      "index": 336,
+      "kind": "positive_log1p",
+      "name": "commodities.farm-tools.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 337,
+      "kind": "positive_log1p",
+      "name": "commodities.farm-tools.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 338,
+      "kind": "positive_log1p",
+      "name": "commodities.farm-tools.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 339,
+      "kind": "positive_log1p",
+      "name": "commodities.farm-tools.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 340,
+      "kind": "positive_log1p",
+      "name": "commodities.farm-tools.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 341,
+      "kind": "positive_log1p",
+      "name": "commodities.farm-tools.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 342,
+      "kind": "binary",
+      "name": "commodities.farm-tools.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 343,
+      "kind": "binary",
+      "name": "commodities.farm-tools.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 344,
+      "kind": "positive_log1p",
+      "name": "commodities.housing.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.2031140135750123,
+      "index": 345,
+      "kind": "positive_log1p",
+      "name": "commodities.housing.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.030243287801378173,
+      "index": 346,
+      "kind": "positive_log1p",
+      "name": "commodities.housing.production-capacity",
+      "partition_saturation": {
+        "development": 0.01141552511415525,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.2031140135750123,
+      "index": 347,
+      "kind": "positive_log1p",
+      "name": "commodities.housing.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 348,
+      "kind": "positive_log1p",
+      "name": "commodities.housing.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 349,
+      "kind": "positive_log1p",
+      "name": "commodities.housing.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 350,
+      "kind": "binary",
+      "name": "commodities.housing.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 351,
+      "kind": "binary",
+      "name": "commodities.housing.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.1814421624645375,
+      "index": 352,
+      "kind": "positive_log1p",
+      "name": "commodities.tools.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.4955644891899353,
+      "index": 353,
+      "kind": "positive_log1p",
+      "name": "commodities.tools.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 354,
+      "kind": "positive_log1p",
+      "name": "commodities.tools.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.4955644891899353,
+      "index": 355,
+      "kind": "positive_log1p",
+      "name": "commodities.tools.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 356,
+      "kind": "positive_log1p",
+      "name": "commodities.tools.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 357,
+      "kind": "positive_log1p",
+      "name": "commodities.tools.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 358,
+      "kind": "binary",
+      "name": "commodities.tools.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 359,
+      "kind": "binary",
+      "name": "commodities.tools.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.6309297535714574,
+      "index": 360,
+      "kind": "positive_log1p",
+      "name": "commodities.animal-fabric.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0959032742893846,
+      "index": 361,
+      "kind": "positive_log1p",
+      "name": "commodities.animal-fabric.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 362,
+      "kind": "positive_log1p",
+      "name": "commodities.animal-fabric.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0959032742893846,
+      "index": 363,
+      "kind": "positive_log1p",
+      "name": "commodities.animal-fabric.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 364,
+      "kind": "positive_log1p",
+      "name": "commodities.animal-fabric.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 365,
+      "kind": "positive_log1p",
+      "name": "commodities.animal-fabric.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 366,
+      "kind": "binary",
+      "name": "commodities.animal-fabric.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 367,
+      "kind": "binary",
+      "name": "commodities.animal-fabric.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.26185951364462356,
+      "index": 368,
+      "kind": "positive_log1p",
+      "name": "commodities.light-housing.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.2618595133774301,
+      "index": 369,
+      "kind": "positive_log1p",
+      "name": "commodities.light-housing.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.015247244726456695,
+      "index": 370,
+      "kind": "positive_log1p",
+      "name": "commodities.light-housing.production-capacity",
+      "partition_saturation": {
+        "development": 0.01141552511415525,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.2618595133774301,
+      "index": 371,
+      "kind": "positive_log1p",
+      "name": "commodities.light-housing.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 372,
+      "kind": "positive_log1p",
+      "name": "commodities.light-housing.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 373,
+      "kind": "positive_log1p",
+      "name": "commodities.light-housing.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 374,
+      "kind": "binary",
+      "name": "commodities.light-housing.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 375,
+      "kind": "binary",
+      "name": "commodities.light-housing.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.8340437671464697,
+      "index": 376,
+      "kind": "positive_log1p",
+      "name": "commodities.herding-tools.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.23760495463124323,
+      "index": 377,
+      "kind": "positive_log1p",
+      "name": "commodities.herding-tools.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3933447310281025,
+      "index": 378,
+      "kind": "positive_log1p",
+      "name": "commodities.herding-tools.production-capacity",
+      "partition_saturation": {
+        "development": 0.0091324200913242,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.23760495463124323,
+      "index": 379,
+      "kind": "positive_log1p",
+      "name": "commodities.herding-tools.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 380,
+      "kind": "positive_log1p",
+      "name": "commodities.herding-tools.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 381,
+      "kind": "positive_log1p",
+      "name": "commodities.herding-tools.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 382,
+      "kind": "binary",
+      "name": "commodities.herding-tools.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 383,
+      "kind": "binary",
+      "name": "commodities.herding-tools.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 0.13775526821229225,
+      "index": 384,
+      "kind": "positive_log1p",
+      "name": "commodities.housing-material.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.2031140135750123,
+      "index": 385,
+      "kind": "positive_log1p",
+      "name": "commodities.housing-material.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.030243287801378173,
+      "index": 386,
+      "kind": "positive_log1p",
+      "name": "commodities.housing-material.production-capacity",
+      "partition_saturation": {
+        "development": 0.01141552511415525,
+        "heldout": 0.0,
+        "train-fit": 0.0019212295869356388
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.2031140135750123,
+      "index": 387,
+      "kind": "positive_log1p",
+      "name": "commodities.housing-material.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 388,
+      "kind": "positive_log1p",
+      "name": "commodities.housing-material.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 389,
+      "kind": "positive_log1p",
+      "name": "commodities.housing-material.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 390,
+      "kind": "binary",
+      "name": "commodities.housing-material.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 391,
+      "kind": "binary",
+      "name": "commodities.housing-material.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 392,
+      "kind": "positive_log1p",
+      "name": "commodities.fishing-tools.stock",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 393,
+      "kind": "positive_log1p",
+      "name": "commodities.fishing-tools.local-need",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 394,
+      "kind": "positive_log1p",
+      "name": "commodities.fishing-tools.production-capacity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 395,
+      "kind": "positive_log1p",
+      "name": "commodities.fishing-tools.protected-floor",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.3794386961823848,
+      "index": 396,
+      "kind": "positive_log1p",
+      "name": "commodities.fishing-tools.recent-import",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-import:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.9371999820149524,
+      "index": 397,
+      "kind": "positive_log1p",
+      "name": "commodities.fishing-tools.recent-export",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:commodity-recent-export:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 398,
+      "kind": "binary",
+      "name": "commodities.fishing-tools.can-produce",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 399,
+      "kind": "binary",
+      "name": "commodities.fishing-tools.can-trade",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.104872087382357,
+      "index": 400,
+      "kind": "distance_asinh",
+      "name": "contacts.0.distance",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.0,
+      "index": 401,
+      "kind": "positive_log1p",
+      "name": "contacts.0.age-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.7362624139526085,
+      "index": 402,
+      "kind": "signed_asinh",
+      "name": "contacts.0.affinity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 403,
+      "kind": "signed_asinh",
+      "name": "contacts.0.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 404,
+      "kind": "positive_log1p",
+      "name": "contacts.0.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 405,
+      "kind": "signed_asinh",
+      "name": "contacts.0.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 406,
+      "kind": "binary",
+      "name": "contacts.0.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 407,
+      "kind": "binary",
+      "name": "contacts.0.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.2681157659958395,
+      "index": 408,
+      "kind": "distance_asinh",
+      "name": "contacts.1.distance",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.0,
+      "index": 409,
+      "kind": "positive_log1p",
+      "name": "contacts.1.age-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.7362624139526085,
+      "index": 410,
+      "kind": "signed_asinh",
+      "name": "contacts.1.affinity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 411,
+      "kind": "signed_asinh",
+      "name": "contacts.1.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 412,
+      "kind": "positive_log1p",
+      "name": "contacts.1.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 413,
+      "kind": "signed_asinh",
+      "name": "contacts.1.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 414,
+      "kind": "binary",
+      "name": "contacts.1.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 415,
+      "kind": "binary",
+      "name": "contacts.1.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.2681157659958395,
+      "index": 416,
+      "kind": "distance_asinh",
+      "name": "contacts.2.distance",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 4.0,
+      "index": 417,
+      "kind": "positive_log1p",
+      "name": "contacts.2.age-years",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.7362624139526085,
+      "index": 418,
+      "kind": "signed_asinh",
+      "name": "contacts.2.affinity",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 419,
+      "kind": "signed_asinh",
+      "name": "contacts.2.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 420,
+      "kind": "positive_log1p",
+      "name": "contacts.2.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 421,
+      "kind": "signed_asinh",
+      "name": "contacts.2.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 422,
+      "kind": "binary",
+      "name": "contacts.2.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 423,
+      "kind": "binary",
+      "name": "contacts.2.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 2.2681157659958395,
+      "index": 424,
+      "kind": "distance_asinh",
+      "name": "contacts.3.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 3.380238966019955,
+      "index": 425,
+      "kind": "positive_log1p",
+      "name": "contacts.3.age-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 426,
+      "kind": "signed_asinh",
+      "name": "contacts.3.affinity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 427,
+      "kind": "signed_asinh",
+      "name": "contacts.3.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 428,
+      "kind": "positive_log1p",
+      "name": "contacts.3.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 429,
+      "kind": "signed_asinh",
+      "name": "contacts.3.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 430,
+      "kind": "binary",
+      "name": "contacts.3.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 431,
+      "kind": "binary",
+      "name": "contacts.3.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 432,
+      "kind": "distance_asinh",
+      "name": "contacts.4.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 433,
+      "kind": "positive_log1p",
+      "name": "contacts.4.age-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 434,
+      "kind": "signed_asinh",
+      "name": "contacts.4.affinity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 435,
+      "kind": "signed_asinh",
+      "name": "contacts.4.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 436,
+      "kind": "positive_log1p",
+      "name": "contacts.4.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 437,
+      "kind": "signed_asinh",
+      "name": "contacts.4.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 438,
+      "kind": "binary",
+      "name": "contacts.4.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 439,
+      "kind": "binary",
+      "name": "contacts.4.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 440,
+      "kind": "distance_asinh",
+      "name": "contacts.5.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 441,
+      "kind": "positive_log1p",
+      "name": "contacts.5.age-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 442,
+      "kind": "signed_asinh",
+      "name": "contacts.5.affinity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 443,
+      "kind": "signed_asinh",
+      "name": "contacts.5.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 444,
+      "kind": "positive_log1p",
+      "name": "contacts.5.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 445,
+      "kind": "signed_asinh",
+      "name": "contacts.5.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 446,
+      "kind": "binary",
+      "name": "contacts.5.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 447,
+      "kind": "binary",
+      "name": "contacts.5.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 448,
+      "kind": "distance_asinh",
+      "name": "contacts.6.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 449,
+      "kind": "positive_log1p",
+      "name": "contacts.6.age-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 450,
+      "kind": "signed_asinh",
+      "name": "contacts.6.affinity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 451,
+      "kind": "signed_asinh",
+      "name": "contacts.6.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 452,
+      "kind": "positive_log1p",
+      "name": "contacts.6.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 453,
+      "kind": "signed_asinh",
+      "name": "contacts.6.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 454,
+      "kind": "binary",
+      "name": "contacts.6.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 455,
+      "kind": "binary",
+      "name": "contacts.6.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 456,
+      "kind": "distance_asinh",
+      "name": "contacts.7.distance",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 457,
+      "kind": "positive_log1p",
+      "name": "contacts.7.age-years",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 458,
+      "kind": "signed_asinh",
+      "name": "contacts.7.affinity",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 0.38567544896484773,
+      "index": 459,
+      "kind": "signed_asinh",
+      "name": "contacts.7.recent-trade-utility-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-utility:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.3890763094823437,
+      "index": 460,
+      "kind": "positive_log1p",
+      "name": "contacts.7.recent-trade-flow-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-trade-flow:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 0.016903471603062267,
+      "index": 461,
+      "kind": "signed_asinh",
+      "name": "contacts.7.recent-migration-per-capita-year",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "shared:contact-recent-migration:sparse-nonzero-guard+dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 462,
+      "kind": "binary",
+      "name": "contacts.7.kin",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 463,
+      "kind": "binary",
+      "name": "contacts.7.currently-visible",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 464,
+      "kind": "bounded01",
+      "name": "presence-overflow.sites.present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 465,
+      "kind": "positive_log1p",
+      "name": "presence-overflow.sites.omitted",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 466,
+      "kind": "binary",
+      "name": "presence-overflow.sites.overflow",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 467,
+      "kind": "bounded01",
+      "name": "presence-overflow.fishing.present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 468,
+      "kind": "positive_log1p",
+      "name": "presence-overflow.fishing.omitted",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 469,
+      "kind": "binary",
+      "name": "presence-overflow.fishing.overflow",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 470,
+      "kind": "bounded01",
+      "name": "presence-overflow.herds.present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 471,
+      "kind": "positive_log1p",
+      "name": "presence-overflow.herds.omitted",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 472,
+      "kind": "binary",
+      "name": "presence-overflow.herds.overflow",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 473,
+      "kind": "bounded01",
+      "name": "presence-overflow.commodities.present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 474,
+      "kind": "positive_log1p",
+      "name": "presence-overflow.commodities.omitted",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 475,
+      "kind": "binary",
+      "name": "presence-overflow.commodities.overflow",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 476,
+      "kind": "bounded01",
+      "name": "presence-overflow.contacts.present",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1e-06,
+      "index": 477,
+      "kind": "positive_log1p",
+      "name": "presence-overflow.contacts.omitted",
+      "partition_saturation": {
+        "development": 0.0,
+        "heldout": 0.0,
+        "train-fit": 0.0
+      },
+      "scale_fit_mode": "dense-tail-envelope"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 478,
+      "kind": "binary",
+      "name": "presence-overflow.contacts.overflow",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 479,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-479",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 480,
+      "kind": "binary",
+      "name": "movement-action-mask.enabled",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 481,
+      "kind": "bounded01",
+      "name": "movement-action-mask.legal-candidate-count",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 482,
+      "kind": "binary",
+      "name": "movement-candidate-mask.0",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 483,
+      "kind": "binary",
+      "name": "movement-candidate-mask.1",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 484,
+      "kind": "binary",
+      "name": "movement-candidate-mask.2",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 485,
+      "kind": "binary",
+      "name": "movement-candidate-mask.3",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 486,
+      "kind": "binary",
+      "name": "movement-candidate-mask.4",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 487,
+      "kind": "binary",
+      "name": "movement-candidate-mask.5",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 488,
+      "kind": "binary",
+      "name": "movement-candidate-mask.6",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 489,
+      "kind": "binary",
+      "name": "movement-candidate-mask.7",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "fixed"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 490,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-490",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 491,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-491",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 492,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-492",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 493,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-493",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 494,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-494",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 495,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-495",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 496,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-496",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 497,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-497",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 498,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-498",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 499,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-499",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 500,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-500",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 501,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-501",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 502,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-502",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 503,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-503",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 504,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-504",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 505,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-505",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 506,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-506",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 507,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-507",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 508,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-508",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 509,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-509",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 510,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-510",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    },
+    {
+      "fitted_c_i": 1.0,
+      "index": 511,
+      "kind": "positive_log1p",
+      "name": "reserved.slot-511",
+      "partition_saturation": {
+        "development": null,
+        "heldout": null,
+        "train-fit": null
+      },
+      "scale_fit_mode": "unobserved"
+    }
+  ],
+  "fit_observation_count": 2082,
+  "fit_partition": "train",
+  "fit_source_mix": {
+    "bounded-masked-rollout": 1735,
+    "reset": 347
+  },
+  "heldout_or_development_used_for_fit": false,
+  "normalization_version": "elder-normalization-v3",
+  "partition_manifest_sha256": "10ab09c73942cc3e2bea0bef409c6682a909d07022b0fb1d529d3b566979e736",
+  "saturation_gate_maximum": 0.1,
+  "saturation_gate_pass": true,
+  "saturation_max_by_slice": {
+    "development": 0.01141552511415525,
+    "development:emigration": 0.0,
+    "development:fishing": null,
+    "development:fishing-only": null,
+    "development:high-q": 0.0,
+    "development:immigration": null,
+    "development:isolated": 0.0,
+    "development:low-q": 0.0,
+    "development:mature-memory": 0.0,
+    "development:no-herd": 0.0,
+    "development:plough-frontier": 0.0,
+    "development:post-fission": null,
+    "development:pre-fission": 0.0,
+    "development:primitive-frontier": 0.0,
+    "development:trade-dependent": 0.0,
+    "development:young-memory": 0.0,
+    "emigration": 0.0,
+    "fishing": null,
+    "fishing-only": null,
+    "heldout": 0.002109704641350211,
+    "heldout:emigration": 0.0,
+    "heldout:fishing": null,
+    "heldout:fishing-only": null,
+    "heldout:high-q": 0.0,
+    "heldout:immigration": 0.0,
+    "heldout:isolated": 0.0,
+    "heldout:low-q": 0.0,
+    "heldout:mature-memory": 0.0,
+    "heldout:no-herd": 0.0,
+    "heldout:plough-frontier": 0.0,
+    "heldout:post-fission": 0.0,
+    "heldout:pre-fission": null,
+    "heldout:primitive-frontier": 0.0,
+    "heldout:trade-dependent": 0.0,
+    "heldout:young-memory": 0.0,
+    "high-q": 0.0,
+    "immigration": 0.0,
+    "isolated": 0.0,
+    "low-q": 0.0,
+    "mature-memory": 0.0,
+    "no-herd": 0.0,
+    "plough-frontier": 0.0,
+    "post-fission": 0.0,
+    "pre-fission": 0.0,
+    "primitive-frontier": 0.0,
+    "trade-dependent": 0.0,
+    "train-fit": 0.0019212295869356388,
+    "train:emigration": 0.0,
+    "train:fishing": null,
+    "train:fishing-only": null,
+    "train:high-q": 0.0,
+    "train:immigration": 0.0,
+    "train:isolated": 0.0,
+    "train:low-q": 0.0,
+    "train:mature-memory": 0.0,
+    "train:no-herd": 0.0,
+    "train:plough-frontier": 0.0,
+    "train:post-fission": 0.0,
+    "train:pre-fission": 0.0,
+    "train:primitive-frontier": 0.0,
+    "train:trade-dependent": 0.0,
+    "train:young-memory": 0.0,
+    "young-memory": 0.0
+  },
+  "sparse_causal_support": {
+    "commodity-recent-export": {
+      "minimum_each_sign_when_migration": 0,
+      "minimum_nonzero_count": 32,
+      "negative_count": 0,
+      "nonzero_count": 85,
+      "positive_count": 85,
+      "sufficient": true
+    },
+    "commodity-recent-import": {
+      "minimum_each_sign_when_migration": 0,
+      "minimum_nonzero_count": 32,
+      "negative_count": 0,
+      "nonzero_count": 49,
+      "positive_count": 49,
+      "sufficient": true
+    },
+    "contact-recent-migration": {
+      "minimum_each_sign_when_migration": 16,
+      "minimum_nonzero_count": 32,
+      "negative_count": 203,
+      "nonzero_count": 239,
+      "positive_count": 36,
+      "sufficient": true
+    },
+    "contact-recent-trade-flow": {
+      "minimum_each_sign_when_migration": 0,
+      "minimum_nonzero_count": 32,
+      "negative_count": 0,
+      "nonzero_count": 142,
+      "positive_count": 142,
+      "sufficient": true
+    },
+    "contact-recent-trade-utility": {
+      "minimum_each_sign_when_migration": 0,
+      "minimum_nonzero_count": 32,
+      "negative_count": 0,
+      "nonzero_count": 137,
+      "positive_count": 137,
+      "sufficient": true
+    },
+    "core-realized-migration": {
+      "minimum_each_sign_when_migration": 16,
+      "minimum_nonzero_count": 32,
+      "negative_count": 203,
+      "nonzero_count": 239,
+      "positive_count": 36,
+      "sufficient": true
+    },
+    "core-realized-trade-utility": {
+      "minimum_each_sign_when_migration": 0,
+      "minimum_nonzero_count": 32,
+      "negative_count": 0,
+      "nonzero_count": 134,
+      "positive_count": 134,
+      "sufficient": true
+    },
+    "memory-realized-migration": {
+      "minimum_each_sign_when_migration": 16,
+      "minimum_nonzero_count": 32,
+      "negative_count": 485,
+      "nonzero_count": 702,
+      "positive_count": 217,
+      "sufficient": true
+    },
+    "memory-realized-trade-utility": {
+      "minimum_each_sign_when_migration": 0,
+      "minimum_nonzero_count": 32,
+      "negative_count": 0,
+      "nonzero_count": 384,
+      "positive_count": 384,
+      "sufficient": true
+    }
+  },
+  "sparse_causal_support_pass": true,
+  "status": "FINAL_PILOT_TRAIN_ONLY_NORMALIZER"
+}

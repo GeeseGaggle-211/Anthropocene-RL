@@ -7,7 +7,10 @@ pytest.importorskip("torch")
 import torch
 
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
-from anthropocene_rl.training.pilot import _critic_health_window
+from anthropocene_rl.training.pilot import (
+    _critic_health_window,
+    _inactive_head_gradient_audit,
+)
 from anthropocene_rl.training.ppo import PPOConfig, PPOTrainer, RolloutBatch
 from anthropocene_rl.training.smoke import run_ppo_smoke
 
@@ -134,6 +137,61 @@ def test_ppo_can_clip_actor_and_critic_separately_for_shadow_audits() -> None:
     assert 0.0 < metrics["joint_clip_factor_min"] <= 1.0
     assert metrics["actor_parameter_update_l2"] > 0.0
     assert metrics["critic_parameter_update_l2"] > 0.0
+
+
+def test_popart_value_normalization_preserves_raw_predictions_and_round_trips() -> None:
+    torch.manual_seed(53)
+    observation = torch.randn(32, 512) * 0.2
+    model = ElderActorCritic()
+    trainer = PPOTrainer(
+        model,
+        PPOConfig(value_target_normalization=True),
+    )
+    with torch.no_grad():
+        before = trainer.value(observation).clone()
+    trainer._update_value_normalization(torch.linspace(40.0, 160.0, 32))
+    with torch.no_grad():
+        after = trainer.value(observation)
+    assert torch.allclose(before, after, atol=2e-5, rtol=2e-5)
+    assert trainer.value_count == 32.0
+    assert trainer.value_std > 1.0
+
+    clone = ElderActorCritic()
+    clone.load_state_dict(model.state_dict())
+    restored = PPOTrainer(
+        clone,
+        PPOConfig(value_target_normalization=True),
+    )
+    restored.load_state_dict(trainer.state_dict())
+    with torch.no_grad():
+        assert torch.equal(trainer.value(observation), restored.value(observation))
+
+
+def test_per_state_inactive_head_gradient_audit_handles_broad_mixed_batch() -> None:
+    torch.manual_seed(59)
+    observation = torch.randn(8, 512) * 0.1
+    observation[:, 80:84] = 0.0
+    observation[:, 482:490] = 0.0
+    observation[:, 482] = 1.0
+    observation[2:, 80:84] = 1.0
+    observation[4:, 483] = 1.0
+    model = ElderActorCritic()
+    with torch.no_grad():
+        sampled = model.actor.sample(observation)
+    batch = RolloutBatch(
+        observations=observation,
+        continuous_actions=sampled.continuous,
+        movement_indices=sampled.movement_index,
+        old_log_prob=sampled.log_prob,
+        advantages=torch.zeros(8),
+        returns=torch.zeros(8),
+    )
+
+    audit = _inactive_head_gradient_audit(model, batch)
+
+    assert audit["max_abs_gradient"] == 0.0
+    assert audit["per_head"]["continuous_0"]["inactive_rows"] == 2
+    assert audit["per_head"]["movement"]["inactive_rows"] == 4
 
 
 def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:

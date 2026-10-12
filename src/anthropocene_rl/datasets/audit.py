@@ -16,6 +16,10 @@ from anthropocene_rl.contracts import (
     TENSOR_FEATURE_COUNT,
 )
 from anthropocene_rl.datasets.blobs import sha256_file
+from anthropocene_rl.datasets.broad_domain_plan import (
+    BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS,
+    BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS,
+)
 from anthropocene_rl.datasets.models import (
     Partition,
     SnapshotBankManifest,
@@ -52,6 +56,7 @@ def audit_snapshot_bank(
     blob_root: str | Path,
     require_stage0_coverage: bool = True,
     require_cultivation_pilot_coverage: bool = False,
+    require_broad_domain_coverage: bool = False,
     verify_blobs: bool = True,
 ) -> SnapshotBankAuditReport:
     errors: list[AuditIssue] = []
@@ -71,6 +76,8 @@ def audit_snapshot_bank(
         _check_stage0_coverage(records, errors, warnings)
     if require_cultivation_pilot_coverage:
         _check_cultivation_pilot_coverage(records, errors)
+    if require_broad_domain_coverage:
+        _check_broad_domain_coverage(records, errors)
 
     rejection_counts = Counter(rejection.reason_code for rejection in manifest.rejected_candidates)
     partition_counts = Counter(record.partition.value for record in records)
@@ -580,5 +587,195 @@ def _check_cultivation_pilot_coverage(
             AuditIssue(
                 code="cultivation-pilot-fission-causal-coverage",
                 message="F16 requires both recent native fission and no-split states",
+            )
+        )
+
+
+def _check_broad_domain_coverage(
+    records: tuple[SnapshotRecord, ...],
+    errors: list[AuditIssue],
+) -> None:
+    target = sum(BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS.values())
+    if len(records) != target:
+        errors.append(
+            AuditIssue(
+                code="broad-domain-size",
+                message=f"Broad-domain cohort requires {target} snapshots; observed {len(records)}",
+            )
+        )
+    families = Counter(record.scenario_family for record in records)
+    if dict(sorted(families.items())) != BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS:
+        errors.append(
+            AuditIssue(
+                code="broad-domain-family-counts",
+                message=(
+                    "Broad-domain accepted family counts differ from the frozen design: "
+                    f"{dict(sorted(families.items()))}"
+                ),
+            )
+        )
+    actual_partition_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for record in records:
+        actual_partition_counts[record.scenario_family][record.partition.value] += 1
+    if {
+        family: dict(sorted(counts.items()))
+        for family, counts in sorted(actual_partition_counts.items())
+    } != {
+        family: dict(sorted(counts.items()))
+        for family, counts in sorted(BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS.items())
+    }:
+        errors.append(
+            AuditIssue(
+                code="broad-domain-partition-counts",
+                message="Broad-domain family/partition counts differ from the frozen quotas",
+            )
+        )
+
+    for record in records:
+        strata = record.actual_strata
+        if strata.fishing_available or strata.fishing_ground_count != 0:
+            errors.append(
+                AuditIssue(
+                    code="broad-domain-fishing-scope",
+                    message="Broad-domain v1 must not expose fishing as a policy domain",
+                    snapshot_ids=(record.snapshot_id,),
+                )
+            )
+
+    def family_records(family: str) -> list[SnapshotRecord]:
+        return [record for record in records if record.scenario_family == family]
+
+    for family in BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS:
+        selected = family_records(family)
+        if selected and not any(
+            record.actual_strata.structural_masks.movement for record in selected
+        ):
+            errors.append(
+                AuditIssue(
+                    code="broad-domain-movement-coverage",
+                    message=f"{family} has no accepted state with a legal non-stay movement choice",
+                )
+            )
+
+    for family in ("F04", "F05"):
+        invalid = [
+            record.snapshot_id
+            for record in family_records(family)
+            if not (
+                record.actual_strata.husbandry_available
+                and not record.actual_strata.cultivation_available
+                and record.actual_strata.owned_domestic_herd
+                and record.actual_strata.structural_masks.herd_retention
+                and record.actual_strata.structural_masks.herd_development
+            )
+        ]
+        if invalid:
+            errors.append(
+                AuditIssue(
+                    code="broad-domain-husbandry-only-contract",
+                    message=(
+                        f"{family} contains a state outside the husbandry-only "
+                        "owned-herd contract"
+                    ),
+                    snapshot_ids=tuple(invalid),
+                )
+            )
+    if not any(
+        "overstocked-herd" in record.actual_strata.tags for record in family_records("F05")
+    ):
+        errors.append(
+            AuditIssue(
+                code="broad-domain-herd-overshoot-coverage",
+                message="F05 lacks an accepted measured overstocked-herd state",
+            )
+        )
+
+    for family in ("F06", "F07"):
+        invalid = [
+            record.snapshot_id
+            for record in family_records(family)
+            if not (
+                record.actual_strata.cultivation_available
+                and record.actual_strata.husbandry_available
+                and record.actual_strata.owned_domestic_herd
+                and record.actual_strata.structural_masks.field_development
+                and record.actual_strata.structural_masks.herd_development
+            )
+        ]
+        if invalid:
+            errors.append(
+                AuditIssue(
+                    code="broad-domain-mixed-contract",
+                    message=f"{family} contains a state outside the mixed field/herd contract",
+                    snapshot_ids=tuple(invalid),
+                )
+            )
+
+    f14 = family_records("F14")
+    variants = {
+        str(record.selection_metadata.get("causal_variant", "none")) for record in f14
+    }
+    if variants != {"low-lock-in", "high-lock-in"} or any(
+        not record.actual_strata.structural_masks.movement for record in f14
+    ):
+        errors.append(
+            AuditIssue(
+                code="broad-domain-movement-lock-in-coverage",
+                message="F14 lacks complete low/high lock-in pairs with legal movement",
+            )
+        )
+
+    f15_tags = Counter(
+        tag for record in family_records("F15") for tag in record.actual_strata.tags
+    )
+    required_f15_tags = {
+        "isolated",
+        "trade-active",
+        "food-import",
+        "trade-dependent",
+        "food-export",
+        "material-tool-import",
+        "migration-positive",
+        "migration-negative",
+    }
+    if not required_f15_tags.issubset(f15_tags):
+        errors.append(
+            AuditIssue(
+                code="broad-domain-open-economy-coverage",
+                message=f"F15 lacks required measured external-state tags: {dict(f15_tags)}",
+            )
+        )
+
+    f16 = family_records("F16")
+    if not any(record.actual_strata.fission_recent_split for record in f16) or not any(
+        not record.actual_strata.fission_recent_split for record in f16
+    ):
+        errors.append(
+            AuditIssue(
+                code="broad-domain-fission-causal-coverage",
+                message="F16 requires both recent native fission and no-split states",
+            )
+        )
+
+    memory_ages = {
+        round(record.institutional_memory.age_years, 8)
+        for record in family_records("F17")
+    }
+    if len(memory_ages) < 3:
+        errors.append(
+            AuditIssue(
+                code="broad-domain-memory-coverage",
+                message="F17 requires young, intermediate, and mature legal memory ages",
+            )
+        )
+
+    frontier_values = {
+        record.actual_strata.field_frontier for record in family_records("F18")
+    }
+    if not {"primitive", "plough"}.issubset(frontier_values):
+        errors.append(
+            AuditIssue(
+                code="broad-domain-frontier-coverage",
+                message="F18 lacks measured primitive/plough frontier contrast",
             )
         )

@@ -1,0 +1,60 @@
+{
+  "deterministic_reproduction": {
+    "native_result_bytes_identical": true,
+    "native_result_sha256_a": "522b6373acce9e5a2a8f3b2845de1390a0aaf7379f92563353a73a58183d548d",
+    "native_result_sha256_b": "522b6373acce9e5a2a8f3b2845de1390a0aaf7379f92563353a73a58183d548d",
+    "passed": true,
+    "snapshot_count_a": 7,
+    "snapshot_count_b": 7,
+    "snapshot_sets_identical": true
+  },
+  "diagnostic_config_sha256": "9f0577ba5d6c386b68b0c03906f392dd851601d3b6498fe101ccbf109705e7dc",
+  "interpretation": "The frozen constructor and bounded sampling recipe did not reliably supply the required causal contrast. This is not evidence of a native crash, simulator defect, or MLP representational failure.",
+  "native_simulator_sha": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "panel_contract": {
+    "factor_config_count": 3,
+    "outcome_fields_used_for_seed_selection": [],
+    "requested_pair_count": 24,
+    "requested_record_count": 48,
+    "selection_rule": "first 24 unused world seeds at or above 72001 assigned TRAIN by the frozen pre-outcome partition contract",
+    "success_gate": "at least two complete, unique, scope-valid TRAIN pairs reproduced deterministically; otherwise NATIVE_SCENARIO_CONSTRUCTION_BLOCKED"
+  },
+  "promotion_eligible": false,
+  "result": {
+    "candidate_count": 7,
+    "complete_pair_count": 1,
+    "complete_pair_ids": [
+      "f15-import-export-targeted-001"
+    ],
+    "complete_pair_metadata": [
+      {
+        "amenity_coverage": 0.8,
+        "factor_config": 1,
+        "field_q": 0.4,
+        "group_id": "f15-import-export-targeted-001",
+        "partition": "train",
+        "population": 130,
+        "reserve_intervals": 0.25,
+        "site_support_quantile": 0.2,
+        "snapshot_step": 1,
+        "source_pair": "f15-open-economy-pair-007",
+        "tool_abundance": 0.15,
+        "world_seed": 72001
+      }
+    ],
+    "rejection_count": 41,
+    "rejection_reasons": {
+      "InvalidOperationException: No physically compatible open-economy partner site.": 2,
+      "InvalidOperationException: Requested stratum was not achieved: food-export": 8,
+      "InvalidOperationException: Requested stratum was not achieved: food-import": 8,
+      "InvalidOperationException: Requested stratum was not achieved: trade-active": 23
+    }
+  },
+  "scope_checks": {
+    "all_accepted_fishing_excluded": true,
+    "all_accepted_replay_verified": true,
+    "all_accepted_train": true
+  },
+  "source_campaign_config_sha256": "70bece532630d25a7db954beff7df5d0b1b402b204fddbaffbed6ce1bb089953",
+  "status": "NATIVE_SCENARIO_CONSTRUCTION_BLOCKED"
+}

@@ -130,6 +130,18 @@ def cultivation_only_scope_violations(observation: EncodedObservation) -> tuple[
     return tuple(violations)
 
 
+def broad_domain_scope_violations(observation: EncodedObservation) -> tuple[str, ...]:
+    """Return policy domains excluded from the movement-plus-husbandry cohort."""
+
+    values = observation.values
+    violations: list[str] = []
+    if values[FISHING_CAPABILITY_AVAILABLE_OFFSET] > 0.5:
+        violations.append("fishing-capability-available")
+    if values[FISHING_PRESENT_COUNT_OFFSET] > 1e-9:
+        violations.append("fishing-ground-present")
+    return tuple(violations)
+
+
 @dataclass(frozen=True)
 class ElderDirective:
     retained_field_operation: float

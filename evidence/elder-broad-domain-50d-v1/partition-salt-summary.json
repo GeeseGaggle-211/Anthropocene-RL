@@ -1,0 +1,34 @@
+{
+  "status": "SALT_SELECTED_NOT_NATIVE_VALIDATED",
+  "selected_salt": "elder-v2-broad-domain-50d-partitions-v2-830",
+  "evaluated_salt_count": 831,
+  "eligible_or_prospective_group_count": 531,
+  "selection_rule": "first salt satisfying exact family/partition subset feasibility, F15 exact five-pair-per-contrast allocation, and predeclared hard-trade supplement margins",
+  "outcome_blind_fields": [
+    "world_seed",
+    "causal_group_id",
+    "record_count",
+    "native_complete_scope_safe_identity_unique_eligibility",
+    "declared_causal_variant"
+  ],
+  "prohibited_selection_fields": [
+    "reward",
+    "welfare",
+    "policy_evaluation_outcome"
+  ],
+  "source_config_sha256": "70bece532630d25a7db954beff7df5d0b1b402b204fddbaffbed6ce1bb089953",
+  "selected_config_sha256": "70bece532630d25a7db954beff7df5d0b1b402b204fddbaffbed6ce1bb089953",
+  "source_eligibility_ledger_sha256": "77fef1c25774fce3a4c667518fb214b830e967bae296c09431dae68dd2470fc3",
+  "supplement_partition_margins": {
+    "food-shortfall-contact + material-tool-import": {
+      "train": 15,
+      "development": 4,
+      "heldout": 4
+    },
+    "mild-import + surplus-export": {
+      "train": 7,
+      "development": 2,
+      "heldout": 2
+    }
+  }
+}

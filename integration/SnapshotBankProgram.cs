@@ -80,9 +80,23 @@ namespace Anthropocene.SnapshotBank
                 TensorFeatureCount = ElderRLContract.TensorFeatureCount
             };
             var factory = new SnapshotScenarioFactory(plan);
-            foreach (var trajectory in plan.Trajectories.OrderBy(item =>
-                         item.TrajectoryId, StringComparer.Ordinal))
+            var orderedTrajectories = plan.Trajectories.OrderBy(item =>
+                item.TrajectoryId, StringComparer.Ordinal).ToArray();
+            var handledEventGroups = new HashSet<string>(
+                StringComparer.Ordinal);
+            foreach (var trajectory in orderedTrajectories)
             {
+                if (IsEventAlignedF15(plan, trajectory))
+                {
+                    string group = trajectory.CounterfactualGroupId;
+                    if (!handledEventGroups.Add(group)) continue;
+                    GenerateEventAlignedTradePair(plan,
+                        orderedTrajectories.Where(item =>
+                            item.CounterfactualGroupId == group).ToArray(),
+                        factory, snapshotDirectory, result, codeHash,
+                        schemaHash);
+                    continue;
+                }
                 try
                 {
                     GenerateTrajectory(plan, trajectory, factory,
@@ -117,7 +131,7 @@ namespace Anthropocene.SnapshotBank
             byte[] fixture = SaveCodec.Save(built.World);
             int maximumStep = trajectory.SnapshotSteps.Max();
             var environment = new NativeElderEnvironment();
-            var reset = environment.Reset(Request(fixture,
+            var reset = environment.Reset(Request(plan, fixture,
                 built.ControlledCampId, Math.Max(1, maximumStep + 1),
                 SaveCodec.ConfigurationHash(built.World.Config)));
             ElderObservation observation = reset.Observation;
@@ -135,12 +149,7 @@ namespace Anthropocene.SnapshotBank
                         snapshotDirectory, codeHash, schemaHash,
                         out string configHash);
                     output.Candidates.Add(accepted);
-                    if (string.IsNullOrWhiteSpace(output.ConfigurationHash))
-                        output.ConfigurationHash = configHash;
-                    else if (!string.Equals(output.ConfigurationHash,
-                            configHash, StringComparison.Ordinal))
-                        throw new InvalidOperationException(
-                            "Native configuration hash drifted within one bank.");
+                    RecordConfigurationHash(output, configHash);
                 }
                 if (step == maximumStep) break;
                 var advanced = environment.Step(TrajectoryDirective(
@@ -152,12 +161,110 @@ namespace Anthropocene.SnapshotBank
             }
         }
 
+        private static bool IsEventAlignedF15(GenerationPlan plan,
+            TrajectoryPlan trajectory) =>
+            plan.F15SharedCaptureHorizonSteps > 0 &&
+            trajectory.ScenarioFamily == "F15" &&
+            (trajectory.CausalVariant == "mild-import" ||
+                trajectory.CausalVariant == "surplus-export");
+
+        private static void GenerateEventAlignedTradePair(
+            GenerationPlan plan, TrajectoryPlan[] siblings,
+            SnapshotScenarioFactory factory, string snapshotDirectory,
+            GeneratorResult output, string codeHash, string schemaHash)
+        {
+            var trace = new List<object>();
+            var accepted = new List<CandidateEnvelope>();
+            try
+            {
+                ValidateEventAlignedPair(siblings);
+                var states = siblings.OrderBy(item => item.CausalVariant,
+                        StringComparer.Ordinal)
+                    .Select(item => EventAlignedState(plan, item, factory))
+                    .ToArray();
+                int selectedDecision = -1;
+                byte[][] selectedSnapshots = null;
+                for (int decision = 1;
+                    decision <= plan.F15SharedCaptureHorizonSteps;
+                    decision++)
+                {
+                    foreach (var state in states)
+                    {
+                        var advanced = state.Environment.Step(
+                            TrajectoryDirective(state.Observation,
+                                decision - 1));
+                        if (advanced.Terminated || advanced.Observation == null)
+                            throw new InvalidOperationException(
+                                "Controlled camp terminated inside the shared F15 " +
+                                "capture horizon.");
+                        state.Observation = advanced.Observation;
+                        state.Snapshot = state.Environment.CaptureSnapshot();
+                        var world = SaveCodec.Load(state.Snapshot);
+                        var camp = world.Camps.Single(item =>
+                            item.Id == state.Built.ControlledCampId);
+                        state.Measurement = Measure(world, camp,
+                            state.Observation, false);
+                        state.PhysicalYears = world.Days /
+                            world.Config.DaysPerYear;
+                    }
+                    if (Math.Abs(states[0].PhysicalYears -
+                            states[1].PhysicalYears) > 1e-9)
+                        throw new InvalidOperationException(
+                            "Event-aligned siblings drifted to unequal physical time.");
+                    trace.Add(EventTraceRow(decision, states));
+                    if (states.All(EventDirectionSatisfied))
+                    {
+                        selectedDecision = decision;
+                        selectedSnapshots = states.Select(item =>
+                            item.Snapshot).ToArray();
+                        break;
+                    }
+                }
+                if (selectedDecision < 0 || selectedSnapshots == null)
+                    throw new InvalidOperationException(
+                        "Requested stratum was not achieved: shared F15 delivered-" +
+                        "direction event within the fixed capture horizon.");
+
+                var metadata = EventCaptureMetadata(plan, trace,
+                    selectedDecision);
+                for (int index = 0; index < states.Length; index++)
+                {
+                    var state = states[index];
+                    bool technologyTransition = !state.InitialCultivation &&
+                        state.Observation.Mask.FieldDevelopment;
+                    var candidate = AcceptCandidate(plan, state.Plan,
+                        selectedDecision, selectedSnapshots[index],
+                        state.Built.ControlledCampId,
+                        state.Built.SiteSelectionEvidence,
+                        technologyTransition, snapshotDirectory, codeHash,
+                        schemaHash, out string configHash, metadata);
+                    accepted.Add(candidate);
+                    RecordConfigurationHash(output, configHash);
+                }
+                output.Candidates.AddRange(accepted);
+            }
+            catch (Exception error)
+            {
+                foreach (var candidate in accepted)
+                {
+                    string path = Path.Combine(snapshotDirectory,
+                        Path.GetFileName(candidate.SnapshotFile));
+                    if (File.Exists(path)) File.Delete(path);
+                }
+                var metadata = EventCaptureMetadata(plan, trace, null);
+                foreach (var sibling in siblings)
+                    output.RejectedCandidates.Add(Reject(sibling, error,
+                        metadata));
+            }
+        }
+
         private static CandidateEnvelope AcceptCandidate(GenerationPlan plan,
             TrajectoryPlan trajectory, int decisionIndex, byte[] snapshot,
             int controlledCamp, string siteEvidence,
             bool technologyTransition, string snapshotDirectory,
             string codeHash, string schemaHash,
-            out string configurationHash)
+            out string configurationHash,
+            Dictionary<string, object> selectionMetadata = null)
         {
             var loaded = SaveCodec.Load(snapshot);
             string fingerprint = SaveCodec.Fingerprint(loaded);
@@ -171,7 +278,7 @@ namespace Anthropocene.SnapshotBank
             var environment = new NativeElderEnvironment();
             string expectedConfigurationHash =
                 SaveCodec.ConfigurationHash(roundtrip.Config);
-            var reset = environment.Reset(Request(canonical,
+            var reset = environment.Reset(Request(plan, canonical,
                 controlledCamp, plan.CalibrationRolloutSteps,
                 expectedConfigurationHash));
             configurationHash = reset.ConfigurationHash;
@@ -192,7 +299,7 @@ namespace Anthropocene.SnapshotBank
             for (int step = 0; step < plan.CalibrationRolloutSteps; step++)
             {
                 var advanced = environment.Step(CalibrationDirective(
-                    current, step));
+                    plan, current, step));
                 if (first == null) first = advanced;
                 if (!(advanced.ElapsedYears > 0) ||
                     double.IsNaN(advanced.ElapsedYears) ||
@@ -241,7 +348,8 @@ namespace Anthropocene.SnapshotBank
                     reset.Observation.Mask.AllowsMovement(-1) :
                     reset.Observation.Mask.AllowsMovement(index - 1))
                 .ToArray();
-            var selection = SelectionMetadata(trajectory, siteEvidence);
+            var selection = SelectionMetadata(trajectory, siteEvidence,
+                selectionMetadata);
             var record = new
             {
                 snapshot_id = snapshotId,
@@ -429,6 +537,127 @@ namespace Anthropocene.SnapshotBank
             public bool RecentFission;
             public string FieldFrontier;
             public string[] Tags;
+        }
+
+        private sealed class EventAlignedTrajectoryState
+        {
+            public TrajectoryPlan Plan;
+            public ScenarioBuildResult Built;
+            public NativeElderEnvironment Environment;
+            public ElderObservation Observation;
+            public bool InitialCultivation;
+            public byte[] Snapshot;
+            public Measurement Measurement;
+            public double PhysicalYears;
+        }
+
+        private static EventAlignedTrajectoryState EventAlignedState(
+            GenerationPlan plan, TrajectoryPlan trajectory,
+            SnapshotScenarioFactory factory)
+        {
+            ScenarioBuildResult built = factory.Build(trajectory);
+            byte[] fixture = SaveCodec.Save(built.World);
+            var environment = new NativeElderEnvironment();
+            var reset = environment.Reset(Request(plan, fixture,
+                built.ControlledCampId,
+                Math.Max(1, plan.F15SharedCaptureHorizonSteps + 1),
+                SaveCodec.ConfigurationHash(built.World.Config)));
+            return new EventAlignedTrajectoryState
+            {
+                Plan = trajectory,
+                Built = built,
+                Environment = environment,
+                Observation = reset.Observation,
+                InitialCultivation = reset.Observation.Mask.FieldDevelopment
+            };
+        }
+
+        private static bool EventDirectionSatisfied(
+            EventAlignedTrajectoryState state)
+        {
+            const double tolerance = 1e-9;
+            if (!(state.Measurement.DeliveredTradeTotal > tolerance))
+                return false;
+            return state.Plan.CausalVariant == "mild-import" ?
+                state.Measurement.DeliveredFoodImport > tolerance :
+                state.Measurement.DeliveredFoodExport > tolerance;
+        }
+
+        private static object EventTraceRow(int decision,
+            EventAlignedTrajectoryState[] states) => new
+        {
+            decision_index = decision,
+            physical_years = states[0].PhysicalYears,
+            variants = states.ToDictionary(item => item.Plan.CausalVariant,
+                item => (object)new
+                {
+                    delivered_trade_total =
+                        item.Measurement.DeliveredTradeTotal,
+                    delivered_food_import =
+                        item.Measurement.DeliveredFoodImport,
+                    delivered_food_export =
+                        item.Measurement.DeliveredFoodExport,
+                    direction_satisfied = EventDirectionSatisfied(item)
+                }, StringComparer.Ordinal)
+        };
+
+        private static Dictionary<string, object> EventCaptureMetadata(
+            GenerationPlan plan, List<object> trace, int? selectedDecision)
+            => new Dictionary<string, object>
+            {
+                ["shared_capture_rule"] =
+                    "shared-f15-delivered-direction-v1",
+                ["shared_capture_horizon_steps"] =
+                    plan.F15SharedCaptureHorizonSteps,
+                ["shared_capture_status"] = selectedDecision.HasValue ?
+                    "captured" : "not-achieved",
+                ["shared_capture_decision_index"] = selectedDecision,
+                ["shared_capture_trace"] = trace
+            };
+
+        private static void ValidateEventAlignedPair(
+            TrajectoryPlan[] siblings)
+        {
+            if (siblings.Length != 2)
+                throw new InvalidDataException(
+                    "Event-aligned F15 group must contain exactly two siblings.");
+            var variants = siblings.Select(item => item.CausalVariant)
+                .OrderBy(item => item, StringComparer.Ordinal).ToArray();
+            if (!variants.SequenceEqual(new[]
+                    { "mild-import", "surplus-export" }))
+                throw new InvalidDataException(
+                    "Event-aligned F15 group must pair mild-import and " +
+                    "surplus-export.");
+            var left = siblings[0];
+            var right = siblings[1];
+            bool matched = left.ScenarioFamily == "F15" &&
+                right.ScenarioFamily == "F15" &&
+                left.ScenarioVersion == right.ScenarioVersion &&
+                left.WorldSeed == right.WorldSeed &&
+                left.TrajectoryFamily == right.TrajectoryFamily &&
+                left.LineageId == right.LineageId &&
+                left.CounterfactualGroupId == right.CounterfactualGroupId &&
+                left.SourceController == right.SourceController &&
+                left.Classification == right.Classification &&
+                left.Partition == right.Partition &&
+                left.HistoricalOrConsumedDiagnostic ==
+                    right.HistoricalOrConsumedDiagnostic &&
+                left.SnapshotSteps.Length == 1 &&
+                right.SnapshotSteps.Length == 1 &&
+                left.Economy == right.Economy &&
+                left.Population == right.Population &&
+                left.FieldQ == right.FieldQ &&
+                left.HerdSupportRatio == right.HerdSupportRatio &&
+                left.ReserveIntervals == right.ReserveIntervals &&
+                left.FishingGroundTarget == right.FishingGroundTarget &&
+                left.SiteSupportQuantile == right.SiteSupportQuantile &&
+                left.ToolAbundance == right.ToolAbundance &&
+                left.AmenityCoverage == right.AmenityCoverage &&
+                left.Frontier == right.Frontier;
+            if (!matched)
+                throw new InvalidDataException(
+                    "Event-aligned F15 siblings must differ only in their " +
+                    "declared causal variant and requested direction tag.");
         }
 
         private static Measurement Measure(WorldState state, Camp camp,
@@ -683,8 +912,9 @@ namespace Anthropocene.SnapshotBank
                     "Encoded observation contains NaN/Inf.");
         }
 
-        private static ElderResetRequest Request(byte[] snapshot, int camp,
-            int limit, string expectedConfigurationHash) =>
+        private static ElderResetRequest Request(GenerationPlan plan,
+            byte[] snapshot, int camp, int limit,
+            string expectedConfigurationHash) =>
             new ElderResetRequest
         {
             Snapshot = snapshot,
@@ -694,7 +924,8 @@ namespace Anthropocene.SnapshotBank
             Options = new ElderEnvironmentOptions
             {
                 EpisodeDecisionLimit = Math.Max(1, limit),
-                MovementEnabled = false,
+                MovementEnabled = plan.BankKind == "elder-broad-domain" ||
+                    plan.BankKind == "elder-broad-domain-diagnostic",
                 SyntheticShocksEnabled = false,
                 IncludeTrainingCriticSidecar = true
             },
@@ -707,8 +938,21 @@ namespace Anthropocene.SnapshotBank
             => Directive(observation, step, .15 + .10 * (step % 3));
 
         private static ElderDirective CalibrationDirective(
-            ElderObservation observation, int step)
-            => Directive(observation, step, .10 + .15 * (step % 3));
+            GenerationPlan plan, ElderObservation observation, int step)
+        {
+            var directive = Directive(observation, step,
+                .10 + .15 * (step % 3));
+            if ((plan.BankKind != "elder-broad-domain" &&
+                    plan.BankKind != "elder-broad-domain-diagnostic") || step != 2)
+                return directive;
+            for (int candidate = 0; candidate < 7; candidate++)
+                if (observation.Mask.AllowsMovement(candidate))
+                {
+                    directive.MovementCandidate = candidate;
+                    break;
+                }
+            return directive;
+        }
 
         private static ElderDirective Directive(ElderObservation observation,
             int step, double development)
@@ -729,8 +973,10 @@ namespace Anthropocene.SnapshotBank
         }
 
         private static Dictionary<string, object> SelectionMetadata(
-            TrajectoryPlan plan, string siteEvidence)
-            => new Dictionary<string, object>
+            TrajectoryPlan plan, string siteEvidence,
+            Dictionary<string, object> additional = null)
+        {
+            var metadata = new Dictionary<string, object>
             {
                 ["trajectory_id"] = plan.TrajectoryId,
                 ["requested_field_q"] = plan.FieldQ,
@@ -750,9 +996,16 @@ namespace Anthropocene.SnapshotBank
                 ["historical_or_consumed_diagnostic"] =
                     plan.HistoricalOrConsumedDiagnostic
             };
+            if (additional != null)
+                foreach (var item in additional)
+                    metadata[item.Key] = item.Value;
+            return metadata;
+        }
 
         private static RejectedCandidate Reject(TrajectoryPlan plan,
-            Exception error) => new RejectedCandidate
+            Exception error,
+            Dictionary<string, object> selectionMetadata = null)
+            => new RejectedCandidate
         {
             CandidateId = plan.TrajectoryId,
             ScenarioFamily = plan.ScenarioFamily,
@@ -769,8 +1022,24 @@ namespace Anthropocene.SnapshotBank
                     ? "requested-stratum-not-achieved"
                     : "native-generation-rejected",
             Reason = error.GetType().Name + ": " + error.Message,
-            SelectionMetadata = SelectionMetadata(plan, "not-selected")
+            SelectionMetadata = SelectionMetadata(plan, "not-selected",
+                selectionMetadata)
         };
+
+        private static void RecordConfigurationHash(GeneratorResult output,
+            string configurationHash)
+        {
+            if (string.IsNullOrEmpty(output.ConfigurationHash))
+            {
+                output.ConfigurationHash = configurationHash;
+                return;
+            }
+            if (!string.Equals(output.ConfigurationHash, configurationHash,
+                    StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    "Accepted candidates did not share one native " +
+                    "configuration hash.");
+        }
 
         private static string SnapshotId(TrajectoryPlan plan, int step,
             string fingerprint)
@@ -835,10 +1104,39 @@ namespace Anthropocene.SnapshotBank
                 (snapshots < 200 || snapshots > 800))
                 throw new InvalidDataException(
                     "Cultivation pilot plan must request 200-800 candidates.");
+            if (plan.BankKind == "elder-broad-domain" &&
+                (snapshots < 400 || snapshots > 800))
+                throw new InvalidDataException(
+                    "Broad-domain plan must request 400-800 candidates.");
+            if (plan.BankKind == "elder-broad-domain-diagnostic" &&
+                (snapshots < 2 || snapshots > 48))
+                throw new InvalidDataException(
+                    "Broad-domain diagnostic plan must request 2-48 candidates.");
             if (plan.BankKind != "stage0" &&
-                plan.BankKind != "cultivation-pilot")
+                plan.BankKind != "cultivation-pilot" &&
+                plan.BankKind != "elder-broad-domain" &&
+                plan.BankKind != "elder-broad-domain-diagnostic")
                 throw new InvalidDataException(
                     "Unsupported snapshot-bank kind.");
+            if (plan.F15SharedCaptureHorizonSteps < 0 ||
+                plan.F15SharedCaptureHorizonSteps > 5)
+                throw new InvalidDataException(
+                    "F15 shared capture horizon must be between zero and five.");
+            if (plan.F15SharedCaptureHorizonSteps > 0)
+            {
+                if (plan.BankKind != "elder-broad-domain" &&
+                    plan.BankKind != "elder-broad-domain-diagnostic")
+                    throw new InvalidDataException(
+                        "Event-aligned F15 capture is limited to broad-domain " +
+                        "banks and diagnostics.");
+                foreach (var group in plan.Trajectories
+                    .Where(item => item.ScenarioFamily == "F15" &&
+                        (item.CausalVariant == "mild-import" ||
+                            item.CausalVariant == "surplus-export"))
+                    .GroupBy(item => item.CounterfactualGroupId,
+                        StringComparer.Ordinal))
+                    ValidateEventAlignedPair(group.ToArray());
+            }
         }
     }
 }

@@ -123,7 +123,7 @@ class ResolvedTrajectoryPlan(TrajectoryPlan):
 
 class SnapshotBankGenerationConfig(StrictModel):
     config_schema_version: str = "snapshot-bank-generation-v1"
-    bank_kind: Literal["stage0", "cultivation-pilot"] = "stage0"
+    bank_kind: Literal["stage0", "cultivation-pilot", "elder-broad-domain"] = "stage0"
     bank_id: str
     bank_version: str
     native_generator_version: str
@@ -131,6 +131,7 @@ class SnapshotBankGenerationConfig(StrictModel):
     world: WorldGenerationConfig
     partition: PartitionConfig
     calibration_rollout_steps: int = Field(default=3, ge=1, le=5)
+    f15_shared_capture_horizon_steps: int = Field(default=0, ge=0, le=5)
     verify_deterministic_regeneration: bool = True
     local_movement_radius: float = Field(gt=0)
     capability_experience_thresholds: dict[str, float]
@@ -138,6 +139,7 @@ class SnapshotBankGenerationConfig(StrictModel):
         NORMALIZATION_VERSION_V2
     )
     pilot_accepted_partition_counts: dict[str, dict[str, int]] | None = None
+    broad_domain_accepted_partition_counts: dict[str, dict[str, int]] | None = None
     trajectories: tuple[TrajectoryPlan, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -149,6 +151,12 @@ class SnapshotBankGenerationConfig(StrictModel):
             NORMALIZATION_VERSION_V3,
         }:
             raise ValueError("Unsupported normalization version")
+        if self.f15_shared_capture_horizon_steps and self.bank_kind != (
+            "elder-broad-domain"
+        ):
+            raise ValueError(
+                "F15 shared event capture is only valid for broad-domain banks"
+            )
         ids = [trajectory.trajectory_id for trajectory in self.trajectories]
         if len(ids) != len(set(ids)):
             raise ValueError("trajectory_id values must be unique")
@@ -157,6 +165,8 @@ class SnapshotBankGenerationConfig(StrictModel):
             raise ValueError("Stage-0 generation plan must request 24-48 snapshots")
         if self.bank_kind == "cultivation-pilot" and not 200 <= snapshots <= 800:
             raise ValueError("Cultivation pilot generation plan must request 200-800 candidates")
+        if self.bank_kind == "elder-broad-domain" and not 400 <= snapshots <= 800:
+            raise ValueError("Broad-domain generation plan must request 400-800 candidates")
         if set(self.capability_experience_thresholds) != set(
             CAPABILITIES_WITH_PROGRESSION_THRESHOLDS
         ):
@@ -193,22 +203,90 @@ class SnapshotBankGenerationConfig(StrictModel):
                         "Cultivation pilot cannot reuse consumed historical diagnostics"
                     )
             if self.pilot_accepted_partition_counts is not None:
-                if set(self.pilot_accepted_partition_counts) != allowed_families:
+                self._validate_accepted_partition_counts(
+                    self.pilot_accepted_partition_counts,
+                    allowed_families,
+                    label="Pilot",
+                )
+            if self.broad_domain_accepted_partition_counts is not None:
+                raise ValueError(
+                    "Cultivation pilots cannot declare broad-domain accepted counts"
+                )
+        elif self.bank_kind == "elder-broad-domain":
+            allowed_families = {
+                "F01",
+                "F02",
+                "F03",
+                "F04",
+                "F05",
+                "F06",
+                "F07",
+                "F13",
+                "F14",
+                "F15",
+                "F16",
+                "F17",
+                "F18",
+            }
+            observed_families = {trajectory.scenario_family for trajectory in self.trajectories}
+            if observed_families != allowed_families:
+                raise ValueError(
+                    "Broad-domain plan must declare exactly F01-F07 and F13-F18"
+                )
+            for trajectory in self.trajectories:
+                if trajectory.historical_or_consumed_diagnostic:
                     raise ValueError(
-                        "Pilot accepted-partition counts must declare every pilot family"
+                        "Broad-domain pilot cannot reuse consumed historical diagnostics"
                     )
-                for family, counts in self.pilot_accepted_partition_counts.items():
-                    if set(counts) != {"train", "development", "heldout"}:
-                        raise ValueError(
-                            f"Pilot accepted-partition counts are incomplete for {family}"
-                        )
-                    if any(type(count) is not int or count <= 0 for count in counts.values()):
-                        raise ValueError(
-                            f"Pilot accepted-partition counts must be positive for {family}"
-                        )
+                if trajectory.fishing_ground_target != 0 or trajectory.economy in {
+                    "fishing",
+                    "cultivation-fishing",
+                    "husbandry-fishing",
+                    "all-three",
+                }:
+                    raise ValueError(
+                        "Broad-domain v1 keeps fishing unavailable while admitting movement "
+                        "and husbandry"
+                    )
+            if self.broad_domain_accepted_partition_counts is None:
+                raise ValueError(
+                    "Broad-domain pilot must declare exact accepted partition counts"
+                )
+            self._validate_accepted_partition_counts(
+                self.broad_domain_accepted_partition_counts,
+                allowed_families,
+                label="Broad-domain",
+            )
+            if self.pilot_accepted_partition_counts is not None:
+                raise ValueError(
+                    "Broad-domain pilots cannot declare cultivation-pilot accepted counts"
+                )
         elif self.pilot_accepted_partition_counts is not None:
             raise ValueError("Only cultivation pilots may declare accepted-partition counts")
+        elif self.broad_domain_accepted_partition_counts is not None:
+            raise ValueError("Only broad-domain pilots may declare broad-domain counts")
         return self
+
+    @staticmethod
+    def _validate_accepted_partition_counts(
+        accepted: dict[str, dict[str, int]],
+        allowed_families: set[str],
+        *,
+        label: str,
+    ) -> None:
+        if set(accepted) != allowed_families:
+            raise ValueError(
+                f"{label} accepted-partition counts must declare every allowed family"
+            )
+        for family, counts in accepted.items():
+            if set(counts) != {"train", "development", "heldout"}:
+                raise ValueError(
+                    f"{label} accepted-partition counts are incomplete for {family}"
+                )
+            if any(type(count) is not int or count <= 0 for count in counts.values()):
+                raise ValueError(
+                    f"{label} accepted-partition counts must be positive for {family}"
+                )
 
     def canonical_sha256(self) -> str:
         payload = self.model_dump(mode="json")
@@ -219,8 +297,12 @@ class SnapshotBankGenerationConfig(StrictModel):
             payload.pop("bank_kind", None)
         if "normalization_version" not in self.model_fields_set:
             payload.pop("normalization_version", None)
+        if "f15_shared_capture_horizon_steps" not in self.model_fields_set:
+            payload.pop("f15_shared_capture_horizon_steps", None)
         if "pilot_accepted_partition_counts" not in self.model_fields_set:
             payload.pop("pilot_accepted_partition_counts", None)
+        if "broad_domain_accepted_partition_counts" not in self.model_fields_set:
+            payload.pop("broad_domain_accepted_partition_counts", None)
         for trajectory, serialized in zip(self.trajectories, payload["trajectories"], strict=True):
             if "causal_variant" not in trajectory.model_fields_set:
                 serialized.pop("causal_variant", None)
@@ -266,6 +348,7 @@ class SnapshotBankGenerationConfig(StrictModel):
                 "trajectories",
                 "normalization_version",
                 "pilot_accepted_partition_counts",
+                "broad_domain_accepted_partition_counts",
             },
         )
         payload["native_simulator_sha"] = SIMULATOR_COMMIT

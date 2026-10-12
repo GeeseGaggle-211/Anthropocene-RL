@@ -103,11 +103,12 @@ def sample_hybrid(
     observation: Tensor,
     *,
     deterministic: bool = False,
+    generator: torch.Generator | None = None,
 ) -> HybridActionSample:
     _validate_gaussian_parameters(mean, log_std)
     normal = Normal(mean, torch.exp(log_std).expand_as(mean))
     active = structural_head_mask(observation)
-    latent = mean if deterministic else _sample_active_latent(normal, active)
+    latent = mean if deterministic else _sample_active_latent(normal, active, generator=generator)
     # sigmoid(2z) is exactly (tanh(z)+1)/2. Float64 preserves an invertible
     # requested action throughout the supported Gaussian parameter envelope.
     raw_continuous = torch.sigmoid(2.0 * latent.to(torch.float64))
@@ -121,13 +122,27 @@ def sample_hybrid(
     floor = torch.finfo(movement_logits.dtype).min
     masked_logits = movement_logits.masked_fill(~legal, floor)
     categorical = Categorical(logits=masked_logits)
-    movement_index = torch.argmax(masked_logits, dim=-1) if deterministic else categorical.sample()
+    movement_index = (
+        torch.argmax(masked_logits, dim=-1)
+        if deterministic
+        else torch.multinomial(
+            categorical.probs,
+            num_samples=1,
+            replacement=True,
+            generator=generator,
+        ).squeeze(-1)
+    )
     log_prob = continuous_log_prob + categorical.log_prob(movement_index)
     entropy = continuous_entropy + categorical.entropy()
     return HybridActionSample(continuous, movement_index, log_prob, entropy)
 
 
-def _sample_active_latent(normal: Normal, active: Tensor) -> Tensor:
+def _sample_active_latent(
+    normal: Normal,
+    active: Tensor,
+    *,
+    generator: torch.Generator | None = None,
+) -> Tensor:
     """Reparameterize only structurally active dimensions.
 
     Building one active subset at a time avoids consuming RNG draws for heads
@@ -144,7 +159,12 @@ def _sample_active_latent(normal: Normal, active: Tensor) -> Tensor:
         if torch.any(mask):
             active_location = location[mask]
             active_scale = scale[mask]
-            sampled = active_location + active_scale * torch.randn_like(active_location)
+            sampled = active_location + active_scale * torch.randn(
+                active_location.shape,
+                dtype=active_location.dtype,
+                device=active_location.device,
+                generator=generator,
+            )
             latent[mask] = sampled
         heads.append(latent)
     return torch.stack(heads, dim=-1)

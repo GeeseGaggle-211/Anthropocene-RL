@@ -1,4 +1,4 @@
-"""Balanced multi-snapshot cultivation PPO campaign and native evaluation.
+"""Balanced multi-snapshot Elder PPO campaign and native evaluation.
 
 The campaign keeps storage, sampling, learning, and evaluation on the learner
 side.  Native dynamics, action compilation, reward semantics, and the Option-A
@@ -13,9 +13,12 @@ import json
 import math
 import os
 import subprocess
+import threading
 import time
 from collections import Counter, defaultdict
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -57,8 +60,10 @@ from anthropocene_rl.observations.normalization import (
 )
 from anthropocene_rl.observations.schema import (
     EncodedObservation,
+    broad_domain_scope_violations,
     cultivation_only_scope_violations,
 )
+from anthropocene_rl.policies.distributions import movement_mask, structural_head_mask
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
 from anthropocene_rl.training.overfit import (
     _action_l2,
@@ -93,6 +98,22 @@ from anthropocene_rl.training.returns import (
 )
 
 PILOT_FAMILIES = ("F01", "F02", "F03", "F13", "F15", "F16", "F17", "F18")
+BROAD_DOMAIN_FAMILIES = (
+    "F01",
+    "F02",
+    "F03",
+    "F04",
+    "F05",
+    "F06",
+    "F07",
+    "F13",
+    "F14",
+    "F15",
+    "F16",
+    "F17",
+    "F18",
+)
+CampaignScope = Literal["cultivation-only", "broad-domain"]
 DEFAULT_MANIFEST = Path("datasets/manifests/elder-v2-cultivation-pilot-v1.json")
 DEFAULT_NORMALIZER = Path("evidence/cultivation-pilot-v1/final-train-normalization.json")
 DEFAULT_BLOB_ROOT = Path("datasets/blobs")
@@ -112,6 +133,8 @@ class PilotConfig:
     device: str = "cpu"
     updates: int = 96
     episodes_per_update: int = 8
+    rollouts_per_snapshot: int = 1
+    group_relative_first_decision: bool = False
     episode_steps: int = 3
     evaluation_interval: int = 24
     evaluation_steps: int = 3
@@ -121,16 +144,40 @@ class PilotConfig:
     reward_scale: float = 0.001
     train_probe_per_family: int = 2
     evaluate_heldout: bool = True
+    campaign_scope: CampaignScope = "cultivation-only"
+    replay_verification_interval: int = 1
+    collector_workers: int = 1
+    evaluation_workers: int = 1
+
+    @property
+    def families(self) -> tuple[str, ...]:
+        return (
+            BROAD_DOMAIN_FAMILIES
+            if self.campaign_scope == "broad-domain"
+            else PILOT_FAMILIES
+        )
 
     def validate(self) -> None:
         if len(self.seeds) != 3 or len(set(self.seeds)) != 3:
             raise ValueError("The cultivation pilot requires three distinct neural seeds")
-        if self.updates < 2 or self.episodes_per_update < len(PILOT_FAMILIES):
+        if self.campaign_scope not in ("cultivation-only", "broad-domain"):
+            raise ValueError("Unsupported campaign scope")
+        if self.updates < 2 or self.episodes_per_update < len(self.families):
             raise ValueError("Pilot updates must expose every family at least once")
-        if self.episodes_per_update % len(PILOT_FAMILIES) != 0:
-            raise ValueError("episodes_per_update must be a multiple of eight families")
+        if self.episodes_per_update % len(self.families) != 0:
+            raise ValueError("episodes_per_update must be a multiple of campaign families")
         if self.episode_steps < 1 or self.evaluation_steps < 1:
             raise ValueError("Episode lengths must be positive")
+        if self.rollouts_per_snapshot < 1:
+            raise ValueError("rollouts_per_snapshot must be positive")
+        if self.group_relative_first_decision and self.rollouts_per_snapshot < 2:
+            raise ValueError("Group-relative advantages require at least two rollouts per snapshot")
+        if self.campaign_scope == "broad-domain" and (
+            self.episode_steps != 50 or self.evaluation_steps != 50
+        ):
+            raise ValueError(
+                "The broad-domain campaign is pinned to 50-decision training and evaluation"
+            )
         if self.evaluation_interval < 1 or self.evaluation_interval > self.updates:
             raise ValueError("evaluation_interval must fall within the run")
         if self.horizon_years <= 0 or not 0 <= self.lambda_ref <= 1:
@@ -139,6 +186,16 @@ class PilotConfig:
             raise ValueError("Invalid reward or lambda reference scale")
         if self.train_probe_per_family < 1:
             raise ValueError("At least one TRAIN probe per family is required")
+        if self.replay_verification_interval < 1:
+            raise ValueError("Replay verification interval must be positive")
+        if self.collector_workers < 1 or self.collector_workers > self.episodes_per_update:
+            raise ValueError("collector_workers must fit within episodes_per_update")
+        if self.evaluation_workers < 1:
+            raise ValueError("evaluation_workers must be positive")
+        if self.device != "cpu" and self.collector_workers != 1:
+            raise ValueError("Parallel native collection currently requires the CPU policy")
+        if self.device != "cpu" and self.evaluation_workers != 1:
+            raise ValueError("Parallel native evaluation currently requires the CPU policy")
 
 
 @dataclass
@@ -161,6 +218,7 @@ class CampaignDataset:
         snapshot_store_config: str | Path = DEFAULT_SNAPSHOT_STORE_CONFIG,
         dataset_manifest: str | Path | None = DEFAULT_GCS_DATASET_MANIFEST,
         dataset_store_config: str | Path = DEFAULT_DATASET_STORE_CONFIG,
+        campaign_scope: CampaignScope = "cultivation-only",
     ) -> None:
         self.manifest_path = Path(manifest_path)
         self.blob_root = Path(blob_root)
@@ -168,6 +226,7 @@ class CampaignDataset:
         self.snapshot_store_config = Path(snapshot_store_config)
         self.dataset_manifest = str(dataset_manifest) if dataset_manifest is not None else None
         self.dataset_store_config = Path(dataset_store_config)
+        self.campaign_scope = campaign_scope
         self._dataset_reader: DatasetReader | None = None
         self.manifest = SnapshotBankManifest.load(self.manifest_path)
         self.manifest_sha256 = self.manifest.sha256()
@@ -192,28 +251,40 @@ class CampaignDataset:
 
     def _validate_scope(self) -> None:
         families = {record.scenario_family for record in self.manifest.records}
-        if families != set(PILOT_FAMILIES):
+        expected_families = (
+            set(BROAD_DOMAIN_FAMILIES)
+            if self.campaign_scope == "broad-domain"
+            else set(PILOT_FAMILIES)
+        )
+        if families != expected_families:
             raise ValueError(f"Unexpected pilot families: {sorted(families)}")
         for record in self.manifest.records:
             strata = record.actual_strata
             if record.native_simulator_sha != SIMULATOR_COMMIT:
                 raise ValueError("Campaign record changed the frozen simulator SHA")
-            if (
-                strata.structural_masks.movement
-                or strata.structural_masks.herd_retention
-                or strata.structural_masks.herd_development
-                or strata.owned_domestic_herd
-                or strata.fishing_available
-                or strata.fishing_ground_count
-            ):
-                raise ValueError(f"Snapshot escaped cultivation-only scope: {record.snapshot_id}")
-            if not (
-                strata.structural_masks.field_retention
-                and strata.structural_masks.field_development
-                and "cultivation-only" in strata.tags
-            ):
+            if self.campaign_scope == "cultivation-only":
+                if (
+                    strata.structural_masks.movement
+                    or strata.structural_masks.herd_retention
+                    or strata.structural_masks.herd_development
+                    or strata.owned_domestic_herd
+                    or strata.fishing_available
+                    or strata.fishing_ground_count
+                ):
+                    raise ValueError(
+                        f"Snapshot escaped cultivation-only scope: {record.snapshot_id}"
+                    )
+                if not (
+                    strata.structural_masks.field_retention
+                    and strata.structural_masks.field_development
+                    and "cultivation-only" in strata.tags
+                ):
+                    raise ValueError(
+                        f"Snapshot lacks active cultivation controls: {record.snapshot_id}"
+                    )
+            elif strata.fishing_available or strata.fishing_ground_count:
                 raise ValueError(
-                    f"Snapshot lacks active cultivation controls: {record.snapshot_id}"
+                    f"Snapshot escaped fishing-excluded broad scope: {record.snapshot_id}"
                 )
             if record.configuration_hash != self.normalizer.manifest.configuration_hash:
                 raise ValueError("Snapshot configuration differs from the normalizer cohort")
@@ -271,11 +342,17 @@ class CampaignDataset:
 
 
 class BalancedFamilySampler:
-    def __init__(self, records: tuple[SnapshotRecord, ...], seed: int) -> None:
+    def __init__(
+        self,
+        records: tuple[SnapshotRecord, ...],
+        seed: int,
+        families: tuple[str, ...] = PILOT_FAMILIES,
+    ) -> None:
         self.rng = np.random.default_rng(seed)
+        self.families = families
         self.records: dict[str, list[SnapshotRecord]] = {}
         self.cursor: dict[str, int] = {}
-        for family in PILOT_FAMILIES:
+        for family in self.families:
             family_records = sorted(
                 (record for record in records if record.scenario_family == family),
                 key=lambda item: item.snapshot_id,
@@ -287,8 +364,8 @@ class BalancedFamilySampler:
             self.cursor[family] = 0
 
     def sample(self, count: int) -> tuple[SnapshotRecord, ...]:
-        repeats = count // len(PILOT_FAMILIES)
-        families = list(PILOT_FAMILIES) * repeats
+        repeats = count // len(self.families)
+        families = list(self.families) * repeats
         self.rng.shuffle(families)
         selected: list[SnapshotRecord] = []
         for family in families:
@@ -309,6 +386,8 @@ class _Timing:
     policy_inference_seconds: float = 0.0
     ppo_update_seconds: float = 0.0
     collection_seconds: float = 0.0
+    collector_worker_seconds: float = 0.0
+    collector_workers_peak: int = 1
 
 
 def run_cultivation_pilot(
@@ -350,12 +429,21 @@ def run_cultivation_pilot(
         snapshot_store_config=snapshot_store_config,
         dataset_manifest=dataset_manifest,
         dataset_store_config=dataset_store_config,
+        campaign_scope=config.campaign_scope,
     )
     train = dataset.by_partition[Partition.TRAIN]
     development = dataset.by_partition[Partition.DEVELOPMENT]
     heldout = dataset.by_partition[Partition.HELDOUT]
-    train_probe = _probe_records(train, config.train_probe_per_family)
-    development_probe = _probe_records(development, 1)
+    train_probe = _probe_records(
+        train,
+        config.train_probe_per_family,
+        families=config.families,
+    )
+    development_probe = _probe_records(
+        development,
+        1,
+        families=config.families,
+    )
 
     campaign_started = time.perf_counter()
     option_a = {
@@ -367,6 +455,7 @@ def run_cultivation_pilot(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="option-a",
         ),
         "development": _evaluate_records(
@@ -377,6 +466,7 @@ def run_cultivation_pilot(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="option-a",
         ),
     }
@@ -389,6 +479,7 @@ def run_cultivation_pilot(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="option-a",
         )
     _write_json(evidence_dir / "option-a-baseline.json", option_a)
@@ -429,7 +520,11 @@ def run_cultivation_pilot(
         "promotion_status": (
             "PASS" if all(validation.values()) and all(promotion.values()) else "NO_GO"
         ),
-        "scope": "fixed-location-cultivation-control-open-economy-ppo-pilot",
+        "scope": (
+            "movement-husbandry-cultivation-open-economy-ppo-pilot"
+            if config.campaign_scope == "broad-domain"
+            else "fixed-location-cultivation-control-open-economy-ppo-pilot"
+        ),
         "identities": identities,
         "configuration": {
             "pilot": asdict(config),
@@ -437,8 +532,13 @@ def run_cultivation_pilot(
             "actor_critic": asdict(actor_critic_config),
             "reset_sampler": {
                 "kind": "exact-balanced-family-within-family-shuffled-cycle",
-                "families": list(PILOT_FAMILIES),
+                "families": list(config.families),
                 "episodes_per_update": config.episodes_per_update,
+                "rollouts_per_snapshot": config.rollouts_per_snapshot,
+                "group_relative_first_decision": config.group_relative_first_decision,
+                "rollout_episodes_per_update": (
+                    config.episodes_per_update * config.rollouts_per_snapshot
+                ),
                 "optimization_partition": Partition.TRAIN.value,
                 "development_use": "checkpoint-selection-and-debugging-only",
                 "heldout_use": (
@@ -450,7 +550,16 @@ def run_cultivation_pilot(
             "structural_scope": {
                 "asserted": "reset-and-every-post-step-state",
                 "maximum_episode_decisions": config.episode_steps,
-                "excluded": ["movement", "husbandry", "herds", "fishing"],
+                "admitted": (
+                    ["movement", "husbandry", "herds", "cultivation"]
+                    if config.campaign_scope == "broad-domain"
+                    else ["cultivation"]
+                ),
+                "excluded": (
+                    ["fishing"]
+                    if config.campaign_scope == "broad-domain"
+                    else ["movement", "husbandry", "herds", "fishing"]
+                ),
                 "failure_mode": "fail-fast",
             },
         },
@@ -499,14 +608,18 @@ def _run_seed(
     device = _configure_determinism(seed, config.device)
     model = ElderActorCritic(actor_config).to(device)
     trainer = PPOTrainer(model, ppo_config)
-    sampler = BalancedFamilySampler(train, seed)
+    sampler = BalancedFamilySampler(train, seed, config.families)
     timings = _Timing()
     first_selection = dataset.selection(train[0])
-    env = _make_environment(
-        bridge_path=bridge_path,
-        dotnet=dotnet,
-        selection=first_selection,
-        episode_limit=config.episode_steps,
+    envs = tuple(
+        _make_environment(
+            bridge_path=bridge_path,
+            dotnet=dotnet,
+            selection=first_selection,
+            episode_limit=config.episode_steps,
+            campaign_scope=config.campaign_scope,
+        )
+        for _ in range(config.collector_workers)
     )
     learning_curve: list[dict[str, Any]] = []
     evaluation_curve: list[dict[str, Any]] = []
@@ -537,6 +650,7 @@ def _run_seed(
         episode_steps=config.evaluation_steps,
         horizon_years=config.horizon_years,
         reward_scale=config.reward_scale,
+        workers=config.evaluation_workers,
         policy="learned",
         model=model,
         device=device,
@@ -560,14 +674,17 @@ def _run_seed(
     try:
         for update in range(1, config.updates + 1):
             records = sampler.sample(config.episodes_per_update)
-            collected = _collect_update(
-                env=env,
+            collected = _collect_update_parallel(
+                envs=envs,
                 dataset=dataset,
                 records=records,
                 model=model,
+                trainer=trainer,
                 device=device,
                 config=config,
                 timings=timings,
+                neural_seed=seed,
+                update=update,
             )
             batch = collected.pop("batch")
             last_batch = batch
@@ -592,6 +709,7 @@ def _run_seed(
                             model,
                             fixed_training_observations,
                             fixed_critic_targets,
+                            trainer=trainer,
                         ),
                     }
                 )
@@ -614,9 +732,12 @@ def _run_seed(
                 "illegal_action_count",
                 "requested_sample_mismatches",
                 "non_stay_requested_count",
+                "movement_request_count",
                 "non_finite_count",
                 "replay_failures",
                 "reward_denominator_violations",
+                "replay_verified_episodes",
+                "replay_skipped_episodes",
             ):
                 totals[key] += int(collected[key])
             for head in range(4):
@@ -637,6 +758,7 @@ def _run_seed(
                     episode_steps=config.evaluation_steps,
                     horizon_years=config.horizon_years,
                     reward_scale=config.reward_scale,
+                    workers=config.evaluation_workers,
                     policy="learned",
                     model=model,
                     device=device,
@@ -667,6 +789,7 @@ def _run_seed(
                             model,
                             fixed_training_observations,
                             fixed_critic_targets,
+                            trainer=trainer,
                         ),
                     }
                 )
@@ -680,7 +803,8 @@ def _run_seed(
                     best_health_update = update
                     best_health_state = _capture_training_state(model, trainer)
     finally:
-        env.close()
+        for env in envs:
+            env.close()
     training_seconds = time.perf_counter() - training_started
     if (
         last_batch is None
@@ -700,6 +824,7 @@ def _run_seed(
         model,
         fixed_training_observations,
         fixed_critic_targets,
+        trainer=trainer,
     )
     final_critic_health = _critic_health_window(learning_curve)
     terminal_development_evaluation = _evaluate_records(
@@ -710,6 +835,7 @@ def _run_seed(
         episode_steps=config.evaluation_steps,
         horizon_years=config.horizon_years,
         reward_scale=config.reward_scale,
+        workers=config.evaluation_workers,
         policy="learned",
         model=model,
         device=device,
@@ -733,6 +859,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -750,7 +877,7 @@ def _run_seed(
             ),
         }
     model.load_state_dict(best_state["model"])
-    trainer.optimizer.load_state_dict(best_state["optimizer"])
+    trainer.load_state_dict(best_state["trainer"])
     _restore_rng_state(best_state["rng"])
     selected_activation_probe = _activation_probe_row(
         update=best_update,
@@ -763,8 +890,10 @@ def _run_seed(
         model,
         fixed_training_observations,
         fixed_critic_targets,
+        trainer=trainer,
     )
     selected_critic_health = _critic_health_window(learning_curve[:best_update])
+    inactive_head_audit = _inactive_head_gradient_audit(model, last_batch)
 
     final_evaluation = {
         "train_probe": _evaluate_records(
@@ -775,6 +904,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -787,6 +917,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -801,6 +932,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -834,14 +966,29 @@ def _run_seed(
         selected_activation_probe,
         network="critic",
     ) and _activation_probe_healthy(final_activation_probe, network="critic")
-    active_heads = [0, 2]
-    inactive_gradient = max(
-        inactive_head_gradient_max[1],
-        inactive_head_gradient_max[3],
-        movement_head_gradient_max,
+    if config.campaign_scope == "broad-domain":
+        active_heads: list[int | str] = [0, 1, 2, 3, "movement"]
+        # Every head is active somewhere in the broad-domain cohort, so audit
+        # gradients on the rows where each head is structurally absent.
+        inactive_gradient = float(inactive_head_audit["max_abs_gradient"])
+    else:
+        active_heads = [0, 2]
+        inactive_gradient = max(
+            inactive_head_gradient_max[1],
+            inactive_head_gradient_max[3],
+            movement_head_gradient_max,
+        )
+    contract_failure_keys = (
+        "illegal_action_count",
+        "requested_sample_mismatches",
+        "non_finite_count",
+        "replay_failures",
+        "reward_denominator_violations",
     )
+    if config.campaign_scope == "cultivation-only":
+        contract_failure_keys += ("non_stay_requested_count",)
     validation_gates = {
-        "contract_and_numerics": all(totals[key] == 0 for key in totals),
+        "contract_and_numerics": all(totals[key] == 0 for key in contract_failure_keys),
         "structural_scope_preserved": True,
         "inactive_heads_gradient_inert": inactive_gradient <= 1e-12,
         "checkpoint_reload_parity": checkpoint["max_abs_error"] == 0.0,
@@ -849,6 +996,7 @@ def _run_seed(
             checkpoint["stochastic_policy_max_abs_error"] == 0.0
             and checkpoint["continuation_model_max_abs_error"] == 0.0
             and checkpoint["continuation_metrics_max_abs_error"] == 0.0
+            and checkpoint["value_normalization_state_reloaded"]
         ),
         "ppo_kl_stable": maximum_kl <= 0.15 and mean_clip <= 0.60,
         "critic_finite": math.isfinite(critic_start) and math.isfinite(critic_end),
@@ -914,6 +1062,12 @@ def _run_seed(
             },
             "contract_totals": dict(totals),
             "inactive_head_gradient_max": inactive_gradient,
+            "inactive_head_gradient_audit": inactive_head_audit,
+            "inactive_head_gradient_gate": (
+                "per-state-structural-mask-gradient-audit"
+                if config.campaign_scope == "broad-domain"
+                else "globally-inactive-heads"
+            ),
             "per_head_gradient_max": inactive_head_gradient_max,
             "movement_head_gradient_max": movement_head_gradient_max,
             "active_heads": active_heads,
@@ -968,15 +1122,263 @@ def _run_seed(
     }
 
 
+def _collect_update_parallel(
+    *,
+    envs: tuple[AnthropoceneElderEnv, ...],
+    dataset: CampaignDataset,
+    records: tuple[SnapshotRecord, ...],
+    model: ElderActorCritic,
+    trainer: PPOTrainer,
+    device: torch.device,
+    config: PilotConfig,
+    timings: _Timing,
+    neural_seed: int,
+    update: int,
+) -> dict[str, Any]:
+    """Collect independent snapshot groups across persistent native bridge workers."""
+
+    if len(envs) == 1:
+        before = timings.collection_seconds
+        result = _collect_update(
+            env=envs[0],
+            dataset=dataset,
+            records=records,
+            model=model,
+            trainer=trainer,
+            device=device,
+            config=config,
+            timings=timings,
+            policy_seed=_collection_worker_seed(neural_seed, update, 0),
+        )
+        elapsed = timings.collection_seconds - before
+        timings.collector_worker_seconds += elapsed
+        timings.collector_workers_peak = max(timings.collector_workers_peak, 1)
+        result["collector_workers"] = 1
+        return result
+    if len(envs) > len(records):
+        raise ValueError("Collector workers cannot exceed base snapshot groups")
+
+    # Resolve blobs and update the cache access ledger before worker threads
+    # touch the read-only in-memory selection cache.
+    for record in records:
+        dataset.selection(record)
+
+    quotient, remainder = divmod(len(records), len(envs))
+    chunks: list[tuple[SnapshotRecord, ...]] = []
+    cursor = 0
+    for worker in range(len(envs)):
+        size = quotient + int(worker < remainder)
+        chunks.append(records[cursor : cursor + size])
+        cursor += size
+
+    lock = threading.Lock()
+    local_timings = [_Timing() for _ in envs]
+    replay_offsets: list[int] = []
+    episode_cursor = 0
+    for chunk in chunks:
+        replay_offsets.append(episode_cursor)
+        episode_cursor += len(chunk) * config.rollouts_per_snapshot
+
+    started = time.perf_counter()
+    with ThreadPoolExecutor(
+        max_workers=len(envs),
+        thread_name_prefix="elder-collector",
+    ) as executor:
+        futures = [
+            executor.submit(
+                _collect_update,
+                env=env,
+                dataset=dataset,
+                records=chunk,
+                model=model,
+                trainer=trainer,
+                device=device,
+                config=config,
+                timings=local_timing,
+                policy_seed=_collection_worker_seed(neural_seed, update, worker),
+                inference_lock=lock,
+                replay_episode_offset=replay_offsets[worker],
+            )
+            for worker, (env, chunk, local_timing) in enumerate(
+                zip(envs, chunks, local_timings, strict=True)
+            )
+        ]
+        collected = [future.result() for future in futures]
+    wall_seconds = time.perf_counter() - started
+
+    timings.native_step_seconds += sum(row.native_step_seconds for row in local_timings)
+    timings.bridge_step_seconds += sum(row.bridge_step_seconds for row in local_timings)
+    timings.policy_inference_seconds += sum(
+        row.policy_inference_seconds for row in local_timings
+    )
+    timings.collection_seconds += wall_seconds
+    timings.collector_worker_seconds += sum(row.collection_seconds for row in local_timings)
+    timings.collector_workers_peak = max(timings.collector_workers_peak, len(envs))
+    return _merge_collected_updates(collected, len(envs))
+
+
+def _merge_collected_updates(
+    collected: list[dict[str, Any]],
+    worker_count: int,
+) -> dict[str, Any]:
+    batches = [row.pop("batch") for row in collected]
+    batch = RolloutBatch(
+        observations=torch.cat([row.observations for row in batches]),
+        continuous_actions=torch.cat([row.continuous_actions for row in batches]),
+        movement_indices=torch.cat([row.movement_indices for row in batches]),
+        old_log_prob=torch.cat([row.old_log_prob for row in batches]),
+        advantages=torch.cat([row.advantages for row in batches]),
+        returns=torch.cat([row.returns for row in batches]),
+    )
+    transitions = sum(int(row["transitions"]) for row in collected)
+    episode_counts = [sum(row["snapshot_visitation"].values()) for row in collected]
+    episodes = sum(episode_counts)
+
+    def merged_counter(key: str) -> dict[str, int]:
+        counter: Counter[str] = Counter()
+        for row in collected:
+            counter.update({name: int(value) for name, value in row[key].items()})
+        return dict(sorted(counter.items()))
+
+    snapshot_visitation = merged_counter("snapshot_visitation")
+    families = sorted(snapshot_visitation)
+    family_returns: dict[str, float] = {}
+    for family in families:
+        numerator = 0.0
+        denominator = 0
+        for row in collected:
+            count = int(row["snapshot_visitation"].get(family, 0))
+            if count:
+                numerator += row["discounted_scaled_return_by_family"][family] * count
+                denominator += count
+        family_returns[family] = numerator / denominator
+
+    def transition_weighted(key: str) -> float:
+        return sum(
+            float(row[key]) * int(row["transitions"]) for row in collected
+        ) / max(transitions, 1)
+
+    action_channels: dict[str, dict[str, float]] = {}
+    for channel in ("requested", "accepted", "realized"):
+        action_channels[channel] = {
+            head: sum(
+                float(row["actions"][channel][head]) * int(row["transitions"])
+                for row in collected
+            )
+            / max(transitions, 1)
+            for head in (
+                "field_operation",
+                "herd_retention",
+                "development_budget",
+                "field_development_share",
+            )
+        }
+
+    group_rows = [row["group_relative_advantages"] for row in collected]
+    group_count = sum(int(row["count"]) for row in group_rows)
+
+    def pooled(mean_key: str, std_key: str) -> tuple[float | None, float | None]:
+        if not group_count:
+            return None, None
+        total = sum(float(row[mean_key]) * int(row["count"]) for row in group_rows)
+        mean = total / group_count
+        second = sum(
+            int(row["count"])
+            * (float(row[std_key]) ** 2 + float(row[mean_key]) ** 2)
+            for row in group_rows
+        ) / group_count
+        return mean, max(second - mean * mean, 0.0) ** 0.5
+
+    original_mean, original_std = pooled(
+        "first_decision_original_mean",
+        "first_decision_original_std",
+    )
+    adjusted_mean, adjusted_std = pooled(
+        "adjusted_mean",
+        "first_decision_adjusted_std",
+    )
+    total_keys = (
+        "illegal_action_count",
+        "requested_sample_mismatches",
+        "non_stay_requested_count",
+        "movement_request_count",
+        "non_finite_count",
+        "replay_failures",
+        "reward_denominator_violations",
+        "replay_verified_episodes",
+        "replay_skipped_episodes",
+    )
+    return {
+        "batch": batch,
+        "transitions": transitions,
+        "collector_workers": worker_count,
+        "snapshot_visitation": snapshot_visitation,
+        "transition_visitation": merged_counter("transition_visitation"),
+        "strata_visitation": merged_counter("strata_visitation"),
+        "discounted_scaled_return_by_family": family_returns,
+        "discounted_scaled_return_mean": sum(
+            float(row["discounted_scaled_return_mean"]) * episode_count
+            for row, episode_count in zip(collected, episode_counts, strict=True)
+        )
+        / max(episodes, 1),
+        "actions": action_channels,
+        "intervention_transition_rate": transition_weighted(
+            "intervention_transition_rate"
+        ),
+        "intervention_mean_count": transition_weighted("intervention_mean_count"),
+        "requested_to_accepted_mean_l2": transition_weighted(
+            "requested_to_accepted_mean_l2"
+        ),
+        "accepted_to_realized_mean_l2": transition_weighted(
+            "accepted_to_realized_mean_l2"
+        ),
+        "normalizer_saturation_rate": transition_weighted(
+            "normalizer_saturation_rate"
+        ),
+        "group_relative_advantages": {
+            "enabled": bool(group_count),
+            "rollouts_per_snapshot": group_rows[0]["rollouts_per_snapshot"],
+            "first_decision_original_mean": original_mean,
+            "first_decision_original_std": original_std,
+            "first_decision_adjusted_std": adjusted_std,
+            "adjusted_mean": adjusted_mean,
+            "count": group_count,
+        },
+        "worker_diagnostics": [
+            {
+                "worker": worker,
+                "transitions": int(row["transitions"]),
+                "episodes": episode_counts[worker],
+            }
+            for worker, row in enumerate(collected)
+        ],
+        **{key: sum(int(row[key]) for row in collected) for key in total_keys},
+    }
+
+
+def _collection_worker_seed(neural_seed: int, update: int, worker: int) -> int:
+    material = f"elder-policy-worker-v1:{neural_seed}:{update}:{worker}".encode()
+    return int.from_bytes(hashlib.sha256(material).digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
+def _episode_policy_seed(policy_seed: int, episode_index: int, snapshot_id: str) -> int:
+    material = f"{policy_seed}:{episode_index}:{snapshot_id}".encode()
+    return int.from_bytes(hashlib.sha256(material).digest()[:8], "big") & 0x7FFFFFFFFFFFFFFF
+
+
 def _collect_update(
     *,
     env: AnthropoceneElderEnv,
     dataset: CampaignDataset,
     records: tuple[SnapshotRecord, ...],
     model: ElderActorCritic,
+    trainer: PPOTrainer,
     device: torch.device,
     config: PilotConfig,
     timings: _Timing,
+    policy_seed: int | None = None,
+    inference_lock: threading.Lock | None = None,
+    replay_episode_offset: int = 0,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     observations: list[Tensor] = []
@@ -1000,14 +1402,34 @@ def _collect_update(
     saturation_count = 0
     saturation_denominator = 0
     transition_count = 0
+    original_first_advantages: list[float] = []
+    group_relative_first_advantages: list[float] = []
 
-    for record in records:
+    episode_records = tuple(
+        record
+        for record in records
+        for _ in range(config.rollouts_per_snapshot)
+    )
+    for episode_index, record in enumerate(episode_records):
+        policy_generator: torch.Generator | None = None
+        if policy_seed is not None:
+            policy_generator = torch.Generator(device=device.type)
+            policy_generator.manual_seed(
+                _episode_policy_seed(policy_seed, episode_index, record.snapshot_id)
+            )
         selection = dataset.selection(record)
-        observation, info = env.reset(options=_reset_request(selection, config.episode_steps))
+        observation, info = env.reset(
+            options=_reset_request(
+                selection,
+                config.episode_steps,
+                config.campaign_scope,
+            )
+        )
         _validate_campaign_reset(_plain_mapping(info["native_result"]), selection)
         raw = _raw_observation(info)
-        _assert_cultivation_scope(
+        _assert_campaign_scope(
             raw,
+            campaign_scope=config.campaign_scope,
             snapshot_id=record.snapshot_id,
             phase="reset",
         )
@@ -1037,9 +1459,15 @@ def _collect_update(
         for _ in range(config.episode_steps):
             observation_tensor = torch.as_tensor(observation, dtype=torch.float32, device=device)
             inference_started = _timing_start(device)
-            with torch.no_grad():
-                sampled = model.actor.sample(observation_tensor.unsqueeze(0))
-                value = model.critic(observation_tensor.unsqueeze(0))[0]
+            with (
+                inference_lock if inference_lock is not None else nullcontext(),
+                torch.no_grad(),
+            ):
+                sampled = model.actor.sample(
+                    observation_tensor.unsqueeze(0),
+                    generator=policy_generator,
+                )
+                value = trainer.value(observation_tensor.unsqueeze(0))[0]
             timings.policy_inference_seconds += _timing_stop(inference_started, device)
             continuous = sampled.continuous[0].detach()
             movement = sampled.movement_index[0].detach()
@@ -1065,7 +1493,9 @@ def _collect_update(
             if not _requested_matches_sample(requested, continuous.cpu().numpy(), movement_value):
                 totals["requested_sample_mismatches"] += 1
             if int(_pick(requested, "MovementCandidate")) != -1:
-                totals["non_stay_requested_count"] += 1
+                totals["movement_request_count"] += 1
+                if config.campaign_scope == "cultivation-only":
+                    totals["non_stay_requested_count"] += 1
             for index, key in enumerate(
                 (
                     "RetainedFieldOperation",
@@ -1092,16 +1522,24 @@ def _collect_update(
             episode_return += discount * scaled_reward
             discount *= physical_gamma(elapsed, config.horizon_years)
             next_tensor = torch.as_tensor(next_observation, dtype=torch.float32, device=device)
-            with torch.no_grad():
-                next_value = 0.0 if terminated else float(model.critic(next_tensor.unsqueeze(0))[0])
+            with (
+                inference_lock if inference_lock is not None else nullcontext(),
+                torch.no_grad(),
+            ):
+                next_value = (
+                    0.0
+                    if terminated
+                    else float(trainer.value(next_tensor.unsqueeze(0))[0])
+                )
             if _reward_denominator_violation(reward, prior_population, elapsed):
                 totals["reward_denominator_violations"] += 1
             state = _mapping(result, "StateDiagnostics")
             if bool(_pick(state, "Active")):
                 prior_population = int(_pick(state, "Population"))
             raw_next = _raw_observation(next_info)
-            _assert_cultivation_scope(
+            _assert_campaign_scope(
                 raw_next,
+                campaign_scope=config.campaign_scope,
                 snapshot_id=record.snapshot_id,
                 phase=f"post-step-{len(rewards) + 1}",
             )
@@ -1127,9 +1565,15 @@ def _collect_update(
             if terminated or truncated:
                 break
 
-        replay = env.verify_replay()
-        if int(replay.get("steps", 0)) != len(rewards) or not rewards:
-            totals["replay_failures"] += 1
+        if (
+            replay_episode_offset + episode_index
+        ) % config.replay_verification_interval == 0:
+            replay = env.verify_replay()
+            totals["replay_verified_episodes"] += 1
+            if int(replay.get("steps", 0)) != len(rewards) or not rewards:
+                totals["replay_failures"] += 1
+        else:
+            totals["replay_skipped_episodes"] += 1
         episode_advantages, episode_returns = generalized_advantage_estimate(
             np.asarray(rewards, dtype=np.float64),
             np.asarray(values, dtype=np.float64),
@@ -1148,6 +1592,16 @@ def _collect_update(
         advantages_all.append(episode_advantages)
         returns_all.append(episode_returns)
         family_returns[record.scenario_family].append(episode_return)
+
+    if config.group_relative_first_decision:
+        (
+            advantages_all,
+            original_first_advantages,
+            group_relative_first_advantages,
+        ) = _apply_group_relative_first_decision(
+            advantages_all,
+            config.rollouts_per_snapshot,
+        )
 
     timings.collection_seconds += time.perf_counter() - started
     batch = RolloutBatch(
@@ -1186,18 +1640,71 @@ def _collect_update(
         "requested_to_accepted_mean_l2": float(np.mean(requested_accepted)),
         "accepted_to_realized_mean_l2": float(np.mean(accepted_realized)),
         "normalizer_saturation_rate": saturation_count / max(saturation_denominator, 1),
+        "group_relative_advantages": {
+            "enabled": config.group_relative_first_decision,
+            "rollouts_per_snapshot": config.rollouts_per_snapshot,
+            "first_decision_original_std": (
+                float(np.std(original_first_advantages))
+                if original_first_advantages
+                else None
+            ),
+            "first_decision_original_mean": (
+                float(np.mean(original_first_advantages))
+                if original_first_advantages
+                else None
+            ),
+            "first_decision_adjusted_std": (
+                float(np.std(group_relative_first_advantages))
+                if group_relative_first_advantages
+                else None
+            ),
+            "adjusted_mean": (
+                float(np.mean(group_relative_first_advantages))
+                if group_relative_first_advantages
+                else None
+            ),
+            "count": len(group_relative_first_advantages),
+        },
         **{
             key: int(totals[key])
             for key in (
                 "illegal_action_count",
                 "requested_sample_mismatches",
                 "non_stay_requested_count",
+                "movement_request_count",
                 "non_finite_count",
                 "replay_failures",
                 "reward_denominator_violations",
+                "replay_verified_episodes",
+                "replay_skipped_episodes",
             )
         },
     }
+
+
+def _apply_group_relative_first_decision(
+    advantages_all: list[np.ndarray],
+    group_size: int,
+) -> tuple[list[np.ndarray], list[float], list[float]]:
+    """Replace reset-state advantages with a leave-one-out within-snapshot contrast."""
+
+    if group_size < 2 or len(advantages_all) % group_size:
+        raise ValueError("Group-relative advantages require complete groups of at least two")
+    adjusted_all = [advantages.copy() for advantages in advantages_all]
+    original: list[float] = []
+    adjusted_first: list[float] = []
+    for start in range(0, len(adjusted_all), group_size):
+        group = adjusted_all[start : start + group_size]
+        if any(len(advantages) == 0 for advantages in group):
+            raise ValueError("Group-relative advantage episode cannot be empty")
+        first = np.asarray([advantages[0] for advantages in group], dtype=np.float64)
+        original.extend(float(value) for value in first)
+        total = float(np.sum(first))
+        for offset, advantages in enumerate(group):
+            leave_one_out = (total - first[offset]) / (group_size - 1)
+            advantages[0] = first[offset] - leave_one_out
+            adjusted_first.append(float(advantages[0]))
+    return adjusted_all, original, adjusted_first
 
 
 def _fixed_reset_observations(
@@ -1218,15 +1725,23 @@ def _fixed_reset_observations(
         dotnet=dotnet,
         selection=dataset.selection(records[0]),
         episode_limit=episode_steps,
+        campaign_scope=dataset.campaign_scope,
     )
     observations: list[np.ndarray] = []
     try:
         for record in records:
             selection = dataset.selection(record)
-            observation, info = env.reset(options=_reset_request(selection, episode_steps))
+            observation, info = env.reset(
+                options=_reset_request(
+                    selection,
+                    episode_steps,
+                    dataset.campaign_scope,
+                )
+            )
             _validate_campaign_reset(_plain_mapping(info["native_result"]), selection)
-            _assert_cultivation_scope(
+            _assert_campaign_scope(
                 _raw_observation(info),
+                campaign_scope=dataset.campaign_scope,
                 snapshot_id=selection.record.snapshot_id,
                 phase="fixed-diagnostic-reset",
             )
@@ -1255,8 +1770,82 @@ def _critic_probe_diagnostics(
     model: ElderActorCritic,
     observations: Tensor,
     targets: Tensor,
+    *,
+    trainer: PPOTrainer | None = None,
 ) -> dict[str, float]:
-    return critic_fit_diagnostics(model.critic(observations), targets)
+    prediction = model.critic(observations) if trainer is None else trainer.value(observations)
+    return critic_fit_diagnostics(prediction, targets)
+
+
+def _inactive_head_gradient_audit(
+    model: ElderActorCritic,
+    batch: RolloutBatch,
+) -> dict[str, Any]:
+    """Measure head gradients only on rows where native structure masks that head."""
+
+    actor = model.actor
+    active = structural_head_mask(batch.observations)
+    per_head: dict[str, dict[str, Any]] = {}
+    maxima: list[float] = []
+    for head in range(4):
+        rows = ~active[:, head]
+        count = int(torch.sum(rows).detach().cpu())
+        gradient = 0.0
+        if count:
+            actor.zero_grad(set_to_none=True)
+            evaluated = actor.evaluate_actions(
+                batch.observations[rows],
+                batch.continuous_actions[rows],
+                batch.movement_indices[rows],
+            )
+            (evaluated.log_prob.mean() + evaluated.entropy.mean()).backward()
+            weight = actor.continuous_mean.weight.grad
+            bias = actor.continuous_mean.bias.grad
+            log_std = actor.log_std.grad
+            if weight is None or bias is None or log_std is None:
+                raise RuntimeError("Inactive-head audit did not produce actor gradients")
+            gradient = max(
+                float(torch.max(torch.abs(weight[head])).detach().cpu()),
+                float(torch.abs(bias[head]).detach().cpu()),
+                float(torch.abs(log_std[head]).detach().cpu()),
+            )
+            maxima.append(gradient)
+        per_head[f"continuous_{head}"] = {
+            "inactive_rows": count,
+            "max_abs_gradient": gradient if count else None,
+        }
+
+    legal_movement = movement_mask(batch.observations)
+    movement_rows = torch.sum(legal_movement, dim=-1) == 1
+    movement_count = int(torch.sum(movement_rows).detach().cpu())
+    movement_gradient = 0.0
+    if movement_count:
+        actor.zero_grad(set_to_none=True)
+        evaluated = actor.evaluate_actions(
+            batch.observations[movement_rows],
+            batch.continuous_actions[movement_rows],
+            batch.movement_indices[movement_rows],
+        )
+        (evaluated.log_prob.mean() + evaluated.entropy.mean()).backward()
+        weight = actor.movement_logits.weight.grad
+        bias = actor.movement_logits.bias.grad
+        if weight is None or bias is None:
+            raise RuntimeError("Inactive movement audit did not produce actor gradients")
+        movement_gradient = max(
+            float(torch.max(torch.abs(weight)).detach().cpu()),
+            float(torch.max(torch.abs(bias)).detach().cpu()),
+        )
+        maxima.append(movement_gradient)
+    per_head["movement"] = {
+        "inactive_rows": movement_count,
+        "max_abs_gradient": movement_gradient if movement_count else None,
+    }
+    actor.zero_grad(set_to_none=True)
+    return {
+        "max_abs_gradient": max(maxima, default=0.0),
+        "per_head": per_head,
+        "threshold": 1e-12,
+    }
 
 
 def _capture_training_state(
@@ -1266,6 +1855,7 @@ def _capture_training_state(
     return {
         "model": copy.deepcopy(model.state_dict()),
         "optimizer": copy.deepcopy(trainer.optimizer.state_dict()),
+        "trainer": copy.deepcopy(trainer.state_dict()),
         "rng": _capture_rng_state(),
     }
 
@@ -1364,6 +1954,7 @@ def _evaluate_records(
     episode_steps: int,
     horizon_years: float,
     reward_scale: float,
+    workers: int = 1,
     policy: Literal["learned", "option-a"],
     model: ElderActorCritic | None = None,
     device: torch.device | None = None,
@@ -1372,20 +1963,40 @@ def _evaluate_records(
         raise ValueError("Learned evaluation requires a model and device")
     if not records:
         raise ValueError("Evaluation record set cannot be empty")
+    if workers < 1:
+        raise ValueError("Evaluation workers must be positive")
+    for record in records:
+        dataset.selection(record)
+    worker_count = min(workers, len(records))
     selection = dataset.selection(records[0])
-    env = _make_environment(
-        bridge_path=bridge_path,
-        dotnet=dotnet,
-        selection=selection,
-        episode_limit=episode_steps,
+    envs = tuple(
+        _make_environment(
+            bridge_path=bridge_path,
+            dotnet=dotnet,
+            selection=selection,
+            episode_limit=episode_steps,
+            campaign_scope=dataset.campaign_scope,
+        )
+        for _ in range(worker_count)
     )
+    quotient, remainder = divmod(len(records), worker_count)
+    chunks: list[tuple[SnapshotRecord, ...]] = []
+    cursor = 0
+    for worker in range(worker_count):
+        size = quotient + int(worker < remainder)
+        chunks.append(records[cursor : cursor + size])
+        cursor += size
+    inference_lock = threading.Lock()
     episodes: list[dict[str, Any]] = []
     was_training = model.training if model is not None else False
     if model is not None:
         model.eval()
     try:
-        for record in records:
-            episodes.append(
+        def evaluate_chunk(
+            env: AnthropoceneElderEnv,
+            chunk: tuple[SnapshotRecord, ...],
+        ) -> list[dict[str, Any]]:
+            return [
                 _evaluate_episode(
                     env=env,
                     selection=dataset.selection(record),
@@ -1395,10 +2006,27 @@ def _evaluate_records(
                     episode_steps=episode_steps,
                     horizon_years=horizon_years,
                     reward_scale=reward_scale,
+                    campaign_scope=dataset.campaign_scope,
+                    inference_lock=inference_lock,
                 )
-            )
+                for record in chunk
+            ]
+
+        if worker_count == 1:
+            episodes = evaluate_chunk(envs[0], chunks[0])
+        else:
+            with ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="elder-evaluation",
+            ) as executor:
+                futures = [
+                    executor.submit(evaluate_chunk, env, chunk)
+                    for env, chunk in zip(envs, chunks, strict=True)
+                ]
+                episodes = [episode for future in futures for episode in future.result()]
     finally:
-        env.close()
+        for env in envs:
+            env.close()
         if model is not None:
             model.train(was_training)
     return {
@@ -1410,6 +2038,7 @@ def _evaluate_records(
         "by_world": _group_episode_summaries(episodes, "world_seed"),
         "behavior_slices": _behavior_slices(episodes),
         "self_sufficiency": _self_sufficiency_diagnostic(episodes),
+        "evaluation_workers": worker_count,
         "episodes": episodes,
     }
 
@@ -1424,11 +2053,16 @@ def _evaluate_episode(
     episode_steps: int,
     horizon_years: float,
     reward_scale: float,
+    campaign_scope: CampaignScope,
+    inference_lock: threading.Lock | None = None,
 ) -> dict[str, Any]:
-    observation, info = env.reset(options=_reset_request(selection, episode_steps))
+    observation, info = env.reset(
+        options=_reset_request(selection, episode_steps, campaign_scope)
+    )
     _validate_campaign_reset(_plain_mapping(info["native_result"]), selection)
-    _assert_cultivation_scope(
+    _assert_campaign_scope(
         _raw_observation(info),
+        campaign_scope=campaign_scope,
         snapshot_id=selection.record.snapshot_id,
         phase="reset",
     )
@@ -1461,7 +2095,10 @@ def _evaluate_episode(
         if policy == "learned":
             assert model is not None and device is not None
             tensor = torch.as_tensor(observation, dtype=torch.float32, device=device)
-            with torch.no_grad():
+            with (
+                inference_lock if inference_lock is not None else nullcontext(),
+                torch.no_grad(),
+            ):
                 sampled = model.actor.sample(tensor.unsqueeze(0), deterministic=True)
             continuous = sampled.continuous[0].detach()
             movement = int(sampled.movement_index[0].detach().cpu())
@@ -1486,8 +2123,17 @@ def _evaluate_episode(
             requested, continuous.cpu().numpy(), movement
         ):
             totals["requested_sample_mismatches"] += 1
-        if int(_pick(requested, "MovementCandidate")) != -1:
-            totals["non_stay_requested_count"] += 1
+        requested_movement = int(_pick(requested, "MovementCandidate"))
+        accepted_movement = int(_pick(accepted, "MovementCandidate"))
+        realized_movement = int(_pick(realized, "MovementCandidate"))
+        if requested_movement != -1:
+            totals["movement_request_count"] += 1
+            if campaign_scope == "cultivation-only":
+                totals["non_stay_requested_count"] += 1
+        if accepted_movement != -1:
+            totals["movement_accept_count"] += 1
+        if realized_movement != -1:
+            totals["movement_realized_count"] += 1
         for index, key in enumerate(
             (
                 "RetainedFieldOperation",
@@ -1532,8 +2178,9 @@ def _evaluate_episode(
             migration_total += float(_pick(state, "SignedMigration"))
             fission_events += int(bool(_pick(state, "FissionEvent")))
         raw = _raw_observation(info)
-        _assert_cultivation_scope(
+        _assert_campaign_scope(
             raw,
+            campaign_scope=campaign_scope,
             snapshot_id=selection.record.snapshot_id,
             phase=f"post-step-{steps + 1}",
         )
@@ -1568,6 +2215,14 @@ def _evaluate_episode(
         "delivered_material_tool_imports": material_tool_imports,
         "signed_migration": migration_total,
         "fission_events": fission_events,
+        "movement": {
+            "requested_count": int(totals["movement_request_count"]),
+            "accepted_count": int(totals["movement_accept_count"]),
+            "realized_count": int(totals["movement_realized_count"]),
+            "requested_rate": totals["movement_request_count"] / max(steps, 1),
+            "accepted_rate": totals["movement_accept_count"] / max(steps, 1),
+            "realized_rate": totals["movement_realized_count"] / max(steps, 1),
+        },
         "actions": {
             channel: {
                 "field_operation": float(np.mean(values[0])),
@@ -1644,6 +2299,9 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "requested_field_operation": ("actions", "requested", "field_operation"),
         "accepted_field_operation": ("actions", "accepted", "field_operation"),
         "realized_field_operation": ("actions", "realized", "field_operation"),
+        "requested_herd_retention": ("actions", "requested", "herd_retention"),
+        "accepted_herd_retention": ("actions", "accepted", "herd_retention"),
+        "realized_herd_retention": ("actions", "realized", "herd_retention"),
         "requested_development_budget": (
             "actions",
             "requested",
@@ -1669,6 +2327,24 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
             "realized",
             "development_budget",
         ),
+        "requested_field_development_share": (
+            "actions",
+            "requested",
+            "field_development_share",
+        ),
+        "accepted_field_development_share": (
+            "actions",
+            "accepted",
+            "field_development_share",
+        ),
+        "realized_field_development_share": (
+            "actions",
+            "realized",
+            "field_development_share",
+        ),
+        "movement_requested_rate": ("movement", "requested_rate"),
+        "movement_accepted_rate": ("movement", "accepted_rate"),
+        "movement_realized_rate": ("movement", "realized_rate"),
         "intervention_transition_rate": ("intervention_transition_rate",),
         "intervention_mean_count": ("intervention_mean_count",),
         "requested_to_accepted_mean_l2": ("requested_to_accepted_mean_l2",),
@@ -1947,10 +2623,13 @@ def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]
 
 
 def _probe_records(
-    records: tuple[SnapshotRecord, ...], per_family: int
+    records: tuple[SnapshotRecord, ...],
+    per_family: int,
+    *,
+    families: tuple[str, ...] = PILOT_FAMILIES,
 ) -> tuple[SnapshotRecord, ...]:
     selected: list[SnapshotRecord] = []
-    for family in PILOT_FAMILIES:
+    for family in families:
         family_records = [record for record in records if record.scenario_family == family]
         selected.extend(family_records[:per_family])
     return tuple(selected)
@@ -1962,15 +2641,20 @@ def _make_environment(
     dotnet: str,
     selection: CampaignSelection,
     episode_limit: int,
+    campaign_scope: CampaignScope = "cultivation-only",
 ) -> AnthropoceneElderEnv:
     return AnthropoceneElderEnv(
         JsonLineProcessTransport([dotnet, str(bridge_path)]),
-        _reset_request(selection, episode_limit),
+        _reset_request(selection, episode_limit, campaign_scope),
         normalizer=selection.normalizer,
     )
 
 
-def _reset_request(selection: CampaignSelection, episode_limit: int) -> dict[str, Any]:
+def _reset_request(
+    selection: CampaignSelection,
+    episode_limit: int,
+    campaign_scope: CampaignScope = "cultivation-only",
+) -> dict[str, Any]:
     record = selection.record
     return {
         "Seed": record.world_seed,
@@ -1982,7 +2666,7 @@ def _reset_request(selection: CampaignSelection, episode_limit: int) -> dict[str
         "Options": {
             "EnvironmentSchemaVersion": ENVIRONMENT_SCHEMA_VERSION,
             "EpisodeDecisionLimit": episode_limit,
-            "MovementEnabled": False,
+            "MovementEnabled": campaign_scope == "broad-domain",
             "SyntheticShocksEnabled": False,
             "IncludeTrainingCriticSidecar": False,
         },
@@ -2039,6 +2723,30 @@ def _assert_cultivation_scope(
     if violations:
         detail = ", ".join(violations)
         raise RuntimeError(f"Cultivation-only scope escaped for {snapshot_id} at {phase}: {detail}")
+
+
+def _assert_campaign_scope(
+    observation: EncodedObservation,
+    *,
+    campaign_scope: CampaignScope,
+    snapshot_id: str,
+    phase: str,
+) -> None:
+    """Fail before an excluded learned domain can enter a campaign transition."""
+
+    if campaign_scope == "cultivation-only":
+        _assert_cultivation_scope(
+            observation,
+            snapshot_id=snapshot_id,
+            phase=phase,
+        )
+        return
+    violations = broad_domain_scope_violations(observation)
+    if violations:
+        detail = ", ".join(violations)
+        raise RuntimeError(
+            f"Broad-domain scope escaped for {snapshot_id} at {phase}: {detail}"
+        )
 
 
 def _reward_denominator_violation(
@@ -2124,9 +2832,10 @@ def _save_and_verify_campaign_checkpoint(
 ) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "checkpoint_schema_version": "elder-ppo-campaign-checkpoint-v1",
+        "checkpoint_schema_version": "elder-ppo-campaign-checkpoint-v2",
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": trainer.optimizer.state_dict(),
+        "trainer_state_dict": trainer.state_dict(),
         "actor_critic_config": asdict(actor_config),
         "ppo_config": asdict(ppo_config),
         "pilot_config": asdict(pilot_config),
@@ -2148,14 +2857,14 @@ def _save_and_verify_campaign_checkpoint(
     )
     reloaded_model.load_state_dict(loaded["model_state_dict"])
     reloaded_trainer = PPOTrainer(reloaded_model, PPOConfig(**loaded["ppo_config"]))
-    reloaded_trainer.optimizer.load_state_dict(copy.deepcopy(loaded["optimizer_state_dict"]))
+    reloaded_trainer.load_state_dict(copy.deepcopy(loaded["trainer_state_dict"]))
     actual = _policy_vector(reloaded_model, observation)
     reference_model = ElderActorCritic(ElderActorCriticConfig(**loaded["actor_critic_config"])).to(
         device
     )
     reference_model.load_state_dict(loaded["model_state_dict"])
     reference_trainer = PPOTrainer(reference_model, PPOConfig(**loaded["ppo_config"]))
-    reference_trainer.optimizer.load_state_dict(copy.deepcopy(loaded["optimizer_state_dict"]))
+    reference_trainer.load_state_dict(copy.deepcopy(loaded["trainer_state_dict"]))
     _restore_rng_state(loaded["rng"])
     expected_stochastic = _stochastic_policy_vector(reference_model, observation)
     _restore_rng_state(loaded["rng"])
@@ -2180,6 +2889,11 @@ def _save_and_verify_campaign_checkpoint(
             abs(reference_metrics[key] - reloaded_metrics[key]) for key in reference_metrics
         ),
         "optimizer_state_reloaded": bool(reloaded_trainer.optimizer.state_dict()["state"]),
+        "value_normalization_state_reloaded": (
+            reloaded_trainer.value_count == reference_trainer.value_count
+            and reloaded_trainer.value_mean == reference_trainer.value_mean
+            and reloaded_trainer.value_m2 == reference_trainer.value_m2
+        ),
     }
 
 
@@ -2198,6 +2912,15 @@ def _timing_report(
         "ppo_update_seconds": timings.ppo_update_seconds,
         "ppo_update_transitions_per_second": transitions / max(timings.ppo_update_seconds, 1e-12),
         "rollout_collection_seconds": timings.collection_seconds,
+        "collector_worker_seconds": timings.collector_worker_seconds,
+        "collector_workers_peak": timings.collector_workers_peak,
+        "collector_parallel_efficiency": (
+            timings.collector_worker_seconds
+            / max(
+                timings.collection_seconds * timings.collector_workers_peak,
+                1e-12,
+            )
+        ),
         "end_to_end_seconds": elapsed,
         "end_to_end_transitions_per_second": transitions / max(elapsed, 1e-12),
     }

@@ -39,6 +39,7 @@ namespace Anthropocene.SnapshotBank
             NativeGeneratorVersion, NativeSimulatorSha,
             GeneratorConfigSha256;
         public int GenerationSeed, CalibrationRolloutSteps;
+        public int F15SharedCaptureHorizonSteps;
         public bool VerifyDeterministicRegeneration;
         public double LocalMovementRadius;
         public Dictionary<string, double> CapabilityExperienceThresholds =

@@ -143,6 +143,7 @@ def test_inactive_heads_are_gradient_inert() -> None:
     (result.log_prob + result.entropy).sum().backward()
     assert torch.count_nonzero(mean.grad[0, 1:]) == 0
     assert torch.count_nonzero(log_std.grad[1:]) == 0
+    assert torch.count_nonzero(logits.grad) == 0
 
 
 def test_inactive_heads_do_not_consume_gaussian_rng_draws() -> None:
@@ -166,3 +167,31 @@ def test_inactive_heads_do_not_consume_gaussian_rng_draws() -> None:
     assert sampled.continuous[0, 0].item() == 0.0
     assert sampled.continuous[0, 1].item() == 0.0
     assert sampled.continuous[0, 3].item() == 1.0
+
+
+def test_explicit_policy_generator_is_reproducible() -> None:
+    observation = torch.zeros(4, 512)
+    observation[:, 80:84] = 1.0
+    observation[:, 482:485] = 1.0
+    mean = torch.zeros(4, 4)
+    log_std = torch.zeros(4)
+    logits = torch.zeros(4, 8)
+
+    first = sample_hybrid(
+        mean,
+        log_std,
+        logits,
+        observation,
+        generator=torch.Generator().manual_seed(1701),
+    )
+    second = sample_hybrid(
+        mean,
+        log_std,
+        logits,
+        observation,
+        generator=torch.Generator().manual_seed(1701),
+    )
+
+    assert torch.equal(first.continuous, second.continuous)
+    assert torch.equal(first.movement_index, second.movement_index)
+    assert torch.equal(first.log_prob, second.log_prob)

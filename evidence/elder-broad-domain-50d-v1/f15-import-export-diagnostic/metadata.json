@@ -1,0 +1,11 @@
+{
+  "causal_group_count": 24,
+  "contrast": [
+    "mild-import",
+    "surplus-export"
+  ],
+  "diagnostic_config_sha256": "588cf127c26aac82fda479bb3bfb24f17cb3e3541604fd0f187b8856dcc39471",
+  "requested_record_count": 48,
+  "source_campaign_config_sha256": "70bece532630d25a7db954beff7df5d0b1b402b204fddbaffbed6ce1bb089953",
+  "status": "NON_PROMOTABLE_NATIVE_SCENARIO_CONSTRUCTION_DIAGNOSTIC"
+}
