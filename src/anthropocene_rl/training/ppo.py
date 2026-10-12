@@ -24,6 +24,8 @@ class PPOConfig:
     minibatch_size: int = 64
     target_kl: float | None = 0.05
     gradient_clip_mode: Literal["joint", "separate"] = "joint"
+    value_target_normalization: bool = False
+    value_normalization_epsilon: float = 1e-4
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,104 @@ class PPOTrainer:
             ),
             eps=1e-5,
         )
+        self.value_count = 0.0
+        self.value_mean = 0.0
+        self.value_m2 = 0.0
+
+    def value(self, observation: Tensor) -> Tensor:
+        """Return critic values in the rollout return scale."""
+
+        normalized = self.model.critic(observation)
+        if not self.config.value_target_normalization:
+            return normalized
+        return normalized * self.value_std + self.value_mean
+
+    @property
+    def value_std(self) -> float:
+        if self.value_count <= 0.0:
+            return 1.0
+        variance = self.value_m2 / self.value_count
+        return max(variance + self.config.value_normalization_epsilon, 0.0) ** 0.5
+
+    def state_dict(self) -> dict[str, object]:
+        return {
+            "optimizer": self.optimizer.state_dict(),
+            "value_normalization": {
+                "count": self.value_count,
+                "mean": self.value_mean,
+                "m2": self.value_m2,
+            },
+        }
+
+    def load_state_dict(self, state: dict[str, object]) -> None:
+        optimizer = state.get("optimizer")
+        if not isinstance(optimizer, dict):
+            raise ValueError("Trainer checkpoint is missing optimizer state")
+        self.optimizer.load_state_dict(optimizer)
+        normalization = state.get("value_normalization", {})
+        if not isinstance(normalization, dict):
+            raise ValueError("Trainer checkpoint has invalid value-normalization state")
+        self.value_count = float(normalization.get("count", 0.0))
+        self.value_mean = float(normalization.get("mean", 0.0))
+        self.value_m2 = float(normalization.get("m2", 0.0))
+
+    def _normalize_returns(self, returns: Tensor) -> Tensor:
+        if not self.config.value_target_normalization:
+            return returns
+        return (returns - self.value_mean) / self.value_std
+
+    @torch.no_grad()
+    def _update_value_normalization(self, returns: Tensor) -> None:
+        if not self.config.value_target_normalization:
+            return
+        if self.config.value_normalization_epsilon <= 0:
+            raise ValueError("value_normalization_epsilon must be positive")
+        values = returns.detach().to(dtype=torch.float64)
+        batch_count = float(values.numel())
+        if batch_count <= 0:
+            return
+        batch_mean = float(values.mean().cpu())
+        batch_m2 = float(torch.sum(torch.square(values - batch_mean)).cpu())
+        old_mean = self.value_mean
+        old_std = self.value_std
+        if self.value_count == 0.0:
+            combined_count = batch_count
+            combined_mean = batch_mean
+            combined_m2 = batch_m2
+        else:
+            combined_count = self.value_count + batch_count
+            delta = batch_mean - self.value_mean
+            combined_mean = self.value_mean + delta * batch_count / combined_count
+            combined_m2 = (
+                self.value_m2
+                + batch_m2
+                + delta * delta * self.value_count * batch_count / combined_count
+            )
+        self.value_count = combined_count
+        self.value_mean = combined_mean
+        self.value_m2 = combined_m2
+        new_std = self.value_std
+        scale = old_std / new_std
+        shift = (old_mean - self.value_mean) / new_std
+        head = self.model.critic.value_head
+        head.weight.mul_(scale)
+        head.bias.mul_(scale).add_(shift)
+        self._rescale_optimizer_moments(head.weight, scale)
+        self._rescale_optimizer_moments(head.bias, scale)
+
+    def _rescale_optimizer_moments(self, parameter: Tensor, scale: float) -> None:
+        state = self.optimizer.state.get(parameter)
+        if not state:
+            return
+        first = state.get("exp_avg")
+        second = state.get("exp_avg_sq")
+        maximum = state.get("max_exp_avg_sq")
+        if isinstance(first, Tensor):
+            first.mul_(scale)
+        if isinstance(second, Tensor):
+            second.mul_(scale * scale)
+        if isinstance(maximum, Tensor):
+            maximum.mul_(scale * scale)
 
     def update(self, batch: RolloutBatch) -> dict[str, float]:
         batch.validate()
@@ -94,9 +194,11 @@ class PPOTrainer:
         )
         with torch.no_grad():
             pre_update_critic = critic_fit_diagnostics(
-                self.model.critic(batch.observations),
+                self.value(batch.observations),
                 batch.returns,
             )
+        self._update_value_normalization(batch.returns)
+        normalized_returns = self._normalize_returns(batch.returns)
         actor_before = _parameter_snapshot(self.model.actor)
         actor_backbone_before = _parameter_snapshot(self.model.actor.backbone)
         actor_head_before = _parameter_snapshot(self.model.actor.continuous_mean)
@@ -141,7 +243,7 @@ class PPOTrainer:
                 movement = batch.movement_indices[index]
                 old_log_prob = batch.old_log_prob[index]
                 advantage = advantages[index]
-                target_return = batch.returns[index]
+                target_return = normalized_returns[index]
 
                 evaluated = self.model.actor.evaluate_actions(
                     observation,
@@ -320,7 +422,8 @@ class PPOTrainer:
                 batch.continuous_actions,
                 batch.movement_indices,
             )
-            value = self.model.critic(batch.observations)
+            normalized_value = self.model.critic(batch.observations)
+            value = self.value(batch.observations)
             post_update_critic = critic_fit_diagnostics(value, batch.returns)
             log_ratio = evaluated.log_prob - batch.old_log_prob
             ratio = torch.exp(log_ratio)
@@ -334,9 +437,13 @@ class PPOTrainer:
                             torch.abs(ratio - 1.0) > self.config.clip_ratio
                         ).float().mean()
                     ),
-                    "post_update_value_mse": float(
-                        torch.square(value - batch.returns).mean()
+                    "post_update_value_mse": float(torch.square(value - batch.returns).mean()),
+                    "post_update_normalized_value_mse": float(
+                        torch.square(normalized_value - normalized_returns).mean()
                     ),
+                    "value_normalization_count": self.value_count,
+                    "value_normalization_mean": self.value_mean,
+                    "value_normalization_std": self.value_std,
                     "post_update_entropy": float(evaluated.entropy.mean()),
                     "optimization_epochs_completed": float(epochs_completed),
                     "optimization_actor_epochs_completed": float(

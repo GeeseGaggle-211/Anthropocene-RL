@@ -363,8 +363,15 @@ def main() -> int:
     )
     pilot.add_argument("--seeds", default="1701,1901,2101")
     pilot.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    pilot.add_argument(
+        "--campaign-scope",
+        choices=("cultivation-only", "broad-domain"),
+        default="cultivation-only",
+    )
     pilot.add_argument("--updates", type=int, default=96)
     pilot.add_argument("--episodes-per-update", type=int, default=8)
+    pilot.add_argument("--rollouts-per-snapshot", type=int, default=1)
+    pilot.add_argument("--group-relative-first-decision", action="store_true")
     pilot.add_argument("--episode-steps", type=int, default=3)
     pilot.add_argument("--evaluation-interval", type=int, default=24)
     pilot.add_argument("--evaluation-steps", type=int, default=3)
@@ -372,11 +379,20 @@ def main() -> int:
     pilot.add_argument("--lambda-ref", type=float, default=0.95)
     pilot.add_argument("--lambda-reference-years", type=float, default=20.0)
     pilot.add_argument("--reward-scale", type=float, default=0.001)
+    pilot.add_argument("--replay-verification-interval", type=int, default=1)
+    pilot.add_argument("--collector-workers", type=int, default=1)
     pilot.add_argument("--learning-rate", type=float, default=1e-3)
     pilot.add_argument("--actor-learning-rate", type=float, default=3e-4)
     pilot.add_argument("--ppo-epochs", type=int, default=8)
     pilot.add_argument("--minibatch-size", type=int, default=64)
     pilot.add_argument("--target-kl", type=float, default=0.05)
+    pilot.add_argument(
+        "--gradient-clip-mode",
+        choices=("joint", "separate"),
+        default="joint",
+    )
+    pilot.add_argument("--entropy-coefficient", type=float, default=0.0)
+    pilot.add_argument("--value-target-normalization", action="store_true")
     pilot.add_argument("--actor-layer-norm", action="store_true")
     pilot.add_argument("--critic-layer-norm", action="store_true")
     pilot.add_argument(
@@ -554,6 +570,8 @@ def main() -> int:
                 device=args.device,
                 updates=args.updates,
                 episodes_per_update=args.episodes_per_update,
+                rollouts_per_snapshot=args.rollouts_per_snapshot,
+                group_relative_first_decision=args.group_relative_first_decision,
                 episode_steps=args.episode_steps,
                 horizon_years=args.horizon_years,
                 lambda_ref=args.lambda_ref,
@@ -671,14 +689,19 @@ def main() -> int:
                 lambda_reference_years=args.lambda_reference_years,
                 reward_scale=args.reward_scale,
                 evaluate_heldout=not args.skip_heldout_evaluation,
+                campaign_scope=args.campaign_scope,
+                replay_verification_interval=args.replay_verification_interval,
+                collector_workers=args.collector_workers,
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
                 actor_learning_rate=args.actor_learning_rate,
-                entropy_coefficient=0.0,
+                entropy_coefficient=args.entropy_coefficient,
                 epochs=args.ppo_epochs,
                 minibatch_size=args.minibatch_size,
                 target_kl=args.target_kl,
+                gradient_clip_mode=args.gradient_clip_mode,
+                value_target_normalization=args.value_target_normalization,
             ),
             actor_critic_config=ElderActorCriticConfig(
                 initial_log_std=-1.0,

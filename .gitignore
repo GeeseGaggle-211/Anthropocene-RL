@@ -56,3 +56,6 @@ evidence/elder-broad-domain-50d-v2/**/snapshots/
 evidence/elder-broad-domain-50d-v2/**/native-result.json
 evidence/elder-broad-domain-50d-v2/**/resolved-plan.json
 evidence/elder-broad-domain-50d-v2/bank/final-normalization-diagnostics.json
+evidence/elder-broad-domain-50d-v2/pilot/campaign-summary.json
+evidence/elder-broad-domain-50d-v2/pilot/option-a-baseline.json
+evidence/elder-broad-domain-50d-v2/pilot/seed-*.json

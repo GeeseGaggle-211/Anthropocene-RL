@@ -130,7 +130,13 @@ class ElderActor(nn.Module):
         movement = self.movement_logits(hidden)
         return mean, log_std, movement
 
-    def sample(self, observation: Tensor, *, deterministic: bool = False) -> HybridActionSample:
+    def sample(
+        self,
+        observation: Tensor,
+        *,
+        deterministic: bool = False,
+        generator: torch.Generator | None = None,
+    ) -> HybridActionSample:
         mean, log_std, movement = self.parameters_for(observation)
         return sample_hybrid(
             mean,
@@ -138,6 +144,7 @@ class ElderActor(nn.Module):
             movement,
             observation,
             deterministic=deterministic,
+            generator=generator,
         )
 
     def evaluate_actions(

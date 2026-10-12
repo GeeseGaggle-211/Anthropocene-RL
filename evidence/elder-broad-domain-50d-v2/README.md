@@ -43,3 +43,36 @@ HELDOUT, and 0.19% on TRAIN, below the frozen 10% limit.
 The full per-feature diagnostics, raw native results, SaveCodec blobs, and run
 artifacts are durable GCS artifacts. Git retains this hash-anchored summary,
 the frozen manifest/configuration, coverage/audit reports, and fitted normalizer.
+
+## Training execution contract
+
+The executable campaign configuration is
+`configs/training/elder-broad-domain-50d-v2.yaml`. Broad-domain training and
+evaluation are code-gated to exactly 50 decisions; a three- or five-decision
+configuration is rejected. Cultivation, husbandry, and movement use their
+native structural masks. Fishing and synthetic shocks remain excluded.
+
+Each update samples one TRAIN snapshot from each of the 13 families and runs
+four on-policy common-random-number trajectories per snapshot. The first
+decision uses a leave-one-out within-snapshot advantage; later decisions use
+the critic. Forty updates provide up to 104,000 transitions per neural seed.
+The critic uses running PopArt-style value-target normalization, critic-only
+LayerNorm, and separate actor/critic clipping. The actor remains the existing
+Tanh MLP without LayerNorm.
+
+An eight-worker 50-decision preflight collected 2,577 transitions in 48 seconds
+and passed all contract, replay, finite-value, reward-denominator, and
+per-state inactive-head gradient gates. The corresponding single-worker
+collection took about 137 seconds. The frozen native interface accepts only
+`RandomStream=0`; snapshot state owns keyed randomness, so repeated rollouts
+share the native future while policy actions remain independently sampled.
+
+## Storage
+
+The frozen bank is published at
+`gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-v2/2026-10-12-manifest-10ab09c7/manifest.json`.
+Both shards passed upload byte-count, CRC32C, MD5, and custom SHA-256 metadata
+checks. Small-object reads succeed, but a real large-shard re-fetch stalled at
+zero bytes in both the Python client and Google Cloud CLI on this machine.
+Local blobs therefore remain protected from pruning until an actual shard
+download and record re-materialization pass.

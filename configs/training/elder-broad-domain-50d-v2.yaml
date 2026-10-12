@@ -1,0 +1,79 @@
+name: elder-broad-domain-50d-v2
+status: prepared-for-execution
+campaign_scope: broad-domain
+source_branch: feature/elder-50d-broad-domain-bank
+starting_learner_commit: 3dce3077017a53efd955f5391466ebaaa5794149
+simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+snapshot_manifest: datasets/manifests/elder-v2-broad-domain-50d-v2.json
+snapshot_manifest_identity_sha256: 10ab09c73942cc3e2bea0bef409c6682a909d07022b0fb1d529d3b566979e736
+snapshot_dataset_uri: gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-v2/2026-10-12-manifest-10ab09c7/manifest.json
+normalizer: evidence/elder-broad-domain-50d-v2/bank/final-train-normalization.json
+normalizer_file_sha256: 0a568f5fb85962f59a12f671c69dbb43bb7cfd014f7b494fe877332cef1f146a
+normalizer_fit:
+  version: elder-normalization-v3
+  partition: train
+  reset_observations: 347
+  legal_calibration_observations: 1735
+  development_or_heldout_used: false
+neural_seeds: [1701, 1901, 2101]
+network:
+  actor: [512, 256, 256, active-hybrid-heads]
+  critic: [512, 256, 256, scalar-value]
+  activation: tanh
+  actor_layer_norm: false
+  critic_layer_norm: true
+  shared_trunk: false
+  recurrent: false
+  privileged_critic: false
+scope:
+  admitted: [cultivation, husbandry, movement, trade, migration, fission]
+  excluded: [fishing, synthetic-disaster-curriculum]
+  structural_masks_authoritative: true
+sampling:
+  kind: exact-balanced-family-within-family-shuffled-cycle
+  families: [F01, F02, F03, F04, F05, F06, F07, F13, F14, F15, F16, F17, F18]
+  optimization_partition: train
+  base_snapshots_per_update: 13
+  rollouts_per_snapshot: 4
+  group_relative_first_decision: true
+  rollout_episodes_per_update: 52
+  decisions_per_episode: 50
+  nominal_years_per_episode: 1000
+  updates: 40
+  maximum_transitions_per_seed: 104000
+  replay_verification_interval_training_episodes: 20
+  collector_workers: 8
+  native_random_stream: 0
+  randomness_contract: snapshot-owned-keyed-randomness
+  common_random_numbers_within_snapshot_rollout_group: true
+evaluation:
+  interval_updates: 10
+  decisions_per_episode: 50
+  development_use: checkpoint-selection-and-debugging
+  heldout_use: single-final-evaluation
+  comparator: option-a-through-shared-compiler
+physical_time_credit:
+  e_fold_horizon_years: 400
+  lambda_ref: 0.95
+  lambda_reference_years: 20
+  reward_scale: 0.001
+optimizer:
+  critic_learning_rate: 0.001
+  actor_learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.001
+  max_grad_norm: 0.5
+  gradient_clip_mode: separate
+  value_target_normalization: running-popart
+  epochs: 3
+  minibatch_size: 256
+  target_kl: 0.02
+storage:
+  backend: gcs
+  bucket: anthropocene-rl-datasets-508912
+  local_cache_gib: 5.0
+notes:
+  snapshot_generation_capture_horizon_decisions: 5
+  snapshot_capture_horizon_is_not_training_horizon: true
+  architecture_escalation_requires_demonstrated_representational_failure: true
