@@ -5,8 +5,11 @@ from collections import Counter
 from anthropocene_rl.datasets.broad_domain_plan import (
     BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS,
     BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS,
+    SCALEOUT_ACCEPTED_FAMILY_COUNTS,
+    SCALEOUT_ACCEPTED_PARTITION_COUNTS,
     broad_domain_plan_summary,
     build_elder_broad_domain_plan,
+    build_elder_scaleout_curriculum_plan,
     save_elder_broad_domain_plan,
 )
 from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationConfig
@@ -62,3 +65,41 @@ def test_broad_domain_plan_serialization_roundtrip(tmp_path) -> None:
         "husbandry",
         "movement",
     ]
+
+
+def test_scaleout_curriculum_is_fresh_deterministic_and_quota_safe() -> None:
+    base = build_elder_broad_domain_plan()
+    first = build_elder_scaleout_curriculum_plan()
+    second = build_elder_scaleout_curriculum_plan()
+
+    assert first.canonical_sha256() == second.canonical_sha256()
+    assert first.canonical_sha256() != base.canonical_sha256()
+    assert first.bank_id == "elder-v2-broad-domain-50d-scaleout-v1"
+    assert first.bank_version == "3.0.0-50d-scaleout-candidate"
+    assert sum(len(item.snapshot_steps) for item in first.trajectories) == 800
+    assert sum(SCALEOUT_ACCEPTED_FAMILY_COUNTS.values()) == 499
+    assert {item.world_seed for item in first.trajectories}.isdisjoint(
+        item.world_seed for item in base.trajectories
+    )
+    assert {item.lineage_id for item in first.trajectories}.isdisjoint(
+        item.lineage_id for item in base.trajectories
+    )
+
+    resolved, _ = first.resolve_partitions()
+    capacity: dict[str, Counter[str]] = {
+        family: Counter() for family in SCALEOUT_ACCEPTED_FAMILY_COUNTS
+    }
+    for trajectory in resolved:
+        capacity[trajectory.scenario_family][trajectory.partition.value] += len(
+            trajectory.snapshot_steps
+        )
+    for family, quotas in SCALEOUT_ACCEPTED_PARTITION_COUNTS.items():
+        assert sum(quotas.values()) == SCALEOUT_ACCEPTED_FAMILY_COUNTS[family]
+        for partition, required in quotas.items():
+            assert capacity[family][partition] >= required
+
+    summary = broad_domain_plan_summary(first)
+    assert summary["target_accepted_family_counts"] == SCALEOUT_ACCEPTED_FAMILY_COUNTS
+    assert summary["target_accepted_partition_counts"] == (
+        SCALEOUT_ACCEPTED_PARTITION_COUNTS
+    )

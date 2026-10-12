@@ -1,0 +1,14 @@
+{
+  "checked_manifests": [
+    "datasets/manifests/elder-v2-broad-domain-50d-v2.json",
+    "datasets/manifests/elder-v2-cultivation-pilot-normalization-v3-scope-safe.json",
+    "datasets/manifests/elder-v2-cultivation-pilot-normalization-v3.json",
+    "datasets/manifests/elder-v2-cultivation-pilot-v1.json",
+    "datasets/manifests/elder-v2-stage0-v1.json"
+  ],
+  "content_sha256_overlap_count": 0,
+  "lineage_id_overlap_count": 0,
+  "new_manifest_identity_sha256": "6036d104dc655305f62bde2e7650cb4b1d20f36dcfdb8337f92c9dcbdbf7f06e",
+  "status": "PASS",
+  "world_seed_overlap_count": 0
+}

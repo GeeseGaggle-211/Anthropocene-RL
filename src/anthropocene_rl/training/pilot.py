@@ -165,8 +165,10 @@ class PilotConfig:
         )
 
     def validate(self) -> None:
-        if len(self.seeds) != 3 or len(set(self.seeds)) != 3:
-            raise ValueError("The cultivation pilot requires three distinct neural seeds")
+        if len(self.seeds) not in {1, 3} or len(set(self.seeds)) != len(self.seeds):
+            raise ValueError(
+                "A campaign requires either one hero seed or three distinct replication seeds"
+            )
         if self.campaign_scope not in ("cultivation-only", "broad-domain"):
             raise ValueError("Unsupported campaign scope")
         if self.updates < 2 or self.episodes_per_update < len(self.families):
@@ -543,18 +545,22 @@ def run_cultivation_pilot(
     trajectory = _cultivation_trajectory(seed_reports)
     validation = _validation_assessment(seed_reports)
     promotion = _promotion_assessment(seed_reports)
+    validation_passed = all(validation.values())
+    configured_seed_promotion_passed = all(promotion.values())
+    replication_complete = len(config.seeds) == 3
+    run_passed = validation_passed and configured_seed_promotion_passed
     project_root = Path(__file__).resolve().parents[3]
     identities = _campaign_identities(dataset, bridge_path, project_root)
     result = {
-        "status": (
-            "PASS"
-            if all(validation.values()) and all(promotion.values())
-            else ("NO_GO" if all(validation.values()) else "FAIL")
-        ),
-        "validation_status": "PASS" if all(validation.values()) else "FAIL",
+        "status": "PASS" if run_passed else ("NO_GO" if validation_passed else "FAIL"),
+        "validation_status": "PASS" if validation_passed else "FAIL",
         "promotion_status": (
-            "PASS" if all(validation.values()) and all(promotion.values()) else "NO_GO"
+            "PASS"
+            if run_passed and replication_complete
+            else ("PROVISIONAL_PASS" if run_passed else "NO_GO")
         ),
+        "run_role": "replicated-campaign" if replication_complete else "single-seed-hero",
+        "replication_status": "COMPLETE" if replication_complete else "PENDING",
         "scope": (
             "movement-husbandry-cultivation-open-economy-ppo-pilot"
             if config.campaign_scope == "broad-domain"

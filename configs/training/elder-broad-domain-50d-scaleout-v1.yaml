@@ -1,0 +1,114 @@
+name: elder-broad-domain-50d-scaleout-v1
+status: frozen-ready-for-independent-review
+campaign_scope: broad-domain
+source_branch: feature/elder-full-curriculum-v1
+simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
+snapshot_manifest: datasets/manifests/elder-v2-broad-domain-50d-scaleout-v1.json
+snapshot_manifest_identity_sha256: 6036d104dc655305f62bde2e7650cb4b1d20f36dcfdb8337f92c9dcbdbf7f06e
+snapshot_manifest_file_sha256: 0a5fa3d3067211616b7c93a4229a5420fb8647251122b2f50d0ae5f3a7b97b4d
+generator_config_sha256: bf4517367870b3bd02a7ad7604aa0fe444b84671a883dbcc2ddefd927b4aa70e
+snapshot_dataset_uri: gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json
+normalizer: evidence/elder-broad-domain-50d-scaleout-v1/bank/final-train-normalization.json
+normalizer_file_sha256: 9d0136764b213f9d3b1b6996b41adfe92d43573de8192b3c46c89e60ae345fd1
+normalizer_fit:
+  version: elder-normalization-v3
+  partition: train
+  reset_observations: 348
+  legal_calibration_observations: 1740
+  development_or_heldout_used: false
+  saturation_gate_pass: true
+  maximum_observed_slice_saturation: 0.0044444444444444444
+execution:
+  target: google-ai-pro
+  run_locally: false
+  hero:
+    neural_seeds: [1701]
+    updates: 100
+    maximum_transitions: 260000
+    heldout: sealed
+    disposition: provisional-only-never-final-promotion
+  replicated_campaign:
+    neural_seeds: [1701, 1901, 2101]
+    updates_per_seed: 500
+    maximum_transitions_per_seed: 1300000
+    start: fresh-from-identical-initialization-contract
+    heldout: evaluate-once-after-development-checkpoint-selection
+network:
+  actor: [512, 256, 256, active-hybrid-heads]
+  critic: [512, 256, 256, scalar-value]
+  activation: tanh
+  actor_layer_norm: false
+  critic_layer_norm: true
+  shared_trunk: false
+  recurrent: false
+  privileged_critic: false
+  unseen_input_initialization: zero-first-layer-columns-with-zero-TRAIN-fit-count
+scope:
+  admitted: [cultivation, husbandry, movement, trade, migration, fission]
+  excluded: [fishing, synthetic-disaster-curriculum]
+  structural_masks_authoritative: true
+sampling:
+  kind: exact-balanced-family-within-family-shuffled-cycle
+  families: [F01, F02, F03, F04, F05, F06, F07, F13, F14, F15, F16, F17, F18]
+  optimization_partition: train
+  base_snapshots_per_update: 13
+  rollouts_per_snapshot: 4
+  group_relative_first_decision: true
+  rollout_episodes_per_update: 52
+  decisions_per_episode: 50
+  transitions_per_update: 2600
+  replay_verification_interval_training_episodes: 20
+  collector_workers: 8
+evaluation:
+  workers: 8
+  hero_interval_updates: 10
+  replicated_interval_updates: 20
+  decisions_per_episode: 50
+  checkpoint_selection: minimize-max-relative-qol-population-gap-to-option-a
+  diagnostic_partition: full-development
+  heuristic_parity_tolerance: 0.10
+  required_consecutive_new_parity_checkpoints: 2
+physical_time_credit:
+  e_fold_horizon_years: 400
+  lambda_ref: 0.95
+  lambda_reference_years: 20
+  reward_scale: 0.001
+optimizer:
+  critic_learning_rate: 0.001
+  actor_learning_rate: 0.0003
+  clip_ratio: 0.2
+  value_coefficient: 0.5
+  entropy_coefficient: 0.001
+  max_grad_norm: 0.5
+  gradient_clip_mode: separate
+  value_target_normalization: running-popart
+  epochs: 3
+  minibatch_size: 256
+  target_kl: 0.02
+diagnostics:
+  - per-head-log-std-by-update
+  - per-head-actor-mean-endpoint-rate
+  - development-reset-value-explained-variance
+  - critic-value-head-weight-and-bias-size
+  - clip-fraction-and-target-kl-early-stop-rate
+  - hidden-activation-saturation
+  - family-and-mask-visitation
+  - cultivation-intensity-trajectory
+stopping:
+  hard:
+    - contract-replay-numerical-or-reward-denominator-failure
+    - inactive-head-gradient-or-illegal-likelihood-failure
+    - post-update-kl-above-0.15
+    - hidden-activation-health-failure-on-two-evaluations
+    - continuous-log-std-at-collapse-floor-on-two-evaluations
+  success: two-consecutive-new-full-development-parity-checkpoints
+  plateau:
+    minimum_added_updates: 100
+    evaluation_intervals: 5
+    minimum_best-distance-improvement: 0.01
+storage:
+  dataset_backend: gcs
+  run_artifact_backend: gcs
+  bucket: anthropocene-rl-datasets-508912
+  local_cache_gib: 5.0
+  checkpoints_in_git: false

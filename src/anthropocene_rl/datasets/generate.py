@@ -29,7 +29,6 @@ from anthropocene_rl.contracts import (
 )
 from anthropocene_rl.datasets.audit import SnapshotBankAuditReport, audit_snapshot_bank
 from anthropocene_rl.datasets.blobs import ContentAddressedBlobStore
-from anthropocene_rl.datasets.broad_domain_plan import BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS
 from anthropocene_rl.datasets.coverage import save_coverage_report
 from anthropocene_rl.datasets.generation_config import SnapshotBankGenerationConfig
 from anthropocene_rl.datasets.models import (
@@ -496,10 +495,14 @@ def _select_broad_domain_candidates(
     accepted = config.broad_domain_accepted_partition_counts
     if accepted is None:
         raise ValueError("Broad-domain selection requires accepted partition counts")
+    accepted_families = {
+        family: sum(partitions.values())
+        for family, partitions in accepted.items()
+    }
     return _select_grouped_candidates(
         candidates,
         config=config,
-        accepted_family_counts=BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS,
+        accepted_family_counts=accepted_families,
         accepted_partition_counts=accepted,
         calibration_scope_violations=_candidate_broad_domain_scope_violations,
         scope_reason_code="broad-domain-scope-escape-during-calibration",
@@ -766,7 +769,7 @@ def _select_f15_partitioned_groups(
     family_groups: list[tuple[tuple[str, str], list[dict[str, Any]]]],
     record_quotas: dict[str, int],
 ) -> list[tuple[tuple[str, str], list[dict[str, Any]]]]:
-    """Select five pairs per F15 contrast while meeting split quotas exactly."""
+    """Balance F15 contrasts while meeting split quotas exactly."""
 
     group_quotas = {partition: count // 2 for partition, count in record_quotas.items()}
     if any(count % 2 for count in record_quotas.values()):
@@ -784,9 +787,23 @@ def _select_f15_partitioned_groups(
         )
         by_contrast[contrast][_group_partition(item[1])].append(item)
     if len(by_contrast) != 5:
-        raise ValueError("F15 must expose exactly five causal contrasts")
+        availability = {
+            " + ".join(contrast): {
+                partition: len(groups)
+                for partition, groups in sorted(partitions.items())
+            }
+            for contrast, partitions in sorted(by_contrast.items())
+        }
+        raise ValueError(
+            "F15 must expose exactly five causal contrasts after native identity "
+            f"de-duplication; observed={availability}"
+        )
     contrasts = sorted(by_contrast)
     partitions = ("train", "development", "heldout")
+    selected_pair_count = sum(group_quotas.values())
+    if selected_pair_count % len(contrasts):
+        raise ValueError("F15 pair quota must divide evenly across its five contrasts")
+    pairs_per_contrast = selected_pair_count // len(contrasts)
     allocation: dict[tuple[str, ...], dict[str, int]] = {}
 
     def search(index: int, remaining: dict[str, int]) -> bool:
@@ -796,9 +813,9 @@ def _select_f15_partitioned_groups(
         available = {
             partition: len(by_contrast[contrast].get(partition, [])) for partition in partitions
         }
-        for train in range(6):
-            for development in range(6 - train):
-                heldout = 5 - train - development
+        for train in range(pairs_per_contrast + 1):
+            for development in range(pairs_per_contrast - train + 1):
+                heldout = pairs_per_contrast - train - development
                 proposal = {
                     "train": train,
                     "development": development,
@@ -837,8 +854,10 @@ def _select_f15_partitioned_groups(
             selected.extend(
                 by_contrast[contrast].get(partition, [])[: allocation[contrast][partition]]
             )
-    if len(selected) != 25:
-        raise AssertionError("F15 selection must preserve 25 complete pairs")
+    if len(selected) != selected_pair_count:
+        raise AssertionError(
+            f"F15 selection must preserve {selected_pair_count} complete pairs"
+        )
     return selected
 
 

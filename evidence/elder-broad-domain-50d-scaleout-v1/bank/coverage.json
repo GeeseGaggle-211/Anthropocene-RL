@@ -1,0 +1,325 @@
+{
+  "bank_id": "elder-v2-broad-domain-50d-scaleout-v1",
+  "classification_counts": {
+    "controlled-valid-fixture": 374,
+    "synthetic-stress": 125
+  },
+  "fishing_ground_counts": {
+    "0": 499
+  },
+  "lineage_count": 382,
+  "manifest_sha256": "6036d104dc655305f62bde2e7650cb4b1d20f36dcfdb8337f92c9dcbdbf7f06e",
+  "measured_distributions": {
+    "delivered_food_export": {
+      "count": 499,
+      "max": 3584.8158936025766,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 380.80000000000007
+    },
+    "delivered_food_import": {
+      "count": 499,
+      "max": 12240.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 12070.0
+    },
+    "delivered_material_tool_import": {
+      "count": 499,
+      "max": 3584.8158936025766,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 188.02000000000004
+    },
+    "delivered_trade_total": {
+      "count": 499,
+      "max": 24480.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 345.4399999999989,
+      "p99": 24140.0
+    },
+    "field_q": {
+      "count": 499,
+      "max": 0.64,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.35999999999999993,
+      "p95": 0.6,
+      "p99": 0.64
+    },
+    "fission_exit_opportunity": {
+      "count": 499,
+      "max": 0.06630394881182368,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.0
+    },
+    "fission_pressure": {
+      "count": 499,
+      "max": 1.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.01999999999998181
+    },
+    "food_reserve_years": {
+      "count": 499,
+      "max": 80.0,
+      "min": 0.0,
+      "p5": 3.5450042672641358,
+      "p50": 20.0,
+      "p95": 80.0,
+      "p99": 80.0
+    },
+    "import_dependence": {
+      "count": 499,
+      "max": 0.45,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 0.45
+    },
+    "maintenance_worker_years": {
+      "count": 499,
+      "max": 16490.145721780747,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 80.93749999999999,
+      "p95": 4873.109516424508,
+      "p99": 14101.08558550322
+    },
+    "memory_age_years": {
+      "count": 499,
+      "max": 180.0,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 60.0,
+      "p99": 180.0
+    },
+    "population": {
+      "count": 499,
+      "max": 1100.0,
+      "min": 45.0,
+      "p5": 80.0,
+      "p50": 240.0,
+      "p95": 620.0,
+      "p99": 1100.0
+    },
+    "retained_field_capital": {
+      "count": 499,
+      "max": 17.919999999999995,
+      "min": 0.0,
+      "p5": 0.0,
+      "p50": 5.0,
+      "p95": 14.717499999999994,
+      "p99": 17.919999999999995
+    },
+    "signed_migration": {
+      "count": 499,
+      "max": 34.0,
+      "min": -34.0,
+      "p5": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "p99": 26.0
+    }
+  },
+  "measured_factor_counts": {
+    "amenity_band": {
+      "moderate": 188,
+      "poor": 116,
+      "strong": 195
+    },
+    "family": {
+      "F01": 25,
+      "F02": 38,
+      "F03": 60,
+      "F04": 40,
+      "F05": 30,
+      "F06": 35,
+      "F07": 35,
+      "F13": 30,
+      "F14": 54,
+      "F15": 50,
+      "F16": 28,
+      "F17": 42,
+      "F18": 32
+    },
+    "fission_state": {
+      "candidate": 5,
+      "none": 489,
+      "recent-split": 5
+    },
+    "frontier": {
+      "none": 70,
+      "plough": 16,
+      "primitive": 413
+    },
+    "memory_maturity": {
+      "mature": 14,
+      "partial": 78,
+      "young": 407
+    },
+    "migration_sign": {
+      "negative": 10,
+      "positive": 17,
+      "zero": 472
+    },
+    "population_band": {
+      "large": 97,
+      "medium": 272,
+      "small": 130
+    },
+    "q_band": {
+      "high": 128,
+      "low": 176,
+      "moderate": 195
+    },
+    "reserve_band": {
+      "moderate": 3,
+      "poor": 21,
+      "strong": 475
+    },
+    "tool_band": {
+      "moderate": 151,
+      "poor": 216,
+      "strong": 132
+    },
+    "trade_band": {
+      "mild": 18,
+      "none": 471,
+      "strong": 10
+    }
+  },
+  "measured_factor_pairwise_coverage": {
+    "fraction": 0.6792452830188679,
+    "observed_pairs": 540,
+    "possible_pairs": 795
+  },
+  "measured_tag_counts": {
+    "amenity-bottleneck": 75,
+    "cultivation-only": 337,
+    "emigration": 10,
+    "fission-candidate": 5,
+    "food-export": 7,
+    "food-import": 17,
+    "high-q": 128,
+    "husbandry-only": 70,
+    "immigration": 17,
+    "isolated": 441,
+    "low-q": 176,
+    "material-tool-import": 7,
+    "mature-memory": 14,
+    "migration-negative": 10,
+    "migration-positive": 17,
+    "mixed-cultivation-husbandry": 92,
+    "near-knee-q": 142,
+    "no-herd": 337,
+    "overstocked-herd": 25,
+    "plough-frontier": 16,
+    "post-fission": 5,
+    "pre-fission": 5,
+    "primitive-frontier": 413,
+    "recent-fission": 5,
+    "trade-active": 28,
+    "trade-dependent": 10,
+    "young-memory": 407
+  },
+  "partition_counts": {
+    "development": 75,
+    "heldout": 76,
+    "train": 348
+  },
+  "scenario_family_by_partition": {
+    "F01": {
+      "development": 4,
+      "heldout": 4,
+      "train": 17
+    },
+    "F02": {
+      "development": 4,
+      "heldout": 4,
+      "train": 30
+    },
+    "F03": {
+      "development": 13,
+      "heldout": 9,
+      "train": 38
+    },
+    "F04": {
+      "development": 6,
+      "heldout": 6,
+      "train": 28
+    },
+    "F05": {
+      "development": 4,
+      "heldout": 4,
+      "train": 22
+    },
+    "F06": {
+      "development": 5,
+      "heldout": 5,
+      "train": 25
+    },
+    "F07": {
+      "development": 5,
+      "heldout": 5,
+      "train": 25
+    },
+    "F13": {
+      "development": 4,
+      "heldout": 4,
+      "train": 22
+    },
+    "F14": {
+      "development": 8,
+      "heldout": 8,
+      "train": 38
+    },
+    "F15": {
+      "development": 8,
+      "heldout": 8,
+      "train": 34
+    },
+    "F16": {
+      "development": 4,
+      "heldout": 4,
+      "train": 20
+    },
+    "F17": {
+      "development": 6,
+      "heldout": 9,
+      "train": 27
+    },
+    "F18": {
+      "development": 4,
+      "heldout": 6,
+      "train": 22
+    }
+  },
+  "snapshot_count": 499,
+  "structural_mask_signatures": {
+    "0101": 70,
+    "1010": 337,
+    "1111": 92
+  },
+  "world_count": 382,
+  "world_counts_by_partition": {
+    "development": 58,
+    "heldout": 56,
+    "train": 268
+  }
+}
