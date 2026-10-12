@@ -27,25 +27,32 @@ def _activation(name: str) -> type[nn.Module]:
 
 
 class _Backbone(nn.Module):
-    """Baseline hidden MLP without runtime layer normalization.
+    """Hidden MLP with an explicit, independently configurable normalization ablation."""
 
-    Inputs are expected to use a frozen semantic observation transform,
-    while tanh bounds each post-activation hidden value. Linear pre-activations can
-    still grow and saturate tanh during training, so LayerNorm remains a
-    diagnostic-triggered ablation if optimization metrics show instability or
-    saturation; it is intentionally not part of the baseline architecture.
-    """
-
-    def __init__(self, *, activation: str = "tanh") -> None:
+    def __init__(self, *, activation: str = "tanh", layer_norm: bool = False) -> None:
         super().__init__()
         self.activation_name = activation
+        self.layer_norm = layer_norm
         act = _activation(activation)
-        self.net = nn.Sequential(
-            nn.Linear(TENSOR_FEATURE_COUNT, 256),
-            act(),
-            nn.Linear(256, 256),
-            act(),
-        )
+        if layer_norm:
+            self.net = nn.Sequential(
+                nn.Linear(TENSOR_FEATURE_COUNT, 256),
+                nn.LayerNorm(256),
+                act(),
+                nn.Linear(256, 256),
+                nn.LayerNorm(256),
+                act(),
+            )
+            self._diagnostic_layout = ((0, 1, 2), (3, 4, 5))
+        else:
+            # Keep the legacy module layout and state-dict keys exactly unchanged.
+            self.net = nn.Sequential(
+                nn.Linear(TENSOR_FEATURE_COUNT, 256),
+                act(),
+                nn.Linear(256, 256),
+                act(),
+            )
+            self._diagnostic_layout = ((0, None, 1), (2, None, 3))
         for module in self.modules():
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, gain=2**0.5)
@@ -58,16 +65,23 @@ class _Backbone(nn.Module):
     def activation_diagnostics(self, observation: Tensor) -> dict[str, object]:
         hidden = observation.detach()
         layers: list[dict[str, object]] = []
-        for layer_index, offset in enumerate((0, 2), start=1):
-            linear = self.net[offset]
-            activation = self.net[offset + 1]
+        for layer_index, (linear_offset, norm_offset, activation_offset) in enumerate(
+            self._diagnostic_layout, start=1
+        ):
+            linear = self.net[linear_offset]
+            normalization = self.net[norm_offset] if norm_offset is not None else None
+            activation = self.net[activation_offset]
             if not isinstance(linear, nn.Linear):  # pragma: no cover - construction invariant
                 raise TypeError("Backbone diagnostic expected a linear layer")
-            preactivation = linear(hidden)
+            linear_output = linear(hidden)
+            preactivation = (
+                normalization(linear_output) if normalization is not None else linear_output
+            )
             hidden = activation(preactivation)
             layers.append(
                 {
                     "layer": layer_index,
+                    "linear_output": _tensor_diagnostics(linear_output),
                     "preactivation": _tensor_diagnostics(preactivation),
                     "activation": {
                         **_tensor_diagnostics(hidden),
@@ -83,13 +97,23 @@ class _Backbone(nn.Module):
                     },
                 }
             )
-        return {"activation": self.activation_name, "layers": layers}
+        return {
+            "activation": self.activation_name,
+            "layer_norm": self.layer_norm,
+            "layers": layers,
+        }
 
 
 class ElderActor(nn.Module):
-    def __init__(self, *, activation: str = "tanh", initial_log_std: float = -0.5) -> None:
+    def __init__(
+        self,
+        *,
+        activation: str = "tanh",
+        initial_log_std: float = -0.5,
+        layer_norm: bool = False,
+    ) -> None:
         super().__init__()
-        self.backbone = _Backbone(activation=activation)
+        self.backbone = _Backbone(activation=activation, layer_norm=layer_norm)
         self.continuous_mean = nn.Linear(256, 4)
         self.movement_logits = nn.Linear(256, 8)
         self.log_std = nn.Parameter(torch.full((4,), float(initial_log_std)))
@@ -134,9 +158,9 @@ class ElderActor(nn.Module):
 
 
 class ElderCritic(nn.Module):
-    def __init__(self, *, activation: str = "tanh") -> None:
+    def __init__(self, *, activation: str = "tanh", layer_norm: bool = False) -> None:
         super().__init__()
-        self.backbone = _Backbone(activation=activation)
+        self.backbone = _Backbone(activation=activation, layer_norm=layer_norm)
         self.value_head = nn.Linear(256, 1)
         nn.init.orthogonal_(self.value_head.weight, gain=1.0)
         nn.init.zeros_(self.value_head.bias)
@@ -149,6 +173,8 @@ class ElderCritic(nn.Module):
 class ElderActorCriticConfig:
     activation: str = "tanh"
     initial_log_std: float = -0.5
+    actor_layer_norm: bool = False
+    critic_layer_norm: bool = False
 
 
 class ElderActorCritic(nn.Module):
@@ -158,8 +184,12 @@ class ElderActorCritic(nn.Module):
         self.actor = ElderActor(
             activation=config.activation,
             initial_log_std=config.initial_log_std,
+            layer_norm=config.actor_layer_norm,
         )
-        self.critic = ElderCritic(activation=config.activation)
+        self.critic = ElderCritic(
+            activation=config.activation,
+            layer_norm=config.critic_layer_norm,
+        )
 
     def value(self, observation: Tensor) -> Tensor:
         return self.critic(observation)

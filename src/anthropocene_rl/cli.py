@@ -376,6 +376,13 @@ def main() -> int:
     pilot.add_argument("--ppo-epochs", type=int, default=8)
     pilot.add_argument("--minibatch-size", type=int, default=64)
     pilot.add_argument("--target-kl", type=float, default=0.05)
+    pilot.add_argument("--actor-layer-norm", action="store_true")
+    pilot.add_argument("--critic-layer-norm", action="store_true")
+    pilot.add_argument(
+        "--skip-heldout-evaluation",
+        action="store_true",
+        help="Keep HELDOUT sealed during optimizer tuning runs",
+    )
     args = parser.parse_args()
 
     if args.command == "check-manifest":
@@ -631,6 +638,7 @@ def main() -> int:
         print(json.dumps(diagnostics, sort_keys=True))
         return 0 if diagnostics["status"] == "PASS" else 1
     if args.command == "cultivation-pilot":
+        from anthropocene_rl.policies.elder_mlp import ElderActorCriticConfig
         from anthropocene_rl.training.pilot import PilotConfig, run_cultivation_pilot
         from anthropocene_rl.training.ppo import PPOConfig
 
@@ -658,6 +666,7 @@ def main() -> int:
                 lambda_ref=args.lambda_ref,
                 lambda_reference_years=args.lambda_reference_years,
                 reward_scale=args.reward_scale,
+                evaluate_heldout=not args.skip_heldout_evaluation,
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
@@ -667,11 +676,18 @@ def main() -> int:
                 minibatch_size=args.minibatch_size,
                 target_kl=args.target_kl,
             ),
+            actor_critic_config=ElderActorCriticConfig(
+                initial_log_std=-1.0,
+                actor_layer_norm=args.actor_layer_norm,
+                critic_layer_norm=args.critic_layer_norm,
+            ),
         )
         print(
             json.dumps(
                 {
                     "status": diagnostics["status"],
+                    "validation_status": diagnostics["validation_status"],
+                    "promotion_status": diagnostics["promotion_status"],
                     "evidence": str(args.evidence_directory / "campaign-summary.json"),
                     "evidence_sha256": diagnostics["evidence_sha256"],
                 },

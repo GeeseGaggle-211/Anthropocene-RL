@@ -80,7 +80,12 @@ from anthropocene_rl.training.overfit import (
     _timing_stop,
     _write_json,
 )
-from anthropocene_rl.training.ppo import PPOConfig, PPOTrainer, RolloutBatch
+from anthropocene_rl.training.ppo import (
+    PPOConfig,
+    PPOTrainer,
+    RolloutBatch,
+    critic_fit_diagnostics,
+)
 from anthropocene_rl.training.returns import (
     discounted_interval_reward,
     generalized_advantage_estimate,
@@ -115,6 +120,7 @@ class PilotConfig:
     lambda_reference_years: float = 20.0
     reward_scale: float = 0.001
     train_probe_per_family: int = 2
+    evaluate_heldout: bool = True
 
     def validate(self) -> None:
         if len(self.seeds) != 3 or len(set(self.seeds)) != 3:
@@ -319,6 +325,7 @@ def run_cultivation_pilot(
     checkpoint_directory: str | Path = DEFAULT_CHECKPOINT_DIRECTORY,
     config: PilotConfig | None = None,
     ppo_config: PPOConfig | None = None,
+    actor_critic_config: ElderActorCriticConfig | None = None,
 ) -> dict[str, Any]:
     config = config or PilotConfig()
     config.validate()
@@ -330,6 +337,7 @@ def run_cultivation_pilot(
         minibatch_size=64,
         target_kl=0.05,
     )
+    actor_critic_config = actor_critic_config or ElderActorCriticConfig(initial_log_std=-1.0)
     evidence_dir = Path(evidence_directory)
     checkpoint_dir = Path(checkpoint_directory)
     bridge_path = Path(bridge_dll).resolve()
@@ -371,7 +379,9 @@ def run_cultivation_pilot(
             reward_scale=config.reward_scale,
             policy="option-a",
         ),
-        "heldout": _evaluate_records(
+    }
+    if config.evaluate_heldout:
+        option_a["heldout"] = _evaluate_records(
             dataset=dataset,
             records=heldout,
             bridge_path=bridge_path,
@@ -380,8 +390,7 @@ def run_cultivation_pilot(
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
             policy="option-a",
-        ),
-    }
+        )
     _write_json(evidence_dir / "option-a-baseline.json", option_a)
 
     seed_reports: list[dict[str, Any]] = []
@@ -400,29 +409,43 @@ def run_cultivation_pilot(
             checkpoint_path=checkpoint_dir / f"seed-{seed}.pt",
             config=config,
             ppo_config=ppo_config,
+            actor_config=actor_critic_config,
         )
         seed_reports.append(report)
         _write_json(evidence_dir / f"seed-{seed}.json", report)
 
     trajectory = _cultivation_trajectory(seed_reports)
+    validation = _validation_assessment(seed_reports)
     promotion = _promotion_assessment(seed_reports)
     project_root = Path(__file__).resolve().parents[3]
     identities = _campaign_identities(dataset, bridge_path, project_root)
     result = {
-        "status": "PASS" if all(promotion.values()) else "NO_GO",
+        "status": (
+            "PASS"
+            if all(validation.values()) and all(promotion.values())
+            else ("NO_GO" if all(validation.values()) else "FAIL")
+        ),
+        "validation_status": "PASS" if all(validation.values()) else "FAIL",
+        "promotion_status": (
+            "PASS" if all(validation.values()) and all(promotion.values()) else "NO_GO"
+        ),
         "scope": "fixed-location-cultivation-control-open-economy-ppo-pilot",
         "identities": identities,
         "configuration": {
             "pilot": asdict(config),
             "ppo": asdict(ppo_config),
-            "actor_critic": asdict(ElderActorCriticConfig(initial_log_std=-1.0)),
+            "actor_critic": asdict(actor_critic_config),
             "reset_sampler": {
                 "kind": "exact-balanced-family-within-family-shuffled-cycle",
                 "families": list(PILOT_FAMILIES),
                 "episodes_per_update": config.episodes_per_update,
                 "optimization_partition": Partition.TRAIN.value,
                 "development_use": "checkpoint-selection-and-debugging-only",
-                "heldout_use": "single-final-evaluation-only",
+                "heldout_use": (
+                    "single-final-evaluation-only"
+                    if config.evaluate_heldout
+                    else "sealed-not-evaluated"
+                ),
             },
             "structural_scope": {
                 "asserted": "reset-and-every-post-step-state",
@@ -445,6 +468,7 @@ def run_cultivation_pilot(
         "option_a_baseline": {key: value["summary"] for key, value in option_a.items()},
         "seeds": seed_reports,
         "cultivation_intensity_trajectory": trajectory,
+        "validation_gates": validation,
         "promotion_gates": promotion,
         "elapsed_seconds": time.perf_counter() - campaign_started,
     }
@@ -470,9 +494,9 @@ def _run_seed(
     checkpoint_path: Path,
     config: PilotConfig,
     ppo_config: PPOConfig,
+    actor_config: ElderActorCriticConfig,
 ) -> dict[str, Any]:
     device = _configure_determinism(seed, config.device)
-    actor_config = ElderActorCriticConfig(initial_log_std=-1.0)
     model = ElderActorCritic(actor_config).to(device)
     trainer = PPOTrainer(model, ppo_config)
     sampler = BalancedFamilySampler(train, seed)
@@ -496,7 +520,14 @@ def _run_seed(
     best_score = -math.inf
     best_update = 0
     best_state: dict[str, Any] | None = None
+    best_health_score = -math.inf
+    best_health_update = 0
+    best_health_state: dict[str, Any] | None = None
     initial_activation_diagnostics: dict[str, object] | None = None
+    fixed_training_observations: Tensor | None = None
+    fixed_critic_targets: Tensor | None = None
+    activation_probe_curve: list[dict[str, Any]] = []
+    critic_fit_curve: list[dict[str, Any]] = []
 
     initial_evaluation = _evaluate_records(
         dataset=dataset,
@@ -512,6 +543,17 @@ def _run_seed(
     )
     evaluation_curve.append(
         {"update": 0, "partition": "development-probe", **initial_evaluation["summary"]}
+    )
+    initial_development_probe_score = float(
+        initial_evaluation["summary"]["discounted_scaled_return"]["mean"]
+    )
+    fixed_development_observations = _fixed_reset_observations(
+        dataset=dataset,
+        records=development_probe,
+        bridge_path=bridge_path,
+        dotnet=dotnet,
+        episode_steps=config.evaluation_steps,
+        device=device,
     )
 
     training_started = time.perf_counter()
@@ -529,9 +571,29 @@ def _run_seed(
             )
             batch = collected.pop("batch")
             last_batch = batch
-            if initial_activation_diagnostics is None:
+            if fixed_training_observations is None:
+                fixed_training_observations = batch.observations.detach().clone()
+                fixed_critic_targets = batch.returns.detach().clone()
                 initial_activation_diagnostics = model.hidden_activation_diagnostics(
-                    batch.observations
+                    fixed_training_observations
+                )
+                activation_probe_curve.append(
+                    _activation_probe_row(
+                        update=0,
+                        model=model,
+                        train_observations=fixed_training_observations,
+                        development_observations=fixed_development_observations,
+                    )
+                )
+                critic_fit_curve.append(
+                    {
+                        "update": 0,
+                        **_critic_probe_diagnostics(
+                            model,
+                            fixed_training_observations,
+                            fixed_critic_targets,
+                        ),
+                    }
                 )
             update_started = _timing_start(device)
             metrics = trainer.update(batch)
@@ -579,31 +641,130 @@ def _run_seed(
                     model=model,
                     device=device,
                 )
+                critic_health = _critic_health_window(learning_curve)
                 evaluation_curve.append(
                     {
                         "update": update,
                         "partition": "development-probe",
+                        "critic_health": critic_health,
                         **evaluated["summary"],
+                    }
+                )
+                assert fixed_training_observations is not None
+                assert fixed_critic_targets is not None
+                activation_probe_curve.append(
+                    _activation_probe_row(
+                        update=update,
+                        model=model,
+                        train_observations=fixed_training_observations,
+                        development_observations=fixed_development_observations,
+                    )
+                )
+                critic_fit_curve.append(
+                    {
+                        "update": update,
+                        **_critic_probe_diagnostics(
+                            model,
+                            fixed_training_observations,
+                            fixed_critic_targets,
+                        ),
                     }
                 )
                 score = float(evaluated["summary"]["discounted_scaled_return"]["mean"])
                 if score > best_score:
                     best_score = score
                     best_update = update
-                    best_state = {
-                        "model": copy.deepcopy(model.state_dict()),
-                        "optimizer": copy.deepcopy(trainer.optimizer.state_dict()),
-                        "rng": _capture_rng_state(),
-                    }
+                    best_state = _capture_training_state(model, trainer)
+                if critic_health["eligible"] and score > best_health_score:
+                    best_health_score = score
+                    best_health_update = update
+                    best_health_state = _capture_training_state(model, trainer)
     finally:
         env.close()
     training_seconds = time.perf_counter() - training_started
-    if last_batch is None or best_state is None:
+    if (
+        last_batch is None
+        or best_state is None
+        or fixed_training_observations is None
+        or fixed_critic_targets is None
+        or initial_activation_diagnostics is None
+    ):
         raise RuntimeError("Pilot seed produced no selected checkpoint")
+    final_activation_probe = _activation_probe_row(
+        update=config.updates,
+        model=model,
+        train_observations=fixed_training_observations,
+        development_observations=fixed_development_observations,
+    )
+    final_critic_fit = _critic_probe_diagnostics(
+        model,
+        fixed_training_observations,
+        fixed_critic_targets,
+    )
+    final_critic_health = _critic_health_window(learning_curve)
+    terminal_development_evaluation = _evaluate_records(
+        dataset=dataset,
+        records=development,
+        bridge_path=bridge_path,
+        dotnet=dotnet,
+        episode_steps=config.evaluation_steps,
+        horizon_years=config.horizon_years,
+        reward_scale=config.reward_scale,
+        policy="learned",
+        model=model,
+        device=device,
+    )
+    terminal_checkpoint = {
+        "update": config.updates,
+        "development": terminal_development_evaluation,
+        "baseline_comparison": _compare_evaluations(
+            terminal_development_evaluation,
+            option_a["development"],
+        ),
+    }
+    shadow_health_checkpoint: dict[str, Any] | None = None
+    if best_health_state is not None:
+        model.load_state_dict(best_health_state["model"])
+        health_evaluation = _evaluate_records(
+            dataset=dataset,
+            records=development,
+            bridge_path=bridge_path,
+            dotnet=dotnet,
+            episode_steps=config.evaluation_steps,
+            horizon_years=config.horizon_years,
+            reward_scale=config.reward_scale,
+            policy="learned",
+            model=model,
+            device=device,
+        )
+        shadow_health_checkpoint = {
+            "update": best_health_update,
+            "development_probe_score": best_health_score,
+            "critic_health": _critic_health_window(
+                learning_curve[:best_health_update]
+            ),
+            "development": health_evaluation,
+            "baseline_comparison": _compare_evaluations(
+                health_evaluation,
+                option_a["development"],
+            ),
+        }
     model.load_state_dict(best_state["model"])
     trainer.optimizer.load_state_dict(best_state["optimizer"])
     _restore_rng_state(best_state["rng"])
-    selected_activation_diagnostics = model.hidden_activation_diagnostics(last_batch.observations)
+    selected_activation_probe = _activation_probe_row(
+        update=best_update,
+        model=model,
+        train_observations=fixed_training_observations,
+        development_observations=fixed_development_observations,
+    )
+    selected_activation_diagnostics = selected_activation_probe["train"]
+    selected_critic_fit = _critic_probe_diagnostics(
+        model,
+        fixed_training_observations,
+        fixed_critic_targets,
+    )
+    selected_critic_health = _critic_health_window(learning_curve[:best_update])
 
     final_evaluation = {
         "train_probe": _evaluate_records(
@@ -630,7 +791,9 @@ def _run_seed(
             model=model,
             device=device,
         ),
-        "heldout": _evaluate_records(
+    }
+    if config.evaluate_heldout:
+        final_evaluation["heldout"] = _evaluate_records(
             dataset=dataset,
             records=heldout,
             bridge_path=bridge_path,
@@ -641,8 +804,7 @@ def _run_seed(
             policy="learned",
             model=model,
             device=device,
-        ),
-    }
+        )
     comparisons = {
         key: _compare_evaluations(final_evaluation[key], option_a[key]) for key in final_evaluation
     }
@@ -664,13 +826,21 @@ def _run_seed(
     mean_clip = float(np.mean([row["ppo"]["post_update_clip_fraction"] for row in learning_curve]))
     critic_start = float(learning_curve[0]["ppo"]["post_update_value_mse"])
     critic_end = float(learning_curve[-1]["ppo"]["post_update_value_mse"])
+    actor_activation_healthy = _activation_probe_healthy(
+        selected_activation_probe,
+        network="actor",
+    ) and _activation_probe_healthy(final_activation_probe, network="actor")
+    critic_activation_healthy = _activation_probe_healthy(
+        selected_activation_probe,
+        network="critic",
+    ) and _activation_probe_healthy(final_activation_probe, network="critic")
     active_heads = [0, 2]
     inactive_gradient = max(
         inactive_head_gradient_max[1],
         inactive_head_gradient_max[3],
         movement_head_gradient_max,
     )
-    gates = {
+    validation_gates = {
         "contract_and_numerics": all(totals[key] == 0 for key in totals),
         "structural_scope_preserved": True,
         "inactive_heads_gradient_inert": inactive_gradient <= 1e-12,
@@ -682,22 +852,56 @@ def _run_seed(
         ),
         "ppo_kl_stable": maximum_kl <= 0.15 and mean_clip <= 0.60,
         "critic_finite": math.isfinite(critic_start) and math.isfinite(critic_end),
-        "development_not_strongly_worse_than_option_a": comparisons["development"][
-            "competitive_with_baseline"
-        ],
-        "heldout_not_strongly_worse_than_option_a": comparisons["heldout"][
-            "competitive_with_baseline"
-        ],
-        "no_universal_self_sufficiency_signal": not final_evaluation["development"][
-            "self_sufficiency"
-        ]["universal_self_sufficiency_signal"],
+        "actor_activations_healthy": actor_activation_healthy,
+        "critic_activations_healthy": critic_activation_healthy,
+        "selected_checkpoint_critic_health": bool(selected_critic_health["eligible"]),
+        "final_checkpoint_critic_health": bool(final_critic_health["eligible"]),
+    }
+    development_comparison = comparisons["development"]
+    self_sufficiency = final_evaluation["development"]["self_sufficiency"]
+    family_relative = development_comparison["by_family_mean_relative_difference"]
+    promotion_gates = {
+        "selected_checkpoint_not_worse_than_initial_probe": (
+            best_score >= initial_development_probe_score - 1e-12
+        ),
+        "development_mean_relative_return_at_least_minus_two_percent": (
+            development_comparison["relative_return_difference"]["mean"] >= -0.02
+        ),
+        "development_median_relative_return_at_or_above_baseline": (
+            development_comparison["relative_return_difference"]["p50"] >= 0.0
+        ),
+        "development_all_family_mean_relative_returns_at_least_minus_five_percent": (
+            bool(family_relative) and min(family_relative.values()) >= -0.05
+        ),
+        "development_trade_contrast_evaluable": bool(
+            self_sufficiency["trade_contrast_evaluable"]
+        ),
+        "no_universal_self_sufficiency_signal": (
+            self_sufficiency["universal_self_sufficiency_signal"] is False
+        ),
     }
     return {
         "seed": seed,
-        "status": "PASS" if all(gates.values()) else "FAIL",
+        "status": (
+            "PASS"
+            if all(validation_gates.values()) and all(promotion_gates.values())
+            else ("NO_GO" if all(validation_gates.values()) else "FAIL")
+        ),
+        "validation_status": "PASS" if all(validation_gates.values()) else "FAIL",
+        "promotion_status": (
+            "PASS"
+            if all(validation_gates.values()) and all(promotion_gates.values())
+            else "NO_GO"
+        ),
         "selected_update": best_update,
+        "initial_development_probe_score": initial_development_probe_score,
         "selected_development_probe_score": best_score,
-        "gates": gates,
+        "selected_minus_initial_development_probe_score": (
+            best_score - initial_development_probe_score
+        ),
+        "gates": {**validation_gates, **promotion_gates},
+        "validation_gates": validation_gates,
+        "promotion_gates": promotion_gates,
         "training": {
             "transitions": sum(int(row["transitions"]) for row in learning_curve),
             "elapsed_seconds": training_seconds,
@@ -719,14 +923,43 @@ def _run_seed(
             "critic_final_post_update_mse": critic_end,
             "hidden_activation_diagnostics": {
                 "initial_policy": initial_activation_diagnostics,
+                "final_policy": final_activation_probe["train"],
                 "selected_policy": selected_activation_diagnostics,
                 "tanh_saturation_trigger": 0.10,
+                "tanh_derivative_floor": 0.10,
                 "layernorm_ablation_recommended": any(
                     float(layer["activation"]["abs_at_or_above_0_95_rate"]) >= 0.10
                     for network in ("actor", "critic")
                     for layer in selected_activation_diagnostics[network]["layers"]
                 ),
+                "fixed_probe": {
+                    "definition": (
+                        "first TRAIN rollout observations plus deterministic reset "
+                        "observations from one DEVELOPMENT snapshot per family"
+                    ),
+                    "activation_curve": activation_probe_curve,
+                    "final": final_activation_probe,
+                    "selected": selected_activation_probe,
+                    "critic_fit_targets": "frozen returns from the first TRAIN rollout batch",
+                    "critic_fit_promotion_use": False,
+                    "critic_fit_warning": (
+                        "historical diagnostic only: bootstrapped value targets become stale as "
+                        "the continuation-value estimate changes"
+                    ),
+                    "critic_fit_curve": critic_fit_curve,
+                    "final_critic_fit": final_critic_fit,
+                    "selected_critic_fit": selected_critic_fit,
+                },
             },
+            "critic_health_screen": {
+                "definition": (
+                    "preceding eight ordinary rollout batches, measured before each PPO update"
+                ),
+                "selected": selected_critic_health,
+                "final": final_critic_health,
+                "shadow_health_eligible_checkpoint": shadow_health_checkpoint,
+            },
+            "terminal_checkpoint": terminal_checkpoint,
             "timing": _timing_report(timings, learning_curve, training_seconds),
         },
         "evaluation": final_evaluation,
@@ -967,6 +1200,161 @@ def _collect_update(
     }
 
 
+def _fixed_reset_observations(
+    *,
+    dataset: CampaignDataset,
+    records: tuple[SnapshotRecord, ...],
+    bridge_path: Path,
+    dotnet: str,
+    episode_steps: int,
+    device: torch.device,
+) -> Tensor:
+    """Capture deterministic reset observations for architecture diagnostics."""
+
+    if not records:
+        raise ValueError("A fixed reset probe requires at least one snapshot")
+    env = _make_environment(
+        bridge_path=bridge_path,
+        dotnet=dotnet,
+        selection=dataset.selection(records[0]),
+        episode_limit=episode_steps,
+    )
+    observations: list[np.ndarray] = []
+    try:
+        for record in records:
+            selection = dataset.selection(record)
+            observation, info = env.reset(options=_reset_request(selection, episode_steps))
+            _validate_campaign_reset(_plain_mapping(info["native_result"]), selection)
+            _assert_cultivation_scope(
+                _raw_observation(info),
+                snapshot_id=selection.record.snapshot_id,
+                phase="fixed-diagnostic-reset",
+            )
+            observations.append(np.asarray(observation, dtype=np.float32))
+    finally:
+        env.close()
+    return torch.as_tensor(np.stack(observations), dtype=torch.float32, device=device)
+
+
+def _activation_probe_row(
+    *,
+    update: int,
+    model: ElderActorCritic,
+    train_observations: Tensor,
+    development_observations: Tensor,
+) -> dict[str, Any]:
+    return {
+        "update": update,
+        "train": model.hidden_activation_diagnostics(train_observations),
+        "development": model.hidden_activation_diagnostics(development_observations),
+    }
+
+
+@torch.no_grad()
+def _critic_probe_diagnostics(
+    model: ElderActorCritic,
+    observations: Tensor,
+    targets: Tensor,
+) -> dict[str, float]:
+    return critic_fit_diagnostics(model.critic(observations), targets)
+
+
+def _capture_training_state(
+    model: ElderActorCritic,
+    trainer: PPOTrainer,
+) -> dict[str, Any]:
+    return {
+        "model": copy.deepcopy(model.state_dict()),
+        "optimizer": copy.deepcopy(trainer.optimizer.state_dict()),
+        "rng": _capture_rng_state(),
+    }
+
+
+def _critic_health_window(
+    learning_curve: list[dict[str, Any]],
+    *,
+    window: int = 8,
+) -> dict[str, Any]:
+    rows = learning_curve[-window:]
+    explained_variance = np.asarray(
+        [row["ppo"]["pre_update_critic_explained_variance"] for row in rows],
+        dtype=np.float64,
+    )
+    normalized_mse = np.asarray(
+        [row["ppo"]["pre_update_critic_normalized_mse"] for row in rows],
+        dtype=np.float64,
+    )
+    normalized_bias = np.asarray(
+        [row["ppo"]["pre_update_critic_normalized_bias"] for row in rows],
+        dtype=np.float64,
+    )
+    positive_fit = (explained_variance > 0.0) & (normalized_mse < 1.0)
+    enough_rows = len(rows) == window
+    median_explained_variance = (
+        float(np.median(explained_variance)) if len(rows) else None
+    )
+    median_normalized_mse = float(np.median(normalized_mse)) if len(rows) else None
+    return {
+        "window": window,
+        "observed_updates": len(rows),
+        "start_update": int(rows[0]["update"]) if rows else None,
+        "end_update": int(rows[-1]["update"]) if rows else None,
+        "median_pre_update_explained_variance": median_explained_variance,
+        "median_pre_update_normalized_mse": median_normalized_mse,
+        "median_abs_pre_update_normalized_bias": (
+            float(np.median(np.abs(normalized_bias))) if len(rows) else None
+        ),
+        "positive_fit_updates": int(np.sum(positive_fit)),
+        "required_positive_fit_updates": 6,
+        "eligible": bool(
+            enough_rows
+            and median_explained_variance is not None
+            and median_explained_variance >= 0.20
+            and median_normalized_mse is not None
+            and median_normalized_mse <= 0.80
+            and int(np.sum(positive_fit)) >= 6
+        ),
+        "thresholds": {
+            "median_pre_update_explained_variance_min": 0.20,
+            "median_pre_update_normalized_mse_max": 0.80,
+            "per_update_positive_fit": "EV > 0 and nMSE < 1",
+        },
+    }
+
+
+def _network_activation_healthy(
+    diagnostics: dict[str, Any],
+    *,
+    saturation_limit: float,
+    derivative_floor: float,
+) -> bool:
+    for layer in diagnostics["layers"]:
+        activation = layer["activation"]
+        if float(activation["abs_at_or_above_0_95_rate"]) >= saturation_limit:
+            return False
+        derivative = activation["mean_tanh_derivative"]
+        if derivative is None or float(derivative) <= derivative_floor:
+            return False
+    return True
+
+
+def _activation_probe_healthy(
+    probe: dict[str, Any],
+    *,
+    network: Literal["actor", "critic"],
+    saturation_limit: float = 0.10,
+    derivative_floor: float = 0.10,
+) -> bool:
+    return all(
+        _network_activation_healthy(
+            probe[partition][network],
+            saturation_limit=saturation_limit,
+            derivative_floor=derivative_floor,
+        )
+        for partition in ("train", "development")
+    )
+
+
 def _evaluate_records(
     *,
     dataset: CampaignDataset,
@@ -1189,6 +1577,15 @@ def _evaluate_episode(
             }
             for channel, values in channels.items()
         },
+        "reset_actions": {
+            channel: {
+                "field_operation": values[0][0],
+                "herd_retention": values[1][0],
+                "development_budget": values[2][0],
+                "field_development_share": values[3][0],
+            }
+            for channel, values in channels.items()
+        },
         "action_entropy": float(np.mean(entropies)) if entropies else None,
         "action_saturation_rate": float(np.mean(saturation_flags)),
         "intervention_transition_rate": float(
@@ -1249,6 +1646,16 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "realized_field_operation": ("actions", "realized", "field_operation"),
         "requested_development_budget": (
             "actions",
+            "requested",
+            "development_budget",
+        ),
+        "reset_requested_field_operation": (
+            "reset_actions",
+            "requested",
+            "field_operation",
+        ),
+        "reset_requested_development_budget": (
+            "reset_actions",
             "requested",
             "development_budget",
         ),
@@ -1351,6 +1758,17 @@ def _self_sufficiency_diagnostic(episodes: list[dict[str, Any]]) -> dict[str, An
         ],
         dtype=np.float64,
     )
+    f15_trade_dependent_count = sum(
+        episode["scenario_family"] == "F15" and "trade-dependent" in episode["tags"]
+        for episode in episodes
+    )
+    f15_isolated_count = sum(
+        episode["scenario_family"] == "F15" and "isolated" in episode["tags"]
+        for episode in episodes
+    )
+    trade_contrast_evaluable = bool(
+        f15_trade_dependent_count > 0 and f15_isolated_count > 0
+    )
     high_rate = float(np.mean(requested >= 0.9))
     contrast = (
         float(np.mean(trade_dependent) - np.mean(isolated))
@@ -1361,9 +1779,17 @@ def _self_sufficiency_diagnostic(episodes: list[dict[str, Any]]) -> dict[str, An
         "requested_field_operation_at_or_above_0_9_rate": high_rate,
         "trade_dependent_count": len(trade_dependent),
         "isolated_count": len(isolated),
+        "f15_trade_dependent_count": f15_trade_dependent_count,
+        "f15_isolated_count": f15_isolated_count,
+        "trade_contrast_evaluable": trade_contrast_evaluable,
+        "trade_contrast_assessment": (
+            "EVALUABLE" if trade_contrast_evaluable else "UNEVALUABLE"
+        ),
         "trade_dependent_minus_isolated_mean_field_operation": contrast,
-        "universal_self_sufficiency_signal": bool(
-            high_rate >= 0.80 and (contrast is None or contrast >= -0.02)
+        "universal_self_sufficiency_signal": (
+            bool(high_rate >= 0.80 and contrast is not None and contrast >= -0.02)
+            if trade_contrast_evaluable
+            else None
         ),
     }
 
@@ -1373,12 +1799,15 @@ def _compare_evaluations(learned: dict[str, Any], baseline: dict[str, Any]) -> d
     differences: list[float] = []
     relative: list[float] = []
     by_family: dict[str, list[float]] = defaultdict(list)
+    by_family_relative: dict[str, list[float]] = defaultdict(list)
     for row in learned["episodes"]:
         reference = baseline_by_id[row["snapshot_id"]]
         delta = row["discounted_scaled_return"] - reference["discounted_scaled_return"]
         differences.append(delta)
-        relative.append(delta / max(abs(reference["discounted_scaled_return"]), 1e-9))
+        relative_delta = delta / max(abs(reference["discounted_scaled_return"]), 1e-9)
+        relative.append(relative_delta)
         by_family[row["scenario_family"]].append(delta)
+        by_family_relative[row["scenario_family"]].append(relative_delta)
     mean_relative = float(np.mean(relative))
     return {
         "matched_snapshots": len(differences),
@@ -1387,6 +1816,10 @@ def _compare_evaluations(learned: dict[str, Any], baseline: dict[str, Any]) -> d
         "fraction_at_or_above_baseline": float(np.mean(np.asarray(differences) >= -1e-12)),
         "by_family_mean_difference": {
             family: float(np.mean(values)) for family, values in sorted(by_family.items())
+        },
+        "by_family_mean_relative_difference": {
+            family: float(np.mean(values))
+            for family, values in sorted(by_family_relative.items())
         },
         "competitive_with_baseline": bool(mean_relative >= -0.10),
     }
@@ -1454,39 +1887,63 @@ def _trend(values: np.ndarray) -> dict[str, Any]:
     }
 
 
-def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
+def _validation_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
     return {
         "all_three_seeds_structural_scope_preserved": all(
-            report["gates"]["structural_scope_preserved"] for report in seed_reports
+            report["validation_gates"]["structural_scope_preserved"]
+            for report in seed_reports
         ),
         "all_three_seeds_contract_clean": all(
-            report["gates"]["contract_and_numerics"] for report in seed_reports
+            report["validation_gates"]["contract_and_numerics"]
+            for report in seed_reports
         ),
         "all_three_seeds_inactive_heads_inert": all(
-            report["gates"]["inactive_heads_gradient_inert"] for report in seed_reports
+            report["validation_gates"]["inactive_heads_gradient_inert"]
+            for report in seed_reports
         ),
         "all_three_seeds_checkpoint_parity": all(
-            report["gates"]["checkpoint_reload_parity"]
-            and report["gates"]["checkpoint_continuation_parity"]
+            report["validation_gates"]["checkpoint_reload_parity"]
+            and report["validation_gates"]["checkpoint_continuation_parity"]
             for report in seed_reports
         ),
         "all_three_seeds_ppo_stable": all(
-            report["gates"]["ppo_kl_stable"] for report in seed_reports
+            report["validation_gates"]["ppo_kl_stable"] for report in seed_reports
         ),
         "all_three_seeds_critic_finite": all(
-            report["gates"]["critic_finite"] for report in seed_reports
+            report["validation_gates"]["critic_finite"] for report in seed_reports
         ),
-        "development_competitive_all_seeds": all(
-            report["gates"]["development_not_strongly_worse_than_option_a"]
+        "all_three_seeds_actor_activations_healthy": all(
+            report["validation_gates"]["actor_activations_healthy"]
             for report in seed_reports
         ),
-        "heldout_competitive_all_seeds": all(
-            report["gates"]["heldout_not_strongly_worse_than_option_a"] for report in seed_reports
+        "all_three_seeds_critic_activations_healthy": all(
+            report["validation_gates"]["critic_activations_healthy"]
+            for report in seed_reports
         ),
-        "no_universal_self_sufficiency_signal_all_seeds": all(
-            report["gates"]["no_universal_self_sufficiency_signal"] for report in seed_reports
+        "all_three_selected_checkpoints_critic_healthy": all(
+            report["validation_gates"]["selected_checkpoint_critic_health"]
+            for report in seed_reports
+        ),
+        "all_three_final_checkpoints_critic_healthy": all(
+            report["validation_gates"]["final_checkpoint_critic_health"]
+            for report in seed_reports
         ),
     }
+
+
+def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
+    gate_names = tuple(seed_reports[0]["promotion_gates"])
+    result = {
+        f"all_three_seeds_{name}": all(
+            report["promotion_gates"][name] for report in seed_reports
+        )
+        for name in gate_names
+    }
+    result["all_three_seeds_promotion_ready"] = all(
+        report["promotion_status"] == "PASS"
+        for report in seed_reports
+    )
+    return result
 
 
 def _probe_records(

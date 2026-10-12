@@ -6,7 +6,8 @@ pytest.importorskip("torch")
 
 import torch
 
-from anthropocene_rl.policies.elder_mlp import ElderActorCritic
+from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
+from anthropocene_rl.training.pilot import _critic_health_window
 from anthropocene_rl.training.ppo import PPOConfig, PPOTrainer, RolloutBatch
 from anthropocene_rl.training.smoke import run_ppo_smoke
 
@@ -59,6 +60,23 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["optimization_epochs_completed"] == 2.0
     assert metrics["optimization_actor_epochs_completed"] == 1.0
     assert metrics["target_kl_early_stop"] == 1.0
+    assert metrics["actor_pre_clip_grad_norm_max"] > 0.0
+    assert metrics["critic_pre_clip_grad_norm_max"] > 0.0
+    assert metrics["total_pre_clip_grad_norm_max"] > 0.0
+    assert metrics["paired_actor_pre_clip_grad_norm_mean"] > 0.0
+    assert metrics["paired_critic_pre_clip_grad_norm_mean"] > 0.0
+    assert metrics["paired_total_pre_clip_grad_norm_mean"] > 0.0
+    assert 0.0 < metrics["joint_clip_factor_min"] <= 1.0
+    assert metrics["joint_clip_factor_min"] <= metrics["joint_clip_factor_mean"] <= 1.0
+    assert metrics["actor_clip_factor_min"] == metrics["joint_clip_factor_min"]
+    assert metrics["critic_clip_factor_min"] == metrics["joint_clip_factor_min"]
+    assert metrics["actor_parameter_update_l2"] > 0.0
+    assert metrics["actor_backbone_parameter_update_l2"] > 0.0
+    assert metrics["actor_continuous_head_parameter_update_l2"] > 0.0
+    assert metrics["critic_parameter_update_l2"] > 0.0
+    assert metrics["critic_backbone_parameter_update_l2"] > 0.0
+    assert math.isfinite(metrics["post_update_critic_explained_variance"])
+    assert math.isfinite(metrics["post_update_critic_normalized_bias"])
 
     with torch.no_grad():
         evaluated = model.actor.evaluate_actions(
@@ -77,6 +95,47 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["post_update_value_mse"] == pytest.approx(float(expected_value_mse))
 
 
+def test_ppo_can_clip_actor_and_critic_separately_for_shadow_audits() -> None:
+    torch.manual_seed(41)
+    count = 32
+    observation = torch.randn(count, 512) * 0.2
+    observation[:, 80:84] = 0.0
+    observation[:, 80] = 1.0
+    observation[:, 82] = 1.0
+    observation[:, 482:490] = 0.0
+    observation[:, 482] = 1.0
+    model = ElderActorCritic()
+    with torch.no_grad():
+        sampled = model.actor.sample(observation)
+        value = model.critic(observation)
+    advantage = torch.linspace(-2.0, 2.0, count)
+    batch = RolloutBatch(
+        observations=observation,
+        continuous_actions=sampled.continuous,
+        movement_indices=sampled.movement_index,
+        old_log_prob=sampled.log_prob,
+        advantages=advantage,
+        returns=value + 4.0 * advantage,
+    )
+    trainer = PPOTrainer(
+        model,
+        PPOConfig(
+            epochs=1,
+            minibatch_size=16,
+            entropy_coefficient=0.0,
+            target_kl=None,
+            gradient_clip_mode="separate",
+        ),
+    )
+    metrics = trainer.update(batch)
+
+    assert 0.0 < metrics["actor_clip_factor_min"] <= 1.0
+    assert 0.0 < metrics["critic_clip_factor_min"] <= 1.0
+    assert 0.0 < metrics["joint_clip_factor_min"] <= 1.0
+    assert metrics["actor_parameter_update_l2"] > 0.0
+    assert metrics["critic_parameter_update_l2"] > 0.0
+
+
 def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:
     torch.manual_seed(71)
     model = ElderActorCritic()
@@ -92,3 +151,72 @@ def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:
             assert 0.0 <= rate <= 1.0
             derivative = layer["activation"]["mean_tanh_derivative"]
             assert 0.0 <= derivative <= 1.0
+
+
+def test_critic_layer_norm_is_independent_and_diagnostic_safe() -> None:
+    torch.manual_seed(89)
+    baseline = ElderActorCritic(ElderActorCriticConfig(initial_log_std=-1.0))
+    torch.manual_seed(89)
+    normalized = ElderActorCritic(
+        ElderActorCriticConfig(
+            initial_log_std=-1.0,
+            critic_layer_norm=True,
+        )
+    )
+
+    baseline_actor = baseline.actor.state_dict()
+    normalized_actor = normalized.actor.state_dict()
+    assert baseline_actor.keys() == normalized_actor.keys()
+    for key in baseline_actor:
+        assert torch.equal(baseline_actor[key], normalized_actor[key])
+
+    assert not any(isinstance(module, torch.nn.LayerNorm) for module in normalized.actor.modules())
+    assert sum(
+        isinstance(module, torch.nn.LayerNorm) for module in normalized.critic.modules()
+    ) == 2
+
+    diagnostics = normalized.hidden_activation_diagnostics(torch.randn(12, 512) * 3.0)
+    assert diagnostics["actor"]["layer_norm"] is False
+    assert diagnostics["critic"]["layer_norm"] is True
+    for layer in diagnostics["critic"]["layers"]:
+        assert math.isfinite(layer["linear_output"]["max_abs"])
+        assert math.isfinite(layer["preactivation"]["max_abs"])
+
+
+def test_legacy_actor_critic_config_defaults_to_no_layer_norm() -> None:
+    config = ElderActorCriticConfig(
+        **{"activation": "tanh", "initial_log_std": -1.0}
+    )
+    assert config.actor_layer_norm is False
+    assert config.critic_layer_norm is False
+
+
+def test_critic_health_window_requires_sustained_pre_update_fit() -> None:
+    healthy = [
+        {
+            "update": update,
+            "ppo": {
+                "pre_update_critic_explained_variance": 0.4,
+                "pre_update_critic_normalized_mse": 0.6,
+                "pre_update_critic_normalized_bias": 0.1,
+            },
+        }
+        for update in range(1, 9)
+    ]
+    assert _critic_health_window(healthy)["eligible"] is True
+
+    unhealthy = [dict(row) for row in healthy]
+    unhealthy[-1] = {
+        "update": 8,
+        "ppo": {
+            "pre_update_critic_explained_variance": -0.1,
+            "pre_update_critic_normalized_mse": 1.2,
+            "pre_update_critic_normalized_bias": 0.9,
+        },
+    }
+    assert _critic_health_window(unhealthy[:7])["eligible"] is False
+    assert _critic_health_window(unhealthy)["eligible"] is True
+
+    for index in range(3):
+        unhealthy[index] = unhealthy[-1] | {"update": index + 1}
+    assert _critic_health_window(unhealthy)["eligible"] is False

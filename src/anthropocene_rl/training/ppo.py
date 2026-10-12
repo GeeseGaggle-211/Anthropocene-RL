@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Literal
 
 import torch
 from torch import Tensor
@@ -21,6 +23,7 @@ class PPOConfig:
     epochs: int = 4
     minibatch_size: int = 64
     target_kl: float | None = 0.05
+    gradient_clip_mode: Literal["joint", "separate"] = "joint"
 
 
 @dataclass(frozen=True)
@@ -83,10 +86,23 @@ class PPOTrainer:
         batch.validate()
         if self.config.target_kl is not None and self.config.target_kl <= 0:
             raise ValueError("target_kl must be positive or None")
+        if self.config.gradient_clip_mode not in ("joint", "separate"):
+            raise ValueError("gradient_clip_mode must be joint or separate")
         advantages = batch.advantages
         advantages = (advantages - advantages.mean()) / (
             advantages.std(unbiased=False) + 1e-8
         )
+        with torch.no_grad():
+            pre_update_critic = critic_fit_diagnostics(
+                self.model.critic(batch.observations),
+                batch.returns,
+            )
+        actor_before = _parameter_snapshot(self.model.actor)
+        actor_backbone_before = _parameter_snapshot(self.model.actor.backbone)
+        actor_head_before = _parameter_snapshot(self.model.actor.continuous_mean)
+        actor_log_std_before = self.model.actor.log_std.detach().clone()
+        critic_before = _parameter_snapshot(self.model.critic)
+        critic_backbone_before = _parameter_snapshot(self.model.critic.backbone)
         count = batch.observations.shape[0]
         minibatch = min(self.config.minibatch_size, count)
         metric_totals = {
@@ -105,6 +121,15 @@ class PPOTrainer:
         policy_frozen = False
         continuous_head_gradient_max = [0.0] * 4
         movement_head_gradient_max = 0.0
+        actor_pre_clip_grad_norm_max = 0.0
+        critic_pre_clip_grad_norm_max = 0.0
+        total_pre_clip_grad_norm_max = 0.0
+        paired_actor_grad_norms: list[float] = []
+        paired_critic_grad_norms: list[float] = []
+        paired_total_grad_norms: list[float] = []
+        joint_clip_factors: list[float] = []
+        actor_clip_factors: list[float] = []
+        critic_clip_factors: list[float] = []
 
         for _ in range(self.config.epochs):
             actor_enabled = not policy_frozen
@@ -135,6 +160,7 @@ class PPOTrainer:
                 value_loss = 0.5 * torch.square(value - target_return).mean()
                 entropy = evaluated.entropy.mean()
                 loss = self.config.value_coefficient * value_loss
+                actor_pre_clip_grad_norm = 0.0
                 if actor_enabled:
                     loss = (
                         loss
@@ -172,10 +198,76 @@ class PPOTrainer:
                         float(torch.max(torch.abs(movement_weight_grad)).detach()),
                         float(torch.max(torch.abs(movement_bias_grad)).detach()),
                     )
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    self.config.max_grad_norm,
+                    actor_pre_clip_grad_norm = _gradient_l2_norm(
+                        self.model.actor.parameters()
+                    )
+                    actor_pre_clip_grad_norm_max = max(
+                        actor_pre_clip_grad_norm_max,
+                        actor_pre_clip_grad_norm,
+                    )
+                critic_pre_clip_grad_norm = _gradient_l2_norm(
+                    self.model.critic.parameters()
                 )
+                critic_pre_clip_grad_norm_max = max(
+                    critic_pre_clip_grad_norm_max,
+                    critic_pre_clip_grad_norm,
+                )
+                if self.config.gradient_clip_mode == "joint":
+                    total_pre_clip_grad_norm = torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(),
+                        self.config.max_grad_norm,
+                    )
+                    total_pre_clip_grad_norm_value = float(
+                        total_pre_clip_grad_norm.detach()
+                    )
+                else:
+                    total_pre_clip_grad_norm_value = _gradient_l2_norm(
+                        self.model.parameters()
+                    )
+                    if actor_enabled:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.model.actor.parameters(),
+                            self.config.max_grad_norm,
+                        )
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.critic.parameters(),
+                        self.config.max_grad_norm,
+                    )
+                total_pre_clip_grad_norm_max = max(
+                    total_pre_clip_grad_norm_max,
+                    total_pre_clip_grad_norm_value,
+                )
+                paired_actor_grad_norms.append(actor_pre_clip_grad_norm)
+                paired_critic_grad_norms.append(critic_pre_clip_grad_norm)
+                paired_total_grad_norms.append(total_pre_clip_grad_norm_value)
+                joint_clip_factor = min(
+                    1.0,
+                    self.config.max_grad_norm
+                    / max(total_pre_clip_grad_norm_value, 1e-12),
+                )
+                joint_clip_factors.append(joint_clip_factor)
+                if self.config.gradient_clip_mode == "joint":
+                    actor_clip_factors.append(
+                        joint_clip_factor if actor_enabled else 1.0
+                    )
+                    critic_clip_factors.append(joint_clip_factor)
+                else:
+                    actor_clip_factors.append(
+                        min(
+                            1.0,
+                            self.config.max_grad_norm
+                            / max(actor_pre_clip_grad_norm, 1e-12),
+                        )
+                        if actor_enabled
+                        else 1.0
+                    )
+                    critic_clip_factors.append(
+                        min(
+                            1.0,
+                            self.config.max_grad_norm
+                            / max(critic_pre_clip_grad_norm, 1e-12),
+                        )
+                    )
                 self.optimizer.step()
 
                 with torch.no_grad():
@@ -229,6 +321,7 @@ class PPOTrainer:
                 batch.movement_indices,
             )
             value = self.model.critic(batch.observations)
+            post_update_critic = critic_fit_diagnostics(value, batch.returns)
             log_ratio = evaluated.log_prob - batch.old_log_prob
             ratio = torch.exp(log_ratio)
             metrics.update(
@@ -253,6 +346,66 @@ class PPOTrainer:
                         minibatches_completed
                     ),
                     "target_kl_early_stop": float(early_stop_triggered),
+                    "actor_pre_clip_grad_norm_max": actor_pre_clip_grad_norm_max,
+                    "critic_pre_clip_grad_norm_max": critic_pre_clip_grad_norm_max,
+                    "total_pre_clip_grad_norm_max": total_pre_clip_grad_norm_max,
+                    "paired_actor_pre_clip_grad_norm_mean": _mean(
+                        paired_actor_grad_norms
+                    ),
+                    "paired_critic_pre_clip_grad_norm_mean": _mean(
+                        paired_critic_grad_norms
+                    ),
+                    "paired_total_pre_clip_grad_norm_mean": _mean(
+                        paired_total_grad_norms
+                    ),
+                    "joint_clip_factor_mean": _mean(joint_clip_factors),
+                    "joint_clip_factor_min": min(joint_clip_factors),
+                    "actor_clip_factor_mean": _mean(actor_clip_factors),
+                    "actor_clip_factor_min": min(actor_clip_factors),
+                    "critic_clip_factor_mean": _mean(critic_clip_factors),
+                    "critic_clip_factor_min": min(critic_clip_factors),
+                    "actor_parameter_update_l2": _parameter_delta_l2(
+                        self.model.actor, actor_before
+                    ),
+                    "actor_backbone_parameter_update_l2": _parameter_delta_l2(
+                        self.model.actor.backbone, actor_backbone_before
+                    ),
+                    "actor_continuous_head_parameter_update_l2": _parameter_delta_l2(
+                        self.model.actor.continuous_mean, actor_head_before
+                    ),
+                    "actor_log_std_update_l2": float(
+                        torch.linalg.vector_norm(
+                            self.model.actor.log_std.detach() - actor_log_std_before
+                        ).cpu()
+                    ),
+                    "actor_continuous_head_weight_l2": float(
+                        torch.linalg.vector_norm(
+                            self.model.actor.continuous_mean.weight.detach()
+                        ).cpu()
+                    ),
+                    "actor_continuous_head_bias_l2": float(
+                        torch.linalg.vector_norm(
+                            self.model.actor.continuous_mean.bias.detach()
+                        ).cpu()
+                    ),
+                    "critic_parameter_update_l2": _parameter_delta_l2(
+                        self.model.critic, critic_before
+                    ),
+                    "critic_backbone_parameter_update_l2": _parameter_delta_l2(
+                        self.model.critic.backbone, critic_backbone_before
+                    ),
+                }
+            )
+            metrics.update(
+                {
+                    f"pre_update_critic_{key}": value
+                    for key, value in pre_update_critic.items()
+                }
+            )
+            metrics.update(
+                {
+                    f"post_update_critic_{key}": value
+                    for key, value in post_update_critic.items()
                 }
             )
 
@@ -277,3 +430,59 @@ class PPOTrainer:
         )
         metrics["movement_head_grad_max"] = movement_head_gradient_max
         return metrics
+
+
+def critic_fit_diagnostics(prediction: Tensor, target: Tensor) -> dict[str, float]:
+    """Describe critic fit on one fixed observation/target cohort."""
+
+    residual = target - prediction
+    target_variance = torch.var(target, unbiased=False)
+    residual_variance = torch.var(residual, unbiased=False)
+    denominator = torch.clamp(target_variance, min=1e-12)
+    target_std = torch.sqrt(denominator)
+    mse = torch.mean(torch.square(residual))
+    bias = torch.mean(prediction - target)
+    return {
+        "prediction_mean": float(torch.mean(prediction).detach()),
+        "prediction_std": float(torch.std(prediction, unbiased=False).detach()),
+        "target_mean": float(torch.mean(target).detach()),
+        "target_std": float(torch.std(target, unbiased=False).detach()),
+        "mse": float(mse.detach()),
+        "normalized_mse": float((mse / denominator).detach()),
+        "bias": float(bias.detach()),
+        "normalized_bias": float((bias / target_std).detach()),
+        "explained_variance": float((1.0 - residual_variance / denominator).detach()),
+    }
+
+
+def _gradient_l2_norm(parameters: Iterable[Tensor]) -> float:
+    squared = torch.zeros((), dtype=torch.float64)
+    for parameter in parameters:
+        if parameter.grad is not None:
+            squared += torch.sum(parameter.grad.detach().double().square()).cpu()
+    return float(torch.sqrt(squared))
+
+
+def _parameter_snapshot(module: torch.nn.Module) -> dict[str, Tensor]:
+    return {
+        name: parameter.detach().clone()
+        for name, parameter in module.named_parameters()
+    }
+
+
+def _parameter_delta_l2(
+    module: torch.nn.Module,
+    before: dict[str, Tensor],
+) -> float:
+    squared = torch.zeros((), dtype=torch.float64)
+    for name, parameter in module.named_parameters():
+        squared += torch.sum(
+            (parameter.detach() - before[name]).double().square()
+        ).cpu()
+    return float(torch.sqrt(squared))
+
+
+def _mean(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    return float(sum(values) / len(values))
