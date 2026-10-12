@@ -1,5 +1,5 @@
 name: elder-broad-domain-50d-scaleout-v1
-status: frozen-ready-for-independent-review
+status: frozen-published-awaiting-independent-review
 campaign_scope: broad-domain
 source_branch: feature/elder-full-curriculum-v1
 simulator_commit: 5559961164d6f9da8e6d20c1dc563ecec3eb04b7
@@ -8,6 +8,7 @@ snapshot_manifest_identity_sha256: 6036d104dc655305f62bde2e7650cb4b1d20f36dcfdb8
 snapshot_manifest_file_sha256: 0a5fa3d3067211616b7c93a4229a5420fb8647251122b2f50d0ae5f3a7b97b4d
 generator_config_sha256: bf4517367870b3bd02a7ad7604aa0fe444b84671a883dbcc2ddefd927b4aa70e
 snapshot_dataset_uri: gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json
+snapshot_dataset_manifest_sha256: 3d0c6483bb6c8082886f16a196d8d9c76775567e2ae66f0a32f6b936338cdba2
 normalizer: evidence/elder-broad-domain-50d-scaleout-v1/bank/final-train-normalization.json
 normalizer_file_sha256: 9d0136764b213f9d3b1b6996b41adfe92d43573de8192b3c46c89e60ae345fd1
 normalizer_fit:
@@ -112,3 +113,4 @@ storage:
   bucket: anthropocene-rl-datasets-508912
   local_cache_gib: 5.0
   checkpoints_in_git: false
+  frozen_evidence_bundle_uri: gs://anthropocene-rl-datasets-508912/run-objects/sha256/f6/f63b877a4b3beed9e388f6898e464093df3ae214b37cc78a8e27421289d737c0.tar

@@ -22,11 +22,21 @@ promotion requires the subsequent three-seed campaign.
 - Native result SHA-256: `f78310197bd8fbf64a666993783a1fee15de8eada28f98c7c0e52e767e0ef1bb`
 - TRAIN-only normalizer SHA-256: `9d0136764b213f9d3b1b6996b41adfe92d43573de8192b3c46c89e60ae345fd1`
 - Dataset URI: `gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json`
+- Published dataset-manifest SHA-256: `3d0c6483bb6c8082886f16a196d8d9c76775567e2ae66f0a32f6b936338cdba2`
+- Dataset packaging learner commit: `bebd5dbca52e0b25a225bba81d691e089590571e`
+- Frozen evidence bundle: `gs://anthropocene-rl-datasets-508912/run-objects/sha256/f6/f63b877a4b3beed9e388f6898e464093df3ae214b37cc78a8e27421289d737c0.tar`
 - Declarative training configuration: `configs/training/elder-broad-domain-50d-scaleout-v1.yaml`
 
 The source commit used to pack the GCS dataset is recorded in the remote
 dataset manifest and storage audit. No snapshot or checkpoint bytes belong in
 Git.
+
+Both immutable shards were re-downloaded into a fresh cache and all 499 records
+were materialized with SHA-256 verification. The read produced two cache misses
+(one per shard) followed by 497 cache hits. The full normalizer diagnostics,
+configs, manifests, and this handoff are separately preserved in the frozen
+evidence bundle above. Generated local staging and diagnostic caches were then
+removed, reclaiming 712,200,192 bytes; local source blobs remain retained.
 
 ## Frozen curriculum
 

@@ -9,7 +9,9 @@ Status: frozen bank and TRAIN-only normalizer PASS; cloud training not started.
 - Manifest identity: `6036d104dc655305f62bde2e7650cb4b1d20f36dcfdb8337f92c9dcbdbf7f06e`
 - Native result identity: `f78310197bd8fbf64a666993783a1fee15de8eada28f98c7c0e52e767e0ef1bb`
 - Normalizer file SHA-256: `9d0136764b213f9d3b1b6996b41adfe92d43573de8192b3c46c89e60ae345fd1`
-- Planned GCS manifest: `gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json`
+- Published GCS manifest: `gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json`
+- Published dataset-manifest SHA-256: `3d0c6483bb6c8082886f16a196d8d9c76775567e2ae66f0a32f6b936338cdba2`
+- Frozen evidence bundle: `gs://anthropocene-rl-datasets-508912/run-objects/sha256/f6/f63b877a4b3beed9e388f6898e464093df3ae214b37cc78a8e27421289d737c0.tar`
 
 ## Result
 
@@ -35,7 +37,7 @@ Status: frozen bank and TRAIN-only normalizer PASS; cloud training not started.
 - `bank/coverage.json` and `bank/coverage.md`: measured coverage.
 - `bank/final-train-normalization.json`: frozen normalizer.
 - `bank/final-normalization-diagnostics.json`: per-feature and slice diagnostics.
-- `storage-audit.json`: added after GCS publication and remote verification.
+- `storage-audit.json`: GCS generations, provider checksums, full re-read, and disk cleanup.
 - `astra-review.md`: added after independent launch review.
 
 The source and cloud execution handoff is
