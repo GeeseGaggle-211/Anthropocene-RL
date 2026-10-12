@@ -65,7 +65,8 @@ Evidence: `evidence/ppo-tune-v3-actor-lr-3e-4`
 
 - DEVELOPMENT: -4.94%, -3.21%, -3.87%
 - F03: -12.36%, -16.91%, -14.39%
-- Field behavior became state-conditioned, so the feed-forward MLP had not failed representationally.
+- Apparent field variation was not a powered representation test. It did not
+  demonstrate MLP adequacy, and it also did not demonstrate MLP failure.
 - The seed-1901 tanh diagnostic crossed its historical trigger, but its derivative remained healthy. This was not evidence for ReLU, SiLU, or actor LayerNorm.
 
 ### Duration extension, 192 updates
@@ -94,42 +95,87 @@ Published run objects:
 - Bundle SHA-256: `f16c16194e896308c2ca5d7d727c02379750d742c54936dfd3c44a2d99b49145`
 - Bundle size: 44,083,200 bytes
 
-## Current diagnostic boundary
+## Completed diagnostic boundary
 
-An Astra high review recommended one bounded TRAIN-only action-credit audit before any further tuning. The branch therefore adds:
+### TRAIN-only action-credit audit
 
-- paired +/-0.10 interventions for field operation and Development at every decision;
-- exact requested, accepted, realized, compiler-intervention, physical-return, and bootstrap evidence;
-- a fixed balanced batch of 32 TRAIN episodes per seed, four from each family and three decisions per episode;
-- a discarded one-update shadow comparison of the existing joint actor/critic gradient clipping against separate actor and critic clipping;
-- replicated, predeclared campaign thresholds across neural seeds 1701, 1901, and 2101.
+- Status: `ACTION_CREDIT_FAILURE`
+- Evidence SHA-256: `c81dbea2490e1efff0267b5eacde1ef1796489c879d296ea1a8cab3997d9c3be`
+- Native replay and contract checks passed; DEVELOPMENT and HELDOUT were unread.
+- Acceptance responsiveness failed its replicated gate in seeds 1701 and 2101.
+- Physical directional credit failed in seed 1701.
+- Separate clipping did not meet the replicated escalation gate.
 
-The audit never reads DEVELOPMENT or HELDOUT, never changes the simulator, never substitutes accepted actions into PPO likelihoods, and never saves either shadow policy.
+### Five-decision structural and delayed-credit audit
 
-The interpretation gates are:
+- Status: `DELAY_HYPOTHESIS_NOT_SUPPORTED`
+- Evidence SHA-256: `f492ae60f3fe081a11f4e1a9075698cc6c6e6b20ebe2f68d931943993b3ac1c7`
+- All 210 TRAIN snapshots passed 14 profiles for five decisions: 2,940 episodes
+  and 14,700 transitions with zero scope, replay, request, numerical, or reward
+  failures.
+- The predeclared delayed Development effect did not replicate in any seed.
+- A simple three-to-five-decision PPO extension was not justified.
 
-- `ACTION_CREDIT_FAILURE` if acceptance or physical credit is demonstrably unresponsive in at least two seeds;
-- `JOINT_CLIPPING_ABLATION_JUSTIFIED` only if separate clipping produces at least 1.5x actor displacement, a better clipped surrogate, KL at or below 0.05, and no more than 10% critic-normalized-MSE deterioration in at least two seeds;
-- `CLEAR_DIAGNOSTIC_PASS` only if acceptance responsiveness, directional agreement, and clipping invariance all replicate in at least two seeds;
-- otherwise `INCONCLUSIVE`, with no new PPO arm justified.
+Published diagnostic objects:
+
+- Manifest: `gs://anthropocene-rl-datasets-508912/runs/ppo-tune-credit-diagnostics-v3/4141b9a-credit-audits-20261012/manifest.json`
+- Manifest SHA-256: `08ea35ea4f8086aec66844725b62f9db00f4d18afb35b01e33d012a0024beb92`
+- Bundle: `gs://anthropocene-rl-datasets-508912/run-objects/sha256/c5/c58d2d43662758b9a366274bde8669c3fa49a081f21b9b0f9addc4ab7b53e04c.tar`
+- Bundle SHA-256: `c58d2d43662758b9a366274bde8669c3fa49a081f21b9b0f9addc4ab7b53e04c`
+
+### Constant-grid headroom audit
+
+- Status: `NO_GO_CONSTANT_GRID_ROUTE`
+- Evidence SHA-256: `92e9ee135b651d7328eed27ce42413a6d434e5bdab84e3fc3d8c39dca75bd5f8`
+- All 210 TRAIN and 46 DEVELOPMENT snapshots completed the fixed 5×5 grid and
+  Option A: 6,656 episodes, zero optimizer updates, no integrity failures.
+- Primary three-decision hindsight headroom over Option A:
+  - TRAIN mean +0.8913 points, one-sided 95% upper +1.3166 points;
+  - DEVELOPMENT mean +0.8118 points, upper +1.2846 points.
+- Both upper bounds were below the predeclared +1.5-point useful-effect floor.
+- Secondary five-decision headroom was larger (+1.6514 TRAIN, +1.5704
+  DEVELOPMENT) but could not change the frozen decision.
+- No family qualified. F16 was descriptive only because DEVELOPMENT contained
+  one independent cluster.
+- The TRAIN-selected global zero-field/zero-Development action was worse than
+  Option A on both partitions. Limited headroom was state-dependent.
+- HELDOUT remained sealed and F15 remained `UNEVALUABLE`.
+
+Published headroom objects:
+
+- Manifest: `gs://anthropocene-rl-datasets-508912/runs/ppo-tune-headroom-v3/b86740d-constant-grid-headroom-20261012/manifest.json`
+- Manifest SHA-256: `b040de8f96782aabc0634fabbdbabcddc0f0c9b0677f667ee16694568a45803a`
+- Bundle: `gs://anthropocene-rl-datasets-508912/run-objects/sha256/ff/ff40efb2319cb3bf7df9bde4aa78272c847984758ef1a4fccaef7025be4c4f68.tar`
+- Bundle SHA-256: `ff40efb2319cb3bf7df9bde4aa78272c847984758ef1a4fccaef7025be4c4f68`
 
 ## Architectural position
 
 No architecture-level decision is required from the project owner at this boundary.
 
-- The MLP has learned state-conditioned field control, so a feed-forward representational failure has not been demonstrated.
+- Feed-forward representational failure has not been demonstrated, but neither
+  has adequacy. The predeclared entry gate for a supervised representation probe
+  failed, so no architecture conclusion should be manufactured from it.
 - Critic-only LayerNorm is supported by evidence and should remain.
 - Actor LayerNorm is not supported by current diagnostics.
 - ReLU is not preferred for sparse causal events: it does not solve temporal credit assignment and introduces dead-unit risk. Current tanh derivatives remain usable.
 - GRU, Transformer, privileged critic, reward change, schema change, and native-physics changes remain out of scope.
 
-## Continuation rule
+## Campaign disposition and proposed continuation
 
-Finish the three-seed TRAIN-only action-credit audit, preserve and publish its evidence, and obtain another Astra high review. Start another PPO arm only if a predeclared audit gate identifies a causal remediation. Otherwise stop at the clean audit boundary and report the result as inconclusive rather than searching hyperparameters.
+Close the narrow cultivation-only generation as a non-promoted diagnostic. Do
+not run another PPO, clipping, value-target, batch-size, activation, or
+representation arm on this generation. Preserve its checkpoints, evidence, and
+HELDOUT quarantine.
 
-The overall goal terminates only when one of these conditions is met:
+The next proposed action is documented in
+`docs/ELDER_50_DECISION_BROAD_DOMAIN_PROTOCOL.md`: create a new experiment
+generation with a primary 50-decision horizon and native husbandry and movement
+availability. This is a proposal only. Generation requires explicit approval of
+the curriculum scope, including fishing treatment; it is not an architecture
+decision.
 
-1. the current MLP is shown unsustainable and the RL technology document plus escalation gates are updated;
-2. a bounded, replicated tuning remediation succeeds; or
-3. local disk capacity prevents safe continuation.
+The narrow generation has reached a clean artifact boundary. Its continuation
+is stopped because the predeclared remediation and headroom gates did not
+promote another run, not because the MLP was shown unsustainable. The broader
+50-decision generation begins only after its curriculum scope is approved.
 
