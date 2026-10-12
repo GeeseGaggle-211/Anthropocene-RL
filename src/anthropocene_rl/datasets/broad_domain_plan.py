@@ -51,6 +51,35 @@ BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS = {
     "F18": {"train": 20, "development": 4, "heldout": 6},
 }
 
+# The powered proof-of-readiness bank intentionally consumed its HELDOUT
+# partition.  Scale-out therefore uses wholly new worlds and a fresh split,
+# while keeping the total bank size fixed and reallocating coverage toward the
+# three families identified by the campaign audit as evidence-limited.
+SCALEOUT_GENERATION_SEED = 7_317_001
+SCALEOUT_SCENARIO_VERSION = "elder-broad-domain-50d-scaleout-v1"
+SCALEOUT_WORLD_SEED_OFFSET = 200_000
+SCALEOUT_SUPPLEMENT_WORLD_SEED_OFFSET = 1_000_000
+SCALEOUT_PARTITION_SALT = "elder-v2-broad-domain-50d-scaleout-partitions-v1-12441"
+SCALEOUT_ACCEPTED_PARTITION_COUNTS = {
+    "F01": {"train": 17, "development": 4, "heldout": 4},
+    "F02": {"train": 30, "development": 4, "heldout": 4},
+    "F03": {"train": 38, "development": 13, "heldout": 9},
+    "F04": {"train": 28, "development": 6, "heldout": 6},
+    "F05": {"train": 22, "development": 4, "heldout": 4},
+    "F06": {"train": 25, "development": 5, "heldout": 5},
+    "F07": {"train": 25, "development": 5, "heldout": 5},
+    "F13": {"train": 22, "development": 4, "heldout": 4},
+    "F14": {"train": 38, "development": 8, "heldout": 8},
+    "F15": {"train": 34, "development": 8, "heldout": 8},
+    "F16": {"train": 20, "development": 4, "heldout": 4},
+    "F17": {"train": 27, "development": 6, "heldout": 9},
+    "F18": {"train": 22, "development": 4, "heldout": 6},
+}
+SCALEOUT_ACCEPTED_FAMILY_COUNTS = {
+    family: sum(partitions.values())
+    for family, partitions in SCALEOUT_ACCEPTED_PARTITION_COUNTS.items()
+}
+
 
 @lru_cache(maxsize=1)
 def build_elder_broad_domain_plan() -> SnapshotBankGenerationConfig:
@@ -610,6 +639,162 @@ def build_elder_broad_domain_plan() -> SnapshotBankGenerationConfig:
     )
 
 
+@lru_cache(maxsize=1)
+def build_elder_scaleout_curriculum_plan() -> SnapshotBankGenerationConfig:
+    """Build the fresh, evidence-weighted scale-out curriculum.
+
+    The construction reuses the already audited factor design, but never its
+    worlds or causal identities.  Candidate capacity is moved from families
+    with ample proof-of-readiness coverage into F03, F15 and F17 without
+    exceeding the native generator's 800-candidate safety bound.
+    """
+
+    base = build_elder_broad_domain_plan()
+    grouped: dict[tuple[str, str], list[Any]] = {}
+    for trajectory in base.trajectories:
+        group_id = trajectory.counterfactual_group_id or trajectory.lineage_id
+        grouped.setdefault((trajectory.scenario_family, group_id), []).append(trajectory)
+
+    # Free exactly 36 candidate slots while preserving complete groups.
+    trim_records = {"F05": 6, "F06": 4, "F07": 4, "F14": 10, "F16": 12}
+    dropped: set[tuple[str, str]] = set()
+    for family, requested_records in trim_records.items():
+        remaining = requested_records
+        family_groups = sorted(
+            (item for item in grouped.items() if item[0][0] == family),
+            key=lambda item: item[0][1],
+            reverse=True,
+        )
+        for key, trajectories in family_groups:
+            records = sum(len(trajectory.snapshot_steps) for trajectory in trajectories)
+            if records > remaining:
+                continue
+            dropped.add(key)
+            remaining -= records
+            if remaining == 0:
+                break
+        if remaining:
+            raise AssertionError(f"Unable to trim {requested_records} records from {family}")
+
+    # The fresh seed cohort needs more isolated/import counterfactuals, while
+    # the base plan has a large surplus of the food/tool F15 contrast. Replace
+    # twenty complete food/tool pairs without changing the 800-candidate cap.
+    dropped.update(
+        ("F15", f"f15-open-economy-food-tool-supplement-{index:03d}")
+        for index in range(11, 31)
+    )
+
+    retained = [
+        trajectory
+        for trajectory in base.trajectories
+        if (
+            trajectory.scenario_family,
+            trajectory.counterfactual_group_id or trajectory.lineage_id,
+        )
+        not in dropped
+    ]
+    f03_sources = sorted(
+        (trajectory for trajectory in base.trajectories if trajectory.scenario_family == "F03"),
+        key=lambda trajectory: trajectory.trajectory_id,
+    )[:12]
+    f17_sources = sorted(
+        (trajectory for trajectory in base.trajectories if trajectory.scenario_family == "F17"),
+        key=lambda trajectory: trajectory.trajectory_id,
+    )[:8]
+    f15_isolation_groups: dict[str, list[Any]] = {}
+    for trajectory in base.trajectories:
+        if trajectory.scenario_family != "F15":
+            continue
+        group_id = trajectory.counterfactual_group_id or trajectory.lineage_id
+        f15_isolation_groups.setdefault(group_id, []).append(trajectory)
+    f15_isolation_sources = [
+        trajectories
+        for _, trajectories in sorted(f15_isolation_groups.items())
+        if {trajectory.causal_variant for trajectory in trajectories}
+        == {"isolated", "strong-food-import"}
+    ]
+    if len(f15_isolation_sources) != 10:
+        raise AssertionError("Expected ten base isolated/import F15 pairs")
+
+    trajectories = [
+        _scaleout_trajectory_payload(trajectory)
+        for trajectory in retained
+    ]
+    trajectories.extend(
+        _scaleout_trajectory_payload(
+            trajectory,
+            density_index=index,
+        )
+        for index, trajectory in enumerate((*f03_sources, *f17_sources), start=1)
+    )
+    for index, source_group in enumerate(
+        (*f15_isolation_sources, *f15_isolation_sources),
+        start=101,
+    ):
+        trajectories.extend(
+            _scaleout_trajectory_payload(trajectory, density_index=index)
+            for trajectory in source_group
+        )
+    if sum(len(item["snapshot_steps"]) for item in trajectories) != 800:
+        raise AssertionError("Scale-out curriculum must request exactly 800 candidates")
+
+    payload = base.model_dump(mode="python", exclude={"trajectories"})
+    payload.update(
+        {
+            "bank_id": "elder-v2-broad-domain-50d-scaleout-v1",
+            "bank_version": "3.0.0-50d-scaleout-candidate",
+            "generation_seed": SCALEOUT_GENERATION_SEED,
+            "partition": {
+                "salt": SCALEOUT_PARTITION_SALT,
+                "train_fraction": 0.70,
+                "development_fraction": 0.15,
+                "heldout_fraction": 0.15,
+            },
+            "broad_domain_accepted_partition_counts": (
+                SCALEOUT_ACCEPTED_PARTITION_COUNTS
+            ),
+            "trajectories": trajectories,
+        }
+    )
+    return SnapshotBankGenerationConfig.model_validate(payload)
+
+
+def _scaleout_trajectory_payload(
+    trajectory: Any,
+    *,
+    density_index: int | None = None,
+) -> dict[str, Any]:
+    payload = trajectory.model_dump(mode="python")
+    density_prefix = "" if density_index is None else f"density-{density_index:03d}-"
+    identity_prefix = f"scaleout-v1-{density_prefix}"
+
+    def fresh_identity(value: str | None) -> str | None:
+        return None if value is None else identity_prefix + value
+
+    payload.update(
+        {
+            "trajectory_id": fresh_identity(trajectory.trajectory_id),
+            "scenario_version": SCALEOUT_SCENARIO_VERSION,
+            "world_seed": (
+                trajectory.world_seed
+                + SCALEOUT_WORLD_SEED_OFFSET
+                + (
+                    SCALEOUT_SUPPLEMENT_WORLD_SEED_OFFSET
+                    if density_index is not None
+                    else 0
+                )
+                + (density_index or 0)
+            ),
+            "trajectory_family": trajectory.trajectory_family + "-scaleout-v1",
+            "lineage_id": fresh_identity(trajectory.lineage_id),
+            "counterfactual_group_id": fresh_identity(
+                trajectory.counterfactual_group_id
+            ),
+        }
+    )
+    return payload
+
+
 def broad_domain_plan_summary(config: SnapshotBankGenerationConfig) -> dict[str, Any]:
     resolved, _ = config.resolve_partitions()
     family_snapshots: Counter[str] = Counter()
@@ -642,16 +827,21 @@ def broad_domain_plan_summary(config: SnapshotBankGenerationConfig) -> dict[str,
         )
         for family in sorted(family_snapshots)
     }
+    accepted_partitions = config.broad_domain_accepted_partition_counts
+    if accepted_partitions is None:
+        raise ValueError("Broad-domain plan summary requires accepted partition counts")
+    accepted_families = {
+        family: sum(partitions.values())
+        for family, partitions in accepted_partitions.items()
+    }
     return {
         "status": "PLAN_READY_NOT_GENERATED",
         "bank_id": config.bank_id,
         "generator_config_sha256": config.canonical_sha256(),
         "requested_snapshot_count": sum(family_snapshots.values()),
-        "target_accepted_snapshot_count": sum(
-            BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS.values()
-        ),
-        "target_accepted_family_counts": BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS,
-        "target_accepted_partition_counts": BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS,
+        "target_accepted_snapshot_count": sum(accepted_families.values()),
+        "target_accepted_family_counts": accepted_families,
+        "target_accepted_partition_counts": accepted_partitions,
         "requested_family_snapshot_counts": dict(sorted(family_snapshots.items())),
         "requested_partition_snapshot_counts": dict(sorted(partition_snapshots.items())),
         "family_world_counts": {
@@ -679,6 +869,27 @@ def save_elder_broad_domain_plan(
     summary_path: str | Path,
 ) -> dict[str, Any]:
     config = build_elder_broad_domain_plan()
+    summary = broad_domain_plan_summary(config)
+    payload = config.model_dump(mode="json")
+    if "pilot_accepted_partition_counts" not in config.model_fields_set:
+        payload.pop("pilot_accepted_partition_counts", None)
+    _write_atomic(
+        Path(config_path),
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+    )
+    _write_atomic(
+        Path(summary_path),
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+    )
+    return summary
+
+
+def save_elder_scaleout_curriculum_plan(
+    *,
+    config_path: str | Path,
+    summary_path: str | Path,
+) -> dict[str, Any]:
+    config = build_elder_scaleout_curriculum_plan()
     summary = broad_domain_plan_summary(config)
     payload = config.model_dump(mode="json")
     if "pilot_accepted_partition_counts" not in config.model_fields_set:

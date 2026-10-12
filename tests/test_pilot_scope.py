@@ -120,6 +120,31 @@ def test_broad_campaign_is_pinned_to_fifty_decisions() -> None:
     ).validate()
 
 
+def test_campaign_accepts_one_hero_seed_or_three_replication_seeds() -> None:
+    PilotConfig(
+        seeds=(1701,),
+        campaign_scope="broad-domain",
+        episodes_per_update=13,
+        episode_steps=50,
+        evaluation_steps=50,
+    ).validate()
+    PilotConfig(
+        seeds=(1701, 1901, 2101),
+        campaign_scope="broad-domain",
+        episodes_per_update=13,
+        episode_steps=50,
+        evaluation_steps=50,
+    ).validate()
+    with pytest.raises(ValueError, match="one hero seed or three distinct"):
+        PilotConfig(
+            seeds=(1701, 1901),
+            campaign_scope="broad-domain",
+            episodes_per_update=13,
+            episode_steps=50,
+            evaluation_steps=50,
+        ).validate()
+
+
 def test_group_relative_advantage_changes_only_the_first_decision() -> None:
     advantages = [
         np.asarray([1.0, 10.0]),

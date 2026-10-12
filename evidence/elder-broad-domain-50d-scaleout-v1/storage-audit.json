@@ -1,0 +1,98 @@
+{
+  "audit_schema_version": "elder-scaleout-gcs-storage-audit-v1",
+  "captured_at": "2026-10-12T23:59:53.9874925+05:30",
+  "dataset": {
+    "learner_commit": "bebd5dbca52e0b25a225bba81d691e089590571e",
+    "manifest_identity_sha256": "6036d104dc655305f62bde2e7650cb4b1d20f36dcfdb8337f92c9dcbdbf7f06e",
+    "published_manifest": {
+      "anthropocene_sha256_metadata": "3d0c6483bb6c8082886f16a196d8d9c76775567e2ae66f0a32f6b936338cdba2",
+      "bytes": 244111,
+      "crc32c_base64": "VQ4lEg==",
+      "gcs_generation": "1791829539988483",
+      "md5_base64": "KduX0/jEjYu9GCL5Qty4Tg==",
+      "uri": "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json"
+    },
+    "shards": [
+      {
+        "anthropocene_sha256_metadata": "8db084138448817674f44879a7fa737777aa940d210dae1b209bb4af10d9da12",
+        "bytes": 67215360,
+        "crc32c_base64": "nOFn3g==",
+        "gcs_generation": "1791829538341903",
+        "md5_base64": "+Bk5BU8mSkZsqMSOFYFK2Q==",
+        "uri": "gs://anthropocene-rl-datasets-508912/objects/sha256/8d/8db084138448817674f44879a7fa737777aa940d210dae1b209bb4af10d9da12.tar"
+      },
+      {
+        "anthropocene_sha256_metadata": "0c241de4d6e5747743d4920d828ac6106023852da65a3d3294fa87264c9c35f0",
+        "bytes": 39516160,
+        "crc32c_base64": "kAeGtg==",
+        "gcs_generation": "1791829532927315",
+        "md5_base64": "jq3k+xTCy8B4YmB8W5E/ug==",
+        "uri": "gs://anthropocene-rl-datasets-508912/objects/sha256/0c/0c241de4d6e5747743d4920d828ac6106023852da65a3d3294fa87264c9c35f0.tar"
+      }
+    ],
+    "snapshot_payload_bytes": 106089216,
+    "states": 499,
+    "upload_result": {
+      "deduplicated_shards": 0,
+      "status": "PASS",
+      "uploaded_shards": 2
+    }
+  },
+  "evidence_bundle": {
+    "bundle": {
+      "anthropocene_sha256_metadata": "f63b877a4b3beed9e388f6898e464093df3ae214b37cc78a8e27421289d737c0",
+      "bytes": 14571520,
+      "crc32c_base64": "11QTAQ==",
+      "gcs_generation": "1791829687827346",
+      "md5_base64": "1wv1XnVl0XQVo5agHxrR1Q==",
+      "uri": "gs://anthropocene-rl-datasets-508912/run-objects/sha256/f6/f63b877a4b3beed9e388f6898e464093df3ae214b37cc78a8e27421289d737c0.tar"
+    },
+    "files": 16,
+    "manifest": {
+      "anthropocene_sha256_metadata": "da9af676cf4c379ad021842290080dffb2f10451ff53e5a159e6ddb257f92231",
+      "bytes": 4745,
+      "crc32c_base64": "TpE68Q==",
+      "gcs_generation": "1791829688828342",
+      "md5_base64": "KksrI4DQS2TdN0Fx003S4Q==",
+      "uri": "gs://anthropocene-rl-datasets-508912/runs/elder-broad-domain-50d-scaleout-v1/bank-freeze-6036d104/manifest.json"
+    },
+    "status": "PASS"
+  },
+  "local_disk": {
+    "cache_cap_bytes": 5368709120,
+    "post_cleanup": {
+      "checkpoints_bytes": 24299916,
+      "datasets_blobs_bytes": 212282888,
+      "datasets_cache_bytes": 66283355,
+      "datasets_staging_bytes": 178085922,
+      "generated_native_checkout_bytes": 20457513,
+      "integration_build_cache_bytes": 12878183,
+      "scaleout_evidence_bytes": 10169133
+    },
+    "reclaimed_generated_cache_bytes": 712200192,
+    "retained_new_snapshot_payload_bytes": 106089216
+  },
+  "provider_contract": {
+    "authentication": "Google Application Default Credentials on the executing host",
+    "content_addressing": "GCS object key plus custom anthropocene-sha256 metadata",
+    "limitations": [
+      "GCS has no native SHA-256 object field, so SHA-256 is stored as immutable custom metadata and verified after transfer.",
+      "CRC32C and MD5 are provider-reported for these non-composite objects; consumers should still verify the authoritative SHA-256.",
+      "Each shard and manifest incurs a separate provider operation; 64 MiB shards bound that overhead without per-snapshot object proliferation.",
+      "Credentials are host- or workload-scoped and are not embedded in Git, dataset manifests, or run bundles."
+    ],
+    "storage_class": "STANDARD"
+  },
+  "remote_read_verification": {
+    "cache_hits": 497,
+    "cache_misses": 2,
+    "records_materialized_and_hashed": 499,
+    "status": "PASS"
+  },
+  "sole_copy_safety": {
+    "local_snapshot_blobs_pruned": false,
+    "remote_dataset_verified_before_generated_cache_cleanup": true,
+    "status": "PASS"
+  },
+  "status": "PASS"
+}

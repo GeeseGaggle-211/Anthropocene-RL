@@ -60,3 +60,12 @@ evidence/elder-broad-domain-50d-v2/pilot/campaign-summary.json
 evidence/elder-broad-domain-50d-v2/pilot/option-a-baseline.json
 evidence/elder-broad-domain-50d-v2/pilot/seed-*.json
 evidence/elder-broad-domain-50d-v2/pilot-k1-diagnostic/
+
+# Scale-out keeps full normalization samples and campaign traces in GCS. Git
+# retains the fitted normalizer, compact audits, manifests, and handoff only.
+evidence/elder-broad-domain-50d-scaleout-v1/bank/final-normalization-diagnostics.json
+evidence/elder-broad-domain-50d-scaleout-hero-*/
+evidence/elder-broad-domain-50d-scaleout-v1/campaign-summary.json
+evidence/elder-broad-domain-50d-scaleout-v1/option-a-baseline.json
+evidence/elder-broad-domain-50d-scaleout-v1/seed-*.json
+evidence/elder-broad-domain-50d-full-v3/option-a-baseline.json

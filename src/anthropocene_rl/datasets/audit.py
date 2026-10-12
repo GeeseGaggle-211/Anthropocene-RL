@@ -19,6 +19,8 @@ from anthropocene_rl.datasets.blobs import sha256_file
 from anthropocene_rl.datasets.broad_domain_plan import (
     BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS,
     BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS,
+    SCALEOUT_ACCEPTED_FAMILY_COUNTS,
+    SCALEOUT_ACCEPTED_PARTITION_COUNTS,
 )
 from anthropocene_rl.datasets.models import (
     Partition,
@@ -77,7 +79,7 @@ def audit_snapshot_bank(
     if require_cultivation_pilot_coverage:
         _check_cultivation_pilot_coverage(records, errors)
     if require_broad_domain_coverage:
-        _check_broad_domain_coverage(records, errors)
+        _check_broad_domain_coverage(manifest, errors)
 
     rejection_counts = Counter(rejection.reason_code for rejection in manifest.rejected_candidates)
     partition_counts = Counter(record.partition.value for record in records)
@@ -592,10 +594,18 @@ def _check_cultivation_pilot_coverage(
 
 
 def _check_broad_domain_coverage(
-    records: tuple[SnapshotRecord, ...],
+    manifest: SnapshotBankManifest,
     errors: list[AuditIssue],
 ) -> None:
-    target = sum(BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS.values())
+    records = manifest.records
+    if manifest.bank_id == "elder-v2-broad-domain-50d-scaleout-v1":
+        accepted_family_counts = SCALEOUT_ACCEPTED_FAMILY_COUNTS
+        accepted_partition_counts = SCALEOUT_ACCEPTED_PARTITION_COUNTS
+    else:
+        accepted_family_counts = BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS
+        accepted_partition_counts = BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS
+
+    target = sum(accepted_family_counts.values())
     if len(records) != target:
         errors.append(
             AuditIssue(
@@ -604,7 +614,7 @@ def _check_broad_domain_coverage(
             )
         )
     families = Counter(record.scenario_family for record in records)
-    if dict(sorted(families.items())) != BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS:
+    if dict(sorted(families.items())) != accepted_family_counts:
         errors.append(
             AuditIssue(
                 code="broad-domain-family-counts",
@@ -622,7 +632,7 @@ def _check_broad_domain_coverage(
         for family, counts in sorted(actual_partition_counts.items())
     } != {
         family: dict(sorted(counts.items()))
-        for family, counts in sorted(BROAD_DOMAIN_ACCEPTED_PARTITION_COUNTS.items())
+        for family, counts in sorted(accepted_partition_counts.items())
     }:
         errors.append(
             AuditIssue(
@@ -645,7 +655,7 @@ def _check_broad_domain_coverage(
     def family_records(family: str) -> list[SnapshotRecord]:
         return [record for record in records if record.scenario_family == family]
 
-    for family in BROAD_DOMAIN_ACCEPTED_FAMILY_COUNTS:
+    for family in accepted_family_counts:
         selected = family_records(family)
         if selected and not any(
             record.actual_strata.structural_masks.movement for record in selected

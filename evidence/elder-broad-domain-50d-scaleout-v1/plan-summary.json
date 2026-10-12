@@ -1,0 +1,222 @@
+{
+  "active_policy_domains": [
+    "cultivation",
+    "husbandry",
+    "movement"
+  ],
+  "bank_id": "elder-v2-broad-domain-50d-scaleout-v1",
+  "excluded_policy_domains": [
+    "fishing"
+  ],
+  "f15_shared_capture_horizon_decisions": 5,
+  "family_world_counts": {
+    "F01": 40,
+    "F02": 46,
+    "F03": 60,
+    "F04": 54,
+    "F05": 48,
+    "F06": 56,
+    "F07": 56,
+    "F13": 46,
+    "F14": 30,
+    "F15": 94,
+    "F16": 11,
+    "F17": 20,
+    "F18": 21
+  },
+  "generator_config_sha256": "bf4517367870b3bd02a7ad7604aa0fe444b84671a883dbcc2ddefd927b4aa70e",
+  "live_native_dynamics": [
+    "trade",
+    "immigration",
+    "emigration",
+    "fission"
+  ],
+  "nominal_episode_years": 1000,
+  "normalization_rule": "freeze the accepted manifest, then fit a fresh normalization-v3 instance from TRAIN resets plus legal calibration rollouts only",
+  "primary_episode_decisions": 50,
+  "requested_family_snapshot_counts": {
+    "F01": 40,
+    "F02": 46,
+    "F03": 60,
+    "F04": 54,
+    "F05": 48,
+    "F06": 56,
+    "F07": 56,
+    "F13": 46,
+    "F14": 60,
+    "F15": 188,
+    "F16": 44,
+    "F17": 60,
+    "F18": 42
+  },
+  "requested_pairwise_coverage": {
+    "F01": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F02": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F03": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F04": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 239,
+      "possible_pairs": 239
+    },
+    "F05": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 257,
+      "possible_pairs": 257
+    },
+    "F06": {
+      "active_factor_count": 7,
+      "fraction": 1.0,
+      "observed_pairs": 335,
+      "possible_pairs": 335
+    },
+    "F07": {
+      "active_factor_count": 7,
+      "fraction": 1.0,
+      "observed_pairs": 334,
+      "possible_pairs": 334
+    },
+    "F13": {
+      "active_factor_count": 6,
+      "fraction": 1.0,
+      "observed_pairs": 219,
+      "possible_pairs": 219
+    },
+    "F14": {
+      "active_factor_count": 9,
+      "fraction": 0.9875,
+      "observed_pairs": 316,
+      "possible_pairs": 320
+    },
+    "F15": {
+      "active_factor_count": 7,
+      "fraction": 0.984313725490196,
+      "observed_pairs": 502,
+      "possible_pairs": 510
+    },
+    "F16": {
+      "active_factor_count": 7,
+      "fraction": 0.7396226415094339,
+      "observed_pairs": 196,
+      "possible_pairs": 265
+    },
+    "F17": {
+      "active_factor_count": 6,
+      "fraction": 0.8926174496644296,
+      "observed_pairs": 133,
+      "possible_pairs": 149
+    },
+    "F18": {
+      "active_factor_count": 7,
+      "fraction": 0.9415384615384615,
+      "observed_pairs": 306,
+      "possible_pairs": 325
+    }
+  },
+  "requested_partition_snapshot_counts": {
+    "development": 124,
+    "heldout": 156,
+    "train": 520
+  },
+  "requested_snapshot_count": 800,
+  "status": "PLAN_READY_NOT_GENERATED",
+  "target_accepted_family_counts": {
+    "F01": 25,
+    "F02": 38,
+    "F03": 60,
+    "F04": 40,
+    "F05": 30,
+    "F06": 35,
+    "F07": 35,
+    "F13": 30,
+    "F14": 54,
+    "F15": 50,
+    "F16": 28,
+    "F17": 42,
+    "F18": 32
+  },
+  "target_accepted_partition_counts": {
+    "F01": {
+      "development": 4,
+      "heldout": 4,
+      "train": 17
+    },
+    "F02": {
+      "development": 4,
+      "heldout": 4,
+      "train": 30
+    },
+    "F03": {
+      "development": 13,
+      "heldout": 9,
+      "train": 38
+    },
+    "F04": {
+      "development": 6,
+      "heldout": 6,
+      "train": 28
+    },
+    "F05": {
+      "development": 4,
+      "heldout": 4,
+      "train": 22
+    },
+    "F06": {
+      "development": 5,
+      "heldout": 5,
+      "train": 25
+    },
+    "F07": {
+      "development": 5,
+      "heldout": 5,
+      "train": 25
+    },
+    "F13": {
+      "development": 4,
+      "heldout": 4,
+      "train": 22
+    },
+    "F14": {
+      "development": 8,
+      "heldout": 8,
+      "train": 38
+    },
+    "F15": {
+      "development": 8,
+      "heldout": 8,
+      "train": 34
+    },
+    "F16": {
+      "development": 4,
+      "heldout": 4,
+      "train": 20
+    },
+    "F17": {
+      "development": 6,
+      "heldout": 9,
+      "train": 27
+    },
+    "F18": {
+      "development": 4,
+      "heldout": 6,
+      "train": 22
+    }
+  },
+  "target_accepted_snapshot_count": 499
+}
