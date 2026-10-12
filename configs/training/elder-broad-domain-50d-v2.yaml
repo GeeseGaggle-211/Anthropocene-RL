@@ -47,6 +47,7 @@ sampling:
   randomness_contract: snapshot-owned-keyed-randomness
   common_random_numbers_within_snapshot_rollout_group: true
 evaluation:
+  workers: 8
   interval_updates: 10
   decisions_per_episode: 50
   development_use: checkpoint-selection-and-debugging

@@ -63,7 +63,8 @@ Tanh MLP without LayerNorm.
 An eight-worker 50-decision preflight collected 2,577 transitions in 48 seconds
 and passed all contract, replay, finite-value, reward-denominator, and
 per-state inactive-head gradient gates. The corresponding single-worker
-collection took about 137 seconds. The frozen native interface accepts only
+collection took about 137 seconds. Serious evaluation also uses up to eight
+workers while retaining exhaustive replay. The frozen native interface accepts only
 `RandomStream=0`; snapshot state owns keyed randomness, so repeated rollouts
 share the native future while policy actions remain independently sampled.
 

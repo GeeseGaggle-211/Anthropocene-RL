@@ -147,6 +147,7 @@ class PilotConfig:
     campaign_scope: CampaignScope = "cultivation-only"
     replay_verification_interval: int = 1
     collector_workers: int = 1
+    evaluation_workers: int = 1
 
     @property
     def families(self) -> tuple[str, ...]:
@@ -189,8 +190,12 @@ class PilotConfig:
             raise ValueError("Replay verification interval must be positive")
         if self.collector_workers < 1 or self.collector_workers > self.episodes_per_update:
             raise ValueError("collector_workers must fit within episodes_per_update")
+        if self.evaluation_workers < 1:
+            raise ValueError("evaluation_workers must be positive")
         if self.device != "cpu" and self.collector_workers != 1:
             raise ValueError("Parallel native collection currently requires the CPU policy")
+        if self.device != "cpu" and self.evaluation_workers != 1:
+            raise ValueError("Parallel native evaluation currently requires the CPU policy")
 
 
 @dataclass
@@ -450,6 +455,7 @@ def run_cultivation_pilot(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="option-a",
         ),
         "development": _evaluate_records(
@@ -460,6 +466,7 @@ def run_cultivation_pilot(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="option-a",
         ),
     }
@@ -472,6 +479,7 @@ def run_cultivation_pilot(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="option-a",
         )
     _write_json(evidence_dir / "option-a-baseline.json", option_a)
@@ -642,6 +650,7 @@ def _run_seed(
         episode_steps=config.evaluation_steps,
         horizon_years=config.horizon_years,
         reward_scale=config.reward_scale,
+        workers=config.evaluation_workers,
         policy="learned",
         model=model,
         device=device,
@@ -749,6 +758,7 @@ def _run_seed(
                     episode_steps=config.evaluation_steps,
                     horizon_years=config.horizon_years,
                     reward_scale=config.reward_scale,
+                    workers=config.evaluation_workers,
                     policy="learned",
                     model=model,
                     device=device,
@@ -825,6 +835,7 @@ def _run_seed(
         episode_steps=config.evaluation_steps,
         horizon_years=config.horizon_years,
         reward_scale=config.reward_scale,
+        workers=config.evaluation_workers,
         policy="learned",
         model=model,
         device=device,
@@ -848,6 +859,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -892,6 +904,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -904,6 +917,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -918,6 +932,7 @@ def _run_seed(
             episode_steps=config.evaluation_steps,
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
+            workers=config.evaluation_workers,
             policy="learned",
             model=model,
             device=device,
@@ -1939,6 +1954,7 @@ def _evaluate_records(
     episode_steps: int,
     horizon_years: float,
     reward_scale: float,
+    workers: int = 1,
     policy: Literal["learned", "option-a"],
     model: ElderActorCritic | None = None,
     device: torch.device | None = None,
@@ -1947,21 +1963,40 @@ def _evaluate_records(
         raise ValueError("Learned evaluation requires a model and device")
     if not records:
         raise ValueError("Evaluation record set cannot be empty")
+    if workers < 1:
+        raise ValueError("Evaluation workers must be positive")
+    for record in records:
+        dataset.selection(record)
+    worker_count = min(workers, len(records))
     selection = dataset.selection(records[0])
-    env = _make_environment(
-        bridge_path=bridge_path,
-        dotnet=dotnet,
-        selection=selection,
-        episode_limit=episode_steps,
-        campaign_scope=dataset.campaign_scope,
+    envs = tuple(
+        _make_environment(
+            bridge_path=bridge_path,
+            dotnet=dotnet,
+            selection=selection,
+            episode_limit=episode_steps,
+            campaign_scope=dataset.campaign_scope,
+        )
+        for _ in range(worker_count)
     )
+    quotient, remainder = divmod(len(records), worker_count)
+    chunks: list[tuple[SnapshotRecord, ...]] = []
+    cursor = 0
+    for worker in range(worker_count):
+        size = quotient + int(worker < remainder)
+        chunks.append(records[cursor : cursor + size])
+        cursor += size
+    inference_lock = threading.Lock()
     episodes: list[dict[str, Any]] = []
     was_training = model.training if model is not None else False
     if model is not None:
         model.eval()
     try:
-        for record in records:
-            episodes.append(
+        def evaluate_chunk(
+            env: AnthropoceneElderEnv,
+            chunk: tuple[SnapshotRecord, ...],
+        ) -> list[dict[str, Any]]:
+            return [
                 _evaluate_episode(
                     env=env,
                     selection=dataset.selection(record),
@@ -1972,10 +2007,26 @@ def _evaluate_records(
                     horizon_years=horizon_years,
                     reward_scale=reward_scale,
                     campaign_scope=dataset.campaign_scope,
+                    inference_lock=inference_lock,
                 )
-            )
+                for record in chunk
+            ]
+
+        if worker_count == 1:
+            episodes = evaluate_chunk(envs[0], chunks[0])
+        else:
+            with ThreadPoolExecutor(
+                max_workers=worker_count,
+                thread_name_prefix="elder-evaluation",
+            ) as executor:
+                futures = [
+                    executor.submit(evaluate_chunk, env, chunk)
+                    for env, chunk in zip(envs, chunks, strict=True)
+                ]
+                episodes = [episode for future in futures for episode in future.result()]
     finally:
-        env.close()
+        for env in envs:
+            env.close()
         if model is not None:
             model.train(was_training)
     return {
@@ -1987,6 +2038,7 @@ def _evaluate_records(
         "by_world": _group_episode_summaries(episodes, "world_seed"),
         "behavior_slices": _behavior_slices(episodes),
         "self_sufficiency": _self_sufficiency_diagnostic(episodes),
+        "evaluation_workers": worker_count,
         "episodes": episodes,
     }
 
@@ -2002,6 +2054,7 @@ def _evaluate_episode(
     horizon_years: float,
     reward_scale: float,
     campaign_scope: CampaignScope,
+    inference_lock: threading.Lock | None = None,
 ) -> dict[str, Any]:
     observation, info = env.reset(
         options=_reset_request(selection, episode_steps, campaign_scope)
@@ -2042,7 +2095,10 @@ def _evaluate_episode(
         if policy == "learned":
             assert model is not None and device is not None
             tensor = torch.as_tensor(observation, dtype=torch.float32, device=device)
-            with torch.no_grad():
+            with (
+                inference_lock if inference_lock is not None else nullcontext(),
+                torch.no_grad(),
+            ):
                 sampled = model.actor.sample(tensor.unsqueeze(0), deterministic=True)
             continuous = sampled.continuous[0].detach()
             movement = int(sampled.movement_index[0].detach().cpu())

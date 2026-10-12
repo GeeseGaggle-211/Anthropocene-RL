@@ -38,8 +38,9 @@ The exact declaration is `configs/training/elder-broad-domain-50d-v2.yaml`.
 - One base TRAIN snapshot per family, four on-policy trajectories per snapshot,
   and a leave-one-out group-relative advantage at the first decision.
 - 40 updates, up to 104,000 transitions per seed.
-- Eight persistent native bridge workers; TRAIN replay is sampled every 20
-  episodes and evaluation replay remains exhaustive.
+- Eight persistent native bridge workers for TRAIN collection and up to eight
+  workers for evaluation; TRAIN replay is sampled every 20 episodes and
+  evaluation replay remains exhaustive.
 - DEVELOPMENT selects checkpoints. HELDOUT is evaluated only on the final
   selected checkpoint and is not used for optimizer or configuration changes.
 

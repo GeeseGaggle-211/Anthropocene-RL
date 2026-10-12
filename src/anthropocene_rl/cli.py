@@ -381,6 +381,7 @@ def main() -> int:
     pilot.add_argument("--reward-scale", type=float, default=0.001)
     pilot.add_argument("--replay-verification-interval", type=int, default=1)
     pilot.add_argument("--collector-workers", type=int, default=1)
+    pilot.add_argument("--evaluation-workers", type=int, default=1)
     pilot.add_argument("--learning-rate", type=float, default=1e-3)
     pilot.add_argument("--actor-learning-rate", type=float, default=3e-4)
     pilot.add_argument("--ppo-epochs", type=int, default=8)
@@ -692,6 +693,7 @@ def main() -> int:
                 campaign_scope=args.campaign_scope,
                 replay_verification_interval=args.replay_verification_interval,
                 collector_workers=args.collector_workers,
+                evaluation_workers=args.evaluation_workers,
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
