@@ -8,9 +8,11 @@ The fresh scale-out curriculum is complete and locally validated. Training has
 not been launched on this workstation. The next execution target is Google AI
 Pro, using GCS for the immutable dataset and all large run/checkpoint objects.
 
-An independent Astra-high review must issue an explicit GO before the hero
-command below is run. A single-seed hero can produce a provisional result only;
-promotion requires the subsequent three-seed campaign.
+Independent Astra-high review issued **GO** for the hero and **conditional GO**
+for the three-seed campaign if the hero passes every hard and health gate. A
+single-seed hero can produce a provisional result only; promotion requires the
+subsequent three-seed campaign. The preserved review is
+`evidence/elder-broad-domain-50d-scaleout-v1/astra-review.md`.
 
 ## Frozen identities
 
@@ -72,6 +74,11 @@ F15 has five complete counterfactual pairs for each declared causal contrast:
 - food shortfall with contacts versus material/tool import;
 - immigration-secure versus emigration-distress;
 - immigration-labor versus immigration-stress.
+
+These five contrasts are not each represented in every evaluation partition.
+DEVELOPMENT contains isolated/import and food/material contrasts; HELDOUT
+contains migration and mild-import/export contrasts. Final claims must respect
+those missing per-partition cells.
 
 The generator requested 800 candidates. It rejected or declined 301: 104 at
 native physical-stratum generation and 197 at complete-group, identity, and

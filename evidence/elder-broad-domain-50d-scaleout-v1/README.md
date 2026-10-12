@@ -1,6 +1,8 @@
 # Elder 50-decision scale-out evidence
 
-Status: frozen bank and TRAIN-only normalizer PASS; cloud training not started.
+Status: frozen bank, TRAIN-only normalizer, and GCS recovery PASS; Astra-high
+GO for the hero and conditional GO for three-seed replication; training not
+started.
 
 ## Identities
 
@@ -38,7 +40,7 @@ Status: frozen bank and TRAIN-only normalizer PASS; cloud training not started.
 - `bank/final-train-normalization.json`: frozen normalizer.
 - `bank/final-normalization-diagnostics.json`: per-feature and slice diagnostics.
 - `storage-audit.json`: GCS generations, provider checksums, full re-read, and disk cleanup.
-- `astra-review.md`: added after independent launch review.
+- `astra-review.md`: independent launch verdict and reversal conditions.
 
 The source and cloud execution handoff is
 `docs/ELDER_50D_SCALEOUT_GCS_HANDOFF_2026-10-12.md`.
