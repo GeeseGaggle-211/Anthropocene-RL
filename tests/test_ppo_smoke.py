@@ -8,6 +8,7 @@ import torch
 
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
 from anthropocene_rl.training.pilot import (
+    _critic_evaluation_diagnostics,
     _critic_health_window,
     _inactive_head_gradient_audit,
 )
@@ -78,8 +79,14 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["actor_continuous_head_parameter_update_l2"] > 0.0
     assert metrics["critic_parameter_update_l2"] > 0.0
     assert metrics["critic_backbone_parameter_update_l2"] > 0.0
+    assert metrics["critic_value_head_weight_l2"] > 0.0
+    assert metrics["critic_value_head_bias_abs"] >= 0.0
     assert math.isfinite(metrics["post_update_critic_explained_variance"])
     assert math.isfinite(metrics["post_update_critic_normalized_bias"])
+    for head in range(4):
+        assert math.isfinite(metrics[f"continuous_head_{head}_log_std"])
+        endpoint_rate = metrics[f"continuous_head_{head}_mean_endpoint_rate"]
+        assert 0.0 <= endpoint_rate <= 1.0
 
     with torch.no_grad():
         evaluated = model.actor.evaluate_actions(
@@ -209,6 +216,33 @@ def test_hidden_activation_diagnostics_are_finite_and_layer_specific() -> None:
             assert 0.0 <= rate <= 1.0
             derivative = layer["activation"]["mean_tanh_derivative"]
             assert 0.0 <= derivative <= 1.0
+
+
+def test_zero_unseen_input_columns_neutralizes_both_networks() -> None:
+    torch.manual_seed(73)
+    model = ElderActorCritic()
+    actor_first = model.actor.backbone.net[0]
+    critic_first = model.critic.backbone.net[0]
+    actor_control = actor_first.weight[:, 6].detach().clone()
+    critic_control = critic_first.weight[:, 6].detach().clone()
+
+    assert model.zero_input_columns((7, 200, 7)) == (7, 200)
+    assert torch.count_nonzero(actor_first.weight[:, (7, 200)]) == 0
+    assert torch.count_nonzero(critic_first.weight[:, (7, 200)]) == 0
+    assert torch.equal(actor_first.weight[:, 6], actor_control)
+    assert torch.equal(critic_first.weight[:, 6], critic_control)
+
+
+def test_development_critic_diagnostic_uses_realized_horizon_returns() -> None:
+    perfect = _critic_evaluation_diagnostics([1.0, 2.0, 3.0], [1.0, 2.0, 3.0])
+    assert perfect["evaluable"] is True
+    assert perfect["explained_variance"] == pytest.approx(1.0)
+    assert perfect["normalized_mse"] == pytest.approx(0.0)
+    assert perfect["mean_bias"] == pytest.approx(0.0)
+
+    singleton = _critic_evaluation_diagnostics([1.0], [1.0])
+    assert singleton["evaluable"] is False
+    assert singleton["explained_variance"] is None
 
 
 def test_critic_layer_norm_is_independent_and_diagnostic_safe() -> None:

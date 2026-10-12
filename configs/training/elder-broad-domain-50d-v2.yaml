@@ -25,6 +25,7 @@ network:
   shared_trunk: false
   recurrent: false
   privileged_critic: false
+  unseen_input_initialization: zero-first-layer-columns-with-zero-TRAIN-fit-count
 scope:
   admitted: [cultivation, husbandry, movement, trade, migration, fission]
   excluded: [fishing, synthetic-disaster-curriculum]
@@ -70,6 +71,12 @@ optimizer:
   epochs: 3
   minibatch_size: 256
   target_kl: 0.02
+diagnostics:
+  - per-head-log-std-by-update
+  - per-head-actor-mean-endpoint-rate
+  - development-reset-value-explained-variance
+  - critic-value-head-weight-and-bias-size
+  - clip-fraction-and-target-kl-early-stop-rate
 storage:
   backend: gcs
   bucket: anthropocene-rl-datasets-508912

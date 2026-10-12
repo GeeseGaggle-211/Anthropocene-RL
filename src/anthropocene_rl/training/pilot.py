@@ -607,6 +607,11 @@ def _run_seed(
 ) -> dict[str, Any]:
     device = _configure_determinism(seed, config.device)
     model = ElderActorCritic(actor_config).to(device)
+    zero_fit_input_columns = model.zero_input_columns(
+        index
+        for index, count in enumerate(dataset.normalizer.manifest.nonzero_fit_counts)
+        if count == 0
+    )
     trainer = PPOTrainer(model, ppo_config)
     sampler = BalancedFamilySampler(train, seed, config.families)
     timings = _Timing()
@@ -654,6 +659,7 @@ def _run_seed(
         policy="learned",
         model=model,
         device=device,
+        value_normalization=(trainer.value_mean, trainer.value_std),
     )
     evaluation_curve.append(
         {"update": 0, "partition": "development-probe", **initial_evaluation["summary"]}
@@ -762,6 +768,7 @@ def _run_seed(
                     policy="learned",
                     model=model,
                     device=device,
+                    value_normalization=(trainer.value_mean, trainer.value_std),
                 )
                 critic_health = _critic_health_window(learning_curve)
                 evaluation_curve.append(
@@ -839,6 +846,7 @@ def _run_seed(
         policy="learned",
         model=model,
         device=device,
+        value_normalization=(trainer.value_mean, trainer.value_std),
     )
     terminal_checkpoint = {
         "update": config.updates,
@@ -851,6 +859,7 @@ def _run_seed(
     shadow_health_checkpoint: dict[str, Any] | None = None
     if best_health_state is not None:
         model.load_state_dict(best_health_state["model"])
+        trainer.load_state_dict(best_health_state["trainer"])
         health_evaluation = _evaluate_records(
             dataset=dataset,
             records=development,
@@ -863,6 +872,7 @@ def _run_seed(
             policy="learned",
             model=model,
             device=device,
+            value_normalization=(trainer.value_mean, trainer.value_std),
         )
         shadow_health_checkpoint = {
             "update": best_health_update,
@@ -908,6 +918,7 @@ def _run_seed(
             policy="learned",
             model=model,
             device=device,
+            value_normalization=(trainer.value_mean, trainer.value_std),
         ),
         "development": _evaluate_records(
             dataset=dataset,
@@ -921,6 +932,7 @@ def _run_seed(
             policy="learned",
             model=model,
             device=device,
+            value_normalization=(trainer.value_mean, trainer.value_std),
         ),
     }
     if config.evaluate_heldout:
@@ -936,6 +948,7 @@ def _run_seed(
             policy="learned",
             model=model,
             device=device,
+            value_normalization=(trainer.value_mean, trainer.value_std),
         )
     comparisons = {
         key: _compare_evaluations(final_evaluation[key], option_a[key]) for key in final_evaluation
@@ -1073,8 +1086,19 @@ def _run_seed(
             "active_heads": active_heads,
             "maximum_post_update_approx_kl": maximum_kl,
             "mean_post_update_clip_fraction": mean_clip,
+            "target_kl_early_stop_count": int(
+                sum(row["ppo"]["target_kl_early_stop"] for row in learning_curve)
+            ),
+            "target_kl_early_stop_rate": float(
+                np.mean([row["ppo"]["target_kl_early_stop"] for row in learning_curve])
+            ),
             "critic_first_post_update_mse": critic_start,
             "critic_final_post_update_mse": critic_end,
+            "input_initialization": {
+                "rule": "zero-first-layer-columns-with-zero-TRAIN-fit-count",
+                "zeroed_column_count": len(zero_fit_input_columns),
+                "zeroed_columns": list(zero_fit_input_columns),
+            },
             "hidden_activation_diagnostics": {
                 "initial_policy": initial_activation_diagnostics,
                 "final_policy": final_activation_probe["train"],
@@ -1958,9 +1982,14 @@ def _evaluate_records(
     policy: Literal["learned", "option-a"],
     model: ElderActorCritic | None = None,
     device: torch.device | None = None,
+    value_normalization: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
-    if policy == "learned" and (model is None or device is None):
-        raise ValueError("Learned evaluation requires a model and device")
+    if policy == "learned" and (
+        model is None or device is None or value_normalization is None
+    ):
+        raise ValueError(
+            "Learned evaluation requires a model, device, and value normalization"
+        )
     if not records:
         raise ValueError("Evaluation record set cannot be empty")
     if workers < 1:
@@ -2008,6 +2037,7 @@ def _evaluate_records(
                     reward_scale=reward_scale,
                     campaign_scope=dataset.campaign_scope,
                     inference_lock=inference_lock,
+                    value_normalization=value_normalization,
                 )
                 for record in chunk
             ]
@@ -2055,6 +2085,7 @@ def _evaluate_episode(
     reward_scale: float,
     campaign_scope: CampaignScope,
     inference_lock: threading.Lock | None = None,
+    value_normalization: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     observation, info = env.reset(
         options=_reset_request(selection, episode_steps, campaign_scope)
@@ -2079,6 +2110,7 @@ def _evaluate_episode(
     accepted_realized: list[float] = []
     entropies: list[float] = []
     saturation_flags: list[bool] = []
+    actor_mean_endpoint_flags: list[list[bool]] = [[], [], [], []]
     channels: dict[str, list[list[float]]] = {
         name: [[], [], [], []] for name in ("requested", "accepted", "realized")
     }
@@ -2090,6 +2122,19 @@ def _evaluate_episode(
     material_tool_imports = 0.0
     migration_total = 0.0
     steps = 0
+    initial_critic_value: float | None = None
+    if policy == "learned":
+        assert model is not None and device is not None and value_normalization is not None
+        initial_tensor = torch.as_tensor(observation, dtype=torch.float32, device=device)
+        with (
+            inference_lock if inference_lock is not None else nullcontext(),
+            torch.no_grad(),
+        ):
+            normalized_value = model.critic(initial_tensor.unsqueeze(0))[0]
+        value_mean, value_std = value_normalization
+        initial_critic_value = float(
+            (normalized_value * value_std + value_mean).detach().cpu()
+        )
 
     for _ in range(episode_steps):
         if policy == "learned":
@@ -2101,6 +2146,15 @@ def _evaluate_episode(
             ):
                 sampled = model.actor.sample(tensor.unsqueeze(0), deterministic=True)
             continuous = sampled.continuous[0].detach()
+            active = structural_head_mask(tensor.unsqueeze(0))[0]
+            for head in range(4):
+                if bool(active[head].detach().cpu()):
+                    actor_mean_endpoint_flags[head].append(
+                        bool(
+                            (continuous[head] <= 0.02).detach().cpu()
+                            or (continuous[head] >= 0.98).detach().cpu()
+                        )
+                    )
             movement = int(sampled.movement_index[0].detach().cpu())
             entropies.append(float(sampled.entropy[0].detach().cpu()))
             if not info["action_mask"].movement_candidates[movement]:
@@ -2206,6 +2260,7 @@ def _evaluate_episode(
         "elapsed_years": elapsed_total,
         "discounted_return": discounted_return,
         "discounted_scaled_return": discounted_return * reward_scale,
+        "initial_critic_value": initial_critic_value,
         "raw_prior_cohort_welfare": raw_welfare,
         "survived": active_end,
         "start_state": start_state,
@@ -2243,6 +2298,10 @@ def _evaluate_episode(
         },
         "action_entropy": float(np.mean(entropies)) if entropies else None,
         "action_saturation_rate": float(np.mean(saturation_flags)),
+        "actor_mean_endpoint_rate_by_head": [
+            float(np.mean(flags)) if flags else None
+            for flags in actor_mean_endpoint_flags
+        ],
         "intervention_transition_rate": float(
             np.mean([count > 0 for count in intervention_counts])
         ),
@@ -2363,6 +2422,30 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     entropies = [episode["action_entropy"] for episode in episodes]
     if all(value is not None for value in entropies):
         summary["action_entropy"] = _distribution([float(value) for value in entropies])
+    head_names = (
+        "field_operation",
+        "herd_retention",
+        "development_budget",
+        "field_development_share",
+    )
+    for head, name in enumerate(head_names):
+        endpoint_rates = [
+            episode["actor_mean_endpoint_rate_by_head"][head]
+            for episode in episodes
+            if episode["actor_mean_endpoint_rate_by_head"][head] is not None
+        ]
+        if endpoint_rates:
+            summary[f"actor_mean_endpoint_rate_{name}"] = _distribution(
+                [float(value) for value in endpoint_rates]
+            )
+    critic_values = [episode["initial_critic_value"] for episode in episodes]
+    if all(value is not None for value in critic_values):
+        resolved_values = [float(value) for value in critic_values]
+        realized = [float(episode["discounted_scaled_return"]) for episode in episodes]
+        summary["initial_critic_value"] = _distribution(resolved_values)
+        summary["critic_initial_value_vs_realized_horizon"] = (
+            _critic_evaluation_diagnostics(resolved_values, realized)
+        )
     return summary
 
 
@@ -2376,6 +2459,28 @@ def _distribution(values: list[float]) -> dict[str, float]:
         "p95": float(np.quantile(array, 0.95)),
         "min": float(np.min(array)),
         "max": float(np.max(array)),
+    }
+
+
+def _critic_evaluation_diagnostics(
+    prediction: list[float], target: list[float]
+) -> dict[str, Any]:
+    predicted = np.asarray(prediction, dtype=np.float64)
+    observed = np.asarray(target, dtype=np.float64)
+    target_variance = float(np.var(observed))
+    residual = observed - predicted
+    evaluable = len(observed) >= 2 and target_variance > 1e-12
+    return {
+        "definition": "reset V versus realized 50-decision discounted scaled return",
+        "count": len(observed),
+        "evaluable": evaluable,
+        "explained_variance": (
+            float(1.0 - np.var(residual) / target_variance) if evaluable else None
+        ),
+        "normalized_mse": (
+            float(np.mean(np.square(residual)) / target_variance) if evaluable else None
+        ),
+        "mean_bias": float(np.mean(predicted - observed)),
     }
 
 

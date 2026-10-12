@@ -9,6 +9,7 @@ from typing import Literal
 import torch
 from torch import Tensor
 
+from anthropocene_rl.policies.distributions import structural_head_mask
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic
 
 
@@ -535,6 +536,26 @@ class PPOTrainer:
                 for head in range(4)
             }
         )
+        with torch.no_grad():
+            actor_mean, _, _ = self.model.actor.parameters_for(batch.observations)
+            bounded_mean = torch.sigmoid(2.0 * actor_mean.to(torch.float64))
+            active_heads = structural_head_mask(batch.observations)
+            for head in range(4):
+                active = active_heads[:, head]
+                endpoint = (bounded_mean[:, head] <= 0.02) | (
+                    bounded_mean[:, head] >= 0.98
+                )
+                metrics[f"continuous_head_{head}_mean_endpoint_rate"] = float(
+                    endpoint[active].to(torch.float32).mean().cpu()
+                    if torch.any(active)
+                    else 0.0
+                )
+            metrics["critic_value_head_weight_l2"] = float(
+                torch.linalg.vector_norm(self.model.critic.value_head.weight).cpu()
+            )
+            metrics["critic_value_head_bias_abs"] = float(
+                torch.abs(self.model.critic.value_head.bias).max().cpu()
+            )
         metrics["movement_head_grad_max"] = movement_head_gradient_max
         return metrics
 
