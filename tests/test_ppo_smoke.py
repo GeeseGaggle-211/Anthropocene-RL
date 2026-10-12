@@ -63,6 +63,16 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["actor_pre_clip_grad_norm_max"] > 0.0
     assert metrics["critic_pre_clip_grad_norm_max"] > 0.0
     assert metrics["total_pre_clip_grad_norm_max"] > 0.0
+    assert metrics["paired_actor_pre_clip_grad_norm_mean"] > 0.0
+    assert metrics["paired_critic_pre_clip_grad_norm_mean"] > 0.0
+    assert metrics["paired_total_pre_clip_grad_norm_mean"] > 0.0
+    assert 0.0 < metrics["joint_clip_factor_min"] <= 1.0
+    assert metrics["joint_clip_factor_min"] <= metrics["joint_clip_factor_mean"] <= 1.0
+    assert metrics["actor_parameter_update_l2"] > 0.0
+    assert metrics["actor_backbone_parameter_update_l2"] > 0.0
+    assert metrics["actor_continuous_head_parameter_update_l2"] > 0.0
+    assert metrics["critic_parameter_update_l2"] > 0.0
+    assert metrics["critic_backbone_parameter_update_l2"] > 0.0
     assert math.isfinite(metrics["post_update_critic_explained_variance"])
     assert math.isfinite(metrics["post_update_critic_normalized_bias"])
 

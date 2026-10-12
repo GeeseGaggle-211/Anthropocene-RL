@@ -378,6 +378,11 @@ def main() -> int:
     pilot.add_argument("--target-kl", type=float, default=0.05)
     pilot.add_argument("--actor-layer-norm", action="store_true")
     pilot.add_argument("--critic-layer-norm", action="store_true")
+    pilot.add_argument(
+        "--skip-heldout-evaluation",
+        action="store_true",
+        help="Keep HELDOUT sealed during optimizer tuning runs",
+    )
     args = parser.parse_args()
 
     if args.command == "check-manifest":
@@ -661,6 +666,7 @@ def main() -> int:
                 lambda_ref=args.lambda_ref,
                 lambda_reference_years=args.lambda_reference_years,
                 reward_scale=args.reward_scale,
+                evaluate_heldout=not args.skip_heldout_evaluation,
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
@@ -680,6 +686,8 @@ def main() -> int:
             json.dumps(
                 {
                     "status": diagnostics["status"],
+                    "validation_status": diagnostics["validation_status"],
+                    "promotion_status": diagnostics["promotion_status"],
                     "evidence": str(args.evidence_directory / "campaign-summary.json"),
                     "evidence_sha256": diagnostics["evidence_sha256"],
                 },

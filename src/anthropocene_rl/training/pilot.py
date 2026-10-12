@@ -120,6 +120,7 @@ class PilotConfig:
     lambda_reference_years: float = 20.0
     reward_scale: float = 0.001
     train_probe_per_family: int = 2
+    evaluate_heldout: bool = True
 
     def validate(self) -> None:
         if len(self.seeds) != 3 or len(set(self.seeds)) != 3:
@@ -378,7 +379,9 @@ def run_cultivation_pilot(
             reward_scale=config.reward_scale,
             policy="option-a",
         ),
-        "heldout": _evaluate_records(
+    }
+    if config.evaluate_heldout:
+        option_a["heldout"] = _evaluate_records(
             dataset=dataset,
             records=heldout,
             bridge_path=bridge_path,
@@ -387,8 +390,7 @@ def run_cultivation_pilot(
             horizon_years=config.horizon_years,
             reward_scale=config.reward_scale,
             policy="option-a",
-        ),
-    }
+        )
     _write_json(evidence_dir / "option-a-baseline.json", option_a)
 
     seed_reports: list[dict[str, Any]] = []
@@ -413,11 +415,20 @@ def run_cultivation_pilot(
         _write_json(evidence_dir / f"seed-{seed}.json", report)
 
     trajectory = _cultivation_trajectory(seed_reports)
+    validation = _validation_assessment(seed_reports)
     promotion = _promotion_assessment(seed_reports)
     project_root = Path(__file__).resolve().parents[3]
     identities = _campaign_identities(dataset, bridge_path, project_root)
     result = {
-        "status": "PASS" if all(promotion.values()) else "NO_GO",
+        "status": (
+            "PASS"
+            if all(validation.values()) and all(promotion.values())
+            else ("NO_GO" if all(validation.values()) else "FAIL")
+        ),
+        "validation_status": "PASS" if all(validation.values()) else "FAIL",
+        "promotion_status": (
+            "PASS" if all(validation.values()) and all(promotion.values()) else "NO_GO"
+        ),
         "scope": "fixed-location-cultivation-control-open-economy-ppo-pilot",
         "identities": identities,
         "configuration": {
@@ -430,7 +441,11 @@ def run_cultivation_pilot(
                 "episodes_per_update": config.episodes_per_update,
                 "optimization_partition": Partition.TRAIN.value,
                 "development_use": "checkpoint-selection-and-debugging-only",
-                "heldout_use": "single-final-evaluation-only",
+                "heldout_use": (
+                    "single-final-evaluation-only"
+                    if config.evaluate_heldout
+                    else "sealed-not-evaluated"
+                ),
             },
             "structural_scope": {
                 "asserted": "reset-and-every-post-step-state",
@@ -453,6 +468,7 @@ def run_cultivation_pilot(
         "option_a_baseline": {key: value["summary"] for key, value in option_a.items()},
         "seeds": seed_reports,
         "cultivation_intensity_trajectory": trajectory,
+        "validation_gates": validation,
         "promotion_gates": promotion,
         "elapsed_seconds": time.perf_counter() - campaign_started,
     }
@@ -527,6 +543,9 @@ def _run_seed(
     )
     evaluation_curve.append(
         {"update": 0, "partition": "development-probe", **initial_evaluation["summary"]}
+    )
+    initial_development_probe_score = float(
+        initial_evaluation["summary"]["discounted_scaled_return"]["mean"]
     )
     fixed_development_observations = _fixed_reset_observations(
         dataset=dataset,
@@ -752,7 +771,9 @@ def _run_seed(
             model=model,
             device=device,
         ),
-        "heldout": _evaluate_records(
+    }
+    if config.evaluate_heldout:
+        final_evaluation["heldout"] = _evaluate_records(
             dataset=dataset,
             records=heldout,
             bridge_path=bridge_path,
@@ -763,8 +784,7 @@ def _run_seed(
             policy="learned",
             model=model,
             device=device,
-        ),
-    }
+        )
     comparisons = {
         key: _compare_evaluations(final_evaluation[key], option_a[key]) for key in final_evaluation
     }
@@ -800,7 +820,7 @@ def _run_seed(
         inactive_head_gradient_max[3],
         movement_head_gradient_max,
     )
-    gates = {
+    validation_gates = {
         "contract_and_numerics": all(totals[key] == 0 for key in totals),
         "structural_scope_preserved": True,
         "inactive_heads_gradient_inert": inactive_gradient <= 1e-12,
@@ -816,22 +836,52 @@ def _run_seed(
         "critic_activations_healthy": critic_activation_healthy,
         "selected_checkpoint_critic_health": bool(selected_critic_health["eligible"]),
         "final_checkpoint_critic_health": bool(final_critic_health["eligible"]),
-        "development_not_strongly_worse_than_option_a": comparisons["development"][
-            "competitive_with_baseline"
-        ],
-        "heldout_not_strongly_worse_than_option_a": comparisons["heldout"][
-            "competitive_with_baseline"
-        ],
-        "no_universal_self_sufficiency_signal": not final_evaluation["development"][
-            "self_sufficiency"
-        ]["universal_self_sufficiency_signal"],
+    }
+    development_comparison = comparisons["development"]
+    self_sufficiency = final_evaluation["development"]["self_sufficiency"]
+    family_relative = development_comparison["by_family_mean_relative_difference"]
+    promotion_gates = {
+        "selected_checkpoint_not_worse_than_initial_probe": (
+            best_score >= initial_development_probe_score - 1e-12
+        ),
+        "development_mean_relative_return_at_least_minus_two_percent": (
+            development_comparison["relative_return_difference"]["mean"] >= -0.02
+        ),
+        "development_median_relative_return_at_or_above_baseline": (
+            development_comparison["relative_return_difference"]["p50"] >= 0.0
+        ),
+        "development_all_family_mean_relative_returns_at_least_minus_five_percent": (
+            bool(family_relative) and min(family_relative.values()) >= -0.05
+        ),
+        "development_trade_contrast_evaluable": bool(
+            self_sufficiency["trade_contrast_evaluable"]
+        ),
+        "no_universal_self_sufficiency_signal": (
+            self_sufficiency["universal_self_sufficiency_signal"] is False
+        ),
     }
     return {
         "seed": seed,
-        "status": "PASS" if all(gates.values()) else "FAIL",
+        "status": (
+            "PASS"
+            if all(validation_gates.values()) and all(promotion_gates.values())
+            else ("NO_GO" if all(validation_gates.values()) else "FAIL")
+        ),
+        "validation_status": "PASS" if all(validation_gates.values()) else "FAIL",
+        "promotion_status": (
+            "PASS"
+            if all(validation_gates.values()) and all(promotion_gates.values())
+            else "NO_GO"
+        ),
         "selected_update": best_update,
+        "initial_development_probe_score": initial_development_probe_score,
         "selected_development_probe_score": best_score,
-        "gates": gates,
+        "selected_minus_initial_development_probe_score": (
+            best_score - initial_development_probe_score
+        ),
+        "gates": {**validation_gates, **promotion_gates},
+        "validation_gates": validation_gates,
+        "promotion_gates": promotion_gates,
         "training": {
             "transitions": sum(int(row["transitions"]) for row in learning_curve),
             "elapsed_seconds": training_seconds,
@@ -1506,6 +1556,15 @@ def _evaluate_episode(
             }
             for channel, values in channels.items()
         },
+        "reset_actions": {
+            channel: {
+                "field_operation": values[0][0],
+                "herd_retention": values[1][0],
+                "development_budget": values[2][0],
+                "field_development_share": values[3][0],
+            }
+            for channel, values in channels.items()
+        },
         "action_entropy": float(np.mean(entropies)) if entropies else None,
         "action_saturation_rate": float(np.mean(saturation_flags)),
         "intervention_transition_rate": float(
@@ -1566,6 +1625,16 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
         "realized_field_operation": ("actions", "realized", "field_operation"),
         "requested_development_budget": (
             "actions",
+            "requested",
+            "development_budget",
+        ),
+        "reset_requested_field_operation": (
+            "reset_actions",
+            "requested",
+            "field_operation",
+        ),
+        "reset_requested_development_budget": (
+            "reset_actions",
             "requested",
             "development_budget",
         ),
@@ -1668,6 +1737,17 @@ def _self_sufficiency_diagnostic(episodes: list[dict[str, Any]]) -> dict[str, An
         ],
         dtype=np.float64,
     )
+    f15_trade_dependent_count = sum(
+        episode["scenario_family"] == "F15" and "trade-dependent" in episode["tags"]
+        for episode in episodes
+    )
+    f15_isolated_count = sum(
+        episode["scenario_family"] == "F15" and "isolated" in episode["tags"]
+        for episode in episodes
+    )
+    trade_contrast_evaluable = bool(
+        f15_trade_dependent_count > 0 and f15_isolated_count > 0
+    )
     high_rate = float(np.mean(requested >= 0.9))
     contrast = (
         float(np.mean(trade_dependent) - np.mean(isolated))
@@ -1678,9 +1758,17 @@ def _self_sufficiency_diagnostic(episodes: list[dict[str, Any]]) -> dict[str, An
         "requested_field_operation_at_or_above_0_9_rate": high_rate,
         "trade_dependent_count": len(trade_dependent),
         "isolated_count": len(isolated),
+        "f15_trade_dependent_count": f15_trade_dependent_count,
+        "f15_isolated_count": f15_isolated_count,
+        "trade_contrast_evaluable": trade_contrast_evaluable,
+        "trade_contrast_assessment": (
+            "EVALUABLE" if trade_contrast_evaluable else "UNEVALUABLE"
+        ),
         "trade_dependent_minus_isolated_mean_field_operation": contrast,
-        "universal_self_sufficiency_signal": bool(
-            high_rate >= 0.80 and (contrast is None or contrast >= -0.02)
+        "universal_self_sufficiency_signal": (
+            bool(high_rate >= 0.80 and contrast is not None and contrast >= -0.02)
+            if trade_contrast_evaluable
+            else None
         ),
     }
 
@@ -1690,12 +1778,15 @@ def _compare_evaluations(learned: dict[str, Any], baseline: dict[str, Any]) -> d
     differences: list[float] = []
     relative: list[float] = []
     by_family: dict[str, list[float]] = defaultdict(list)
+    by_family_relative: dict[str, list[float]] = defaultdict(list)
     for row in learned["episodes"]:
         reference = baseline_by_id[row["snapshot_id"]]
         delta = row["discounted_scaled_return"] - reference["discounted_scaled_return"]
         differences.append(delta)
-        relative.append(delta / max(abs(reference["discounted_scaled_return"]), 1e-9))
+        relative_delta = delta / max(abs(reference["discounted_scaled_return"]), 1e-9)
+        relative.append(relative_delta)
         by_family[row["scenario_family"]].append(delta)
+        by_family_relative[row["scenario_family"]].append(relative_delta)
     mean_relative = float(np.mean(relative))
     return {
         "matched_snapshots": len(differences),
@@ -1704,6 +1795,10 @@ def _compare_evaluations(learned: dict[str, Any], baseline: dict[str, Any]) -> d
         "fraction_at_or_above_baseline": float(np.mean(np.asarray(differences) >= -1e-12)),
         "by_family_mean_difference": {
             family: float(np.mean(values)) for family, values in sorted(by_family.items())
+        },
+        "by_family_mean_relative_difference": {
+            family: float(np.mean(values))
+            for family, values in sorted(by_family_relative.items())
         },
         "competitive_with_baseline": bool(mean_relative >= -0.10),
     }
@@ -1771,52 +1866,63 @@ def _trend(values: np.ndarray) -> dict[str, Any]:
     }
 
 
-def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
+def _validation_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
     return {
         "all_three_seeds_structural_scope_preserved": all(
-            report["gates"]["structural_scope_preserved"] for report in seed_reports
+            report["validation_gates"]["structural_scope_preserved"]
+            for report in seed_reports
         ),
         "all_three_seeds_contract_clean": all(
-            report["gates"]["contract_and_numerics"] for report in seed_reports
+            report["validation_gates"]["contract_and_numerics"]
+            for report in seed_reports
         ),
         "all_three_seeds_inactive_heads_inert": all(
-            report["gates"]["inactive_heads_gradient_inert"] for report in seed_reports
+            report["validation_gates"]["inactive_heads_gradient_inert"]
+            for report in seed_reports
         ),
         "all_three_seeds_checkpoint_parity": all(
-            report["gates"]["checkpoint_reload_parity"]
-            and report["gates"]["checkpoint_continuation_parity"]
+            report["validation_gates"]["checkpoint_reload_parity"]
+            and report["validation_gates"]["checkpoint_continuation_parity"]
             for report in seed_reports
         ),
         "all_three_seeds_ppo_stable": all(
-            report["gates"]["ppo_kl_stable"] for report in seed_reports
+            report["validation_gates"]["ppo_kl_stable"] for report in seed_reports
         ),
         "all_three_seeds_critic_finite": all(
-            report["gates"]["critic_finite"] for report in seed_reports
+            report["validation_gates"]["critic_finite"] for report in seed_reports
         ),
         "all_three_seeds_actor_activations_healthy": all(
-            report["gates"]["actor_activations_healthy"] for report in seed_reports
+            report["validation_gates"]["actor_activations_healthy"]
+            for report in seed_reports
         ),
         "all_three_seeds_critic_activations_healthy": all(
-            report["gates"]["critic_activations_healthy"] for report in seed_reports
+            report["validation_gates"]["critic_activations_healthy"]
+            for report in seed_reports
         ),
         "all_three_selected_checkpoints_critic_healthy": all(
-            report["gates"]["selected_checkpoint_critic_health"]
+            report["validation_gates"]["selected_checkpoint_critic_health"]
             for report in seed_reports
         ),
         "all_three_final_checkpoints_critic_healthy": all(
-            report["gates"]["final_checkpoint_critic_health"] for report in seed_reports
-        ),
-        "development_competitive_all_seeds": all(
-            report["gates"]["development_not_strongly_worse_than_option_a"]
+            report["validation_gates"]["final_checkpoint_critic_health"]
             for report in seed_reports
         ),
-        "heldout_competitive_all_seeds": all(
-            report["gates"]["heldout_not_strongly_worse_than_option_a"] for report in seed_reports
-        ),
-        "no_universal_self_sufficiency_signal_all_seeds": all(
-            report["gates"]["no_universal_self_sufficiency_signal"] for report in seed_reports
-        ),
     }
+
+
+def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]:
+    gate_names = tuple(seed_reports[0]["promotion_gates"])
+    result = {
+        f"all_three_seeds_{name}": all(
+            report["promotion_gates"][name] for report in seed_reports
+        )
+        for name in gate_names
+    }
+    result["all_three_seeds_promotion_ready"] = all(
+        report["promotion_status"] == "PASS"
+        for report in seed_reports
+    )
+    return result
 
 
 def _probe_records(
