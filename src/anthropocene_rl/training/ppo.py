@@ -323,7 +323,9 @@ def critic_fit_diagnostics(prediction: Tensor, target: Tensor) -> dict[str, floa
     target_variance = torch.var(target, unbiased=False)
     residual_variance = torch.var(residual, unbiased=False)
     denominator = torch.clamp(target_variance, min=1e-12)
+    target_std = torch.sqrt(denominator)
     mse = torch.mean(torch.square(residual))
+    bias = torch.mean(prediction - target)
     return {
         "prediction_mean": float(torch.mean(prediction).detach()),
         "prediction_std": float(torch.std(prediction, unbiased=False).detach()),
@@ -331,7 +333,8 @@ def critic_fit_diagnostics(prediction: Tensor, target: Tensor) -> dict[str, floa
         "target_std": float(torch.std(target, unbiased=False).detach()),
         "mse": float(mse.detach()),
         "normalized_mse": float((mse / denominator).detach()),
-        "bias": float(torch.mean(prediction - target).detach()),
+        "bias": float(bias.detach()),
+        "normalized_bias": float((bias / target_std).detach()),
         "explained_variance": float((1.0 - residual_variance / denominator).detach()),
     }
 

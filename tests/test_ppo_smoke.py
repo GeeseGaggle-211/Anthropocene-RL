@@ -7,6 +7,7 @@ pytest.importorskip("torch")
 import torch
 
 from anthropocene_rl.policies.elder_mlp import ElderActorCritic, ElderActorCriticConfig
+from anthropocene_rl.training.pilot import _critic_health_window
 from anthropocene_rl.training.ppo import PPOConfig, PPOTrainer, RolloutBatch
 from anthropocene_rl.training.smoke import run_ppo_smoke
 
@@ -63,6 +64,7 @@ def test_ppo_keeps_structurally_inactive_continuous_heads_gradient_inert() -> No
     assert metrics["critic_pre_clip_grad_norm_max"] > 0.0
     assert metrics["total_pre_clip_grad_norm_max"] > 0.0
     assert math.isfinite(metrics["post_update_critic_explained_variance"])
+    assert math.isfinite(metrics["post_update_critic_normalized_bias"])
 
     with torch.no_grad():
         evaluated = model.actor.evaluate_actions(
@@ -134,3 +136,34 @@ def test_legacy_actor_critic_config_defaults_to_no_layer_norm() -> None:
     )
     assert config.actor_layer_norm is False
     assert config.critic_layer_norm is False
+
+
+def test_critic_health_window_requires_sustained_pre_update_fit() -> None:
+    healthy = [
+        {
+            "update": update,
+            "ppo": {
+                "pre_update_critic_explained_variance": 0.4,
+                "pre_update_critic_normalized_mse": 0.6,
+                "pre_update_critic_normalized_bias": 0.1,
+            },
+        }
+        for update in range(1, 9)
+    ]
+    assert _critic_health_window(healthy)["eligible"] is True
+
+    unhealthy = [dict(row) for row in healthy]
+    unhealthy[-1] = {
+        "update": 8,
+        "ppo": {
+            "pre_update_critic_explained_variance": -0.1,
+            "pre_update_critic_normalized_mse": 1.2,
+            "pre_update_critic_normalized_bias": 0.9,
+        },
+    }
+    assert _critic_health_window(unhealthy[:7])["eligible"] is False
+    assert _critic_health_window(unhealthy)["eligible"] is True
+
+    for index in range(3):
+        unhealthy[index] = unhealthy[-1] | {"update": index + 1}
+    assert _critic_health_window(unhealthy)["eligible"] is False

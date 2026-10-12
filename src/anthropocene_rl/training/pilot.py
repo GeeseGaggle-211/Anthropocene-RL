@@ -504,6 +504,9 @@ def _run_seed(
     best_score = -math.inf
     best_update = 0
     best_state: dict[str, Any] | None = None
+    best_health_score = -math.inf
+    best_health_update = 0
+    best_health_state: dict[str, Any] | None = None
     initial_activation_diagnostics: dict[str, object] | None = None
     fixed_training_observations: Tensor | None = None
     fixed_critic_targets: Tensor | None = None
@@ -619,10 +622,12 @@ def _run_seed(
                     model=model,
                     device=device,
                 )
+                critic_health = _critic_health_window(learning_curve)
                 evaluation_curve.append(
                     {
                         "update": update,
                         "partition": "development-probe",
+                        "critic_health": critic_health,
                         **evaluated["summary"],
                     }
                 )
@@ -650,11 +655,11 @@ def _run_seed(
                 if score > best_score:
                     best_score = score
                     best_update = update
-                    best_state = {
-                        "model": copy.deepcopy(model.state_dict()),
-                        "optimizer": copy.deepcopy(trainer.optimizer.state_dict()),
-                        "rng": _capture_rng_state(),
-                    }
+                    best_state = _capture_training_state(model, trainer)
+                if critic_health["eligible"] and score > best_health_score:
+                    best_health_score = score
+                    best_health_update = update
+                    best_health_state = _capture_training_state(model, trainer)
     finally:
         env.close()
     training_seconds = time.perf_counter() - training_started
@@ -677,6 +682,34 @@ def _run_seed(
         fixed_training_observations,
         fixed_critic_targets,
     )
+    final_critic_health = _critic_health_window(learning_curve)
+    shadow_health_checkpoint: dict[str, Any] | None = None
+    if best_health_state is not None:
+        model.load_state_dict(best_health_state["model"])
+        health_evaluation = _evaluate_records(
+            dataset=dataset,
+            records=development,
+            bridge_path=bridge_path,
+            dotnet=dotnet,
+            episode_steps=config.evaluation_steps,
+            horizon_years=config.horizon_years,
+            reward_scale=config.reward_scale,
+            policy="learned",
+            model=model,
+            device=device,
+        )
+        shadow_health_checkpoint = {
+            "update": best_health_update,
+            "development_probe_score": best_health_score,
+            "critic_health": _critic_health_window(
+                learning_curve[:best_health_update]
+            ),
+            "development": health_evaluation,
+            "baseline_comparison": _compare_evaluations(
+                health_evaluation,
+                option_a["development"],
+            ),
+        }
     model.load_state_dict(best_state["model"])
     trainer.optimizer.load_state_dict(best_state["optimizer"])
     _restore_rng_state(best_state["rng"])
@@ -692,6 +725,7 @@ def _run_seed(
         fixed_training_observations,
         fixed_critic_targets,
     )
+    selected_critic_health = _critic_health_window(learning_curve[:best_update])
 
     final_evaluation = {
         "train_probe": _evaluate_records(
@@ -752,7 +786,6 @@ def _run_seed(
     mean_clip = float(np.mean([row["ppo"]["post_update_clip_fraction"] for row in learning_curve]))
     critic_start = float(learning_curve[0]["ppo"]["post_update_value_mse"])
     critic_end = float(learning_curve[-1]["ppo"]["post_update_value_mse"])
-    initial_critic_fit = critic_fit_curve[0]
     actor_activation_healthy = _activation_probe_healthy(
         selected_activation_probe,
         network="actor",
@@ -761,10 +794,6 @@ def _run_seed(
         selected_activation_probe,
         network="critic",
     ) and _activation_probe_healthy(final_activation_probe, network="critic")
-    critic_fixed_probe_fit_improved = bool(
-        selected_critic_fit["explained_variance"] > 0.0
-        and selected_critic_fit["mse"] <= 0.80 * float(initial_critic_fit["mse"])
-    )
     active_heads = [0, 2]
     inactive_gradient = max(
         inactive_head_gradient_max[1],
@@ -785,7 +814,8 @@ def _run_seed(
         "critic_finite": math.isfinite(critic_start) and math.isfinite(critic_end),
         "actor_activations_healthy": actor_activation_healthy,
         "critic_activations_healthy": critic_activation_healthy,
-        "critic_fixed_probe_fit_improved": critic_fixed_probe_fit_improved,
+        "selected_checkpoint_critic_health": bool(selected_critic_health["eligible"]),
+        "final_checkpoint_critic_health": bool(final_critic_health["eligible"]),
         "development_not_strongly_worse_than_option_a": comparisons["development"][
             "competitive_with_baseline"
         ],
@@ -841,13 +871,23 @@ def _run_seed(
                     "final": final_activation_probe,
                     "selected": selected_activation_probe,
                     "critic_fit_targets": "frozen returns from the first TRAIN rollout batch",
-                    "critic_fit_success_rule": (
-                        "selected explained variance > 0 and selected MSE <= 80% of initial MSE"
+                    "critic_fit_promotion_use": False,
+                    "critic_fit_warning": (
+                        "historical diagnostic only: bootstrapped value targets become stale as "
+                        "the continuation-value estimate changes"
                     ),
                     "critic_fit_curve": critic_fit_curve,
                     "final_critic_fit": final_critic_fit,
                     "selected_critic_fit": selected_critic_fit,
                 },
+            },
+            "critic_health_screen": {
+                "definition": (
+                    "preceding eight ordinary rollout batches, measured before each PPO update"
+                ),
+                "selected": selected_critic_health,
+                "final": final_critic_health,
+                "shadow_health_eligible_checkpoint": shadow_health_checkpoint,
             },
             "timing": _timing_report(timings, learning_curve, training_seconds),
         },
@@ -1146,6 +1186,69 @@ def _critic_probe_diagnostics(
     targets: Tensor,
 ) -> dict[str, float]:
     return critic_fit_diagnostics(model.critic(observations), targets)
+
+
+def _capture_training_state(
+    model: ElderActorCritic,
+    trainer: PPOTrainer,
+) -> dict[str, Any]:
+    return {
+        "model": copy.deepcopy(model.state_dict()),
+        "optimizer": copy.deepcopy(trainer.optimizer.state_dict()),
+        "rng": _capture_rng_state(),
+    }
+
+
+def _critic_health_window(
+    learning_curve: list[dict[str, Any]],
+    *,
+    window: int = 8,
+) -> dict[str, Any]:
+    rows = learning_curve[-window:]
+    explained_variance = np.asarray(
+        [row["ppo"]["pre_update_critic_explained_variance"] for row in rows],
+        dtype=np.float64,
+    )
+    normalized_mse = np.asarray(
+        [row["ppo"]["pre_update_critic_normalized_mse"] for row in rows],
+        dtype=np.float64,
+    )
+    normalized_bias = np.asarray(
+        [row["ppo"]["pre_update_critic_normalized_bias"] for row in rows],
+        dtype=np.float64,
+    )
+    positive_fit = (explained_variance > 0.0) & (normalized_mse < 1.0)
+    enough_rows = len(rows) == window
+    median_explained_variance = (
+        float(np.median(explained_variance)) if len(rows) else None
+    )
+    median_normalized_mse = float(np.median(normalized_mse)) if len(rows) else None
+    return {
+        "window": window,
+        "observed_updates": len(rows),
+        "start_update": int(rows[0]["update"]) if rows else None,
+        "end_update": int(rows[-1]["update"]) if rows else None,
+        "median_pre_update_explained_variance": median_explained_variance,
+        "median_pre_update_normalized_mse": median_normalized_mse,
+        "median_abs_pre_update_normalized_bias": (
+            float(np.median(np.abs(normalized_bias))) if len(rows) else None
+        ),
+        "positive_fit_updates": int(np.sum(positive_fit)),
+        "required_positive_fit_updates": 6,
+        "eligible": bool(
+            enough_rows
+            and median_explained_variance is not None
+            and median_explained_variance >= 0.20
+            and median_normalized_mse is not None
+            and median_normalized_mse <= 0.80
+            and int(np.sum(positive_fit)) >= 6
+        ),
+        "thresholds": {
+            "median_pre_update_explained_variance_min": 0.20,
+            "median_pre_update_normalized_mse_max": 0.80,
+            "per_update_positive_fit": "EV > 0 and nMSE < 1",
+        },
+    }
 
 
 def _network_activation_healthy(
@@ -1696,8 +1799,12 @@ def _promotion_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool]
         "all_three_seeds_critic_activations_healthy": all(
             report["gates"]["critic_activations_healthy"] for report in seed_reports
         ),
-        "all_three_seeds_critic_fixed_probe_fit_improved": all(
-            report["gates"]["critic_fixed_probe_fit_improved"] for report in seed_reports
+        "all_three_selected_checkpoints_critic_healthy": all(
+            report["gates"]["selected_checkpoint_critic_health"]
+            for report in seed_reports
+        ),
+        "all_three_final_checkpoints_critic_healthy": all(
+            report["gates"]["final_checkpoint_critic_health"] for report in seed_reports
         ),
         "development_competitive_all_seeds": all(
             report["gates"]["development_not_strongly_worse_than_option_a"]
