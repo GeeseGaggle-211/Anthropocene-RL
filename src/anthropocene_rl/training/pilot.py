@@ -702,6 +702,26 @@ def _run_seed(
         fixed_critic_targets,
     )
     final_critic_health = _critic_health_window(learning_curve)
+    terminal_development_evaluation = _evaluate_records(
+        dataset=dataset,
+        records=development,
+        bridge_path=bridge_path,
+        dotnet=dotnet,
+        episode_steps=config.evaluation_steps,
+        horizon_years=config.horizon_years,
+        reward_scale=config.reward_scale,
+        policy="learned",
+        model=model,
+        device=device,
+    )
+    terminal_checkpoint = {
+        "update": config.updates,
+        "development": terminal_development_evaluation,
+        "baseline_comparison": _compare_evaluations(
+            terminal_development_evaluation,
+            option_a["development"],
+        ),
+    }
     shadow_health_checkpoint: dict[str, Any] | None = None
     if best_health_state is not None:
         model.load_state_dict(best_health_state["model"])
@@ -939,6 +959,7 @@ def _run_seed(
                 "final": final_critic_health,
                 "shadow_health_eligible_checkpoint": shadow_health_checkpoint,
             },
+            "terminal_checkpoint": terminal_checkpoint,
             "timing": _timing_report(timings, learning_curve, training_seconds),
         },
         "evaluation": final_evaluation,
