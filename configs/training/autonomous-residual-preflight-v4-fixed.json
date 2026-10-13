@@ -1,0 +1,59 @@
+{
+  "version": "autonomous-residual-preflight-v4-path-fix1",
+  "maximum_wall_seconds": 300,
+  "maximum_targets": 112,
+  "inputs": {
+    "probe": {
+      "path": "runs/autonomous-canary-preflight-v1/probe-v2.pt",
+      "sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308"
+    },
+    "probe_metadata": {
+      "path": "runs/autonomous-canary-preflight-v1/probe-v2.json",
+      "sha256": "9403f01f82722e50d86e9e5d56a4f58deab8069227eb1d89cabcb36ee61147d5"
+    },
+    "bank": {
+      "path": "datasets/autonomous-ppo-gate-v1/manifest.json",
+      "sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e"
+    },
+    "original_targets": {
+      "path": "runs/autonomous-critic-remedies-v1.json",
+      "sha256": "3df519f99b2e7f32afa2b6b32e14d08e07efa288e225e2614133d5b55dc651a6"
+    },
+    "runner": {
+      "path": "scripts/preflight_autonomous_v4_residual.py",
+      "sha256": "3127d2e6e768cd2868a90d204ebf982a1a59cddb19049beeca78972611b82f05"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v4.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v4.py",
+      "sha256": "39063d24641175c7f8af6e43b7aaca01ab6d1f866e95f2663ffb039344db2220"
+    },
+    "src/anthropocene_rl/training/autonomous_ppo_v4.py": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v4.py",
+      "sha256": "ebb8257bb23780ac87c6628207e636eb7bf1484226915ad3398cb38ac7046aeb"
+    },
+    "src/anthropocene_rl/policies/autonomous_inference_v4.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v4.py",
+      "sha256": "25333eb3a7d348077c002f7dac5ecfd185213cd95dc0c89180f5c1e17d6c70c8"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v3.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v3.py",
+      "sha256": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a"
+    },
+    "src/anthropocene_rl/training/autonomous_ppo_v3.py": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v3.py",
+      "sha256": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v2.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v2.py",
+      "sha256": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5"
+    },
+    "src/anthropocene_rl/autonomous_v4/policy.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/policy.py",
+      "sha256": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202"
+    },
+    "src/anthropocene_rl/autonomous_v4/diagnostics.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/diagnostics.py",
+      "sha256": "c692acfde99a845642ed172bd677e2eac5b7a3f7c451419b339bc9e0e853b703"
+    }
+  }
+}

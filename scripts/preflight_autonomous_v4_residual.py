@@ -38,6 +38,7 @@ def restore_v3(path):
 
 
 def fork_v4(path, variant, horizon=100, provenance=None):
+    path = Path(path)
     state = torch.load(path, weights_only=False)
     config = candidate_config(state["config"], variant, horizon)
     trainer = AutonomousTrainerV4(config, 0, provenance or state["provenance"], state["width"])
