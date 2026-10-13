@@ -60,6 +60,13 @@ Hard native-campaign wall limit2,400 seconds, four native CPU workers, one Torch
 thread,60-second IPC deadlines. Pin original final v3 parents, bank, old native
 bridge, preflight and source/config digests before launch. Source and old native
 bridge remain unchanged; the heuristic audit uses a separately built executable.
+Record read-only evaluation/replay separately: at most6,144 trajectory steps and
+6,144 replay resolves at24 boundaries, in addition to32,768 training transitions.
+Reserve incomplete collection/replay at its full planned size on interruption;
+release only after recording actual completed steps. Maximum native resolves are
+45,056 for this campaign. Report actual positive return variance in explained
+variance and normalized MSE, using only a1e-12 numerical floor and marking
+near-constant returns explicitly.
 
 Keep the eight-decision training bank and all survival/trade/migration/fission
 families active. Each turn is20 years. H affects both exp(-dt/H) and the integral
