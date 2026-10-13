@@ -1,0 +1,273 @@
+{
+  "version": "autonomous-gcs-catalog-audit-v1",
+  "evidence_scope": "retained metadata only; no live GCS listing or blob validation",
+  "live_access": "unavailable: no configured GCP identity, Storage endpoint permission or installed GCP SDK",
+  "manifest_sha256": "b25a46dff1483a584868f60f1d024d2752198efcfa17546c2fef50b6a72eb6aa",
+  "bank_id": "elder-v2-broad-domain-50d-scaleout-v1",
+  "source_native_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "source_is_ancestor": true,
+  "records": 499,
+  "partitions": {
+    "development": 75,
+    "train": 348,
+    "heldout": 76
+  },
+  "family_partitions": {
+    "F01": {
+      "development": 4,
+      "train": 17,
+      "heldout": 4
+    },
+    "F02": {
+      "train": 30,
+      "heldout": 4,
+      "development": 4
+    },
+    "F03": {
+      "heldout": 9,
+      "train": 38,
+      "development": 13
+    },
+    "F04": {
+      "train": 28,
+      "development": 6,
+      "heldout": 6
+    },
+    "F05": {
+      "heldout": 4,
+      "train": 22,
+      "development": 4
+    },
+    "F06": {
+      "heldout": 5,
+      "train": 25,
+      "development": 5
+    },
+    "F07": {
+      "train": 25,
+      "development": 5,
+      "heldout": 5
+    },
+    "F13": {
+      "train": 22,
+      "development": 4,
+      "heldout": 4
+    },
+    "F14": {
+      "train": 38,
+      "development": 8,
+      "heldout": 8
+    },
+    "F15": {
+      "development": 8,
+      "train": 34,
+      "heldout": 8
+    },
+    "F16": {
+      "train": 20,
+      "heldout": 4,
+      "development": 4
+    },
+    "F17": {
+      "train": 27,
+      "heldout": 9,
+      "development": 6
+    },
+    "F18": {
+      "train": 22,
+      "development": 4,
+      "heldout": 6
+    }
+  },
+  "partition_group_collisions": {
+    "world_seed": 0,
+    "lineage_id": 0,
+    "counterfactual_group_id": 0,
+    "content_sha256": 0
+  },
+  "current_bank_world_seed_overlap": [],
+  "current_bank_content_overlap": 0,
+  "local_blobs_present": 0,
+  "legacy_schema": {
+    "action_schema_version": 1,
+    "critic_sidecar_schema_version": 1,
+    "environment_schema_version": 2,
+    "observation_schema_hash": "a849c64c642f0cf68f20dd0a6d79ba731e20fcb51e71c7e9dedca7148bddf7f9",
+    "observation_schema_version": 2,
+    "tensor_feature_count": 512
+  },
+  "current_schema": {
+    "action": 3,
+    "observation": 4,
+    "environment": 4,
+    "replay": 4,
+    "features": 761
+  },
+  "train_metadata_cultivation_only_candidates": 234,
+  "train_candidates_by_family": {
+    "F01": 17,
+    "F02": 30,
+    "F03": 38,
+    "F13": 22,
+    "F14": 24,
+    "F15": 34,
+    "F16": 20,
+    "F17": 27,
+    "F18": 22
+  },
+  "prospective_train_smoke_sample": [
+    {
+      "snapshot_id": "f01-251008-scaleout-v1-f01-broad-008-d0-b2a6401a2834",
+      "content_sha256": "0f54fc25b66cf40f233230300e0fc4c28fedbc60131b77abb4544a0e7a6375dc",
+      "world_seed": 251008,
+      "partition": "train",
+      "scenario_family": "F01",
+      "controlled": {
+        "camp_id": 5,
+        "player_id": 1,
+        "society_id": 13
+      },
+      "blob_path": "sha256/0f/0f54fc25b66cf40f233230300e0fc4c28fedbc60131b77abb4544a0e7a6375dc.snapshot"
+    },
+    {
+      "snapshot_id": "f02-252021-scaleout-v1-f02-broad-021-d0-d9e1948daa78",
+      "content_sha256": "0ad5adcb24dde4a7f131458e16542d8a8bc74fd2eb04b12f17ff10b8e78c50d8",
+      "world_seed": 252021,
+      "partition": "train",
+      "scenario_family": "F02",
+      "controlled": {
+        "camp_id": 4,
+        "player_id": 1,
+        "society_id": 11
+      },
+      "blob_path": "sha256/0a/0ad5adcb24dde4a7f131458e16542d8a8bc74fd2eb04b12f17ff10b8e78c50d8.snapshot"
+    },
+    {
+      "snapshot_id": "f03-253022-scaleout-v1-f03-broad-022-d0-493af927ab4a",
+      "content_sha256": "0963f3b6b3501caca984f92e28f30923117ba20677095f79a44947fbaadf4540",
+      "world_seed": 253022,
+      "partition": "train",
+      "scenario_family": "F03",
+      "controlled": {
+        "camp_id": 4,
+        "player_id": 1,
+        "society_id": 11
+      },
+      "blob_path": "sha256/09/0963f3b6b3501caca984f92e28f30923117ba20677095f79a44947fbaadf4540.snapshot"
+    },
+    {
+      "snapshot_id": "f13-263008-scaleout-v1-f13-broad-008-d0-59c0495a89d3",
+      "content_sha256": "079e52b3e48964d1324d636e6100e2ead9195b03efb39b3f093200695d23f970",
+      "world_seed": 263008,
+      "partition": "train",
+      "scenario_family": "F13",
+      "controlled": {
+        "camp_id": 5,
+        "player_id": 1,
+        "society_id": 13
+      },
+      "blob_path": "sha256/07/079e52b3e48964d1324d636e6100e2ead9195b03efb39b3f093200695d23f970.snapshot"
+    },
+    {
+      "snapshot_id": "f14-264003-scaleout-v1-f14-capital-lock-pair-003-high-lock-in-d0-1afdc8cb4416",
+      "content_sha256": "1e550cf2205083a5809740a3cf2a03ed8d5fe9f142ba28810771a42d7e84a8f2",
+      "world_seed": 264003,
+      "partition": "train",
+      "scenario_family": "F14",
+      "controlled": {
+        "camp_id": 5,
+        "player_id": 1,
+        "society_id": 12
+      },
+      "blob_path": "sha256/1e/1e550cf2205083a5809740a3cf2a03ed8d5fe9f142ba28810771a42d7e84a8f2.snapshot"
+    },
+    {
+      "snapshot_id": "f15-265025-scaleout-v1-f15-open-economy-pair-025-immigration-labor-d1-8e472d4556e4",
+      "content_sha256": "00779e7234961ffdc59a868eb85288f7d784e845069a6adb7bf2daebc2d3dc7f",
+      "world_seed": 265025,
+      "partition": "train",
+      "scenario_family": "F15",
+      "controlled": {
+        "camp_id": 5,
+        "player_id": 1,
+        "society_id": 12
+      },
+      "blob_path": "sha256/00/00779e7234961ffdc59a868eb85288f7d784e845069a6adb7bf2daebc2d3dc7f.snapshot"
+    },
+    {
+      "snapshot_id": "f16-266001-scaleout-v1-f16-exit-opportunity-pair-001-poor-exit-opportunity-d1-0572f8b034e6",
+      "content_sha256": "13cf47c1ee7145622bdee4acf17bec4f0da12cd21810f83497c648f8fd81236b",
+      "world_seed": 266001,
+      "partition": "train",
+      "scenario_family": "F16",
+      "controlled": {
+        "camp_id": 4,
+        "player_id": 1,
+        "society_id": 12
+      },
+      "blob_path": "sha256/13/13cf47c1ee7145622bdee4acf17bec4f0da12cd21810f83497c648f8fd81236b.snapshot"
+    },
+    {
+      "snapshot_id": "f17-267006-scaleout-v1-f17-memory-006-d3-530ff030adaf",
+      "content_sha256": "042b95a0391cd629786850534e2afeaa307322064360437c353122519322b7ae",
+      "world_seed": 267006,
+      "partition": "train",
+      "scenario_family": "F17",
+      "controlled": {
+        "camp_id": 6,
+        "player_id": 1,
+        "society_id": 13
+      },
+      "blob_path": "sha256/04/042b95a0391cd629786850534e2afeaa307322064360437c353122519322b7ae.snapshot"
+    },
+    {
+      "snapshot_id": "f18-268013-scaleout-v1-f18-frontier-pair-013-primitive-d0-cd8fde4cc9df",
+      "content_sha256": "0a9784a4f1a254aeb816171fd85d79d9a3152e0627b85f607b2676b73eb1aab7",
+      "world_seed": 268013,
+      "partition": "train",
+      "scenario_family": "F18",
+      "controlled": {
+        "camp_id": 5,
+        "player_id": 1,
+        "society_id": 13
+      },
+      "blob_path": "sha256/0a/0a9784a4f1a254aeb816171fd85d79d9a3152e0627b85f607b2676b73eb1aab7.snapshot"
+    }
+  ],
+  "gcs_published_manifest": {
+    "anthropocene_sha256_metadata": "3d0c6483bb6c8082886f16a196d8d9c76775567e2ae66f0a32f6b936338cdba2",
+    "bytes": 244111,
+    "crc32c_base64": "VQ4lEg==",
+    "gcs_generation": "1791829539988483",
+    "md5_base64": "KduX0/jEjYu9GCL5Qty4Tg==",
+    "uri": "gs://anthropocene-rl-datasets-508912/datasets/elder-v2-broad-domain-50d-scaleout-v1/2026-10-12-manifest-6036d104/manifest.json"
+  },
+  "gcs_shards": [
+    {
+      "anthropocene_sha256_metadata": "8db084138448817674f44879a7fa737777aa940d210dae1b209bb4af10d9da12",
+      "bytes": 67215360,
+      "crc32c_base64": "nOFn3g==",
+      "gcs_generation": "1791829538341903",
+      "md5_base64": "+Bk5BU8mSkZsqMSOFYFK2Q==",
+      "uri": "gs://anthropocene-rl-datasets-508912/objects/sha256/8d/8db084138448817674f44879a7fa737777aa940d210dae1b209bb4af10d9da12.tar"
+    },
+    {
+      "anthropocene_sha256_metadata": "0c241de4d6e5747743d4920d828ac6106023852da65a3d3294fa87264c9c35f0",
+      "bytes": 39516160,
+      "crc32c_base64": "kAeGtg==",
+      "gcs_generation": "1791829532927315",
+      "md5_base64": "jq3k+xTCy8B4YmB8W5E/ug==",
+      "uri": "gs://anthropocene-rl-datasets-508912/objects/sha256/0c/0c241de4d6e5747743d4920d828ac6106023852da65a3d3294fa87264c9c35f0.tar"
+    }
+  ],
+  "current_training_integration": "none; frozen reviewed bank retained",
+  "future_gate": [
+    "materialize pinned GCS generations and verify shard/member SHA256",
+    "preserve world/lineage/counterfactual/content partition groups; keep HELDOUT sealed",
+    "load unchanged saves with pinned native v4 bridge; verify schema and physical state",
+    "rebuild native observations/masks; never reuse legacy actions or normalizer",
+    "verify chronology, finite action probabilities, native consequences and save/replay",
+    "audit new recipe/control masks, demographic/trade flags, and multi-Elder quote opportunities",
+    "create a new derived manifest; independently review before adding TRAIN records"
+  ]
+}

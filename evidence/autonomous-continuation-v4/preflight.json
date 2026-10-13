@@ -1,0 +1,17 @@
+{
+  "budget": {
+    "prior_transitions": 49152,
+    "prior_by_seed": {
+      "17": 32768,
+      "29": 8192,
+      "43": 8192
+    },
+    "prior_wall_seconds": 1906.7659979229984,
+    "remaining_wall_seconds": 12493.234002077003
+  },
+  "config_sha256": "b84b0026f793370c0cfb2e6be4c6b1fbd72cccf9d2fd1b3759adc8dbd485799f",
+  "runner_sha256": "9d3a339fd82c29455170d08b602450c62cd4134623bdae571584f4604fd90714",
+  "unit_tests": "2 passed",
+  "parent_native_resume": "parent-native-resume-preflight.json",
+  "incorrect_parent_rejected_before_native_workers": true
+}

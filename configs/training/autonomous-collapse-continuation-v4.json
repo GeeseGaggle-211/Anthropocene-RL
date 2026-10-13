@@ -1,0 +1,48 @@
+{
+  "version": "autonomous-collapse-continuation-v4",
+  "seeds": [
+    29,
+    43
+  ],
+  "additional_transitions_per_seed": 24576,
+  "maximum_total_transitions": 49152,
+  "workers": 4,
+  "torch_threads": 1,
+  "maximum_wall_seconds": 12493,
+  "native_request_timeout_seconds": 60,
+  "evaluate_every_transitions": 4096,
+  "recovery_probe_steps": 16,
+  "recovery_probe_lr": 0.001,
+  "economic_outcome_abort": false,
+  "numeric_or_replay_abort": true,
+  "reproducible_recovery_failure": "pause_seed_and_diagnose",
+  "resource_growth_factor": 2.0,
+  "rollout_policy": "frozen; sampler SHA256(seed,absolute_episode); canonical episode order",
+  "initialization": "Exact v3 checkpoint restore, including existing LayerNorm, Adam, sampler, shuffle and episode cursors",
+  "probe": "train-only health-probe-v2; pilot17; 24 episodes; sampler731/732; freeze digest before launch",
+  "checkpoint_selection": "union of final, maximum single actor-or-critic layer saturation, maximum legal nondegenerate categorical confidence; earliest ties; deduplicate",
+  "curriculum": "frozen autonomous-ppo-gate-v1 four-family bank; all movement/trade/fission/migration live",
+  "critic_probe_lr": 0.0001,
+  "recovery_coverage": "every covered workforce, activity, Beta and categorical head; critic; retained actor and critic optimizer stall",
+  "parent_checkpoint_sha256": {
+    "29": "3f50dfd885f8d07d53783a39461cdb4dda7ea1914928cf4d7ad4dcb23291c847",
+    "43": "a073f667869c8111d988865a2e8a1159d165aec11ef1b9a8cffa0c5e5cbf0516"
+  },
+  "probe_sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308",
+  "model_config_sha256": "9d0066203bf0594dc770c95a6e192c198a2a4e44b539dbd9b6d931037967b597",
+  "bridge_sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127",
+  "bank_sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e",
+  "previous_campaign_sha256": "f937da34985868ae2af6a3c528e97b7322807b11624fdb46c07595a2b78b90ba",
+  "maximum_diagnostic_draws": 159744,
+  "diagnostic_seconds_per_checkpoint": 900,
+  "history": [
+    {
+      "path": "runs/autonomous-collapse-canary-v2/summary.json",
+      "sha256": "35a3a5e64920e344ff0c668c8b40ba34dad1c36e343c544b861562f2b0d72f11"
+    },
+    {
+      "path": "runs/autonomous-collapse-canary-v3/summary.json",
+      "sha256": "f937da34985868ae2af6a3c528e97b7322807b11624fdb46c07595a2b78b90ba"
+    }
+  ]
+}
