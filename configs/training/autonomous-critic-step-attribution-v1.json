@@ -1,0 +1,32 @@
+{
+  "version": "autonomous-critic-step-attribution-v1",
+  "learning_rates": [
+    0.0003,
+    0.0001,
+    3e-05
+  ],
+  "updates": 64,
+  "maximum_wall_seconds": 60,
+  "inputs": {
+    "checkpoint": {
+      "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-20480.pt",
+      "sha256": "b21c42fbd8ed5df42f069b8ea535ba7518e8a4f45ba60ea4bd830e1fd39da57d"
+    },
+    "diagnostic": {
+      "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-20480.json",
+      "sha256": "9ecea011e527e911d8a6d18d516602ed16b79efd89a181c6585117b100572dba"
+    },
+    "probe": {
+      "path": "runs/autonomous-canary-preflight-v1/probe-v2.pt",
+      "sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308"
+    },
+    "runner": {
+      "path": "scripts/diagnose_autonomous_critic_step_v1.py",
+      "sha256": "c9adf75d002b0fa6014d4279a997afcf03bc8f44f82c48dfbcf26dd70ebf3afe"
+    },
+    "trainer": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v3.py",
+      "sha256": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde"
+    }
+  }
+}
