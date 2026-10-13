@@ -15,7 +15,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    args.output.mkdir(parents=True, exist_ok=False)
+    if args.output.exists():
+        raise FileExistsError(args.output)
     preflight_path = Path("runs/autonomous-residual-preflight-v4-fixed.json")
     canary_path = Path("runs/autonomous-critic-horizon-gate-v5/summary.json")
     diagnostics_path = Path("runs/autonomous-horizon-diagnostics-v5/summary.json")
@@ -27,7 +28,12 @@ def main():
         (preflight_path, canary_path, diagnostics_path, resume_path, panel_path, heuristic_path),
     )
     pins = read("configs/training/autonomous-horizon-postflight-v5.json")
-    for pin in [*canary["config"]["inputs"].values(), *pins["inputs"].values()]:
+    retry = read("configs/training/autonomous-horizon-panel-fix1.json")
+    for pin in [
+        *canary["config"]["inputs"].values(),
+        *pins["inputs"].values(),
+        *retry["inputs"].values(),
+    ]:
         assert sha(pin["path"]) == pin["sha256"]
     raw_paths = [
         preflight_path,
@@ -36,6 +42,8 @@ def main():
         resume_path,
         panel_path,
         heuristic_path,
+        Path("runs/autonomous-horizon-welfare-v5/summary.json"),
+        Path("runs/autonomous-residual-preflight-v4.json"),
     ]
     result = dict(
         version="autonomous-horizon-evidence-v5",
@@ -107,7 +115,7 @@ def main():
                 dict(
                     checkpoint=item["checkpoint"],
                     task=task,
-                    **{k: v for k, v in row.items() if k != "updates"},
+                    **{k: v for k, v in row.items() if k not in ("updates", "task")},
                 )
             )
     result["exact_native_resume"] = resume
@@ -117,6 +125,7 @@ def main():
         {k: v for k, v in g.items() if k != "episodes"} for g in heuristic["groups"]
     ]
     result["raw_evidence"] = {str(p): sha(p) for p in raw_paths}
+    args.output.mkdir(parents=True, exist_ok=False)
     (args.output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
     print(
         json.dumps(
