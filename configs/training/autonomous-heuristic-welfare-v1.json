@@ -1,0 +1,71 @@
+{
+  "version": "autonomous-heuristic-welfare-v1",
+  "maximum_steps": 2700,
+  "maximum_wall_seconds": 600,
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "substantial_relative_gain": 0.2,
+  "inputs": {
+    "bank": {
+      "path": "datasets/autonomous-ppo-gate-v1/manifest.json",
+      "sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e"
+    },
+    "bridge": {
+      "path": "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll",
+      "sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127"
+    },
+    "heuristic_bridge": {
+      "path": "integration/heuristic-audit-v1/bin/Anthropocene.HeuristicAudit.dll",
+      "sha256": "a34075efb61f8537e5cb614812ac1844918a4b8479635d5180df536d8d36b870"
+    },
+    "runner": {
+      "path": "scripts/benchmark_autonomous_heuristic_welfare_v1.py",
+      "sha256": "4fe69d6ec8c0f0e74413bd4d5a777bf0c609e99c84bb365a7e41caaa1a115cd9"
+    },
+    "old_welfare": {
+      "path": "runs/autonomous-collapse-continuation-v4-welfare.json",
+      "sha256": "c1eaade60b061bdc61f5ca8f74e6e73137c88b228a0ab889d6cae872afae26b0"
+    },
+    "29": {
+      "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-24576.pt",
+      "sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83"
+    },
+    "43": {
+      "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-24576.pt",
+      "sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7"
+    },
+    "integration/HeuristicAuditProgram.cs": {
+      "path": "integration/HeuristicAuditProgram.cs",
+      "sha256": "dea4acdf7aaa26e7435a8cef9cc050bd8ddb81e19d89d4c66b16563f97d169ae"
+    },
+    "integration/Anthropocene.HeuristicAudit.csproj": {
+      "path": "integration/Anthropocene.HeuristicAudit.csproj",
+      "sha256": "788b99975adf53400ddc9e3278dbb4d4831e3e636a4011462ea7b2387c964482"
+    },
+    "scripts/report_autonomous_welfare_v4.py": {
+      "path": "scripts/report_autonomous_welfare_v4.py",
+      "sha256": "3a30778a8335ff812a63fc564394325146d1b71f5db60cfb62be176e705d6fb0"
+    },
+    "src/anthropocene_rl/autonomous_v4/training.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/training.py",
+      "sha256": "eb411113f34578e9ba024a8d89ea48c6d8abf8f247c43f2d54a4cf393d026047"
+    },
+    "src/anthropocene_rl/autonomous_v4/contracts.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/contracts.py",
+      "sha256": "4cee11f4982ef2b635df186bc8e77643ff872b23e07718e541e86f60973089c1"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v3.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v3.py",
+      "sha256": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v2.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v2.py",
+      "sha256": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5"
+    },
+    "src/anthropocene_rl/autonomous_v4/policy.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/policy.py",
+      "sha256": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202"
+    }
+  },
+  "maximum_replay_steps": 2700,
+  "maximum_native_resolves": 5400
+}

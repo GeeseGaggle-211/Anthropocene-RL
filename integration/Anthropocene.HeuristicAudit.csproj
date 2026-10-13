@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>9</LangVersion>
+    <AnthropoceneSimRoot Condition="'$(AnthropoceneSimRoot)' == ''">$(MSBuildProjectDirectory)/../../Anthropocene-elder</AnthropoceneSimRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(AnthropoceneSimRoot)/Assets/_Anthropocene/Simulation/*.cs" />
+    <Compile Include="HeuristicAuditProgram.cs" />
+  </ItemGroup>
+</Project>
