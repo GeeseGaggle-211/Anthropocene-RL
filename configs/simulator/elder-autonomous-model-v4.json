@@ -1,0 +1,88 @@
+{
+  "name": "elder-autonomous-model-v4",
+  "contract_version": "autonomous-critic-horizon-gate-5.0",
+  "simulator_repository": "GeeseGaggle-211/Anthropocene",
+  "simulator_execution_source_commit": "65153f7d1e7bbae880b55650d34431d4814e8243",
+  "validated_base_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "branch": "feature/elder-autonomous-economy",
+  "action_schema_version": 3,
+  "observation_schema_version": 4,
+  "environment_schema_version": 4,
+  "replay_schema_version": 4,
+  "save_envelope": "ANTHROPOCENE-11",
+  "context_tensor_width": 512,
+  "learner_feature_width": 761,
+  "professions": 13,
+  "activity_columns": 15,
+  "counterparties": 8,
+  "quote_slots": 1,
+  "quote_quantity_bounds": [
+    0.000001,
+    1000000
+  ],
+  "movement_categories": 8,
+  "simulation_source_sha256": "8a1319571e1204a8330306277b96529de23ec3932efff11c61d1964efe996f52",
+  "source_hash_algorithm": "sha256 of sorted simulation *.cs basenames + NUL + raw file bytes",
+  "contract_sha256": "0110a981abfb3c5552d04a4a2a346c836a1c393961bfa9af3590b9e8a262b153",
+  "build_hash": "runtime assembly ModuleVersionId; returned by reset and checked by replay",
+  "bridge_assembly_sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127",
+  "legacy_contract_unchanged": {
+    "action": 1,
+    "observation": 2,
+    "environment": 2
+  },
+  "learner_base_commit": "70ca02b8dffebd9bbcf8eb06cd944c3b786f33ce",
+  "learner_model_version": "autonomous-ppo-model-v4",
+  "learner_checkpoint_version": "autonomous-ppo-checkpoint-v4",
+  "learner_inference_version": "autonomous-ppo-inference-v4",
+  "policy": "anthropocene_rl.policies.autonomous_ppo_v4.AutonomousPPOV4",
+  "critic_variants": [
+    "small_step",
+    "residual_layernorm"
+  ],
+  "residual_value_formula": "frozen_original + (trainable_LN - frozen_initial_LN)",
+  "normalization": "Fixed sign-log observations; existing actor LayerNorm; optional residual critic LayerNorm; no evaluation fitting.",
+  "critic_learning_rate": 0.0001,
+  "actor_learning_rate": 0.0003,
+  "physical_horizons_years": [
+    100,
+    400
+  ],
+  "native_turn_years": 20,
+  "training_reset_decisions": 8,
+  "long_evaluation_decisions": 25,
+  "reward_scope": "Exclusively controlled village: prior population x realized QoL x elapsed physical years; daughter subsequent welfare excluded.",
+  "daughter_controllers": "Separate native heuristic Elders; autonomous daughter assignment is not yet implemented.",
+  "new_native_training_transitions": 32768,
+  "cumulative_additional_native_training_transitions": 131072,
+  "original_pilot_transitions_separate": 6144,
+  "training_config": "configs/training/autonomous-critic-horizon-gate-v5.json",
+  "training_config_sha256": "048b7503b976b27675f8ed8d37cc5c0476800e1ab765032455ace49f00744bb6",
+  "training_status": "Completed frozen mechanical gate PASS. Further training promotion and economic scale-out NO-GO pending versioned institutional-history and actual autonomous-receipt repair.",
+  "scale_out_ready": false,
+  "gru_comparison_gate_reached": false,
+  "known_observation_defects": [
+    "192 TRAIN probe rows have zero previous-decision and memory-maturity fields.",
+    "20/60/180-year nominal EMA channels are identical transient current-state copies.",
+    "Autonomous reset/compiler do not establish persistent memory and actual action/outcome receipts."
+  ],
+  "direct_control_limits": [
+    "Native cultivation-hex selection remains.",
+    "Retained herd target cannot exceed opening herd; postbreeding excess is slaughtered.",
+    "Autonomous trade requires controlled reciprocal quotes; known legacy counterparties may not offer executable quotes.",
+    "Husbandry/advanced faces lack current curriculum coverage."
+  ],
+  "independent_reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "mechanical_gate": "PASS",
+    "promotion": "NO-GO"
+  },
+  "results_document": "docs/AUTONOMOUS_HORIZON_RESULTS_V5.md",
+  "causal_assessment_google_doc": "https://docs.google.com/document/d/1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04/edit",
+  "simulator_commit": "dc63ad529aa110dd3f2453596a237c445aeb3c22",
+  "bridge_project": "integration/Anthropocene.RLBridge.csproj",
+  "review": "evidence/autonomous-horizon-v5/independent-final-review.md",
+  "causal_assessment": "docs/AUTONOMOUS_TRAINING_ASSESSMENT_ASTRA_V5.md",
+  "evidence": "evidence/autonomous-horizon-v5/summary.json"
+}

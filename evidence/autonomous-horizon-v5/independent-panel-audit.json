@@ -1,0 +1,79 @@
+{
+  "panel_sha256": "283dc7f9920628b89ede4c5bf48615e84c5801aa26cab81497b5c7c6c1ea415d",
+  "native_steps": 0,
+  "validated_episodes": 128,
+  "rows": [
+    {
+      "cell": "small_step-h100-seed29",
+      "welfare_8": 161.10403948879787,
+      "welfare_25": 486.24797756199587,
+      "population_25": 133.25,
+      "qol_25": 0.8196663167028271,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 2
+    },
+    {
+      "cell": "small_step-h100-seed43",
+      "welfare_8": 147.07120352701895,
+      "welfare_25": 434.5270120824669,
+      "population_25": 164.75,
+      "qol_25": 0.8246749640983531,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 1
+    },
+    {
+      "cell": "small_step-h400-seed29",
+      "welfare_8": 140.9865169943324,
+      "welfare_25": 333.26597564717486,
+      "population_25": 91.375,
+      "qol_25": 0.8128036574198,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 1
+    },
+    {
+      "cell": "small_step-h400-seed43",
+      "welfare_8": 157.90974628249532,
+      "welfare_25": 431.06586272747415,
+      "population_25": 134.9375,
+      "qol_25": 0.732592442953348,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 1
+    },
+    {
+      "cell": "residual_layernorm-h100-seed29",
+      "welfare_8": 183.73562709856327,
+      "welfare_25": 627.4293133329286,
+      "population_25": 131.8125,
+      "qol_25": 0.824764334434046,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 2
+    },
+    {
+      "cell": "residual_layernorm-h100-seed43",
+      "welfare_8": 158.05144723782294,
+      "welfare_25": 546.8975335591983,
+      "population_25": 196.0625,
+      "qol_25": 0.8569373317520107,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 3
+    },
+    {
+      "cell": "residual_layernorm-h400-seed29",
+      "welfare_8": 162.32826672894996,
+      "welfare_25": 509.17370994537134,
+      "population_25": 132.0,
+      "qol_25": 0.7769557364241516,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 1
+    },
+    {
+      "cell": "residual_layernorm-h400-seed43",
+      "welfare_8": 116.8050184884731,
+      "welfare_25": 273.31718650246756,
+      "population_25": 85.875,
+      "qol_25": 0.7238254054552141,
+      "focal_trades_25": 0,
+      "survival_min_population_25": 2
+    }
+  ]
+}

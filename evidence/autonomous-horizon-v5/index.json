@@ -1,0 +1,19 @@
+{
+  "version": "autonomous-horizon-file-index-v5",
+  "files": {
+    "evidence/autonomous-horizon-v5/README.md": "f7aa742f778f3c2ffffa2e2947b4c12d0f993e42965362418a9f0d448966a310",
+    "evidence/autonomous-horizon-v5/google-doc-publication.json": "3b0ea24be74371b7e0c96dc7bca491a89a29ab512d4c37c3f64efa167909cbd5",
+    "evidence/autonomous-horizon-v5/independent-final-review.md": "70cea7a462cc9ec3af8b309046e0e301afac120928d8d8b44c2ecda962bd0628",
+    "evidence/autonomous-horizon-v5/independent-panel-audit.json": "4349e7c7c80668b5de976ee6bf0dd3c10c4590e6d0821c71dfdccef587e9cc4a",
+    "evidence/autonomous-horizon-v5/independent-preflight-review.md": "c120accd4ba2fbf106cdf593a6c0c5f05b067a636a9fb564e7b7d71889260e55",
+    "evidence/autonomous-horizon-v5/independent-restore-audit.json": "d6b448f38c31ea4f9d0061ccb6b7bbf78b52f0fe2ee86e91f95903dab065ac9f",
+    "evidence/autonomous-horizon-v5/independent-retained-audit.json": "725549f974fcfa09108260f58f9a63539af9bb5de988146155a793bc31811640",
+    "evidence/autonomous-horizon-v5/summary.json": "bac793313e1b486a78a204fd621d7ac98811ed43e92e7db88779412b90c91b11",
+    "evidence/autonomous-horizon-v5/training-assessment-audit.json": "cb17d5b1dbd07f5f1e5f3bd858aaea217dab566d84bdc9c7a6ec49207aa5421c",
+    "evidence/autonomous-horizon-v5/training-assessment-audit.py": "7b52bd2d67efa09c765e67bc856d09249ebcf5068f4fb97cd2458d4fda74ba29",
+    "evidence/autonomous-horizon-v5/verdict.json": "3ff5d0e4a9ff4e1216a4d773a99af0a865ef24a8c65f3baa9530d6367b437298",
+    "docs/AUTONOMOUS_HORIZON_RESULTS_V5.md": "83308b2d1f590850f91ad522f34dc20ab17c8e961ccc3a6ea28acfa4aec49e83",
+    "docs/AUTONOMOUS_TRAINING_ASSESSMENT_ASTRA_V5.md": "7894e359efba38ed66041c9dd0729fec4a76ed5e8499e0a2c6e8a2dddbe99e9f",
+    "configs/simulator/elder-autonomous-model-v4.json": "6fdd0ada6702e13617ecf979ac23b7f0bb9e118f7ae6fb797309594c5ebfeff2"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "version": "autonomous-horizon-promotion-verdict-v5",
+  "independent_reviewer": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "frozen_mechanical_experiment_passed": true,
+  "scale_out_ready": false,
+  "further_training_promotion": false,
+  "gru_comparison_gate_reached": false,
+  "confirmed_blocker": "Autonomous observations lack persisted institutional history and actual autonomous previous-action/outcome receipts.",
+  "blocker_welfare_effect_measured": false,
+  "next_correctness_gate": "Version, repair and verify village-local history and autonomous receipts before a separately bounded training comparison.",
+  "retained_cases_passed": 66,
+  "retained_cases_total": 66,
+  "native_training_transitions_added": 32768,
+  "additional_native_training_cumulative": 131072,
+  "training_allowance_exhausted": true,
+  "review": "independent-final-review.md",
+  "causal_assessment": "../../docs/AUTONOMOUS_TRAINING_ASSESSMENT_ASTRA_V5.md"
+}

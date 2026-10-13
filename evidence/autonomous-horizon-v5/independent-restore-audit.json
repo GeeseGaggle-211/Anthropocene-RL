@@ -1,0 +1,72 @@
+{
+  "campaign_sha256": "97c896c7f13130172b040f5418b673624a1076cc25cfe11d27ceafd9b71a9060",
+  "native_steps": 0,
+  "action_draws": 0,
+  "optimizer_updates": 0,
+  "cells": [
+    {
+      "cell": "small_step-h100-seed29",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "small_step-h100-seed43",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "small_step-h400-seed29",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "small_step-h400-seed43",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "residual_layernorm-h100-seed29",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "residual_layernorm-h100-seed43",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "residual_layernorm-h400-seed29",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    },
+    {
+      "cell": "residual_layernorm-h400-seed43",
+      "updates": 64,
+      "critic_minibatches": 512,
+      "entry_values_actor_adam_rng_exact": true,
+      "all_boundary_anchors_immutable": true,
+      "checkpoint_count": 3
+    }
+  ]
+}

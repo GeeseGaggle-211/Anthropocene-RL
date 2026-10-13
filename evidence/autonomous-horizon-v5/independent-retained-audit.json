@@ -1,0 +1,33 @@
+{
+  "diagnostic_sha256": "cfcc28157b822f45bb630011fd294eeeff98bb542f8b5bd2e2646591e9ec94be",
+  "campaign_sha256": "97c896c7f13130172b040f5418b673624a1076cc25cfe11d27ceafd9b71a9060",
+  "native_steps": 0,
+  "sampled_actions": 0,
+  "optimizer_updates": 0,
+  "verified_checkpoints": 12,
+  "verified_actor_and_composite_tasks": 66,
+  "observed_draws": 135168,
+  "wall_seconds": 2880.167108485999,
+  "worst_final": {
+    "checkpoint": "small_step-h400-seed29-step-4096.pt",
+    "task": "movement",
+    "final_mse": 0.22758767008781433,
+    "last_eight_max": 0.29544302821159363,
+    "actor_gain": 0.8680221661925316
+  },
+  "worst_last_eight": {
+    "checkpoint": "small_step-h400-seed29-step-4096.pt",
+    "task": "movement",
+    "final_mse": 0.22758767008781433,
+    "last_eight_max": 0.29544302821159363,
+    "actor_gain": 0.8680221661925316
+  },
+  "minimum_actor_gain": {
+    "checkpoint": "small_step-h100-seed29-step-0.pt",
+    "task": "give",
+    "final_mse": 0.10567491501569748,
+    "last_eight_max": 0.17399926483631134,
+    "actor_gain": 0.09520854032598436
+  },
+  "all_pins_current": true
+}

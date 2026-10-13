@@ -1,0 +1,15 @@
+{
+  "version": "autonomous-training-assessment-publication-v1",
+  "title": "Anthropocene Elder PPO — Astra Assessment of Training Failures and GRU Gate (2026-10-13)",
+  "document_id": "1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04",
+  "url": "https://docs.google.com/document/d/1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04/edit",
+  "revision": "AHj4eMSSRtH0By0E7LxhK5iT-PpDA30Z43iZmAJkiVMnsl0t1gXy_s9DyLzYBtHPOz2ECIQ-rv0sq1RDW8Pn4Oa3zKCh2QpwimHS2I_cICU",
+  "verified_content_match_ignoring_whitespace": true,
+  "private_same_owner_as_user_architecture_document": true,
+  "assessment_author": "/root/training_assessment_astra",
+  "assessment_model": "gpt-6-astra",
+  "reasoning_effort": "high",
+  "source_architecture_document": "https://docs.google.com/document/d/1rZjIo7NMrxn3OQzGFHJI2QAZN7rauHgSCm-nbMNUCT0/edit",
+  "scale_out_ready": false,
+  "gru_comparison_gate_reached": false
+}

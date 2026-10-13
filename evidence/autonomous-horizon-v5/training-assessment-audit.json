@@ -1,0 +1,1168 @@
+{
+  "version": "independent-astra-training-assessment-readonly-v1",
+  "native_steps": 0,
+  "ppo_updates": 0,
+  "sampled_actions": 0,
+  "evidence_sha256": {
+    "/workspace/Anthropocene-RL/runs/autonomous-canary-preflight-v1/probe-v2.pt": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308",
+    "/workspace/Anthropocene-RL/datasets/autonomous-ppo-gate-v1/manifest.json": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e",
+    "/workspace/Anthropocene-RL/runs/autonomous-critic-horizon-gate-v5/summary.json": "97c896c7f13130172b040f5418b673624a1076cc25cfe11d27ceafd9b71a9060",
+    "/workspace/Anthropocene-RL/runs/autonomous-horizon-welfare-v5-fixed/summary.json": "283dc7f9920628b89ede4c5bf48615e84c5801aa26cab81497b5c7c6c1ea415d",
+    "/workspace/Anthropocene-RL/runs/autonomous-heuristic-welfare-v1/summary.json": "c83561f1511d27a75315dd8a873a1b6514ecfe7f1549ee20edc575ec80a31e37",
+    "/workspace/Anthropocene-RL/integration/SnapshotScenarioFactory.cs": "d795c058db160ba30841a6ea7a075b0e14ebb2fa466583f7b1a222f3013f71d4",
+    "/workspace/Anthropocene-RL/src/anthropocene_rl/autonomous_v4/contracts.py": "4cee11f4982ef2b635df186bc8e77643ff872b23e07718e541e86f60973089c1",
+    "/workspace/Anthropocene-RL/src/anthropocene_rl/autonomous_v4/training.py": "eb411113f34578e9ba024a8d89ea48c6d8abf8f247c43f2d54a4cf393d026047",
+    "/workspace/Anthropocene-RL/src/anthropocene_rl/policies/autonomous_ppo_v2.py": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5",
+    "/workspace/Anthropocene-RL/src/anthropocene_rl/training/autonomous_ppo_v3.py": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderEnvironment.cs": "776f5063536ad4977e3ea15e27275365bd9887b8a48bed167be23af0c9a75b29",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElder.cs": "40ad9f1e4ea8d6126e63965a1a0a2132c2e1589405f46462df5ee18d752a7134",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderTrade.cs": "abcca83dc3b0e42c28674f8e4536d6b8ce3602d1d7763462b572d3e8b66d4740",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TurnPlanning.cs": "6ee5726f8fcb385eade401f4f046dbc226664528616752feccd8a17891eb2e25",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TurnResolver.cs": "1521e8b11bbfdd49cdb2a371e1e85e71474c8800d7be2a22d5ee1826082703ef",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderObservationBuilder.cs": "ba8caa1b071e33467fb2ce1f214f7ea269b318c21598f7de56e9392fcef5cfe8",
+    "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderInstitutionMemory.cs": "386ae7ea2dc95be762b1aa6c1a6841d9bf5795ecf840c5be8de084302d0ad09b",
+    "/workspace/Anthropocene-RL/runs/drive-architecture-gate-v5.txt": "2dc851e00dca717de0a6ea7dbe18f772727c9adc949c88f655ce343a8f1a5615"
+  },
+  "observations": {
+    "rows": 192,
+    "features": 761,
+    "previous_decision_nonzero_values": 0,
+    "previous_decision_present_rows": 0,
+    "maturity_nonzero_values": 0,
+    "ema_short_medium_max_abs_difference": 0.0,
+    "ema_short_long_max_abs_difference": 0.0,
+    "note": "Probe verifies observed rows; source control-flow establishes why this is not persisted history. Snapshot nil scan is binary-format marker inspection, not a new native restore."
+  },
+  "bank_memory_markers": [
+    {
+      "id": "train-831001-survival",
+      "sha256": "54324c6f1b8b2a7b10b6303682f254b2f09c8faceef69fb3a57bcc7187e85c58",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831001-trade",
+      "sha256": "092e59c6664d9825acb1946c8db639b66eddb65e647e1ddd64f774d86f4a4f74",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831001-migration",
+      "sha256": "2b9c9f58eda8b85fd829cd89c8e770b571fb67c1b6539d9bb10c017fb01a5b6d",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831001-fission",
+      "sha256": "7e327057ba1a7989e8cee84da52be2bdbfc4fa687c4a64cb5bc28a3319352391",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831002-survival",
+      "sha256": "5d38af062f76edd172d45a25a68e012f0d57289bc1564924e83c8b4823e1628e",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831002-trade",
+      "sha256": "53b80f892658aed2219a3f7c4c998c957b078364a14b0c415ae021dd19843a7f",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831002-migration",
+      "sha256": "56027e2fb058ae2572e6d30659f649e93008619125153e7be2d1946542719ff2",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831002-fission",
+      "sha256": "7c8d4e06d69207a8855240d7e4c0bd107c65cc5b8624be4e6b65cc6fb0b2a9b4",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831003-survival",
+      "sha256": "042cdeaa879c5b2c95b52f7609c643df2864b64e324a2cb5d97b40a320b70fa9",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831003-trade",
+      "sha256": "78b8b7f59d74aeda0dee0e011997a18139e9241a0024aa3941207cc7b0026107",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831003-migration",
+      "sha256": "5e5a9031d52daa1a1f445f7e3f25e0824da21dfaa149d3eb161b387ca645698b",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "train-831003-fission",
+      "sha256": "6df92e2e02f354fa11fb611be09906e5d2d36a2aaf4f6454b77388802160726c",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832001-survival",
+      "sha256": "36fdc73cd98cd2aac2314c9e2b1454f0e8095ce3f8e21232dc4a700bfdc2f229",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832001-trade",
+      "sha256": "9712a0a3d14595bab35d9b65fcf79415d967e7a12f0f4eb900abb30b1f1ae34f",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832001-migration",
+      "sha256": "ad63dd1110da904feece346efe5dc259dd1536cb39a77855ba4ab18178fb5e84",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832001-fission",
+      "sha256": "bde37fb653328cbbef3273f06fd98beb4be7360fdf6405a70e46d155b104b84a",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832002-survival",
+      "sha256": "572a6870c8e690f521b79765c34f4af88f88ac491e144c25870a6536f0864bec",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832002-trade",
+      "sha256": "0bd2d37b4ade7879e061c3efa52e6ef138337edb6ef89fa985bb8677e26a6f8a",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832002-migration",
+      "sha256": "72d69e80fb728d4636b01b29a9979a29fa88611836e13e562f74866676060c06",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832002-fission",
+      "sha256": "33e33e64efab175fca5790dd989fc5d0a325623e37690caa7b955d49a96b1f97",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832003-survival",
+      "sha256": "621e406cb5345c4f38155d370f176425d448e0236f69768cd68fbb8e692bbafb",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832003-trade",
+      "sha256": "b42caabf06b481ef9f4c4ff0bad832e1ce579880fe69b51427d1e71bf476ce38",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832003-migration",
+      "sha256": "7cb8f004fb4c3420e124d9d4b18b1bec529052f3e7a0ef371599b32cd1dd5ceb",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832003-fission",
+      "sha256": "910e146602193c980b9d422cc0db30faebda33bd9b8c334334abc822feb0128d",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832004-survival",
+      "sha256": "9b324b396219367d9abb51bc95b6843a76f5d762ed00f31a82c14460e3e61d67",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832004-trade",
+      "sha256": "6467a7f7d28b204317dc1ccf68050c809b766cc6cf13d5b8ac2738afd531c2dd",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832004-migration",
+      "sha256": "67549a7be107d5ee98bf9f8fbf3ee2914504d66eebbc2f2a3f5c664632a5608c",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    },
+    {
+      "id": "development-832004-fission",
+      "sha256": "ec3aaccc036eb4f390fefc4ce42496be7ec0fdb1ef5ced6f5914e44b232486cc",
+      "camp_memory_markers": 4,
+      "null_memory_markers": 4
+    }
+  ],
+  "bank_partitions": {
+    "development": {
+      "snapshots": 16,
+      "worlds": [
+        832001,
+        832002,
+        832003,
+        832004
+      ]
+    },
+    "train": {
+      "snapshots": 12,
+      "worlds": [
+        831001,
+        831002,
+        831003
+      ]
+    }
+  },
+  "native_matched_subset_raw_welfare_by_family": {
+    "fission": 213960.7742769776,
+    "migration": 188190.81107614638,
+    "survival": 51755.38314547359,
+    "trade": 212998.53595996002
+  },
+  "training": [
+    {
+      "id": "small_step-h100-seed29",
+      "mean_preupdate_mse_over_variance": 0.22480208239940588,
+      "mean_preupdate_value_bias": -0.5352334016934037,
+      "mean_actor_minibatches": 4.734375,
+      "actor_tanh_saturation": [
+        6.103515625e-05,
+        0.00030517578125
+      ],
+      "active_simplex_clamp_fraction": 0.05117160454392433,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.5370734930038452,
+          "maximum_probability": 0.6900598406791687,
+          "probability_std": 0.06150340661406517
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.864512026309967,
+          "maximum_probability": 0.7120707035064697,
+          "probability_std": 0.020802654325962067
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9978771805763245,
+          "maximum_probability": 0.5268089771270752,
+          "probability_std": 0.001018241047859192
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9016768336296082,
+          "maximum_probability": 0.33607497811317444,
+          "probability_std": 0.03096780925989151
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9282094836235046,
+          "maximum_probability": 0.2321612387895584,
+          "probability_std": 0.022724753245711327
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.953399658203125,
+          "maximum_probability": 0.434011846780777,
+          "probability_std": 0.046547356992959976
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9926658272743225,
+          "maximum_probability": 0.3669276237487793,
+          "probability_std": 0.026603510603308678
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 24233.12798057027,
+        "migration": 20224.29018291964,
+        "survival": 12895.253733816404,
+        "trade": 26533.768663806004
+      },
+      "focal_trades": 0
+    },
+    {
+      "id": "small_step-h100-seed43",
+      "mean_preupdate_mse_over_variance": 0.22322957937248122,
+      "mean_preupdate_value_bias": -1.0943527724593878,
+      "mean_actor_minibatches": 4.328125,
+      "actor_tanh_saturation": [
+        0.0013834635028615594,
+        0.0008748372201807797
+      ],
+      "active_simplex_clamp_fraction": 0.023087525740265846,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.61127769947052,
+          "maximum_probability": 0.5509783625602722,
+          "probability_std": 0.08227409422397614
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.8768429756164551,
+          "maximum_probability": 0.6939496994018555,
+          "probability_std": 0.13123618066310883
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.965615451335907,
+          "maximum_probability": 0.6085991263389587,
+          "probability_std": 0.0013022671919316053
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.8804705142974854,
+          "maximum_probability": 0.3782516419887543,
+          "probability_std": 0.053063955157995224
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.947995662689209,
+          "maximum_probability": 0.19907885789871216,
+          "probability_std": 0.03097515180706978
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.8711442947387695,
+          "maximum_probability": 0.5776203274726868,
+          "probability_std": 0.13168026506900787
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9510931968688965,
+          "maximum_probability": 0.44145652651786804,
+          "probability_std": 0.04948241636157036
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 23527.56905923932,
+        "migration": 16262.84255431422,
+        "survival": 12415.823820783939,
+        "trade": 24073.7657647996
+      },
+      "focal_trades": 0
+    },
+    {
+      "id": "small_step-h400-seed29",
+      "mean_preupdate_mse_over_variance": 2.0655939240031964,
+      "mean_preupdate_value_bias": -42.89297994971275,
+      "mean_actor_minibatches": 5.53125,
+      "actor_tanh_saturation": [
+        0.0036214191932231188,
+        0.0013224283466115594
+      ],
+      "active_simplex_clamp_fraction": 0.05254996567964554,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.7981936931610107,
+          "maximum_probability": 0.4410017728805542,
+          "probability_std": 0.05301477015018463
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.895422101020813,
+          "maximum_probability": 0.6831172108650208,
+          "probability_std": 0.04100536182522774
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9313371181488037,
+          "maximum_probability": 0.6523393988609314,
+          "probability_std": 0.0035095023922622204
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.945068895816803,
+          "maximum_probability": 0.27782800793647766,
+          "probability_std": 0.034984756261110306
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9750898480415344,
+          "maximum_probability": 0.15119756758213043,
+          "probability_std": 0.019473401829600334
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.950301468372345,
+          "maximum_probability": 0.43851837515830994,
+          "probability_std": 0.023568516597151756
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9871485829353333,
+          "maximum_probability": 0.39924344420433044,
+          "probability_std": 0.027175674214959145
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 23028.029143540898,
+        "migration": 18567.538252684975,
+        "survival": 13719.35938047219,
+        "trade": 23530.36127436046
+      },
+      "focal_trades": 1
+    },
+    {
+      "id": "small_step-h400-seed43",
+      "mean_preupdate_mse_over_variance": 1.696044196147654,
+      "mean_preupdate_value_bias": -36.4301615729928,
+      "mean_actor_minibatches": 4.875,
+      "actor_tanh_saturation": [
+        0.000244140625,
+        0.00054931640625
+      ],
+      "active_simplex_clamp_fraction": 0.031529977917671204,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.8213700652122498,
+          "maximum_probability": 0.4034459888935089,
+          "probability_std": 0.05393248423933983
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9371428489685059,
+          "maximum_probability": 0.6449233293533325,
+          "probability_std": 0.021006368100643158
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9990488886833191,
+          "maximum_probability": 0.5168538689613342,
+          "probability_std": 0.0024725873954594135
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9586277008056641,
+          "maximum_probability": 0.26214295625686646,
+          "probability_std": 0.046685460954904556
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9610943794250488,
+          "maximum_probability": 0.17383503913879395,
+          "probability_std": 0.023732749745249748
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.9765366911888123,
+          "maximum_probability": 0.4081830084323883,
+          "probability_std": 0.03927603363990784
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9745357036590576,
+          "maximum_probability": 0.4289880692958832,
+          "probability_std": 0.06392231583595276
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 23415.425214340255,
+        "migration": 14394.393031848289,
+        "survival": 12646.034471887664,
+        "trade": 22532.328101485702
+      },
+      "focal_trades": 0
+    },
+    {
+      "id": "residual_layernorm-h100-seed29",
+      "mean_preupdate_mse_over_variance": 0.2659432374778785,
+      "mean_preupdate_value_bias": -0.5011669476516545,
+      "mean_actor_minibatches": 5.6875,
+      "actor_tanh_saturation": [
+        0.000732421875,
+        0.00046793618821538985
+      ],
+      "active_simplex_clamp_fraction": 0.058924879878759384,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.5968365669250488,
+          "maximum_probability": 0.6277098059654236,
+          "probability_std": 0.07867509871721268
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9224702715873718,
+          "maximum_probability": 0.6608755588531494,
+          "probability_std": 0.021667389199137688
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9124861359596252,
+          "maximum_probability": 0.6721639633178711,
+          "probability_std": 0.002023584209382534
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9086996912956238,
+          "maximum_probability": 0.3625720739364624,
+          "probability_std": 0.040838420391082764
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.935635507106781,
+          "maximum_probability": 0.2301151603460312,
+          "probability_std": 0.019865673035383224
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.8559772968292236,
+          "maximum_probability": 0.6014556288719177,
+          "probability_std": 0.027861282229423523
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9441536068916321,
+          "maximum_probability": 0.46193456649780273,
+          "probability_std": 0.02990715391933918
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 25026.30572609863,
+        "migration": 20953.33336625253,
+        "survival": 13120.930907809416,
+        "trade": 26069.785727182807
+      },
+      "focal_trades": 0
+    },
+    {
+      "id": "residual_layernorm-h100-seed43",
+      "mean_preupdate_mse_over_variance": 0.3111720707116122,
+      "mean_preupdate_value_bias": -0.07994161313399673,
+      "mean_actor_minibatches": 4.921875,
+      "actor_tanh_saturation": [
+        0.00026448568678461015,
+        0.0
+      ],
+      "active_simplex_clamp_fraction": 0.06891798973083496,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.654880702495575,
+          "maximum_probability": 0.5763079524040222,
+          "probability_std": 0.062491074204444885
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9513058066368103,
+          "maximum_probability": 0.6108547449111938,
+          "probability_std": 0.06432649493217468
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9480111598968506,
+          "maximum_probability": 0.6325770616531372,
+          "probability_std": 0.003639707574620843
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9445976614952087,
+          "maximum_probability": 0.2932709753513336,
+          "probability_std": 0.044231731444597244
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9353547096252441,
+          "maximum_probability": 0.27119365334510803,
+          "probability_std": 0.022161945700645447
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.945742666721344,
+          "maximum_probability": 0.45082247257232666,
+          "probability_std": 0.07112931460142136
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.978203296661377,
+          "maximum_probability": 0.4102882146835327,
+          "probability_std": 0.03685871884226799
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 23961.164565750067,
+        "migration": 16866.550298064845,
+        "survival": 14221.906799221872,
+        "trade": 24338.59500620365
+      },
+      "focal_trades": 0
+    },
+    {
+      "id": "residual_layernorm-h400-seed29",
+      "mean_preupdate_mse_over_variance": 1.95284733330068,
+      "mean_preupdate_value_bias": -51.1021688580513,
+      "mean_actor_minibatches": 5.625,
+      "actor_tanh_saturation": [
+        0.0005696614389307797,
+        0.0017496744403615594
+      ],
+      "active_simplex_clamp_fraction": 0.04203997179865837,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.7874762415885925,
+          "maximum_probability": 0.434937447309494,
+          "probability_std": 0.07050663232803345
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9055336713790894,
+          "maximum_probability": 0.6749070882797241,
+          "probability_std": 0.036727722734212875
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9221445918083191,
+          "maximum_probability": 0.6627472043037415,
+          "probability_std": 0.0006350493058562279
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.974374532699585,
+          "maximum_probability": 0.21381640434265137,
+          "probability_std": 0.04108529910445213
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9408578872680664,
+          "maximum_probability": 0.20740926265716553,
+          "probability_std": 0.023632770404219627
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.9904845356941223,
+          "maximum_probability": 0.38946089148521423,
+          "probability_std": 0.017607679590582848
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9553730487823486,
+          "maximum_probability": 0.46750330924987793,
+          "probability_std": 0.032621268182992935
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 23019.458962044268,
+        "migration": 18476.98370095262,
+        "survival": 13865.537717732352,
+        "trade": 25596.195837552143
+      },
+      "focal_trades": 0
+    },
+    {
+      "id": "residual_layernorm-h400-seed43",
+      "mean_preupdate_mse_over_variance": 1.3635477630773152,
+      "mean_preupdate_value_bias": -41.00374895334244,
+      "mean_actor_minibatches": 4.609375,
+      "actor_tanh_saturation": [
+        0.00042724609375,
+        0.0
+      ],
+      "active_simplex_clamp_fraction": 0.025155065581202507,
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.7815222144126892,
+          "maximum_probability": 0.3979097306728363,
+          "probability_std": 0.043353378772735596
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9685418605804443,
+          "maximum_probability": 0.597402036190033,
+          "probability_std": 0.08061040937900543
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9916701912879944,
+          "maximum_probability": 0.5493541955947876,
+          "probability_std": 0.012946994975209236
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9403502345085144,
+          "maximum_probability": 0.2938137352466583,
+          "probability_std": 0.051235996186733246
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.8935258388519287,
+          "maximum_probability": 0.30529525876045227,
+          "probability_std": 0.047795698046684265
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.8874735832214355,
+          "maximum_probability": 0.5457194447517395,
+          "probability_std": 0.03789108991622925
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9516283869743347,
+          "maximum_probability": 0.47622525691986084,
+          "probability_std": 0.06312856823205948
+        }
+      },
+      "family_episode_counts": {
+        "fission": 128,
+        "migration": 128,
+        "survival": 128,
+        "trade": 128
+      },
+      "family_mean_undiscounted_raw_welfare": {
+        "fission": 22607.33475436638,
+        "migration": 13872.600524472877,
+        "survival": 12976.271118696559,
+        "trade": 23246.521803477626
+      },
+      "focal_trades": 2
+    }
+  ],
+  "economics": [
+    {
+      "id": "small_step-h100-seed29",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 133.25,
+        "time_mean_population": 166.7375,
+        "time_mean_qol": 0.8399753280808118,
+        "final_qol": 0.8196663167028271,
+        "person_years": 83368.75,
+        "raw_welfare": 75835.62210042196,
+        "welfare": 486.24797756199587,
+        "person_year_weighted_qol": 0.9096408678362331,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 97.38144366048631,
+        "discounted_h400": 281.2830569280957
+      },
+      "family_raw_welfare": {
+        "fission": 139541.32442056574,
+        "migration": 83873.81681083646,
+        "survival": 18251.47942006788,
+        "trade": 61675.867750217745
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.34781819288087834,
+        "migration": -0.5543150256316225,
+        "survival": -0.6473510906340549,
+        "trade": -0.7104399451749672
+      },
+      "focal_events": {
+        "quotes": 158,
+        "focal_trades": 0,
+        "focal_fissions": 34,
+        "focal_migrants": 734,
+        "movement": 57
+      },
+      "survival_final_populations": [
+        26,
+        15,
+        9,
+        2
+      ],
+      "field_loss_on_movement_intervals": 27,
+      "food_exhausted_intervals": 125,
+      "episode_sha256": "55d21bc057668c319ae5fa67dedbbba6585c27162d8d98e2e77b12a816de0911"
+    },
+    {
+      "id": "small_step-h100-seed43",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 164.75,
+        "time_mean_population": 168.5175,
+        "time_mean_qol": 0.7758071173865836,
+        "final_qol": 0.8246749640983531,
+        "person_years": 84258.75,
+        "raw_welfare": 72940.25230665083,
+        "welfare": 434.5270120824669,
+        "person_year_weighted_qol": 0.8656697649401496,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 89.46735590987609,
+        "discounted_h400": 249.9568276179219
+      },
+      "family_raw_welfare": {
+        "fission": 99831.11972119678,
+        "migration": 68401.61867970636,
+        "survival": 16217.363949717745,
+        "trade": 107310.90687598244
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.5334139163659836,
+        "migration": -0.6365305070499458,
+        "survival": -0.6866535814422605,
+        "trade": -0.49618946255970975
+      },
+      "focal_events": {
+        "quotes": 48,
+        "focal_trades": 0,
+        "focal_fissions": 29,
+        "focal_migrants": 532,
+        "movement": 102
+      },
+      "survival_final_populations": [
+        7,
+        28,
+        1,
+        2
+      ],
+      "field_loss_on_movement_intervals": 54,
+      "food_exhausted_intervals": 134,
+      "episode_sha256": "1c483ade6ce5f1771b2d3e1dfb504dcd3d65fd918301701ab29af4c9d863aad6"
+    },
+    {
+      "id": "small_step-h400-seed29",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 91.375,
+        "time_mean_population": 122.545,
+        "time_mean_qol": 0.7510114594744629,
+        "final_qol": 0.8128036574198,
+        "person_years": 61272.5,
+        "raw_welfare": 51630.81736404056,
+        "welfare": 333.26597564717486,
+        "person_year_weighted_qol": 0.8426425780577022,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 81.92755301128874,
+        "discounted_h400": 203.89828111623365
+      },
+      "family_raw_welfare": {
+        "fission": 67756.21592022522,
+        "migration": 56863.275593037615,
+        "survival": 10793.870969841719,
+        "trade": 71109.90697305766
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.6833241226145822,
+        "migration": -0.6978424436991804,
+        "survival": -0.7914444775821213,
+        "trade": -0.6661483767830918
+      },
+      "focal_events": {
+        "quotes": 62,
+        "focal_trades": 0,
+        "focal_fissions": 40,
+        "focal_migrants": 433,
+        "movement": 226
+      },
+      "survival_final_populations": [
+        7,
+        9,
+        2,
+        1
+      ],
+      "field_loss_on_movement_intervals": 106,
+      "food_exhausted_intervals": 151,
+      "episode_sha256": "807c985917ed1e9b9134d1eef49a294e5b8d61ca440ce6f6a593d5811c1fe8a5"
+    },
+    {
+      "id": "small_step-h400-seed43",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 134.9375,
+        "time_mean_population": 164.4925,
+        "time_mean_qol": 0.765280661541618,
+        "final_qol": 0.732592442953348,
+        "person_years": 82246.25,
+        "raw_welfare": 71559.8713174357,
+        "welfare": 431.06586272747415,
+        "person_year_weighted_qol": 0.8700684993836886,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 92.25914144107989,
+        "discounted_h400": 253.6385050803547
+      },
+      "family_raw_welfare": {
+        "fission": 104253.6297273168,
+        "migration": 70561.2750460698,
+        "survival": 13287.052233888582,
+        "trade": 98137.52826246759
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.5127441930437312,
+        "migration": -0.6250546206662606,
+        "survival": -0.7432720728481239,
+        "trade": -0.539257263810885
+      },
+      "focal_events": {
+        "quotes": 67,
+        "focal_trades": 0,
+        "focal_fissions": 33,
+        "focal_migrants": 1004,
+        "movement": 143
+      },
+      "survival_final_populations": [
+        4,
+        14,
+        2,
+        1
+      ],
+      "field_loss_on_movement_intervals": 67,
+      "food_exhausted_intervals": 133,
+      "episode_sha256": "2a40fe972716e43edf55519de016e7bf59ad7fbf7e58adc44f21e75d796ae17a"
+    },
+    {
+      "id": "residual_layernorm-h100-seed29",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 131.8125,
+        "time_mean_population": 197.2075,
+        "time_mean_qol": 0.8298757953595614,
+        "final_qol": 0.824764334434046,
+        "person_years": 98603.75,
+        "raw_welfare": 87829.28642562345,
+        "welfare": 627.4293133329286,
+        "person_year_weighted_qol": 0.8907296773766054,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 112.03468603025364,
+        "discounted_h400": 352.25465876862586
+      },
+      "family_raw_welfare": {
+        "fission": 129581.16271615103,
+        "migration": 116295.58252280403,
+        "survival": 19900.605837765306,
+        "trade": 85539.79462577341
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.39436953734143365,
+        "migration": -0.3820336824216771,
+        "survival": -0.6154872280274913,
+        "trade": -0.5984019597118104
+      },
+      "focal_events": {
+        "quotes": 83,
+        "focal_trades": 0,
+        "focal_fissions": 36,
+        "focal_migrants": 1034,
+        "movement": 98
+      },
+      "survival_final_populations": [
+        8,
+        19,
+        2,
+        13
+      ],
+      "field_loss_on_movement_intervals": 48,
+      "food_exhausted_intervals": 130,
+      "episode_sha256": "ff07b996c4cf636319a075c221352432a6c9fa2cf65b94a32bec75631ff09d4f"
+    },
+    {
+      "id": "residual_layernorm-h100-seed43",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 196.0625,
+        "time_mean_population": 205.285,
+        "time_mean_qol": 0.8026678359564908,
+        "final_qol": 0.8569373317520107,
+        "person_years": 102642.5,
+        "raw_welfare": 89248.66977949078,
+        "welfare": 546.8975335591983,
+        "person_year_weighted_qol": 0.8695098987212001,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 97.3151646595833,
+        "discounted_h400": 303.37039415737934
+      },
+      "family_raw_welfare": {
+        "fission": 132474.01552681782,
+        "migration": 93037.98534119509,
+        "survival": 13250.823073714586,
+        "trade": 118231.85517623561
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.38084905527904445,
+        "migration": -0.505618872626306,
+        "survival": -0.7439720804216774,
+        "trade": -0.4449170523948526
+      },
+      "focal_events": {
+        "quotes": 126,
+        "focal_trades": 0,
+        "focal_fissions": 33,
+        "focal_migrants": 669,
+        "movement": 148
+      },
+      "survival_final_populations": [
+        8,
+        7,
+        3,
+        8
+      ],
+      "field_loss_on_movement_intervals": 77,
+      "food_exhausted_intervals": 118,
+      "episode_sha256": "e08e66509ff81e46117f099f06ca87b2285ebdaa8ac160761710ab4c088b7182"
+    },
+    {
+      "id": "residual_layernorm-h400-seed29",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 132.0,
+        "time_mean_population": 162.42249999999999,
+        "time_mean_qol": 0.7364067387927625,
+        "final_qol": 0.7769557364241516,
+        "person_years": 81211.25,
+        "raw_welfare": 71303.1107070971,
+        "welfare": 509.17370994537134,
+        "person_year_weighted_qol": 0.877995483471774,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 100.3508759424287,
+        "discounted_h400": 293.19424680533655
+      },
+      "family_raw_welfare": {
+        "fission": 69882.1981204065,
+        "migration": 93977.9374795769,
+        "survival": 12519.64342611948,
+        "trade": 108832.66380228556
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.6733878050471895,
+        "migration": -0.5006241965684964,
+        "survival": -0.7580996861538176,
+        "trade": -0.48904501473782813
+      },
+      "focal_events": {
+        "quotes": 70,
+        "focal_trades": 0,
+        "focal_fissions": 40,
+        "focal_migrants": 730,
+        "movement": 189
+      },
+      "survival_final_populations": [
+        7,
+        4,
+        1,
+        4
+      ],
+      "field_loss_on_movement_intervals": 87,
+      "food_exhausted_intervals": 161,
+      "episode_sha256": "394827f1260e7311d92319ddd08c7b8d2f55134af22b3cd037361eb8566cdb9e"
+    },
+    {
+      "id": "residual_layernorm-h400-seed43",
+      "aggregate": {
+        "initial_population": 246.25,
+        "final_population": 85.875,
+        "time_mean_population": 128.915,
+        "time_mean_qol": 0.7289635097325555,
+        "final_qol": 0.7238254054552141,
+        "person_years": 64457.5,
+        "raw_welfare": 52806.51599244689,
+        "welfare": 273.31718650246756,
+        "person_year_weighted_qol": 0.8192454872194375,
+        "episodes": 16,
+        "observed_elapsed_years": 500.0,
+        "planned_years": 500,
+        "discounted_h100": 69.72373720829592,
+        "discounted_h400": 169.84762563939398
+      },
+      "family_raw_welfare": {
+        "fission": 69335.78204908958,
+        "migration": 35282.30523259359,
+        "survival": 13098.731139953126,
+        "trade": 93509.24554815126
+      },
+      "family_raw_welfare_relative_to_native": {
+        "fission": -0.675941619283296,
+        "migration": -0.8125184485319129,
+        "survival": -0.746910749300506,
+        "trade": -0.5609864399925766
+      },
+      "focal_events": {
+        "quotes": 83,
+        "focal_trades": 0,
+        "focal_fissions": 41,
+        "focal_migrants": 562,
+        "movement": 142
+      },
+      "survival_final_populations": [
+        4,
+        19,
+        2,
+        2
+      ],
+      "field_loss_on_movement_intervals": 70,
+      "food_exhausted_intervals": 151,
+      "episode_sha256": "f7e8fef8e86ad37db17f3ccb8ee464d583ca08304f4aed3e4c1bdbc0f21f5d87"
+    }
+  ],
+  "horizon_math": {
+    "100": {
+      "gamma": 0.8187307530779818,
+      "eight_decision_bootstrap_discount": 0.20189651799465538,
+      "gae_e_folding_years": 79.58827571879223
+    },
+    "400": {
+      "gamma": 0.951229424500714,
+      "eight_decision_bootstrap_discount": 0.6703200460356393,
+      "gae_e_folding_years": 197.44643632064646
+    }
+  },
+  "limits": "Descriptive static audit only. No causal intervention. Worlds, samplers and model variants are not independent replications of each other."
+}
