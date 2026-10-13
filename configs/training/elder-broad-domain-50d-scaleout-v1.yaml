@@ -102,6 +102,31 @@ stopping:
     - post-update-kl-above-0.15
     - hidden-activation-health-failure-on-two-evaluations
     - continuous-log-std-at-collapse-floor-on-two-evaluations
+  operational_review_tripwires:
+    patience_evaluations: 2
+    first_eligible_update: 20
+    actor_endpoint_pinning:
+      rate_at_or_above: 0.95
+      minimum_active_decisions: 100
+      minimum_development_episodes: 5
+    development_critic_collapse:
+      explained_variance_at_or_below: 0.0
+      normalized_mse_at_or_above: 1.0
+      conjunction_required: true
+    rolling_training_critic:
+      window_updates: 8
+      median_explained_variance_min: 0.20
+      median_normalized_mse_max: 0.80
+      positive_fit_updates_min: 6
+    target_kl_truncation:
+      nonoverlapping_window_updates: 10
+      early_stop_rate_at_or_above: 0.80
+      mean_actor_epoch_fraction_at_or_below: 0.50
+    clipping:
+      nonoverlapping_window_updates: 10
+      mean_clip_fraction_above: 0.60
+    missing_required_health_evidence: stop_after_patience
+    inactive_head_gradient_above: 1.0e-12
   success: two-consecutive-new-full-development-parity-checkpoints
   plateau:
     minimum_added_updates: 100

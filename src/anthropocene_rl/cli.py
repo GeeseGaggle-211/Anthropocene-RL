@@ -397,6 +397,15 @@ def main() -> int:
     pilot.add_argument("--parity-plateau-evaluations", type=int, default=0)
     pilot.add_argument("--parity-plateau-min-added-updates", type=int, default=100)
     pilot.add_argument("--parity-plateau-min-improvement", type=float, default=0.01)
+    pilot.add_argument("--health-tripwire-patience", type=int, default=2)
+    pilot.add_argument("--health-tripwire-warmup-updates", type=int, default=20)
+    pilot.add_argument("--endpoint-pinning-rate", type=float, default=0.95)
+    pilot.add_argument("--endpoint-min-active-decisions", type=int, default=100)
+    pilot.add_argument("--endpoint-min-development-episodes", type=int, default=5)
+    pilot.add_argument("--operational-health-window-updates", type=int, default=10)
+    pilot.add_argument("--target-kl-early-stop-rate", type=float, default=0.80)
+    pilot.add_argument("--actor-epoch-completion-fraction", type=float, default=0.50)
+    pilot.add_argument("--operational-clip-fraction", type=float, default=0.60)
     pilot.add_argument("--learning-rate", type=float, default=1e-3)
     pilot.add_argument("--actor-learning-rate", type=float, default=3e-4)
     pilot.add_argument("--ppo-epochs", type=int, default=8)
@@ -722,6 +731,23 @@ def main() -> int:
                 parity_plateau_min_improvement=(
                     args.parity_plateau_min_improvement
                 ),
+                health_tripwire_patience=args.health_tripwire_patience,
+                health_tripwire_warmup_updates=(
+                    args.health_tripwire_warmup_updates
+                ),
+                endpoint_pinning_rate=args.endpoint_pinning_rate,
+                endpoint_min_active_decisions=args.endpoint_min_active_decisions,
+                endpoint_min_development_episodes=(
+                    args.endpoint_min_development_episodes
+                ),
+                operational_health_window_updates=(
+                    args.operational_health_window_updates
+                ),
+                target_kl_early_stop_rate=args.target_kl_early_stop_rate,
+                actor_epoch_completion_fraction=(
+                    args.actor_epoch_completion_fraction
+                ),
+                operational_clip_fraction=args.operational_clip_fraction,
             ),
             ppo_config=PPOConfig(
                 learning_rate=args.learning_rate,
