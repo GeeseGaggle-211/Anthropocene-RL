@@ -9,8 +9,12 @@
     <AnthropoceneSimRoot Condition="'$(AnthropoceneSimRoot)' == ''">$(MSBuildProjectDirectory)/../../Anthropocene</AnthropoceneSimRoot>
     <SimulationSource>$(AnthropoceneSimRoot)/Assets/_Anthropocene/Simulation</SimulationSource>
   </PropertyGroup>
+  <PropertyGroup Condition="Exists('$(SimulationSource)/AutonomousElder.cs')">
+    <DefineConstants>$(DefineConstants);AUTONOMOUS_ELDER</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(SimulationSource)/*.cs" />
     <Compile Include="BridgeProgram.cs" />
+    <Compile Include="AutonomousBridge.cs" Condition="Exists('$(SimulationSource)/AutonomousElder.cs')" />
   </ItemGroup>
 </Project>

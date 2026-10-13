@@ -1,0 +1,37 @@
+{
+  "name": "elder-autonomous-economy-v3",
+  "contract_version": "1.0",
+  "base_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "branch": "feature/elder-autonomous-economy",
+  "action_schema_version": 2,
+  "observation_schema_version": 3,
+  "environment_schema_version": 3,
+  "replay_schema_version": 3,
+  "save_envelope": "ANTHROPOCENE-11",
+  "context_tensor_width": 512,
+  "learner_feature_width": 753,
+  "professions": 13,
+  "activity_columns": 15,
+  "counterparties": 8,
+  "quote_slots": 1,
+  "quote_quantity_bounds": [
+    1e-06,
+    1000000.0
+  ],
+  "simulation_source_sha256": "fe0c8faa67b26a4579e57f27cc5f4fda0556786c1a27f006904254f1e6cd0922",
+  "source_hash_algorithm": "sha256 of sorted simulation *.cs basenames + NUL + raw file bytes",
+  "contract_sha256": "30be5b4218b8671371dd88de31803636288a4a5ee6ac68880b7e80dd045944b6",
+  "build_hash": "runtime assembly ModuleVersionId; returned by reset and checked by replay",
+  "legacy_contract_unchanged": {
+    "action": 1,
+    "observation": 2,
+    "environment": 2
+  },
+  "training_status": "CPU mechanics only; no campaign authorized",
+  "simulator_repository": "GeeseGaggle-211/Anthropocene",
+  "simulator_commit": "5463fd3c5ca34a65fef5a57239f5a0aa65d1e50b",
+  "learner_base_commit": "fa71f370aa50982552584861e61682d7cd2897e0",
+  "bridge_project": "integration/Anthropocene.RLBridge.csproj",
+  "policy": "masked Dirichlet workforce and activities; masked Beta capital/livestock; scripted quotes",
+  "normalization": "stateless signed-log mechanics encoder; no fitted v3 artifact"
+}

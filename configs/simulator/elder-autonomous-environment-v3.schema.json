@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autonomous Environment 3 Step Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "op",
+    "actions"
+  ],
+  "properties": {
+    "op": {
+      "const": "autonomous_step"
+    },
+    "actions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9]+$"
+      },
+      "additionalProperties": {
+        "$ref": "elder-autonomous-action-v2.schema.json"
+      }
+    }
+  },
+  "$comment": "Protocol negotiated with autonomous_schema: action2/observation3/environment3/replay3. All living controlled camps required in each request. Native atomic validation precedes one WEGO step."
+}

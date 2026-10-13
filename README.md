@@ -218,3 +218,12 @@ Before any gameplay-performance claim:
 
 GRU, Transformer, online gameplay SGD, later-era goods encoders, sparse
 event-time multi-agent inference and RLlib scale-out remain deferred.
+
+## Experimental autonomous economy v3
+
+The separate [autonomous v3 handoff](docs/AUTONOMOUS_V3_HANDOFF.md) adds direct
+workforce/activity allocation, native surplus production and simultaneous
+stock-quote trade. Its versioned schemas, adapter and masked Dirichlet policy
+live alongside the frozen five-head API. The old datasets/checkpoints are
+preserved and remain incompatible with v3. Only CPU mechanics validation has
+been performed; see the handoff for results, limitations and the next safe gate.

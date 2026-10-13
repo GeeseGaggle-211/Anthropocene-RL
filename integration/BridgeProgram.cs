@@ -30,6 +30,13 @@ namespace Anthropocene.RLBridge
                     using var document = JsonDocument.Parse(line);
                     var root = document.RootElement;
                     string op = root.GetProperty("op").GetString() ?? "";
+#if AUTONOMOUS_ELDER
+                    if (op.StartsWith("autonomous_", StringComparison.Ordinal))
+                    {
+                        Write(AutonomousBridge.Handle(op, root, Json));
+                        continue;
+                    }
+#endif
                     if (op == "close")
                     {
                         Write(new { ok = true, op });

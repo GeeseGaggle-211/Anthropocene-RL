@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autonomous Elder Replay 3",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ActionVersion",
+    "ObservationVersion",
+    "EnvironmentVersion",
+    "Snapshot",
+    "Controlled",
+    "DecisionLimit",
+    "BuildHash",
+    "ConfigurationHash",
+    "InitialFingerprint",
+    "Steps"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 3
+    },
+    "ActionVersion": {
+      "const": 2
+    },
+    "ObservationVersion": {
+      "const": 3
+    },
+    "EnvironmentVersion": {
+      "const": 3
+    },
+    "Snapshot": {
+      "type": "string",
+      "contentEncoding": "base64"
+    },
+    "Controlled": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer"
+      }
+    },
+    "DecisionLimit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "BuildHash": {
+      "type": "string"
+    },
+    "ConfigurationHash": {
+      "type": "string"
+    },
+    "InitialFingerprint": {
+      "type": "string"
+    },
+    "Steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Actions",
+          "Background",
+          "Staffing",
+          "Fingerprint"
+        ],
+        "properties": {
+          "Actions": {
+            "type": "object",
+            "propertyNames": {
+              "pattern": "^[0-9]+$"
+            },
+            "additionalProperties": {
+              "$ref": "elder-autonomous-action-v2.schema.json"
+            }
+          },
+          "Background": {
+            "type": "object"
+          },
+          "Staffing": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "minItems": 13,
+              "maxItems": 13,
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "Fingerprint": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autonomous Elder Observation 3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Context",
+    "WorkforceMask",
+    "ActivityMask",
+    "ControlMask",
+    "CounterpartyMask",
+    "GoodMask",
+    "Stocks"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 3
+    },
+    "Context": {
+      "type": "array",
+      "minItems": 512,
+      "maxItems": 512,
+      "items": {
+        "type": "number"
+      }
+    },
+    "WorkforceMask": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "ActivityMask": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "array",
+        "minItems": 15,
+        "maxItems": 15,
+        "items": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ControlMask": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "CounterpartyMask": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "GoodMask": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "items": {
+        "type": "boolean"
+      }
+    },
+    "Stocks": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "items": {
+        "type": "number",
+        "minimum": 0
+      }
+    }
+  }
+}

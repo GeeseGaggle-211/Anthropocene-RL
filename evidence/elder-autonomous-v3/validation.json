@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-13",
+  "native_focused_assertions": 462,
+  "native_full_fixed_suite": "pass",
+  "native_full_suite_pass_records": 69,
+  "old_elder_assertions": 143,
+  "baseline_exact_fingerprint_parity": true,
+  "baseline_transitions": {
+    "heuristic": 4,
+    "old_five_head": 3
+  },
+  "independent_review": "no remaining blocker for mechanics slice",
+  "independent_random_labor_replay_checks": 420,
+  "source_sha256": "fe0c8faa67b26a4579e57f27cc5f4fda0556786c1a27f006904254f1e6cd0922",
+  "fixture_sha256": "2c28c9dca808ac1b0dd9b9f59db74f2d71b42cd92d9f00c9fbea7d5c9a6a2e5f",
+  "benchmark": "performance.json",
+  "benchmark_includes": [
+    "background AI",
+    "prepare",
+    "resources",
+    "production",
+    "needs",
+    "close",
+    "per-controlled-camp observation",
+    "fingerprint"
+  ],
+  "tiered_compilation": false,
+  "training": "bounded CPU optimizer mechanics only",
+  "merge_to_main": false,
+  "gpu_ecology": false,
+  "simulator_commit": "5463fd3c5ca34a65fef5a57239f5a0aa65d1e50b",
+  "learner_baseline": {
+    "passed": 131,
+    "skipped": 1
+  },
+  "learner_final": {
+    "passed": 136,
+    "skipped": 1,
+    "seconds": 76.65
+  },
+  "new_autonomous_tests": {
+    "passed": 5,
+    "native_integration": true
+  },
+  "torch": "2.14.1+cpu",
+  "gymnasium": "1.2.2",
+  "ruff": "passed",
+  "native_bridge_build": {
+    "pinned_old": true,
+    "autonomous": true
+  }
+}
