@@ -155,6 +155,15 @@ class PilotConfig:
     parity_plateau_evaluations: int = 0
     parity_plateau_min_added_updates: int = 100
     parity_plateau_min_improvement: float = 0.01
+    health_tripwire_patience: int = 2
+    health_tripwire_warmup_updates: int = 20
+    endpoint_pinning_rate: float = 0.95
+    endpoint_min_active_decisions: int = 100
+    endpoint_min_development_episodes: int = 5
+    operational_health_window_updates: int = 10
+    target_kl_early_stop_rate: float = 0.80
+    actor_epoch_completion_fraction: float = 0.50
+    operational_clip_fraction: float = 0.60
 
     @property
     def families(self) -> tuple[str, ...]:
@@ -216,6 +225,24 @@ class PilotConfig:
             raise ValueError("parity_plateau_min_added_updates cannot be negative")
         if self.parity_plateau_min_improvement < 0:
             raise ValueError("parity_plateau_min_improvement cannot be negative")
+        if self.health_tripwire_patience < 1:
+            raise ValueError("health_tripwire_patience must be positive")
+        if self.health_tripwire_warmup_updates < 1:
+            raise ValueError("health_tripwire_warmup_updates must be positive")
+        if not 0.0 < self.endpoint_pinning_rate <= 1.0:
+            raise ValueError("endpoint_pinning_rate must fall in (0, 1]")
+        if self.endpoint_min_active_decisions < 1:
+            raise ValueError("endpoint_min_active_decisions must be positive")
+        if self.endpoint_min_development_episodes < 1:
+            raise ValueError("endpoint_min_development_episodes must be positive")
+        if self.operational_health_window_updates < 1:
+            raise ValueError("operational_health_window_updates must be positive")
+        if not 0.0 < self.target_kl_early_stop_rate <= 1.0:
+            raise ValueError("target_kl_early_stop_rate must fall in (0, 1]")
+        if not 0.0 < self.actor_epoch_completion_fraction <= 1.0:
+            raise ValueError("actor_epoch_completion_fraction must fall in (0, 1]")
+        if not 0.0 < self.operational_clip_fraction <= 1.0:
+            raise ValueError("operational_clip_fraction must fall in (0, 1]")
         if self.checkpoint_selection != "development-heuristic-parity" and (
             self.heuristic_parity_patience or self.parity_plateau_evaluations
         ):
@@ -713,14 +740,22 @@ def _run_seed(
     fixed_critic_targets: Tensor | None = None
     activation_probe_curve: list[dict[str, Any]] = []
     critic_fit_curve: list[dict[str, Any]] = []
+    health_evaluation_curve: list[dict[str, Any]] = []
     completed_update = resume_update
     early_stop_reason: str | None = None
     parity_streak = 0
     parity_distance_curve: list[dict[str, Any]] = []
     activation_failure_streak = 0
     log_std_failure_streak = 0
+    health_failure_streaks: Counter[str] = Counter()
+    health_unavailable_streaks: Counter[str] = Counter()
+    health_latched_failures: list[str] = []
+    last_operational_window_end: int | None = None
     progress_checkpoint_path = checkpoint_path.with_name(
         f"{checkpoint_path.stem}.latest{checkpoint_path.suffix}"
+    )
+    progress_health_path = checkpoint_path.with_name(
+        f"{checkpoint_path.stem}.health.json"
     )
 
     initial_evaluation = _evaluate_records(
@@ -899,6 +934,17 @@ def _run_seed(
                         dataset, bridge_path, seed, update
                     ),
                 )
+                _write_json(
+                    progress_health_path,
+                    {
+                        "schema_version": "elder-ppo-operational-health-v1",
+                        "seed": seed,
+                        "update": update,
+                        "early_stop_reason": early_stop_reason,
+                        "health_evaluation": None,
+                        "latched_failures": health_latched_failures,
+                    },
+                )
                 break
             if update % config.evaluation_interval == 0 or update == config.updates:
                 selection_records = (
@@ -927,6 +973,32 @@ def _run_seed(
                     tolerance=config.heuristic_parity_tolerance,
                 )
                 critic_health = _critic_health_window(learning_curve)
+                evaluation_inactive_head_audit = _inactive_head_gradient_audit(
+                    model,
+                    batch,
+                )
+                health_evaluation = _health_tripwire_evaluation(
+                    update=update,
+                    evaluated=evaluated,
+                    learning_curve=learning_curve,
+                    inactive_head_audit=evaluation_inactive_head_audit,
+                    campaign_scope=config.campaign_scope,
+                    ppo_epochs=ppo_config.epochs,
+                    config=config,
+                    last_operational_window_end=last_operational_window_end,
+                )
+                assessed_window_end = health_evaluation["operational_window"].get(
+                    "end_update"
+                )
+                if health_evaluation["operational_window"]["assessed"]:
+                    last_operational_window_end = int(assessed_window_end)
+                health_stop_reason = _advance_health_tripwire_streaks(
+                    health_evaluation,
+                    failure_streaks=health_failure_streaks,
+                    unavailable_streaks=health_unavailable_streaks,
+                    patience=config.health_tripwire_patience,
+                )
+                health_evaluation_curve.append(health_evaluation)
                 evaluation_curve.append(
                     {
                         "update": update,
@@ -937,6 +1009,7 @@ def _run_seed(
                             else "development-probe"
                         ),
                         "critic_health": critic_health,
+                        "operational_health": health_evaluation,
                         "checkpoint_selection": selection_diagnostics,
                         **evaluated["summary"],
                     }
@@ -997,6 +1070,24 @@ def _run_seed(
                     if _log_std_collapsed(metrics)
                     else 0
                 )
+                plateau_reached = _parity_plateau_reached(
+                    parity_distance_curve,
+                    resume_update=resume_update,
+                    completed_update=update,
+                    evaluations=config.parity_plateau_evaluations,
+                    minimum_added_updates=config.parity_plateau_min_added_updates,
+                    minimum_improvement=config.parity_plateau_min_improvement,
+                )
+                early_stop_reason = _evaluation_stop_reason(
+                    health_stop_reason=health_stop_reason,
+                    activation_failure_streak=activation_failure_streak,
+                    log_std_failure_streak=log_std_failure_streak,
+                    heuristic_parity_patience=config.heuristic_parity_patience,
+                    parity_streak=parity_streak,
+                    parity_plateau_reached=plateau_reached,
+                )
+                if health_stop_reason is not None:
+                    health_latched_failures.append(health_stop_reason)
                 _save_progress_checkpoint(
                     path=progress_checkpoint_path,
                     model=model,
@@ -1009,24 +1100,17 @@ def _run_seed(
                         dataset, bridge_path, seed, update
                     ),
                 )
-                if activation_failure_streak >= 2:
-                    early_stop_reason = "hidden-activation-health-failed-twice"
-                elif log_std_failure_streak >= 2:
-                    early_stop_reason = "continuous-policy-log-std-collapsed-twice"
-                elif (
-                    config.heuristic_parity_patience
-                    and parity_streak >= config.heuristic_parity_patience
-                ):
-                    early_stop_reason = "heuristic-parity-confirmed"
-                elif _parity_plateau_reached(
-                    parity_distance_curve,
-                    resume_update=resume_update,
-                    completed_update=update,
-                    evaluations=config.parity_plateau_evaluations,
-                    minimum_added_updates=config.parity_plateau_min_added_updates,
-                    minimum_improvement=config.parity_plateau_min_improvement,
-                ):
-                    early_stop_reason = "heuristic-parity-plateau"
+                _write_json(
+                    progress_health_path,
+                    {
+                        "schema_version": "elder-ppo-operational-health-v1",
+                        "seed": seed,
+                        "update": update,
+                        "early_stop_reason": early_stop_reason,
+                        "health_evaluation": health_evaluation,
+                        "latched_failures": health_latched_failures,
+                    },
+                )
                 if early_stop_reason is not None:
                     break
     finally:
@@ -1243,6 +1327,7 @@ def _run_seed(
         "actor_activations_healthy": actor_activation_healthy,
         "critic_activations_healthy": critic_activation_healthy,
         "continuous_policy_variance_healthy": log_std_failure_streak < 2,
+        "operational_health_tripwires_clear": not health_latched_failures,
         "selected_checkpoint_critic_health": bool(selected_critic_health["eligible"]),
         "final_checkpoint_critic_health": bool(final_critic_health["eligible"]),
     }
@@ -1299,7 +1384,7 @@ def _run_seed(
                 bool(family_relative) and min(family_relative.values()) >= -0.05
             ),
         }
-    return {
+    report = {
         "seed": seed,
         "status": (
             "PASS"
@@ -1377,6 +1462,16 @@ def _run_seed(
             "target_kl_early_stop_rate": float(
                 np.mean([row["ppo"]["target_kl_early_stop"] for row in learning_curve])
             ),
+            "operational_health_tripwires": {
+                "schema_version": "elder-ppo-operational-health-v1",
+                "latched_failures": health_latched_failures,
+                "failure_streaks": dict(sorted(health_failure_streaks.items())),
+                "unavailable_streaks": dict(
+                    sorted(health_unavailable_streaks.items())
+                ),
+                "evaluation_curve": health_evaluation_curve,
+                "progress_report": str(progress_health_path),
+            },
             "critic_first_post_update_mse": critic_start,
             "critic_final_post_update_mse": critic_end,
             "input_initialization": {
@@ -1429,6 +1524,7 @@ def _run_seed(
         "baseline_comparison": comparisons,
         "checkpoint": checkpoint,
     }
+    return _json_safe_nonfinite(report)
 
 
 def _collect_update_parallel(
@@ -2363,6 +2459,444 @@ def _critic_health_window(
     }
 
 
+def _json_safe_nonfinite(value: Any) -> Any:
+    """Replace non-finite numbers with explicit markers suitable for strict JSON."""
+
+    if isinstance(value, dict):
+        return {key: _json_safe_nonfinite(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_nonfinite(item) for item in value]
+    if isinstance(value, (float, np.floating)) and not math.isfinite(float(value)):
+        numeric = float(value)
+        label = "NaN" if math.isnan(numeric) else ("Infinity" if numeric > 0 else "-Infinity")
+        return {"non_finite": label}
+    return value
+
+
+def _health_tripwire_evaluation(
+    *,
+    update: int,
+    evaluated: dict[str, Any],
+    learning_curve: list[dict[str, Any]],
+    inactive_head_audit: dict[str, Any],
+    campaign_scope: CampaignScope,
+    ppo_epochs: int,
+    config: PilotConfig,
+    last_operational_window_end: int | None,
+) -> dict[str, Any]:
+    """Evaluate conservative stop-and-review screens on a full DEV checkpoint."""
+
+    conditions: dict[str, dict[str, Any]] = {}
+    warm = update >= config.health_tripwire_warmup_updates
+    endpoint_health = evaluated["summary"].get(
+        "actor_mean_endpoint_health_by_head",
+        {},
+    )
+    head_names = (
+        "field_operation",
+        "herd_retention",
+        "development_budget",
+        "field_development_share",
+    )
+    required_heads = range(4) if campaign_scope == "broad-domain" else (0, 2)
+    for head in required_heads:
+        name = head_names[head]
+        measurements = endpoint_health.get(name)
+        condition_name = f"actor_endpoint_pinning_{name}"
+        if isinstance(measurements, dict):
+            rate = measurements.get("rate")
+            if rate is not None and not math.isfinite(float(rate)):
+                conditions[condition_name] = {
+                    "status": "fail",
+                    "immediate": True,
+                    "reason": "non-finite endpoint rate",
+                    "measurements": measurements,
+                }
+                continue
+        if not warm:
+            conditions[condition_name] = {
+                "status": "deferred",
+                "reason": "warmup",
+                "measurements": measurements,
+            }
+            continue
+        if not isinstance(measurements, dict):
+            conditions[condition_name] = {
+                "status": "unavailable",
+                "reason": "endpoint measurements missing",
+            }
+            continue
+        active_decisions = int(measurements.get("active_decision_count", 0))
+        active_episodes = int(measurements.get("active_episode_count", 0))
+        rate = measurements.get("rate")
+        detail = {
+            **measurements,
+            "minimum_active_decisions": config.endpoint_min_active_decisions,
+            "minimum_active_episodes": config.endpoint_min_development_episodes,
+            "failure_rate_at_or_above": config.endpoint_pinning_rate,
+        }
+        if (
+            rate is None
+            or active_decisions < config.endpoint_min_active_decisions
+            or active_episodes < config.endpoint_min_development_episodes
+        ):
+            conditions[condition_name] = {
+                "status": "unavailable",
+                "reason": "insufficient active DEVELOPMENT decisions",
+                "measurements": detail,
+            }
+        else:
+            conditions[condition_name] = {
+                "status": (
+                    "fail" if float(rate) >= config.endpoint_pinning_rate else "pass"
+                ),
+                "immediate": False,
+                "measurements": detail,
+            }
+
+    critic_diagnostics = evaluated["summary"].get(
+        "critic_initial_value_vs_realized_horizon",
+        {},
+    )
+    explained_variance = critic_diagnostics.get("explained_variance")
+    normalized_mse = critic_diagnostics.get("normalized_mse")
+    critic_detail = {
+        "evaluable": critic_diagnostics.get("evaluable"),
+        "explained_variance": explained_variance,
+        "normalized_mse": normalized_mse,
+        "failure_condition": "explained_variance <= 0 and normalized_mse >= 1",
+    }
+    observed_critic_values = [
+        value for value in (explained_variance, normalized_mse) if value is not None
+    ]
+    if any(not math.isfinite(float(value)) for value in observed_critic_values):
+        conditions["development_critic_collapse"] = {
+            "status": "fail",
+            "immediate": True,
+            "reason": "non-finite full-DEVELOPMENT critic diagnostic",
+            "measurements": critic_detail,
+        }
+    elif not warm:
+        conditions["development_critic_collapse"] = {
+            "status": "deferred",
+            "reason": "warmup",
+            "measurements": critic_detail,
+        }
+    else:
+        if (
+            not critic_diagnostics.get("evaluable")
+            or explained_variance is None
+            or normalized_mse is None
+        ):
+            conditions["development_critic_collapse"] = {
+                "status": "unavailable",
+                "reason": "full-DEVELOPMENT critic diagnostic unavailable",
+                "measurements": critic_detail,
+            }
+        else:
+            collapsed = (
+                float(explained_variance) <= 0.0
+                and float(normalized_mse) >= 1.0
+            )
+            conditions["development_critic_collapse"] = {
+                "status": "fail" if collapsed else "pass",
+                "immediate": False,
+                "measurements": critic_detail,
+            }
+
+    rolling_critic = _critic_health_window(learning_curve)
+    rolling_values = (
+        rolling_critic["median_pre_update_explained_variance"],
+        rolling_critic["median_pre_update_normalized_mse"],
+    )
+    observed_rolling_values = [value for value in rolling_values if value is not None]
+    if any(not math.isfinite(float(value)) for value in observed_rolling_values):
+        conditions["rolling_training_critic_health"] = {
+            "status": "fail",
+            "immediate": True,
+            "reason": "non-finite rolling critic diagnostic",
+            "measurements": rolling_critic,
+        }
+    elif not warm:
+        conditions["rolling_training_critic_health"] = {
+            "status": "deferred",
+            "reason": "warmup",
+            "measurements": rolling_critic,
+        }
+    else:
+        if rolling_critic["observed_updates"] < rolling_critic["window"]:
+            conditions["rolling_training_critic_health"] = {
+                "status": "unavailable",
+                "reason": "eight-update critic window incomplete",
+                "measurements": rolling_critic,
+            }
+        else:
+            conditions["rolling_training_critic_health"] = {
+                "status": "pass" if rolling_critic["eligible"] else "fail",
+                "immediate": False,
+                "measurements": rolling_critic,
+            }
+
+    window_size = config.operational_health_window_updates
+    window_rows = learning_curve[-window_size:]
+    window_start = int(window_rows[0]["update"]) if window_rows else None
+    window_end = int(window_rows[-1]["update"]) if window_rows else None
+    contiguous = bool(
+        len(window_rows) == window_size
+        and window_start is not None
+        and window_end is not None
+        and window_end - window_start + 1 == window_size
+        and window_end == update
+    )
+    nonoverlapping = bool(
+        contiguous
+        and (
+            last_operational_window_end is None
+            or int(window_start) > last_operational_window_end
+        )
+    )
+    operational_window = {
+        "size": window_size,
+        "observed_updates": len(window_rows),
+        "start_update": window_start,
+        "end_update": window_end,
+        "assessed": bool(warm and nonoverlapping),
+    }
+    for condition_name in (
+        "widespread_target_kl_truncation",
+        "excessive_clipping",
+    ):
+        if not warm or not contiguous:
+            conditions[condition_name] = {
+                "status": "unavailable" if warm else "deferred",
+                "reason": "ten-update operational window incomplete",
+            }
+        elif not nonoverlapping:
+            conditions[condition_name] = {
+                "status": "deferred",
+                "reason": "waiting for a non-overlapping operational window",
+            }
+        else:
+            early_stop_rate = float(
+                np.mean(
+                    [row["ppo"]["target_kl_early_stop"] for row in window_rows]
+                )
+            )
+            actor_epochs_mean = float(
+                np.mean(
+                    [
+                        row["ppo"]["optimization_actor_epochs_completed"]
+                        for row in window_rows
+                    ]
+                )
+            )
+            clip_fraction_mean = float(
+                np.mean(
+                    [row["ppo"]["post_update_clip_fraction"] for row in window_rows]
+                )
+            )
+            operational_detail = {
+                "target_kl_early_stop_rate": early_stop_rate,
+                "mean_actor_epochs_completed": actor_epochs_mean,
+                "configured_actor_epochs": ppo_epochs,
+                "mean_post_update_clip_fraction": clip_fraction_mean,
+            }
+            if not all(
+                math.isfinite(value)
+                for value in (early_stop_rate, actor_epochs_mean, clip_fraction_mean)
+            ):
+                status = "fail"
+                immediate = True
+                reason = "non-finite operational-window diagnostic"
+            elif condition_name == "widespread_target_kl_truncation":
+                status = (
+                    "fail"
+                    if early_stop_rate >= config.target_kl_early_stop_rate
+                    and actor_epochs_mean
+                    <= ppo_epochs * config.actor_epoch_completion_fraction
+                    else "pass"
+                )
+                immediate = False
+                reason = None
+                operational_detail.update(
+                    {
+                        "failure_early_stop_rate_at_or_above": (
+                            config.target_kl_early_stop_rate
+                        ),
+                        "failure_actor_epochs_at_or_below": (
+                            ppo_epochs * config.actor_epoch_completion_fraction
+                        ),
+                    }
+                )
+            else:
+                status = (
+                    "fail"
+                    if clip_fraction_mean > config.operational_clip_fraction
+                    else "pass"
+                )
+                immediate = False
+                reason = None
+                operational_detail["failure_clip_fraction_above"] = (
+                    config.operational_clip_fraction
+                )
+            conditions[condition_name] = {
+                "status": status,
+                "immediate": immediate,
+                "measurements": operational_detail,
+            }
+            if reason is not None:
+                conditions[condition_name]["reason"] = reason
+
+    required_inactive = (
+        tuple(inactive_head_audit["per_head"])
+        if campaign_scope == "broad-domain"
+        else ("continuous_1", "continuous_3", "movement")
+    )
+    missing_inactive = [
+        name
+        for name in required_inactive
+        if not isinstance(inactive_head_audit["per_head"].get(name), dict)
+    ]
+    audited_inactive = [
+        name
+        for name in required_inactive
+        if name not in missing_inactive
+        and int(inactive_head_audit["per_head"][name].get("inactive_rows", 0)) > 0
+    ]
+    not_applicable_inactive = [
+        name
+        for name in required_inactive
+        if name not in missing_inactive and name not in audited_inactive
+    ]
+    inactive_gradient = inactive_head_audit.get("max_abs_gradient")
+    observed_inactive_gradients = [
+        inactive_head_audit["per_head"][name].get("max_abs_gradient")
+        for name in audited_inactive
+    ]
+    if inactive_gradient is not None:
+        observed_inactive_gradients.append(inactive_gradient)
+    observed_inactive_gradients = [
+        value for value in observed_inactive_gradients if value is not None
+    ]
+    inactive_detail = {
+        "missing_heads": missing_inactive,
+        "audited_heads": audited_inactive,
+        "not_applicable_zero_row_heads": not_applicable_inactive,
+        "audit": inactive_head_audit,
+    }
+    if any(
+        not math.isfinite(float(value)) for value in observed_inactive_gradients
+    ):
+        conditions["inactive_head_gradient_inert"] = {
+            "status": "fail",
+            "immediate": True,
+            "reason": "non-finite inactive-head gradient",
+            "measurements": inactive_detail,
+        }
+    elif any(
+        float(value) > float(inactive_head_audit["threshold"])
+        for value in observed_inactive_gradients
+    ):
+        conditions["inactive_head_gradient_inert"] = {
+            "status": "fail",
+            "immediate": True,
+            "reason": "inactive-head gradient above threshold",
+            "measurements": inactive_detail,
+        }
+    elif inactive_gradient is None or missing_inactive or not audited_inactive:
+        conditions["inactive_head_gradient_inert"] = {
+            "status": "unavailable",
+            "reason": "inactive-mask audit missing or has no applicable rows",
+            "measurements": inactive_detail,
+        }
+    else:
+        conditions["inactive_head_gradient_inert"] = {
+            "status": "pass",
+            "immediate": False,
+            "measurements": inactive_detail,
+        }
+
+    return _json_safe_nonfinite(
+        {
+        "schema_version": "elder-ppo-operational-health-v1",
+        "update": update,
+        "warmup_complete": warm,
+        "operational_window": operational_window,
+        "conditions": conditions,
+        }
+    )
+
+
+def _advance_health_tripwire_streaks(
+    report: dict[str, Any],
+    *,
+    failure_streaks: Counter[str],
+    unavailable_streaks: Counter[str],
+    patience: int,
+) -> str | None:
+    """Advance health streaks and return a latched stop reason, if any."""
+
+    immediate_failures: list[str] = []
+    patient_failures: list[str] = []
+    unavailable_failures: list[str] = []
+    for name, condition in report["conditions"].items():
+        status = condition["status"]
+        if status == "pass":
+            failure_streaks[name] = 0
+            unavailable_streaks[name] = 0
+        elif status == "fail":
+            failure_streaks[name] += 1
+            unavailable_streaks[name] = 0
+            if condition.get("immediate"):
+                immediate_failures.append(name)
+            elif failure_streaks[name] >= patience:
+                patient_failures.append(name)
+        elif status == "unavailable":
+            failure_streaks[name] = 0
+            unavailable_streaks[name] += 1
+            if unavailable_streaks[name] >= patience:
+                unavailable_failures.append(name)
+        elif status != "deferred":
+            raise ValueError(f"Unsupported health condition status: {status}")
+        condition["failure_streak"] = int(failure_streaks[name])
+        condition["unavailable_streak"] = int(unavailable_streaks[name])
+    if immediate_failures:
+        return "health-tripwire-immediate:" + ",".join(sorted(immediate_failures))
+    if patient_failures:
+        return "health-tripwire-failed-with-patience:" + ",".join(
+            sorted(patient_failures)
+        )
+    if unavailable_failures:
+        return "health-evidence-unavailable-with-patience:" + ",".join(
+            sorted(unavailable_failures)
+        )
+    return None
+
+
+def _evaluation_stop_reason(
+    *,
+    health_stop_reason: str | None,
+    activation_failure_streak: int,
+    log_std_failure_streak: int,
+    heuristic_parity_patience: int,
+    parity_streak: int,
+    parity_plateau_reached: bool,
+) -> str | None:
+    """Resolve evaluation stops with health failures ahead of success conditions."""
+
+    if health_stop_reason is not None:
+        return health_stop_reason
+    if activation_failure_streak >= 2:
+        return "hidden-activation-health-failed-twice"
+    if log_std_failure_streak >= 2:
+        return "continuous-policy-log-std-collapsed-twice"
+    if heuristic_parity_patience and parity_streak >= heuristic_parity_patience:
+        return "heuristic-parity-confirmed"
+    if parity_plateau_reached:
+        return "heuristic-parity-plateau"
+    return None
+
+
 def _network_activation_healthy(
     diagnostics: dict[str, Any],
     *,
@@ -2729,6 +3263,12 @@ def _evaluate_episode(
             float(np.mean(flags)) if flags else None
             for flags in actor_mean_endpoint_flags
         ],
+        "actor_mean_endpoint_count_by_head": [
+            int(sum(flags)) for flags in actor_mean_endpoint_flags
+        ],
+        "actor_mean_active_decision_count_by_head": [
+            len(flags) for flags in actor_mean_endpoint_flags
+        ],
         "intervention_transition_rate": float(
             np.mean([count > 0 for count in intervention_counts])
         ),
@@ -2865,6 +3405,24 @@ def _summarize_episodes(episodes: list[dict[str, Any]]) -> dict[str, Any]:
             summary[f"actor_mean_endpoint_rate_{name}"] = _distribution(
                 [float(value) for value in endpoint_rates]
             )
+        endpoint_count = sum(
+            int(episode["actor_mean_endpoint_count_by_head"][head])
+            for episode in episodes
+        )
+        active_decisions = sum(
+            int(episode["actor_mean_active_decision_count_by_head"][head])
+            for episode in episodes
+        )
+        active_episodes = sum(
+            int(episode["actor_mean_active_decision_count_by_head"][head]) > 0
+            for episode in episodes
+        )
+        summary.setdefault("actor_mean_endpoint_health_by_head", {})[name] = {
+            "endpoint_count": endpoint_count,
+            "active_decision_count": active_decisions,
+            "active_episode_count": active_episodes,
+            "rate": endpoint_count / active_decisions if active_decisions else None,
+        }
     critic_values = [episode["initial_critic_value"] for episode in episodes]
     if all(value is not None for value in critic_values):
         resolved_values = [float(value) for value in critic_values]
@@ -3155,6 +3713,10 @@ def _validation_assessment(seed_reports: list[dict[str, Any]]) -> dict[str, bool
         ),
         "all_three_seeds_continuous_policy_variance_healthy": all(
             report["validation_gates"]["continuous_policy_variance_healthy"]
+            for report in seed_reports
+        ),
+        "all_three_seeds_operational_health_tripwires_clear": all(
+            report["validation_gates"]["operational_health_tripwires_clear"]
             for report in seed_reports
         ),
         "all_three_selected_checkpoints_critic_healthy": all(
