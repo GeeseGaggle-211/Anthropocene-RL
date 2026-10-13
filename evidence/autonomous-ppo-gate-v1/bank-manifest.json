@@ -1,0 +1,537 @@
+{
+  "version": "autonomous-curriculum-v1",
+  "entries": [
+    {
+      "id": "train-831001-survival",
+      "family": "survival",
+      "partition": "train",
+      "world_seed": 831001,
+      "snapshot": "train-831001-survival.anthro",
+      "sha256": "54324c6f1b8b2a7b10b6303682f254b2f09c8faceef69fb3a57bcc7187e85c58",
+      "fingerprint": "662AA395090429A28966C582FEA6E51FDE518C6BBD3C236C1C65CC9D7BCC8694",
+      "focal": 5,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831001-trade",
+      "family": "trade",
+      "partition": "train",
+      "world_seed": 831001,
+      "snapshot": "train-831001-trade.anthro",
+      "sha256": "092e59c6664d9825acb1946c8db639b66eddb65e647e1ddd64f774d86f4a4f74",
+      "fingerprint": "E1517EE677C5DBA783C5A6EA5F3B9F723D9074E4F1775B3BE94DE9B09522B732",
+      "focal": 5,
+      "peer": 6,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831001-migration",
+      "family": "migration",
+      "partition": "train",
+      "world_seed": 831001,
+      "snapshot": "train-831001-migration.anthro",
+      "sha256": "2b9c9f58eda8b85fd829cd89c8e770b571fb67c1b6539d9bb10c017fb01a5b6d",
+      "fingerprint": "57928F7815ABBECD6812A444AE47D8593C6F57CC9EC7E33F7617F46844EB47F9",
+      "focal": 5,
+      "peer": 6,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831001-fission",
+      "family": "fission",
+      "partition": "train",
+      "world_seed": 831001,
+      "snapshot": "train-831001-fission.anthro",
+      "sha256": "7e327057ba1a7989e8cee84da52be2bdbfc4fa687c4a64cb5bc28a3319352391",
+      "fingerprint": "A715288CA5211CE656931A42B2BD730FA653B6F3EF0213FBA80E7B9C6B13FA14",
+      "focal": 5,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831002-survival",
+      "family": "survival",
+      "partition": "train",
+      "world_seed": 831002,
+      "snapshot": "train-831002-survival.anthro",
+      "sha256": "5d38af062f76edd172d45a25a68e012f0d57289bc1564924e83c8b4823e1628e",
+      "fingerprint": "4958723F27EA567D055D487E3C34F4D52BFB9EAA1D589A5E66114D9AE14EF08A",
+      "focal": 6,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831002-trade",
+      "family": "trade",
+      "partition": "train",
+      "world_seed": 831002,
+      "snapshot": "train-831002-trade.anthro",
+      "sha256": "53b80f892658aed2219a3f7c4c998c957b078364a14b0c415ae021dd19843a7f",
+      "fingerprint": "44842DAEF6FC1B603265273A3E911316E46380FD740A384B96C2EAA108C9F6E6",
+      "focal": 6,
+      "peer": 7,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831002-migration",
+      "family": "migration",
+      "partition": "train",
+      "world_seed": 831002,
+      "snapshot": "train-831002-migration.anthro",
+      "sha256": "56027e2fb058ae2572e6d30659f649e93008619125153e7be2d1946542719ff2",
+      "fingerprint": "9C0E5B5234463023B50D66228E99E8FA87E81BFA40CF973BCB68671EC1AD5FFC",
+      "focal": 6,
+      "peer": 7,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831002-fission",
+      "family": "fission",
+      "partition": "train",
+      "world_seed": 831002,
+      "snapshot": "train-831002-fission.anthro",
+      "sha256": "7c8d4e06d69207a8855240d7e4c0bd107c65cc5b8624be4e6b65cc6fb0b2a9b4",
+      "fingerprint": "ED34AA67325A141DFC246086C41C7B36276472AD24282BF4C455F2396F1CFC9F",
+      "focal": 6,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831003-survival",
+      "family": "survival",
+      "partition": "train",
+      "world_seed": 831003,
+      "snapshot": "train-831003-survival.anthro",
+      "sha256": "042cdeaa879c5b2c95b52f7609c643df2864b64e324a2cb5d97b40a320b70fa9",
+      "fingerprint": "87F344A36A973E712ADE1ADF8A8805847310A0A7B190B84D03E4EA3F1DA744E3",
+      "focal": 5,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831003-trade",
+      "family": "trade",
+      "partition": "train",
+      "world_seed": 831003,
+      "snapshot": "train-831003-trade.anthro",
+      "sha256": "78b8b7f59d74aeda0dee0e011997a18139e9241a0024aa3941207cc7b0026107",
+      "fingerprint": "C13DCA1393DFA5D926A9122AF6004501454ACAD65FCB8EFC281EDA5985F3AFC4",
+      "focal": 5,
+      "peer": 6,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831003-migration",
+      "family": "migration",
+      "partition": "train",
+      "world_seed": 831003,
+      "snapshot": "train-831003-migration.anthro",
+      "sha256": "5e5a9031d52daa1a1f445f7e3f25e0824da21dfaa149d3eb161b387ca645698b",
+      "fingerprint": "AADC5F3F6FBCA9185C57D217A61CFD9C5FC7648A41CB7216F22135C0BCB23DB1",
+      "focal": 5,
+      "peer": 6,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "train-831003-fission",
+      "family": "fission",
+      "partition": "train",
+      "world_seed": 831003,
+      "snapshot": "train-831003-fission.anthro",
+      "sha256": "6df92e2e02f354fa11fb611be09906e5d2d36a2aaf4f6454b77388802160726c",
+      "fingerprint": "47BB6CF495B570F20CC8C2F9E690A3D2E0A0D4B424E751919257D07124E85280",
+      "focal": 5,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832001-survival",
+      "family": "survival",
+      "partition": "development",
+      "world_seed": 832001,
+      "snapshot": "development-832001-survival.anthro",
+      "sha256": "36fdc73cd98cd2aac2314c9e2b1454f0e8095ce3f8e21232dc4a700bfdc2f229",
+      "fingerprint": "2AF44170A79053E9C4A8EC6B0871D58C7055253F1B3DE70582AFDBEC42BE2E93",
+      "focal": 7,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832001-trade",
+      "family": "trade",
+      "partition": "development",
+      "world_seed": 832001,
+      "snapshot": "development-832001-trade.anthro",
+      "sha256": "9712a0a3d14595bab35d9b65fcf79415d967e7a12f0f4eb900abb30b1f1ae34f",
+      "fingerprint": "B5BB2AD76F6728CD5CDA6C86E19621B6690AA9A45BAA403B04C742F3B3E4A8A2",
+      "focal": 7,
+      "peer": 8,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832001-migration",
+      "family": "migration",
+      "partition": "development",
+      "world_seed": 832001,
+      "snapshot": "development-832001-migration.anthro",
+      "sha256": "ad63dd1110da904feece346efe5dc259dd1536cb39a77855ba4ab18178fb5e84",
+      "fingerprint": "F0931FE5D3FDD06B963082F78E60109A77AEE06D4006CEA9784305B46FA289F8",
+      "focal": 7,
+      "peer": 8,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832001-fission",
+      "family": "fission",
+      "partition": "development",
+      "world_seed": 832001,
+      "snapshot": "development-832001-fission.anthro",
+      "sha256": "bde37fb653328cbbef3273f06fd98beb4be7360fdf6405a70e46d155b104b84a",
+      "fingerprint": "D434BCFE1598E7B43F463A1202D1341B8AD1EAC0EAB5C596240EB4249BA3EC48",
+      "focal": 7,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832002-survival",
+      "family": "survival",
+      "partition": "development",
+      "world_seed": 832002,
+      "snapshot": "development-832002-survival.anthro",
+      "sha256": "572a6870c8e690f521b79765c34f4af88f88ac491e144c25870a6536f0864bec",
+      "fingerprint": "A5868E1729F495506F88EC4458E883250A45466B79E28FAC40354FC4585239E5",
+      "focal": 5,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832002-trade",
+      "family": "trade",
+      "partition": "development",
+      "world_seed": 832002,
+      "snapshot": "development-832002-trade.anthro",
+      "sha256": "0bd2d37b4ade7879e061c3efa52e6ef138337edb6ef89fa985bb8677e26a6f8a",
+      "fingerprint": "7F6DD84368247844BE2630B050782EE14134BB2D74C93D1FE537BA1BCC7FBA72",
+      "focal": 5,
+      "peer": 6,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832002-migration",
+      "family": "migration",
+      "partition": "development",
+      "world_seed": 832002,
+      "snapshot": "development-832002-migration.anthro",
+      "sha256": "72d69e80fb728d4636b01b29a9979a29fa88611836e13e562f74866676060c06",
+      "fingerprint": "FD4E13390C4DE1F62BAA06627895BBB5FA5033CC752EE203F4BA86D99F9C63C9",
+      "focal": 5,
+      "peer": 6,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832002-fission",
+      "family": "fission",
+      "partition": "development",
+      "world_seed": 832002,
+      "snapshot": "development-832002-fission.anthro",
+      "sha256": "33e33e64efab175fca5790dd989fc5d0a325623e37690caa7b955d49a96b1f97",
+      "fingerprint": "A5413A96474DDDDED1F29720DD0506E8763A6FA6024A760A2495AD4249BE3D1E",
+      "focal": 5,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832003-survival",
+      "family": "survival",
+      "partition": "development",
+      "world_seed": 832003,
+      "snapshot": "development-832003-survival.anthro",
+      "sha256": "621e406cb5345c4f38155d370f176425d448e0236f69768cd68fbb8e692bbafb",
+      "fingerprint": "E315D6F68477B857D50AF6B561EF9F9FEFC83611DE33F30FBDF4EDAE24FCCB24",
+      "focal": 5,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832003-trade",
+      "family": "trade",
+      "partition": "development",
+      "world_seed": 832003,
+      "snapshot": "development-832003-trade.anthro",
+      "sha256": "b42caabf06b481ef9f4c4ff0bad832e1ce579880fe69b51427d1e71bf476ce38",
+      "fingerprint": "8C0B0B897012C878894B6E984E7763A5E9BB4AF19A57D19B3F842D12180B61EE",
+      "focal": 5,
+      "peer": 6,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832003-migration",
+      "family": "migration",
+      "partition": "development",
+      "world_seed": 832003,
+      "snapshot": "development-832003-migration.anthro",
+      "sha256": "7cb8f004fb4c3420e124d9d4b18b1bec529052f3e7a0ef371599b32cd1dd5ceb",
+      "fingerprint": "79C5EBCDF391FAD254283E4DC9499BA8FA2AFE7A179AE77957FE517B723C6810",
+      "focal": 5,
+      "peer": 6,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832003-fission",
+      "family": "fission",
+      "partition": "development",
+      "world_seed": 832003,
+      "snapshot": "development-832003-fission.anthro",
+      "sha256": "910e146602193c980b9d422cc0db30faebda33bd9b8c334334abc822feb0128d",
+      "fingerprint": "268D7E373C2AA54D87D950ABC1A230C717EB71ABDBA600551B727A5E0D0C1700",
+      "focal": 5,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832004-survival",
+      "family": "survival",
+      "partition": "development",
+      "world_seed": 832004,
+      "snapshot": "development-832004-survival.anthro",
+      "sha256": "9b324b396219367d9abb51bc95b6843a76f5d762ed00f31a82c14460e3e61d67",
+      "fingerprint": "DE415DC98139C67E6AA3D9B29C293720FC91939C427F79EDE858C4A3A4A71ABB",
+      "focal": 5,
+      "peer": null,
+      "population": 100,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832004-trade",
+      "family": "trade",
+      "partition": "development",
+      "world_seed": 832004,
+      "snapshot": "development-832004-trade.anthro",
+      "sha256": "6467a7f7d28b204317dc1ccf68050c809b766cc6cf13d5b8ac2738afd531c2dd",
+      "fingerprint": "0C9F9566866A3310EB52152CB941DCBD635FDCCE8907E50A16276CAA0BF13C36",
+      "focal": 5,
+      "peer": 6,
+      "population": 340,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832004-migration",
+      "family": "migration",
+      "partition": "development",
+      "world_seed": 832004,
+      "snapshot": "development-832004-migration.anthro",
+      "sha256": "67549a7be107d5ee98bf9f8fbf3ee2914504d66eebbc2f2a3f5c664632a5608c",
+      "fingerprint": "FBB537E1B64B00C26BC0736FCCA8CB45D484CB03723303AC4CE7AB87D8D85093",
+      "focal": 5,
+      "peer": 6,
+      "population": 65,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    },
+    {
+      "id": "development-832004-fission",
+      "family": "fission",
+      "partition": "development",
+      "world_seed": 832004,
+      "snapshot": "development-832004-fission.anthro",
+      "sha256": "ec3aaccc036eb4f390fefc4ce42496be7ec0fdb1ef5ced6f5914e44b232486cc",
+      "fingerprint": "D76E80A0F1FBB38194C3C5333BB55DD58303D62A44E643FEC71E51848C1A1DCF",
+      "focal": 5,
+      "peer": null,
+      "population": 480,
+      "configuration_hash": "AC33889EF5EFFB96BC76E3CD0DC85E9F457FB3002686B9DEEC6D7012218F3299",
+      "dynamics": {
+        "movement": true,
+        "trade": true,
+        "migration": true,
+        "fission": true
+      }
+    }
+  ]
+}

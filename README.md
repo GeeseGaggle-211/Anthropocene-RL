@@ -227,3 +227,13 @@ stock-quote trade. Its versioned schemas, adapter and masked Dirichlet policy
 live alongside the frozen five-head API. The old datasets/checkpoints are
 preserved and remain incompatible with v3. Only CPU mechanics validation has
 been performed; see the handoff for results, limitations and the next safe gate.
+
+## Autonomous PPO v4 gate
+
+The [full-action PPO gate](docs/AUTONOMOUS_PPO_GATE_RESULTS_V1.md) adds learned
+movement and bounded stock quotes to workforce/recipe/capital decisions. Three
+small CPU training runs passed the frozen welfare gate. The versioned native
+manifest is [elder-autonomous-v4.json](configs/simulator/elder-autonomous-v4.json);
+`autonomous_v4.inference.AutonomousElderPolicy` is the checkpoint plug-in.
+See the report for independent review, sparse-trade limitations, and the proposed
+CPU canary. No scale-out or GPU campaign has been launched; v3 remains historical.

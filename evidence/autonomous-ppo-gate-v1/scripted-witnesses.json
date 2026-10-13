@@ -1,0 +1,52 @@
+{
+  "kind": "scripted-not-learned",
+  "episodes": [
+    {
+      "id": "train-831001-survival",
+      "events": {
+        "moved": 1,
+        "trades": 0,
+        "fissions": 2,
+        "migrants": 24
+      },
+      "fingerprint": "E98B95B38B89CF9D88E9D2BE934BD58E7D961220D85040DA508CE62D7ECC1D61"
+    },
+    {
+      "id": "train-831001-trade",
+      "events": {
+        "moved": 1,
+        "trades": 1,
+        "fissions": 1,
+        "migrants": 121
+      },
+      "fingerprint": "45F4D2F602F88E4547BBE31463F51E8FE6B2242F0659C4FC447C37A868DB4301"
+    },
+    {
+      "id": "train-831001-migration",
+      "events": {
+        "moved": 1,
+        "trades": 0,
+        "fissions": 1,
+        "migrants": 18
+      },
+      "fingerprint": "6C117A64F3884DF26825412C051749EF7CEC3E196F8C8590480789F622462C59"
+    },
+    {
+      "id": "train-831001-fission",
+      "events": {
+        "moved": 1,
+        "trades": 0,
+        "fissions": 1,
+        "migrants": 145
+      },
+      "fingerprint": "B775C8E7F9228186142ED8D9CF601EBBDAA23DC993C70391800B5771B4A7E7BA"
+    }
+  ],
+  "total": {
+    "moved": 4,
+    "trades": 1,
+    "fissions": 5,
+    "migrants": 308
+  },
+  "replay": "PASS"
+}

@@ -1,0 +1,51 @@
+{
+  "status": "PASS",
+  "seeds": [
+    {
+      "seed": 17,
+      "checks": {
+        "fingerprints": true,
+        "likelihoods": true,
+        "model": true,
+        "optimizer": true,
+        "sampler": true,
+        "shuffle": true,
+        "updates": true
+      },
+      "duplicate_validation_transitions": 128,
+      "optimizer_sha256": "99c832e1781d41e918b8dffbc7ca84d5432ac8a9cd37706f4bab33e6f3a0093f",
+      "model_sha256": "7985e6e26ba12357c851a0f5c3bbcb711eb594a42c472ba6600864a34eb3c3c8"
+    },
+    {
+      "seed": 29,
+      "checks": {
+        "fingerprints": true,
+        "likelihoods": true,
+        "model": true,
+        "optimizer": true,
+        "sampler": true,
+        "shuffle": true,
+        "updates": true
+      },
+      "duplicate_validation_transitions": 128,
+      "optimizer_sha256": "0a64114c37f1317e8926b938168330885f5388d7918d28e5cafbbacfc17c62f4",
+      "model_sha256": "80937e696eb0ecb0c14ca8d6b70d803ec4905bb9678625ce27e16f2baae97298"
+    },
+    {
+      "seed": 43,
+      "checks": {
+        "fingerprints": true,
+        "likelihoods": true,
+        "model": true,
+        "optimizer": true,
+        "sampler": true,
+        "shuffle": true,
+        "updates": true
+      },
+      "duplicate_validation_transitions": 128,
+      "optimizer_sha256": "f911b8781daf53764cc11b9ae6ae6241277ddc23b71aab4c21a98622fedbc98a",
+      "model_sha256": "c66d8d1239c6849cf2fee27937aa70d948f2d53bdae675a7acf128d8ae177550"
+    }
+  ],
+  "retained_training_checkpoints": "unchanged"
+}

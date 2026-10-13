@@ -69,3 +69,6 @@ evidence/elder-broad-domain-50d-scaleout-v1/campaign-summary.json
 evidence/elder-broad-domain-50d-scaleout-v1/option-a-baseline.json
 evidence/elder-broad-domain-50d-scaleout-v1/seed-*.json
 evidence/elder-broad-domain-50d-full-v3/option-a-baseline.json
+
+# New autonomous PPO raw bank; compact manifest is retained in evidence.
+datasets/autonomous-ppo-gate-v*/

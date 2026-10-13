@@ -1,0 +1,50 @@
+{
+  "version": "autonomous-ppo-gate-v1",
+  "initialization_seeds": [
+    17,
+    29,
+    43
+  ],
+  "evaluation_rng_seeds": [
+    9101,
+    9102
+  ],
+  "transitions_per_seed": 2048,
+  "episode_limit": 8,
+  "episodes_per_rollout": 8,
+  "epochs": 4,
+  "minibatch": 32,
+  "actor_lr": 0.0003,
+  "critic_lr": 0.001,
+  "clip": 0.2,
+  "target_kl": 0.03,
+  "entropy_coef": 0.001,
+  "horizon_years": 100,
+  "lambda_ref": 0.95,
+  "reward_scale": 120,
+  "family_weights": {
+    "survival": 0.25,
+    "trade": 0.25,
+    "migration": 0.25,
+    "fission": 0.25
+  },
+  "checkpoint_selection": "final-only",
+  "evaluation": "paired stochastic policies; cumulative native welfare per initial focal resident; equal-family average; missing post-extinction intervals contribute zero",
+  "survival": "fraction of episodes with focal alive at decision 8; endogenous fission daughters not included",
+  "canary": {
+    "transitions": 32768,
+    "initialization_seeds": [
+      17,
+      29,
+      43
+    ],
+    "max_total_transitions": 98304,
+    "hardware": "CPU only",
+    "workers": 4,
+    "torch_threads": 1,
+    "wall_hours": 4,
+    "evaluation_every_transitions": 4096,
+    "abort": "any illegal/nonfinite/replay failure; survival <75% or paired welfare <80% of pilot final at any evaluation; unexpected throughput/memory growth >2x",
+    "rollback": "immutable pilot final checkpoints; no overwrite"
+  }
+}

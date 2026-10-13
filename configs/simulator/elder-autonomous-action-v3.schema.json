@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autonomous Elder Action 3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Workforce",
+    "Activities",
+    "FieldExpansionFraction",
+    "RetainedHerdFraction",
+    "Breeding",
+    "Movement"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": 3
+    },
+    "Workforce": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      }
+    },
+    "Activities": {
+      "type": "array",
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "array",
+        "minItems": 15,
+        "maxItems": 15,
+        "items": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "FieldExpansionFraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "RetainedHerdFraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "Breeding": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "Quote": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "Counterparty",
+            "Give",
+            "Want",
+            "GiveQuantity",
+            "WantQuantity"
+          ],
+          "properties": {
+            "Counterparty": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 7
+            },
+            "Give": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "Want": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
+            },
+            "GiveQuantity": {
+              "type": "number",
+              "minimum": 1e-06,
+              "maximum": 1000000.0
+            },
+            "WantQuantity": {
+              "type": "number",
+              "minimum": 1e-06,
+              "maximum": 1000000.0
+            }
+          }
+        }
+      ]
+    },
+    "Movement": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 7
+    }
+  },
+  "$comment": "Native validation additionally enforces state masks, active simplex sums and distinct trade goods. Pending actions are ephemeral WEGO inputs."
+}

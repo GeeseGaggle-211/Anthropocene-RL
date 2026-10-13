@@ -1,0 +1,70 @@
+{
+  "runs/autonomous-ppo-gate-v1/provenance.json": {
+    "bytes": 384,
+    "sha256": "8227f06f96d33ccf61670be5dc7b82e3e76608528b50b3ca3bee8e639ac9ebf5"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-17-episodes.json": {
+    "bytes": 199391,
+    "sha256": "5f9d7b45dcaf265c707cbfc827373fd3bc775fed9cefa7eee59c4f01f123393b"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-17-final.pt": {
+    "bytes": 7108747,
+    "sha256": "2981a1f1c2821038f8017a8e276b3e9dca18dbfbb25521e30bbb610dac558d46"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-17-initial.pt": {
+    "bytes": 2377503,
+    "sha256": "923896d47837c832155ac6013b13d332789e2e0a5cba33a902e9f4279ff74b78"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-17-summary.json": {
+    "bytes": 6097,
+    "sha256": "f4a6dac6fbf0380f738964090a8a3ad0117af2ca2f43501bfe45d8b657d60d83"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-17-updates.json": {
+    "bytes": 113282,
+    "sha256": "09fcbec2ed63267d61dddc51e9bca570638fe9ac722194fc35675f7582ac9510"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-29-episodes.json": {
+    "bytes": 199208,
+    "sha256": "29897977e1597629c21c46e7267406fc13b6b96912e2f1157b1f4878020d9af7"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-29-final.pt": {
+    "bytes": 7108747,
+    "sha256": "9ca2dd678a36f0c6bbfbf7a4f4f6d00a5cc904aeb3b3efaa6e7414c8ff1b7bb4"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-29-initial.pt": {
+    "bytes": 2377503,
+    "sha256": "e06212dd27ea0021fc2dc85887c42144f5c7eb8604abfbfeba118802cc63ddf9"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-29-summary.json": {
+    "bytes": 6093,
+    "sha256": "cb8c0b372f04f539147667e18304460f1b4b772b32a91dc5e510c56e3f23639c"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-29-updates.json": {
+    "bytes": 112797,
+    "sha256": "9b1820b232c9e1d99740a406f5bc8aa68a656e1f73fd6249a274aa16bc61a103"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-43-episodes.json": {
+    "bytes": 199270,
+    "sha256": "ad7e7962be55e9bcdd8af7e8618613b28919a291d530f250196584a3fb81289a"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-43-final.pt": {
+    "bytes": 7108747,
+    "sha256": "7bdc4a7e79fcd01eba076ddb53d10c0f435a4811a13d44891d6b64d9a5423a23"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-43-initial.pt": {
+    "bytes": 2377503,
+    "sha256": "abf79de681f33b31df7a0f13e80db458d6a2a5a49b7021ad294fee84ed311c12"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-43-summary.json": {
+    "bytes": 6095,
+    "sha256": "33a13bee80e2d5f862adf7dbef19c0ee7057c0b7e80932fa06df307427e27cd1"
+  },
+  "runs/autonomous-ppo-gate-v1/seed-43-updates.json": {
+    "bytes": 113973,
+    "sha256": "6fe17164b5dae2e5dc99cf3e7a6fb497f7c7a1cbc37ce84a99f088ecfce1fc6c"
+  },
+  "runs/autonomous-ppo-gate-v1/summary.json": {
+    "bytes": 23087,
+    "sha256": "ea9191459bffd49bb85ceccbdc0a50880ca28cb9402a17c49920ef8cfdf78376"
+  }
+}

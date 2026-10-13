@@ -1,0 +1,20 @@
+{
+  "native_groups": 69,
+  "native_autonomous_assertions": 471,
+  "native_legacy_elder_assertions": 143,
+  "native_wall_seconds": 73.2,
+  "native_peak_mib": 1782,
+  "learner_full": {
+    "passed": 142,
+    "skipped": 2
+  },
+  "learner_focused_v4": {
+    "passed": 8,
+    "skipped": 0
+  },
+  "ruff": "PASS",
+  "old_mode_fingerprint_parity": "PASS",
+  "native_checkpoint_resume": "PASS: 3 seeds with populated Adam",
+  "documentation_contract": "PASS: 88 config values, 20 claims",
+  "simulation_source_sha256": "8a1319571e1204a8330306277b96529de23ec3932efff11c61d1964efe996f52"
+}
