@@ -1,0 +1,17 @@
+[
+  {
+    "seed": 17,
+    "boundary": 32768,
+    "checkpoint": "runs/autonomous-collapse-canary-v2/seed-17-step-32768.pt"
+  },
+  {
+    "seed": 29,
+    "boundary": 4096,
+    "checkpoint": "runs/autonomous-collapse-canary-v2/seed-29-step-4096.pt"
+  },
+  {
+    "seed": 43,
+    "boundary": 4096,
+    "checkpoint": "runs/autonomous-collapse-canary-v2/seed-43-step-4096.pt"
+  }
+]

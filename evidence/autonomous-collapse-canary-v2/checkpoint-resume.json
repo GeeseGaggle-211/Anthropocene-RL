@@ -1,0 +1,32 @@
+[
+  {
+    "seed": 17,
+    "boundary": 32768,
+    "checkpoint_sha256": "ac26cffc51ee14f8474ed6860367e4702e9bc3b02c13824cdcc4ae554cd87de2",
+    "rows": 16,
+    "native_replay": true,
+    "exact_workers_1_4": true,
+    "exact_model_optimizer_rng": true,
+    "original_unchanged": true
+  },
+  {
+    "seed": 29,
+    "boundary": 4096,
+    "checkpoint_sha256": "6d32cc2ca4a4ef9abb97f225e58512e08f73fe506f951bfe14ff4f7f13b6a867",
+    "rows": 16,
+    "native_replay": true,
+    "exact_workers_1_4": true,
+    "exact_model_optimizer_rng": true,
+    "original_unchanged": true
+  },
+  {
+    "seed": 43,
+    "boundary": 4096,
+    "checkpoint_sha256": "2bda685a7f743dfb96ef4a622eeeb776c17f002424a9fdafc6e7a31dfd0eb679",
+    "rows": 16,
+    "native_replay": true,
+    "exact_workers_1_4": true,
+    "exact_model_optimizer_rng": true,
+    "original_unchanged": true
+  }
+]

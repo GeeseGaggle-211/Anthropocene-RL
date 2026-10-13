@@ -1,0 +1,712 @@
+{
+  "seeds": {
+    "17": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 90.43581127872366,
+          "actor_saturation": [
+            0.22210693359375,
+            0.1573689728975296
+          ],
+          "critic_saturation": [
+            0.5791422724723816,
+            0.5420125126838684
+          ],
+          "actor_derivative": [
+            0.2612466812133789,
+            0.14756840467453003
+          ],
+          "critic_derivative": [
+            0.1413392871618271,
+            0.1718437224626541
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.5104036331176758,
+          "workforce_probe_separation_gain": 0.08345625712536275
+        },
+        {
+          "transitions": 4096,
+          "passed": true,
+          "welfare": 164.76593490427305,
+          "actor_saturation": [
+            0.3546956479549408,
+            0.7429402470588684
+          ],
+          "critic_saturation": [
+            0.6938069462776184,
+            0.69097900390625
+          ],
+          "actor_derivative": [
+            0.1557822972536087,
+            0.023982034996151924
+          ],
+          "critic_derivative": [
+            0.10701894760131836,
+            0.11484900861978531
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.3639485239982605,
+          "workforce_probe_separation_gain": 0.07601114299177425
+        },
+        {
+          "transitions": 8192,
+          "passed": true,
+          "welfare": 160.24162657410864,
+          "actor_saturation": [
+            0.3098348081111908,
+            0.5038655400276184
+          ],
+          "critic_saturation": [
+            0.78070068359375,
+            0.6614176630973816
+          ],
+          "actor_derivative": [
+            0.24196802079677582,
+            0.09434008598327637
+          ],
+          "critic_derivative": [
+            0.07553612440824509,
+            0.12757597863674164
+          ],
+          "active_clamp_fraction": 0.02325982041656971,
+          "critic_probe_mse": 0.2833734452724457,
+          "workforce_probe_separation_gain": 0.09480878338217735
+        },
+        {
+          "transitions": 12288,
+          "passed": true,
+          "welfare": 171.7185875952559,
+          "actor_saturation": [
+            0.3607584536075592,
+            0.74505615234375
+          ],
+          "critic_saturation": [
+            0.8041178584098816,
+            0.6450602412223816
+          ],
+          "actor_derivative": [
+            0.19685226678848267,
+            0.046423450112342834
+          ],
+          "critic_derivative": [
+            0.06325110793113708,
+            0.11881411820650101
+          ],
+          "active_clamp_fraction": 0.027222605422139168,
+          "critic_probe_mse": 0.9524524211883545,
+          "workforce_probe_separation_gain": 0.09646574081853032
+        },
+        {
+          "transitions": 16384,
+          "passed": true,
+          "welfare": 165.21445333066944,
+          "actor_saturation": [
+            0.3756510317325592,
+            0.5855916142463684
+          ],
+          "critic_saturation": [
+            0.806396484375,
+            0.7102457880973816
+          ],
+          "actor_derivative": [
+            0.20857340097427368,
+            0.08049354702234268
+          ],
+          "critic_derivative": [
+            0.0680001899600029,
+            0.09448686987161636
+          ],
+          "active_clamp_fraction": 0.021536871790885925,
+          "critic_probe_mse": 0.6685596108436584,
+          "workforce_probe_separation_gain": 0.08167005330324173
+        },
+        {
+          "transitions": 20480,
+          "passed": true,
+          "welfare": 176.22116416472429,
+          "actor_saturation": [
+            0.4842325747013092,
+            0.78778076171875
+          ],
+          "critic_saturation": [
+            0.82843017578125,
+            0.7205810546875
+          ],
+          "actor_derivative": [
+            0.15404178202152252,
+            0.04053902253508568
+          ],
+          "critic_derivative": [
+            0.05858704447746277,
+            0.08814522624015808
+          ],
+          "active_clamp_fraction": 0.030496209859848022,
+          "critic_probe_mse": 0.7636741399765015,
+          "workforce_probe_separation_gain": 0.06608443474397063
+        },
+        {
+          "transitions": 24576,
+          "passed": true,
+          "welfare": 181.77166802846037,
+          "actor_saturation": [
+            0.5114949345588684,
+            0.7968953251838684
+          ],
+          "critic_saturation": [
+            0.8442179560661316,
+            0.7592570185661316
+          ],
+          "actor_derivative": [
+            0.13832934200763702,
+            0.03640307858586311
+          ],
+          "critic_derivative": [
+            0.05522919073700905,
+            0.08227808028459549
+          ],
+          "active_clamp_fraction": 0.033080633729696274,
+          "critic_probe_mse": 0.4886513650417328,
+          "workforce_probe_separation_gain": 0.0034154951572418213
+        },
+        {
+          "transitions": 28672,
+          "passed": true,
+          "welfare": 187.51618311891465,
+          "actor_saturation": [
+            0.5628255009651184,
+            0.7452392578125
+          ],
+          "critic_saturation": [
+            0.84332275390625,
+            0.7679036259651184
+          ],
+          "actor_derivative": [
+            0.13291089236736298,
+            0.05018559470772743
+          ],
+          "critic_derivative": [
+            0.051840007305145264,
+            0.07695671916007996
+          ],
+          "active_clamp_fraction": 0.03256374970078468,
+          "critic_probe_mse": 0.2903805077075958,
+          "workforce_probe_separation_gain": 0.023354905133601278
+        },
+        {
+          "transitions": 32768,
+          "passed": false,
+          "welfare": 173.0307257491191,
+          "actor_saturation": [
+            0.54095458984375,
+            0.83087158203125
+          ],
+          "critic_saturation": [
+            0.8710530400276184,
+            0.7884318232536316
+          ],
+          "actor_derivative": [
+            0.1403999775648117,
+            0.037023864686489105
+          ],
+          "critic_derivative": [
+            0.04560041055083275,
+            0.06454204022884369
+          ],
+          "active_clamp_fraction": 0.027911784127354622,
+          "critic_probe_mse": 1.0051404237747192,
+          "workforce_probe_separation_gain": 0.06578759104013443
+        }
+      ],
+      "updates": 512,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.03705206885933876,
+          "median": 0.10332651808857918,
+          "maximum": 0.21228106319904327
+        },
+        "critic_step_l2": {
+          "minimum": 0.1925778090953827,
+          "median": 0.38135161995887756,
+          "maximum": 0.7872885465621948
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.047031220048666,
+          "median": 0.778302013874054,
+          "maximum": 6.263967037200928
+        },
+        "critic_first_layer_grad": {
+          "minimum": 127.36853790283203,
+          "median": 1454.750244140625,
+          "maximum": 7851.82763671875
+        },
+        "critic_residual_mse": {
+          "minimum": 26.400075912475586,
+          "median": 124.77977752685547,
+          "maximum": 501.29327392578125
+        },
+        "maximum_kl": {
+          "minimum": 0.016861268452857747,
+          "median": 0.04087476875471561,
+          "maximum": 0.08922133556471726
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.65625,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.00040896120481193066,
+          "maximum_probability": 0.999932050704956,
+          "probability_std": 2.6315248760511167e-05
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.007538797799497843,
+          "maximum_probability": 0.9992666244506836,
+          "probability_std": 0.001527929911389947
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.025024162605404854,
+          "maximum_probability": 0.997521698474884,
+          "probability_std": 8.809761311567854e-06
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.2818622291088104,
+          "maximum_probability": 0.8333601951599121,
+          "probability_std": 0.08349383622407913
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.14163434505462646,
+          "maximum_probability": 0.9145095944404602,
+          "probability_std": 0.08447349816560745
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.00287754088640213,
+          "maximum_probability": 0.999631404876709,
+          "probability_std": 0.00040736739174462855
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.0606544129550457,
+          "maximum_probability": 0.9872236847877502,
+          "probability_std": 0.008378002792596817
+        }
+      }
+    },
+    "29": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 119.08863261822339,
+          "actor_saturation": [
+            0.2765096127986908,
+            0.23077392578125
+          ],
+          "critic_saturation": [
+            0.5328572392463684,
+            0.7162882685661316
+          ],
+          "actor_derivative": [
+            0.22826915979385376,
+            0.1179082915186882
+          ],
+          "critic_derivative": [
+            0.1612132340669632,
+            0.09581992775201797
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.30992230772972107,
+          "workforce_probe_separation_gain": 0.0775024937465787
+        },
+        {
+          "transitions": 4096,
+          "passed": false,
+          "welfare": 165.11067197734894,
+          "actor_saturation": [
+            0.3599853515625,
+            0.66864013671875
+          ],
+          "critic_saturation": [
+            0.6436564326286316,
+            0.71942138671875
+          ],
+          "actor_derivative": [
+            0.20375138521194458,
+            0.050584543496370316
+          ],
+          "critic_derivative": [
+            0.12630414962768555,
+            0.10619470477104187
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 1.0356228351593018,
+          "workforce_probe_separation_gain": 0.04955456592142582
+        }
+      ],
+      "updates": 64,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.04496075212955475,
+          "median": 0.07771246135234833,
+          "maximum": 0.14666692912578583
+        },
+        "critic_step_l2": {
+          "minimum": 0.28537726402282715,
+          "median": 0.4586411118507385,
+          "maximum": 0.6989558339118958
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.14682537317276,
+          "median": 0.3567633479833603,
+          "maximum": 1.049641728401184
+        },
+        "critic_first_layer_grad": {
+          "minimum": 138.3460235595703,
+          "median": 780.2224426269531,
+          "maximum": 2245.59130859375
+        },
+        "critic_residual_mse": {
+          "minimum": 137.89407348632812,
+          "median": 273.63214111328125,
+          "maximum": 670.72412109375
+        },
+        "maximum_kl": {
+          "minimum": 0.03184133234290308,
+          "median": 0.04416026453436041,
+          "maximum": 0.08892892134615482
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.560546875,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.010819069109857082,
+          "maximum_probability": 0.9976472854614258,
+          "probability_std": 0.00016643633716739714
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9772607684135437,
+          "maximum_probability": 0.5883141756057739,
+          "probability_std": 0.00626069400459528
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.3370310664176941,
+          "maximum_probability": 0.9375642538070679,
+          "probability_std": 0.0002033244672929868
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.5582545399665833,
+          "maximum_probability": 0.6239672303199768,
+          "probability_std": 0.08698663115501404
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.6178402304649353,
+          "maximum_probability": 0.5465731024742126,
+          "probability_std": 0.007360328454524279
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.7502393126487732,
+          "maximum_probability": 0.6820139288902283,
+          "probability_std": 0.02664392627775669
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.2606080174446106,
+          "maximum_probability": 0.9313116073608398,
+          "probability_std": 0.01539264339953661
+        }
+      }
+    },
+    "43": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 89.20223506656666,
+          "actor_saturation": [
+            0.2061767578125,
+            0.1188761368393898
+          ],
+          "critic_saturation": [
+            0.66705322265625,
+            0.6608073115348816
+          ],
+          "actor_derivative": [
+            0.29785895347595215,
+            0.20052266120910645
+          ],
+          "critic_derivative": [
+            0.09512189030647278,
+            0.10934635251760483
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.32049569487571716,
+          "workforce_probe_separation_gain": 0.10772242117673159
+        },
+        {
+          "transitions": 4096,
+          "passed": false,
+          "welfare": 168.79644832008296,
+          "actor_saturation": [
+            0.32080078125,
+            0.7008259892463684
+          ],
+          "critic_saturation": [
+            0.70361328125,
+            0.67791748046875
+          ],
+          "actor_derivative": [
+            0.18816863000392914,
+            0.03935692086815834
+          ],
+          "critic_derivative": [
+            0.11629894375801086,
+            0.12151813507080078
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 3.21712064743042,
+          "workforce_probe_separation_gain": 0.11979761836118996
+        }
+      ],
+      "updates": 64,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.040972184389829636,
+          "median": 0.07132992520928383,
+          "maximum": 0.13610833883285522
+        },
+        "critic_step_l2": {
+          "minimum": 0.22362498939037323,
+          "median": 0.4943605363368988,
+          "maximum": 0.8112648725509644
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.12950406968593597,
+          "median": 0.3510362505912781,
+          "maximum": 1.0166009664535522
+        },
+        "critic_first_layer_grad": {
+          "minimum": 109.72850799560547,
+          "median": 885.7686767578125,
+          "maximum": 2619.085693359375
+        },
+        "critic_residual_mse": {
+          "minimum": 37.198551177978516,
+          "median": 300.2701416015625,
+          "maximum": 834.4694213867188
+        },
+        "maximum_kl": {
+          "minimum": 0.030137648031465986,
+          "median": 0.04339580350753567,
+          "maximum": 0.06934768890602705
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.55078125,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.008403760381042957,
+          "maximum_probability": 0.99821537733078,
+          "probability_std": 5.572880036197603e-05
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9520336985588074,
+          "maximum_probability": 0.6268964409828186,
+          "probability_std": 0.018018323928117752
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.332050085067749,
+          "maximum_probability": 0.9388353824615479,
+          "probability_std": 5.54046273464337e-05
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.7584991455078125,
+          "maximum_probability": 0.4225952625274658,
+          "probability_std": 0.021496577188372612
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.7059836387634277,
+          "maximum_probability": 0.40216150879859924,
+          "probability_std": 0.009936819784343243
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.7320672869682312,
+          "maximum_probability": 0.6909630298614502,
+          "probability_std": 0.014846022240817547
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.4059692919254303,
+          "maximum_probability": 0.8675591945648193,
+          "probability_std": 0.0010166241554543376
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "provenance.json": {
+      "bytes": 1868,
+      "sha256": "6b2f0cfa6566f44f454b2a51c18d2a737059c66b06b08e96494497d928b8df18"
+    },
+    "seed-17-health.json": {
+      "bytes": 99024,
+      "sha256": "38185e33857e42186fb96937ed5eeca4def444bac42084ac1eb185cb72a01306"
+    },
+    "seed-17-step-0-evaluation.json": {
+      "bytes": 18540,
+      "sha256": "ceaf27e4e1d71955324e80e8ede297a7872d9de96ca8c523c77e7642c91c6184"
+    },
+    "seed-17-step-0.pt": {
+      "bytes": 7110523,
+      "sha256": "27c172c097b57086f483ec4490abb843c074a693802547f49b0a1e06980e34cb"
+    },
+    "seed-17-step-12288-evaluation.json": {
+      "bytes": 18391,
+      "sha256": "569c0a4aeb2898b30f446c065fd006171b8d622e521d1b9cd94c1b259037f7b1"
+    },
+    "seed-17-step-12288.pt": {
+      "bytes": 7110971,
+      "sha256": "f6e04ec0c811278b0fb9aec4416220795b27ea18b21ac70449ac70d2fda9c916"
+    },
+    "seed-17-step-16384-evaluation.json": {
+      "bytes": 18371,
+      "sha256": "c231525f16714b6ff1c9198ecfd03c01a329dec2633ab0886fcd11ed70ff80cc"
+    },
+    "seed-17-step-16384.pt": {
+      "bytes": 7110971,
+      "sha256": "390a4f5325c7352f2d5501f3da6cafbea950f0c6579b20e16f6a896ef1488f65"
+    },
+    "seed-17-step-20480-evaluation.json": {
+      "bytes": 18397,
+      "sha256": "6a87bbf0be360beb44dc524e750dbeeb7aa2367b15275ecdb7f2694327a1a3a6"
+    },
+    "seed-17-step-20480.pt": {
+      "bytes": 7110971,
+      "sha256": "763f17ecf252fff1e0ff33f82e2fda52d03d6c3bdbcd54c2387c9bd860e21ebc"
+    },
+    "seed-17-step-24576-evaluation.json": {
+      "bytes": 18393,
+      "sha256": "31eed20131184818bdb8f7b5c94b8dbb3aaf5be4184d0704b89a907112c6a536"
+    },
+    "seed-17-step-24576.pt": {
+      "bytes": 7110971,
+      "sha256": "06399db61f7dddf94f95676adfd5a5830b921caa142653ade6f6621a983facb6"
+    },
+    "seed-17-step-28672-evaluation.json": {
+      "bytes": 18401,
+      "sha256": "4c4d57752fb5c4e56e90076a89b49fb36bfaacd859d905416dd260d0e1fbe4eb"
+    },
+    "seed-17-step-28672.pt": {
+      "bytes": 7110971,
+      "sha256": "32e0f440a3ccdb202cca994bc93f6de2172d533a8b424f01c8b648e57fbf65fa"
+    },
+    "seed-17-step-32768-evaluation.json": {
+      "bytes": 18390,
+      "sha256": "fb09a48294d42274bbd5f2327473a0d718f166f546686147fc5755507a722ae6"
+    },
+    "seed-17-step-32768.pt": {
+      "bytes": 7110971,
+      "sha256": "ac26cffc51ee14f8474ed6860367e4702e9bc3b02c13824cdcc4ae554cd87de2"
+    },
+    "seed-17-step-4096-evaluation.json": {
+      "bytes": 18385,
+      "sha256": "bfe579327217dc412880e0394cd436b239fb4f990a5e999120afe09bdb5aa266"
+    },
+    "seed-17-step-4096.pt": {
+      "bytes": 7110859,
+      "sha256": "d9e9575f1fc63e8dcdbeca244dc32d6c71f5febd795b40bc15dbe6e79321838a"
+    },
+    "seed-17-step-8192-evaluation.json": {
+      "bytes": 18391,
+      "sha256": "3854eedd6de9ee7f5dc5deeb7fe4732b2293f05f9233d462d514d5a117f9a208"
+    },
+    "seed-17-step-8192.pt": {
+      "bytes": 7110859,
+      "sha256": "75547fcd72922858392ecec7077732f7b74e55cb7c1306cec2b4a8ee3445d464"
+    },
+    "seed-17-training.json": {
+      "bytes": 2337235,
+      "sha256": "0c87e31d2a33f464ef2315e8152f56ffe29bd8f97b35b0fc3401dcb8e7412173"
+    },
+    "seed-17-updates.json": {
+      "bytes": 514817,
+      "sha256": "a0f3630d8f44b3f3985893572da0521caf183d149d2c76d3069b813113d08a51"
+    },
+    "seed-29-health.json": {
+      "bytes": 21954,
+      "sha256": "d739b144aa479091db75e39fac81ec62419cf649e89a5b343947aef099feb2ee"
+    },
+    "seed-29-step-0-evaluation.json": {
+      "bytes": 18502,
+      "sha256": "a2e523cf87d27417eebfc1705c4e454c15cf6a91d3209595c80d7ffa566b1c62"
+    },
+    "seed-29-step-0.pt": {
+      "bytes": 7110523,
+      "sha256": "c2e6b33e4bef2ce1fcddfcdebad41fad9a2ae2e15b5f385de66d88d83abfacd0"
+    },
+    "seed-29-step-4096-evaluation.json": {
+      "bytes": 18373,
+      "sha256": "051214b84637da3dcf5a0e5e1ed6129964861353a2ca236cc2abfd422e8360ca"
+    },
+    "seed-29-step-4096.pt": {
+      "bytes": 7110859,
+      "sha256": "6d32cc2ca4a4ef9abb97f225e58512e08f73fe506f951bfe14ff4f7f13b6a867"
+    },
+    "seed-29-training.json": {
+      "bytes": 292563,
+      "sha256": "3ffecfbab4ccb1bfbd3ecad56cadde6f7e353e7cf552926b3e59a0757c2d9ba6"
+    },
+    "seed-29-updates.json": {
+      "bytes": 63896,
+      "sha256": "b9ff1549567172740107874b2cddde3aa7161d83307527f6a991b8c77bb68076"
+    },
+    "seed-43-health.json": {
+      "bytes": 21970,
+      "sha256": "92409a95881cb290035ab04f1b77b1768fec286ad52c04aa513ee939e94230ca"
+    },
+    "seed-43-step-0-evaluation.json": {
+      "bytes": 18508,
+      "sha256": "4a18f008e8406dea09fb9363fb7b38da7582dc51ee70b6f02815ac9710a2e82f"
+    },
+    "seed-43-step-0.pt": {
+      "bytes": 7110523,
+      "sha256": "63ffac4be06ed3a7c777b2ccb2d432bc1821f37a444ad94779e3cf0043c5514d"
+    },
+    "seed-43-step-4096-evaluation.json": {
+      "bytes": 18411,
+      "sha256": "570cdcaae61af9547a8c4a13771a57b710de4b33303fc7a05469dd64d8354d43"
+    },
+    "seed-43-step-4096.pt": {
+      "bytes": 7110859,
+      "sha256": "2bda685a7f743dfb96ef4a622eeeb776c17f002424a9fdafc6e7a31dfd0eb679"
+    },
+    "seed-43-training.json": {
+      "bytes": 292344,
+      "sha256": "8b086a3639bbe4e46aeb2ecb482b1d55be6bcee438c0c9bfea2e802356a20e2c"
+    },
+    "seed-43-updates.json": {
+      "bytes": 63980,
+      "sha256": "87172f3e2f99ec22424392441bf7f8f22cf3d4a9eead7e10ffd568791f31add7"
+    },
+    "summary.json": {
+      "bytes": 39468,
+      "sha256": "35a3a5e64920e344ff0c668c8b40ba34dad1c36e343c544b861562f2b0d72f11"
+    }
+  }
+}

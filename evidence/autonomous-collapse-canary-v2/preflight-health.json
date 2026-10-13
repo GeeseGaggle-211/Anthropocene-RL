@@ -1,0 +1,848 @@
+{
+  "17": {
+    "health": {
+      "actor_layers": [
+        {
+          "saturated_fraction": 0.22210693359375,
+          "mean_derivative": 0.2612466812133789,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.19635821878910065,
+          "effective_rank": 38.875347803462574
+        },
+        {
+          "saturated_fraction": 0.1573689728975296,
+          "mean_derivative": 0.14756840467453003,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.08700820803642273,
+          "effective_rank": 24.418587627124168
+        }
+      ],
+      "critic_layers": [
+        {
+          "saturated_fraction": 0.5791422724723816,
+          "mean_derivative": 0.1413392871618271,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.19961735606193542,
+          "effective_rank": 30.161815164997556
+        },
+        {
+          "saturated_fraction": 0.5420125126838684,
+          "mean_derivative": 0.1718437224626541,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.2764531373977661,
+          "effective_rank": 14.61083890425554
+        }
+      ],
+      "active_clamp_fraction": 0.0,
+      "active_raw_min": -2.2315616607666016,
+      "active_raw_max": 3.179060220718384,
+      "simplex": {
+        "workforce": {
+          "eligible": 192,
+          "concentration_mean": 17.249252319335938,
+          "concentration_max": 18.16283416748047,
+          "coordinate_std": 0.0648098886013031,
+          "requested_mean_max": 0.20552879571914673
+        },
+        "activities": {
+          "eligible": 776,
+          "concentration_mean": 4.411008358001709,
+          "concentration_max": 10.914009094238281,
+          "coordinate_std": 0.17537592351436615,
+          "requested_mean_max": 0.4707494378089905
+        },
+        "controls": {
+          "eligible": 200,
+          "concentration_mean": 3.270153522491455,
+          "concentration_max": 3.4085819721221924,
+          "coordinate_std": 0.1986166536808014,
+          "requested_mean_max": 0.7845237851142883
+        }
+      },
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.09146780520677567,
+          "maximum_probability": 0.9723129868507385,
+          "probability_std": 0.0017285554204136133
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9405549168586731,
+          "maximum_probability": 0.6399808526039124,
+          "probability_std": 0.02629517950117588
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.2994024455547333,
+          "maximum_probability": 0.9469016790390015,
+          "probability_std": 0.0002410754095762968
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.8163816332817078,
+          "maximum_probability": 0.3557940423488617,
+          "probability_std": 0.039159588515758514
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.7032239437103271,
+          "maximum_probability": 0.5588861703872681,
+          "probability_std": 0.011080287396907806
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.917863667011261,
+          "maximum_probability": 0.52610844373703,
+          "probability_std": 0.010365870781242847
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9835553169250488,
+          "maximum_probability": 0.4192713797092438,
+          "probability_std": 0.012294053100049496
+        }
+      },
+      "value_std": 11.810423851013184,
+      "value_input_gradient": 4.237800121307373
+    },
+    "recovery": {
+      "actor_pass": true,
+      "critic_pass": true,
+      "rows": 188,
+      "feature": 745,
+      "roles": [
+        0,
+        1
+      ],
+      "actor_loss_before": -11.344481969056385,
+      "actor_loss_after": -20.265176194584747,
+      "actor_relative_improvement": 0.7863465471460721,
+      "separation_before": 0.0037367476616054773,
+      "separation_after": 0.08719300478696823,
+      "actor_grad_max": 35.540321350097656,
+      "critic_residual_mse": 0.5104036331176758,
+      "categorical": {
+        "movement": {
+          "covered": true,
+          "rows": 142,
+          "passed": true,
+          "loss_before": 2.7981910705566406,
+          "loss_after": 0.4865373373031616,
+          "separation_before": -0.001613640459254384,
+          "separation_after": 0.26811331510543823
+        },
+        "enabled": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 0.76134192943573,
+          "loss_after": 0.49708032608032227,
+          "separation_before": -0.023728998377919197,
+          "separation_after": 0.23727275431156158
+        },
+        "partner": {
+          "covered": true,
+          "rows": 46,
+          "passed": true,
+          "loss_before": 1.4914767742156982,
+          "loss_after": 0.5269888043403625,
+          "separation_before": 0.0007497007609345019,
+          "separation_after": 0.20279331505298615
+        },
+        "give": {
+          "covered": true,
+          "rows": 42,
+          "passed": true,
+          "loss_before": 1.9735177755355835,
+          "loss_after": 0.6516631245613098,
+          "separation_before": 7.794513658154756e-05,
+          "separation_after": 0.0626273825764656
+        },
+        "want": {
+          "covered": true,
+          "rows": 80,
+          "passed": true,
+          "loss_before": 2.7978715896606445,
+          "loss_after": 0.44753631949424744,
+          "separation_before": 0.00026067422004416585,
+          "separation_after": 0.31999439001083374
+        },
+        "lot": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 1.4562609195709229,
+          "loss_after": 0.47541362047195435,
+          "separation_before": 0.0015935618430376053,
+          "separation_after": 0.29900291562080383
+        },
+        "price": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 1.2584052085876465,
+          "loss_after": 0.4920826554298401,
+          "separation_before": -0.009774166159331799,
+          "separation_after": 0.25251057744026184
+        }
+      },
+      "conditional_simplex": {
+        "activity_0": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": -1.3971108409616468,
+          "loss_after": -2.5924178084700635,
+          "separation_before": -0.010448393411934376,
+          "separation_after": 0.01780889742076397
+        },
+        "activity_1": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_2": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_3": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_4": {
+          "covered": true,
+          "rows": 188,
+          "passed": true,
+          "loss_before": -4.757852262458807,
+          "loss_after": -7.100631741303716,
+          "separation_before": -0.00033714488381519914,
+          "separation_after": 0.10532303899526596
+        },
+        "activity_5": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": 0.3174489671074919,
+          "loss_after": -0.11440415333600502,
+          "separation_before": -0.00973776075989008,
+          "separation_after": 0.07563803344964981
+        },
+        "activity_6": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_7": {
+          "covered": false,
+          "eligible": 4
+        },
+        "activity_8": {
+          "covered": false,
+          "eligible": 4
+        },
+        "activity_9": {
+          "covered": true,
+          "rows": 188,
+          "passed": true,
+          "loss_before": 0.2055257880724099,
+          "loss_after": -0.2709921102246878,
+          "separation_before": -0.002959461882710457,
+          "separation_after": 0.20493870973587036
+        },
+        "activity_10": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_11": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_12": {
+          "covered": false,
+          "eligible": 0
+        },
+        "control_0": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": 0.873623563674408,
+          "loss_after": -0.22846014095149547,
+          "separation_before": 0.02506048046052456,
+          "separation_after": 0.1765221208333969
+        },
+        "control_1": {
+          "covered": false,
+          "eligible": 4
+        },
+        "control_2": {
+          "covered": false,
+          "eligible": 4
+        }
+      },
+      "passed": true
+    }
+  },
+  "29": {
+    "health": {
+      "actor_layers": [
+        {
+          "saturated_fraction": 0.2765096127986908,
+          "mean_derivative": 0.22826915979385376,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.17976075410842896,
+          "effective_rank": 36.62319086458462
+        },
+        {
+          "saturated_fraction": 0.23077392578125,
+          "mean_derivative": 0.1179082915186882,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.06841729581356049,
+          "effective_rank": 23.032817602710942
+        }
+      ],
+      "critic_layers": [
+        {
+          "saturated_fraction": 0.5328572392463684,
+          "mean_derivative": 0.1612132340669632,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.19600042700767517,
+          "effective_rank": 33.59988454394968
+        },
+        {
+          "saturated_fraction": 0.7162882685661316,
+          "mean_derivative": 0.09581992775201797,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.14752036333084106,
+          "effective_rank": 14.216830233935383
+        }
+      ],
+      "active_clamp_fraction": 0.0,
+      "active_raw_min": -2.033818244934082,
+      "active_raw_max": 4.132669448852539,
+      "simplex": {
+        "workforce": {
+          "eligible": 192,
+          "concentration_mean": 15.970824241638184,
+          "concentration_max": 17.612247467041016,
+          "coordinate_std": 0.06530949473381042,
+          "requested_mean_max": 0.2832469046115875
+        },
+        "activities": {
+          "eligible": 776,
+          "concentration_mean": 4.782842636108398,
+          "concentration_max": 11.781578063964844,
+          "coordinate_std": 0.16866710782051086,
+          "requested_mean_max": 0.48741576075553894
+        },
+        "controls": {
+          "eligible": 200,
+          "concentration_mean": 3.6211626529693604,
+          "concentration_max": 3.748014450073242,
+          "coordinate_std": 0.17876380681991577,
+          "requested_mean_max": 0.8167190551757812
+        }
+      },
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.1245957538485527,
+          "maximum_probability": 0.9599304795265198,
+          "probability_std": 0.0021589607931673527
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.971370279788971,
+          "maximum_probability": 0.5992169380187988,
+          "probability_std": 0.0034885164350271225
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.6557576060295105,
+          "maximum_probability": 0.8308283090591431,
+          "probability_std": 0.0007689488120377064
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.7992356419563293,
+          "maximum_probability": 0.4506734311580658,
+          "probability_std": 0.07794439047574997
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9256246089935303,
+          "maximum_probability": 0.21500565111637115,
+          "probability_std": 0.012282047420740128
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.9826497435569763,
+          "maximum_probability": 0.3815806210041046,
+          "probability_std": 0.012107003480196
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9249315857887268,
+          "maximum_probability": 0.5305753946304321,
+          "probability_std": 0.008748291991651058
+        }
+      },
+      "value_std": 6.5824737548828125,
+      "value_input_gradient": 3.3817241191864014
+    },
+    "recovery": {
+      "actor_pass": true,
+      "critic_pass": true,
+      "rows": 188,
+      "feature": 745,
+      "roles": [
+        0,
+        1
+      ],
+      "actor_loss_before": -14.363288725631657,
+      "actor_loss_after": -20.219720039903635,
+      "actor_relative_improvement": 0.4077360990328786,
+      "separation_before": 0.003103802911937237,
+      "separation_after": 0.08060629665851593,
+      "actor_grad_max": 20.895530700683594,
+      "critic_residual_mse": 0.30992230772972107,
+      "categorical": {
+        "movement": {
+          "covered": true,
+          "rows": 142,
+          "passed": true,
+          "loss_before": 3.071295976638794,
+          "loss_after": 0.6014477014541626,
+          "separation_before": -0.0014806234976276755,
+          "separation_after": 0.1356029510498047
+        },
+        "enabled": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 0.7170104384422302,
+          "loss_after": 0.4154183566570282,
+          "separation_before": -0.003625153098255396,
+          "separation_after": 0.3706379234790802
+        },
+        "partner": {
+          "covered": true,
+          "rows": 46,
+          "passed": true,
+          "loss_before": 0.9731894135475159,
+          "loss_after": 0.45603838562965393,
+          "separation_before": 0.004470073617994785,
+          "separation_after": 0.29654863476753235
+        },
+        "give": {
+          "covered": true,
+          "rows": 42,
+          "passed": true,
+          "loss_before": 2.452624797821045,
+          "loss_after": 0.6844940185546875,
+          "separation_before": 0.00018047151388600469,
+          "separation_after": 0.03223119676113129
+        },
+        "want": {
+          "covered": true,
+          "rows": 80,
+          "passed": true,
+          "loss_before": 2.366316556930542,
+          "loss_after": 0.6266397833824158,
+          "separation_before": 0.0004537012428045273,
+          "separation_after": 0.08879046142101288
+        },
+        "lot": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 1.1997038125991821,
+          "loss_after": 0.4554222524166107,
+          "separation_before": -0.004480220843106508,
+          "separation_after": 0.29942190647125244
+        },
+        "price": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 1.0493789911270142,
+          "loss_after": 0.4290325939655304,
+          "separation_before": 0.003697868436574936,
+          "separation_after": 0.3498711884021759
+        }
+      },
+      "conditional_simplex": {
+        "activity_0": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": -0.8274026101515348,
+          "loss_after": -2.5588731710696986,
+          "separation_before": -0.011592072434723377,
+          "separation_after": 0.009584207087755203
+        },
+        "activity_1": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_2": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_3": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_4": {
+          "covered": true,
+          "rows": 188,
+          "passed": true,
+          "loss_before": -1.6229855524254275,
+          "loss_after": -7.199046447414666,
+          "separation_before": 0.001496357610449195,
+          "separation_after": 0.14974790811538696
+        },
+        "activity_5": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": 0.3573951456303884,
+          "loss_after": -0.13295005356346853,
+          "separation_before": -0.0023809729609638453,
+          "separation_after": 0.08732110261917114
+        },
+        "activity_6": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_7": {
+          "covered": false,
+          "eligible": 4
+        },
+        "activity_8": {
+          "covered": false,
+          "eligible": 4
+        },
+        "activity_9": {
+          "covered": true,
+          "rows": 188,
+          "passed": true,
+          "loss_before": 0.1015338648170892,
+          "loss_after": -0.09210978286878918,
+          "separation_before": -0.011350375600159168,
+          "separation_after": 0.06358614563941956
+        },
+        "activity_10": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_11": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_12": {
+          "covered": false,
+          "eligible": 0
+        },
+        "control_0": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": 1.365694869451824,
+          "loss_after": -0.13214718790625682,
+          "separation_before": 0.008721730671823025,
+          "separation_after": 0.08630585670471191
+        },
+        "control_1": {
+          "covered": false,
+          "eligible": 4
+        },
+        "control_2": {
+          "covered": false,
+          "eligible": 4
+        }
+      },
+      "passed": true
+    }
+  },
+  "43": {
+    "health": {
+      "actor_layers": [
+        {
+          "saturated_fraction": 0.2061767578125,
+          "mean_derivative": 0.29785895347595215,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.22227665781974792,
+          "effective_rank": 37.67759077877698
+        },
+        {
+          "saturated_fraction": 0.1188761368393898,
+          "mean_derivative": 0.20052266120910645,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.12447942793369293,
+          "effective_rank": 28.91460766264726
+        }
+      ],
+      "critic_layers": [
+        {
+          "saturated_fraction": 0.66705322265625,
+          "mean_derivative": 0.09512189030647278,
+          "fixed_saturated_units": 0.0078125,
+          "observation_std": 0.1492108255624771,
+          "effective_rank": 26.055838567825337
+        },
+        {
+          "saturated_fraction": 0.6608073115348816,
+          "mean_derivative": 0.10934635251760483,
+          "fixed_saturated_units": 0.0,
+          "observation_std": 0.18847179412841797,
+          "effective_rank": 11.872379451663058
+        }
+      ],
+      "active_clamp_fraction": 0.0,
+      "active_raw_min": -2.070450782775879,
+      "active_raw_max": 3.338376522064209,
+      "simplex": {
+        "workforce": {
+          "eligible": 192,
+          "concentration_mean": 16.025575637817383,
+          "concentration_max": 16.84238624572754,
+          "coordinate_std": 0.06672777235507965,
+          "requested_mean_max": 0.2302493453025818
+        },
+        "activities": {
+          "eligible": 776,
+          "concentration_mean": 4.6982502937316895,
+          "concentration_max": 12.274694442749023,
+          "coordinate_std": 0.167617529630661,
+          "requested_mean_max": 0.5115274786949158
+        },
+        "controls": {
+          "eligible": 200,
+          "concentration_mean": 3.274848222732544,
+          "concentration_max": 3.451002597808838,
+          "coordinate_std": 0.19340583682060242,
+          "requested_mean_max": 0.7997607588768005
+        }
+      },
+      "categorical": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.5692335963249207,
+          "maximum_probability": 0.7011238932609558,
+          "probability_std": 0.013653016649186611
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9610817432403564,
+          "maximum_probability": 0.609870195388794,
+          "probability_std": 0.03554529696702957
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.5275183320045471,
+          "maximum_probability": 0.8805743455886841,
+          "probability_std": 0.0013260256964713335
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.8988510966300964,
+          "maximum_probability": 0.32039323449134827,
+          "probability_std": 0.050900138914585114
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9594893455505371,
+          "maximum_probability": 0.17213793098926544,
+          "probability_std": 0.014261201955378056
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.8809974789619446,
+          "maximum_probability": 0.5026475787162781,
+          "probability_std": 0.00809308048337698
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.9118159413337708,
+          "maximum_probability": 0.5446587204933167,
+          "probability_std": 0.01659408211708069
+        }
+      },
+      "value_std": 7.535068035125732,
+      "value_input_gradient": 2.1815025806427
+    },
+    "recovery": {
+      "actor_pass": true,
+      "critic_pass": true,
+      "rows": 188,
+      "feature": 745,
+      "roles": [
+        0,
+        1
+      ],
+      "actor_loss_before": -13.326634220802356,
+      "actor_loss_after": -20.614810633614997,
+      "actor_relative_improvement": 0.5468880057828917,
+      "separation_before": 0.00804570596665144,
+      "separation_after": 0.11576812714338303,
+      "actor_grad_max": 27.81328582763672,
+      "critic_residual_mse": 0.32049569487571716,
+      "categorical": {
+        "movement": {
+          "covered": true,
+          "rows": 142,
+          "passed": true,
+          "loss_before": 2.0566699504852295,
+          "loss_after": 0.29546058177948,
+          "separation_before": 0.03729672357439995,
+          "separation_after": 0.5983704328536987
+        },
+        "enabled": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 0.6907063126564026,
+          "loss_after": 0.27691829204559326,
+          "separation_before": 0.02868487499654293,
+          "separation_after": 0.5973383784294128
+        },
+        "partner": {
+          "covered": true,
+          "rows": 46,
+          "passed": true,
+          "loss_before": 1.1388664245605469,
+          "loss_after": 0.5687656402587891,
+          "separation_before": -0.005296346731483936,
+          "separation_after": 0.13747909665107727
+        },
+        "give": {
+          "covered": true,
+          "rows": 42,
+          "passed": true,
+          "loss_before": 2.7082111835479736,
+          "loss_after": 0.6791505217552185,
+          "separation_before": -0.00024421708076260984,
+          "separation_after": 0.050763629376888275
+        },
+        "want": {
+          "covered": true,
+          "rows": 80,
+          "passed": true,
+          "loss_before": 2.285557985305786,
+          "loss_after": 0.5091205835342407,
+          "separation_before": 0.0012706461129710078,
+          "separation_after": 0.22269348800182343
+        },
+        "lot": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 1.4025564193725586,
+          "loss_after": 0.3750573992729187,
+          "separation_before": 0.003123293165117502,
+          "separation_after": 0.45581960678100586
+        },
+        "price": {
+          "covered": true,
+          "rows": 164,
+          "passed": true,
+          "loss_before": 1.1086980104446411,
+          "loss_after": 0.42989274859428406,
+          "separation_before": -0.015602358616888523,
+          "separation_after": 0.35549020767211914
+        }
+      },
+      "conditional_simplex": {
+        "activity_0": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": -0.6440506752618064,
+          "loss_after": -2.6323863554589315,
+          "separation_before": -0.02334178239107132,
+          "separation_after": 0.031499750912189484
+        },
+        "activity_1": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_2": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_3": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_4": {
+          "covered": true,
+          "rows": 188,
+          "passed": true,
+          "loss_before": -2.9703627469471092,
+          "loss_after": -7.117446480907157,
+          "separation_before": -0.001965272007510066,
+          "separation_after": 0.11395327746868134
+        },
+        "activity_5": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": 0.44681750418964555,
+          "loss_after": -0.15231020747714058,
+          "separation_before": -0.02033962868154049,
+          "separation_after": 0.10269945859909058
+        },
+        "activity_6": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_7": {
+          "covered": false,
+          "eligible": 4
+        },
+        "activity_8": {
+          "covered": false,
+          "eligible": 4
+        },
+        "activity_9": {
+          "covered": true,
+          "rows": 188,
+          "passed": true,
+          "loss_before": 0.16365224032773854,
+          "loss_after": -0.12325084247424838,
+          "separation_before": -0.02732204832136631,
+          "separation_after": 0.08716566115617752
+        },
+        "activity_10": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_11": {
+          "covered": false,
+          "eligible": 0
+        },
+        "activity_12": {
+          "covered": false,
+          "eligible": 0
+        },
+        "control_0": {
+          "covered": true,
+          "rows": 192,
+          "passed": true,
+          "loss_before": 1.0258697268544632,
+          "loss_after": -0.228617519820151,
+          "separation_before": 0.019795052707195282,
+          "separation_after": 0.17946095764636993
+        },
+        "control_1": {
+          "covered": false,
+          "eligible": 4
+        },
+        "control_2": {
+          "covered": false,
+          "eligible": 4
+        }
+      },
+      "passed": true
+    }
+  }
+}

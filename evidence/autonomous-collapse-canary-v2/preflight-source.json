@@ -1,0 +1,8 @@
+{
+  "configs/training/autonomous-collapse-canary-v2.json": "98becae0dfbc86426b1aa52f2b29d78c2991eee80f43c4842b483e3af77e376c",
+  "docs/AUTONOMOUS_COLLAPSE_CANARY_V2.md": "1a225ab99a2e7cffe4a50709e5922109b4b85bb65005e110caa488c73b8cb558",
+  "src/anthropocene_rl/autonomous_v4/diagnostics.py": "d59b7c5aadd83343aabffc66550803d75101fd428912d1af05894f5af7de7715",
+  "src/anthropocene_rl/autonomous_v4/collection.py": "7cb8f126fb71f62b52a9a52f3376a8ce21c57ece7ac00c18c8c4eb5c3c016aa8",
+  "scripts/run_autonomous_collapse_canary.py": "da3291fa235d6d27a90399b1064ccf9464f332345eee2ae90372c51554c707e3",
+  "scripts/build_autonomous_health_probe.py": "cd6bf615179b2cc833a57556da56e4f2d6cb02133cb727656a13051ce854b6ea"
+}

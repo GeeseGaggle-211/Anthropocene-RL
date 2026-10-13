@@ -1,0 +1,22 @@
+{
+  "version": "autonomous-collapse-canary-v1",
+  "seeds": [17, 29, 43],
+  "additional_transitions_per_seed": 32768,
+  "maximum_total_transitions": 98304,
+  "workers": 4,
+  "torch_threads": 1,
+  "maximum_wall_seconds": 14400,
+  "native_request_timeout_seconds": 60,
+  "evaluate_every_transitions": 4096,
+  "recovery_probe_steps": 16,
+  "recovery_probe_lr": 0.001,
+  "economic_outcome_abort": false,
+  "numeric_or_replay_abort": true,
+  "reproducible_recovery_failure": "pause_seed_and_diagnose",
+  "resource_growth_factor": 2.0,
+  "rollout_policy": "frozen; sampler SHA256(seed,absolute_episode); canonical episode order",
+  "initialization": "immutable pilot finals; preserve Adam and shuffle state",
+  "probe": "train-only health-probe-v2; pilot17; 24 episodes; sampler731/732; freeze digest before launch",
+  "checkpoint_selection": "final-or-stopped boundary, never development-best",
+  "curriculum": "frozen autonomous-ppo-gate-v1 four-family bank; all movement/trade/fission/migration live"
+}
