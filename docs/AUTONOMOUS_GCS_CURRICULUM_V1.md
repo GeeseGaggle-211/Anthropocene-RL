@@ -1,0 +1,22 @@
+# GCS curriculum reuse assessment v1
+
+The retained GCS catalog is a promising source of native starting states for the autonomous Elder. No GCS data was added to the frozen continuation gate. This assessment inspected repository manifests and the historical storage audit, not live bucket contents: the current runtime has no configured GCP identity or permitted Storage endpoint, and the snapshot blobs are absent locally.
+
+## What is available in the retained catalog
+
+Bank `elder-v2-broad-domain-50d-scaleout-v1` has 499 records: 348 TRAIN, 75 DEVELOPMENT and 76 HELDOUT. Its native base `5559961164d6f9da8e6d20c1dc563ecec3eb04b7` is an ancestor of the current simulator. World, lineage, counterfactual and content identities have no cross-partition collisions; no world seed or content hash overlaps the current autonomous gate bank. The historical publication audit pins a 244,111-byte manifest and two shards totaling 106,731,520 bytes. Their object URIs, generations and SHA256 values are retained in `evidence/autonomous-continuation-v4/gcs-catalog-audit.json`.
+
+TRAIN metadata identifies 234 records with cultivation available and neither husbandry nor fishing. They span nine families: F01 (17), F02 (30), F03 (38), F13 (22), F14 (24), F15 (34), F16 (20), F17 (27), F18 (22). This is a record shortlist, not a validated training cohort. Whole-group selection may reduce it. The F15 bank includes exchange and migration counterfactuals, making it particularly relevant to learning responses to changing opportunities. The catalog also provides resource, amenity, institutional-memory and productive-frontier variation. The historical handoff describes those strata; their actual new-schema behavior has not yet been observed.
+
+The old contract is action 1, observation/environment 2, with 512 features. The new model needs action 3, observation/environment/replay 4 and 761 features. Only native SaveCodec state is a candidate for reuse. Old action traces, observation tensors, fitted normalizers and model checkpoints are not compatible training inputs.
+
+## Bounded integration gate before training expansion
+
+1. In a runtime with read access, materialize the historically pinned objects into a separate bounded cache; verify generation, manifest, shard and record hashes. Reuse `datasets.object_store.GcsObjectStore` and `datasets.shards.DatasetReader`; explicitly compare the historical generation/hash pins, rather than assuming the latest object at a URI is identical. Preserve original blobs.
+2. Select complete world/lineage/counterfactual groups using TRAIN metadata only. Preserve every existing partition and keep HELDOUT sealed. The audit lists one prospective smoke record per shortlisted family; this is a loading check, not the final group-complete training selection. Keep a counterfactual pair together when extending smoke checks to behavior.
+3. Load unchanged native saves through the pinned v4 bridge. Check actual era, controlled settlement, knowledge restrictions, available professions/recipes, storage, livestock/capital masks, trade/migration/fission flags and chronology. Reject or separately gate newly active faces beyond demonstrated adaptation coverage.
+4. Construct fresh knowledge-isolated native observations and masks, then encode the 761 features. Run bounded legal scripted decisions to verify workforce consequences, scarcity, surplus, exchange compatibility and conservation. Verify save/replay and canonical WEGO order. No old observations or normalizer are fitted or imported.
+5. Record compatible-quote opportunities separately from attempted and completed settlement. A snapshot with contacts alone does not establish useful trade support. Preserve movement, migration and fission throughout. Learned reciprocal peers and learned daughters remain separate controller gates.
+6. Freeze a new derived manifest with original content/partition/group identities and the new simulator contract. Independently review compatibility and mask coverage before admitting snapshots to a new bounded PPO curriculum. Expand world diversity before increasing episode horizon or workers, so attribution remains possible.
+
+This GCS bank can reduce future snapshot-generation work. It does not supply evidence of new-model compatibility until its native blobs pass the gate above. The current continuation provides the mechanical-readiness evidence separately, without moving the curriculum boundary during a run.
