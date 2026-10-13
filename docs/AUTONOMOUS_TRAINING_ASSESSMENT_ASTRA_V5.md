@@ -143,4 +143,3 @@ The final implementation reviewer, independently using Astra/high, also verified
 These completed mechanical results do not change this assessment's causal conclusions: the missing history inputs remain a confirmed correctness defect; their share of the welfare loss remains unmeasured; and the GRU comparison and promotion prerequisites have not been met. No GRU, new native memory fix, additional training campaign or scale-out was executed for this assessment.
 
 Google Doc: https://docs.google.com/document/d/1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04/edit
-

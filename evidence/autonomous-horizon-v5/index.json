@@ -13,7 +13,7 @@
     "evidence/autonomous-horizon-v5/training-assessment-audit.py": "7b52bd2d67efa09c765e67bc856d09249ebcf5068f4fb97cd2458d4fda74ba29",
     "evidence/autonomous-horizon-v5/verdict.json": "3ff5d0e4a9ff4e1216a4d773a99af0a865ef24a8c65f3baa9530d6367b437298",
     "docs/AUTONOMOUS_HORIZON_RESULTS_V5.md": "83308b2d1f590850f91ad522f34dc20ab17c8e961ccc3a6ea28acfa4aec49e83",
-    "docs/AUTONOMOUS_TRAINING_ASSESSMENT_ASTRA_V5.md": "7894e359efba38ed66041c9dd0729fec4a76ed5e8499e0a2c6e8a2dddbe99e9f",
+    "docs/AUTONOMOUS_TRAINING_ASSESSMENT_ASTRA_V5.md": "60f00f5ec6b85d044a6eb804ca1a394fafae2e2486bb178b09eaa54bf1a27a83",
     "configs/simulator/elder-autonomous-model-v4.json": "6fdd0ada6702e13617ecf979ac23b7f0bb9e118f7ae6fb797309594c5ebfeff2"
   }
 }
