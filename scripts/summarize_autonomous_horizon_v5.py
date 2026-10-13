@@ -20,7 +20,7 @@ def main():
     canary_path = Path("runs/autonomous-critic-horizon-gate-v5/summary.json")
     diagnostics_path = Path("runs/autonomous-horizon-diagnostics-v5/summary.json")
     resume_path = Path("runs/autonomous-horizon-resume-v5.json")
-    panel_path = Path("runs/autonomous-horizon-welfare-v5/summary.json")
+    panel_path = Path("runs/autonomous-horizon-welfare-v5-fixed/summary.json")
     heuristic_path = Path("runs/autonomous-heuristic-welfare-v1/summary.json")
     preflight, canary, diagnostics, resume, panel, heuristic = map(
         read,

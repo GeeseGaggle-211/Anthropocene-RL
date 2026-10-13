@@ -1,0 +1,35 @@
+{
+  "version": "autonomous-horizon-panel-fix1",
+  "maximum_fresh_panel_steps": 3200,
+  "maximum_fresh_panel_replay_steps": 3200,
+  "prior_failed_panel_steps": 25,
+  "prior_failed_panel_replay_steps": 25,
+  "maximum_total_panel_steps": 3225,
+  "maximum_total_replay_steps": 3225,
+  "maximum_wall_seconds": 600,
+  "retained_training_updates": 0,
+  "scientific_acceptance_changed": false,
+  "fix": "Preserve original += accumulation order; save raw replayed episode before assertions; exact fingerprint and all available prefix checks retained",
+  "inputs": {
+    "original_postflight": {
+      "path": "configs/training/autonomous-horizon-postflight-v5.json",
+      "sha256": "b9680cd0caa6c3a2daee01e21a44dbfc66b06f8d20a7f166b3911409f0fab7b2"
+    },
+    "failed_panel": {
+      "path": "runs/autonomous-horizon-welfare-v5/summary.json",
+      "sha256": "abc333af47f1d96b0928e8065e5556ec9a51f9756c3b61c0873a031e3561cf0e"
+    },
+    "runner": {
+      "path": "scripts/evaluate_autonomous_horizon_v5_fixed.py",
+      "sha256": "7fdf24863c161a66973ccae98b9c29bdf47dbd1bebe00c3adac2ffec5c10730a"
+    },
+    "regression_test": {
+      "path": "tests/test_autonomous_horizon_welfare_sum_v5.py",
+      "sha256": "fca7397d4e2fc13e45dfe2a4e7fd3a891c8fa5d879de5c7f9e03685ae20a70c7"
+    },
+    "native_campaign": {
+      "path": "runs/autonomous-critic-horizon-gate-v5/summary.json",
+      "sha256": "97c896c7f13130172b040f5418b673624a1076cc25cfe11d27ceafd9b71a9060"
+    }
+  }
+}
