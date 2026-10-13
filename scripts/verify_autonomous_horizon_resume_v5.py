@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import signal
 import time
 from pathlib import Path
 
@@ -52,6 +53,12 @@ def main():
         maximum_wall_seconds=600,
         retained_training_updates=0,
     )
+
+    def expired(*_):
+        raise TimeoutError("V5 native resume validation deadline exceeded")
+
+    old_handler = signal.signal(signal.SIGALRM, expired)
+    signal.alarm(600)
     try:
         for job in jobs:
             checkpoint = Path(job["checkpoint"]["path"])
@@ -149,6 +156,8 @@ def main():
         report["error"] = f"{type(error).__name__}: {error}"
         raise
     finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
         report["wall_seconds"] = time.monotonic() - started
         args.output.write_text(json.dumps(report, indent=2) + "\n")
 

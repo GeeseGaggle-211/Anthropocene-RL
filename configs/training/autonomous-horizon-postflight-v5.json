@@ -1,0 +1,66 @@
+{
+  "version": "autonomous-horizon-postflight-v5",
+  "maximum_tasks": 66,
+  "maximum_action_draws": 135168,
+  "maximum_actor_seconds": 4200,
+  "maximum_discarded_native_validation_steps": 384,
+  "maximum_validation_replay_steps": 384,
+  "maximum_validation_seconds": 600,
+  "maximum_panel_steps": 3200,
+  "maximum_panel_replay_steps": 3200,
+  "maximum_panel_seconds": 600,
+  "inputs": {
+    "scripts/probe_autonomous_state_baseline_v4.py": {
+      "path": "scripts/probe_autonomous_state_baseline_v4.py",
+      "sha256": "503803a696f5fae9ee0e120c459b019e40b8fc22d6f04cc869c2a970cd82e63d"
+    },
+    "scripts/probe_autonomous_state_baseline.py": {
+      "path": "scripts/probe_autonomous_state_baseline.py",
+      "sha256": "308f038a41006b146ae4ea2f3ac24d8a88613b08a7528392f1ebd8b1be1544a5"
+    },
+    "scripts/run_autonomous_horizon_diagnostics_v5.py": {
+      "path": "scripts/run_autonomous_horizon_diagnostics_v5.py",
+      "sha256": "1615ccaf4dac4566588b09ce5b5bcefa3fedb11b2a9fc5670e1266772846c146"
+    },
+    "scripts/verify_autonomous_horizon_resume_v5.py": {
+      "path": "scripts/verify_autonomous_horizon_resume_v5.py",
+      "sha256": "91b4c2dccde0f7d697651d50a235bc56b93f52ed995fe0d116083b8100c74092"
+    },
+    "scripts/evaluate_autonomous_horizon_v5.py": {
+      "path": "scripts/evaluate_autonomous_horizon_v5.py",
+      "sha256": "4a2ac70f6bf95cbb58195f882f69f61b92142e82add232c6c9b63f65d057ec9b"
+    },
+    "scripts/benchmark_autonomous_heuristic_welfare_v1.py": {
+      "path": "scripts/benchmark_autonomous_heuristic_welfare_v1.py",
+      "sha256": "4fe69d6ec8c0f0e74413bd4d5a777bf0c609e99c84bb365a7e41caaa1a115cd9"
+    },
+    "scripts/report_autonomous_welfare_v4.py": {
+      "path": "scripts/report_autonomous_welfare_v4.py",
+      "sha256": "3a30778a8335ff812a63fc564394325146d1b71f5db60cfb62be176e705d6fb0"
+    },
+    "configs/training/autonomous-25-turn-inference-v1.json": {
+      "path": "configs/training/autonomous-25-turn-inference-v1.json",
+      "sha256": "5760b1e7beb28dd3a3ea86a86f306f8aa2af034713859d4d94dd05a4dce0d7a3"
+    },
+    "configs/training/autonomous-critic-horizon-gate-v5.json": {
+      "path": "configs/training/autonomous-critic-horizon-gate-v5.json",
+      "sha256": "048b7503b976b27675f8ed8d37cc5c0476800e1ab765032455ace49f00744bb6"
+    },
+    "docs/AUTONOMOUS_DIRECT_CONTROL_SCOPE_V4.md": {
+      "path": "docs/AUTONOMOUS_DIRECT_CONTROL_SCOPE_V4.md",
+      "sha256": "158671baa3b7eca8f8cfb5b1969dcab81fc685f8a4b443e1e8ab2a1380ebb663"
+    },
+    "docs/AUTONOMOUS_HORIZON_EVIDENCE_ERRATA.md": {
+      "path": "docs/AUTONOMOUS_HORIZON_EVIDENCE_ERRATA.md",
+      "sha256": "1a6f351bc325be493202e47f03ce3a9662244ce212f76e0757015fb8b428f860"
+    },
+    "tests/test_autonomous_horizon_diagnostics_v5.py": {
+      "path": "tests/test_autonomous_horizon_diagnostics_v5.py",
+      "sha256": "1190d5a3798ab4edc8333e43d54c1e9c4dfe07daa588ac0256c2027a8f73af66"
+    },
+    "tests/test_autonomous_horizon_welfare_v5.py": {
+      "path": "tests/test_autonomous_horizon_welfare_v5.py",
+      "sha256": "3f04e2365be47a12e6240c75e5b1cb4ea7578c93b27558d983e8c288f1e023c3"
+    }
+  }
+}
