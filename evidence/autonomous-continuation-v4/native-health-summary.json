@@ -1,0 +1,668 @@
+{
+  "seeds": {
+    "29": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 141.6023788834395,
+          "actor_saturation": [
+            0.0020955402869731188,
+            0.0
+          ],
+          "critic_saturation": [
+            0.65789794921875,
+            0.55230712890625
+          ],
+          "actor_derivative": [
+            0.5619426965713501,
+            0.48176512122154236
+          ],
+          "critic_derivative": [
+            0.11540897935628891,
+            0.15118998289108276
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.2681773900985718,
+          "workforce_probe_separation_gain": 0.06474945321679115
+        },
+        {
+          "transitions": 4096,
+          "passed": true,
+          "welfare": 146.96078058003934,
+          "actor_saturation": [
+            0.00164794921875,
+            6.103515625e-05
+          ],
+          "critic_saturation": [
+            0.6687825322151184,
+            0.594970703125
+          ],
+          "actor_derivative": [
+            0.5647005438804626,
+            0.44931983947753906
+          ],
+          "critic_derivative": [
+            0.1116802915930748,
+            0.15629155933856964
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.22738264501094818,
+          "workforce_probe_separation_gain": 0.06631998531520367
+        },
+        {
+          "transitions": 8192,
+          "passed": true,
+          "welfare": 148.2284366112977,
+          "actor_saturation": [
+            0.00213623046875,
+            6.103515625e-05
+          ],
+          "critic_saturation": [
+            0.67822265625,
+            0.5959269404411316
+          ],
+          "actor_derivative": [
+            0.5708202123641968,
+            0.4535665512084961
+          ],
+          "critic_derivative": [
+            0.11377835273742676,
+            0.1623985320329666
+          ],
+          "active_clamp_fraction": 0.022570641711354256,
+          "critic_probe_mse": 0.37915533781051636,
+          "workforce_probe_separation_gain": 0.04399146744981408
+        },
+        {
+          "transitions": 12288,
+          "passed": true,
+          "welfare": 147.88699855616528,
+          "actor_saturation": [
+            0.0010579427471384406,
+            0.0
+          ],
+          "critic_saturation": [
+            0.7037760615348816,
+            0.6612548828125
+          ],
+          "actor_derivative": [
+            0.5553752779960632,
+            0.42915546894073486
+          ],
+          "critic_derivative": [
+            0.10335841774940491,
+            0.13076990842819214
+          ],
+          "active_clamp_fraction": 0.030496209859848022,
+          "critic_probe_mse": 0.34517329931259155,
+          "workforce_probe_separation_gain": 0.036871538031846285
+        },
+        {
+          "transitions": 16384,
+          "passed": true,
+          "welfare": 153.83902705827754,
+          "actor_saturation": [
+            0.0020955402869731188,
+            6.103515625e-05
+          ],
+          "critic_saturation": [
+            0.7188517451286316,
+            0.6344401240348816
+          ],
+          "actor_derivative": [
+            0.5664255023002625,
+            0.4332669675350189
+          ],
+          "critic_derivative": [
+            0.0991591215133667,
+            0.1480446606874466
+          ],
+          "active_clamp_fraction": 0.03428670018911362,
+          "critic_probe_mse": 0.3545987904071808,
+          "workforce_probe_separation_gain": 0.023876197636127472
+        },
+        {
+          "transitions": 20480,
+          "passed": true,
+          "welfare": 142.1021476981166,
+          "actor_saturation": [
+            0.00040690103196538985,
+            0.00018310546875
+          ],
+          "critic_saturation": [
+            0.71197509765625,
+            0.7323811650276184
+          ],
+          "actor_derivative": [
+            0.5673889517784119,
+            0.5099387764930725
+          ],
+          "critic_derivative": [
+            0.10511711984872818,
+            0.10302817821502686
+          ],
+          "active_clamp_fraction": 0.028256375342607498,
+          "critic_probe_mse": 0.393463134765625,
+          "workforce_probe_separation_gain": 0.004805831471458077
+        },
+        {
+          "transitions": 24576,
+          "passed": true,
+          "welfare": 171.6436865008854,
+          "actor_saturation": [
+            0.00018310546875,
+            0.0
+          ],
+          "critic_saturation": [
+            0.7053019404411316,
+            0.6975911259651184
+          ],
+          "actor_derivative": [
+            0.5556955933570862,
+            0.4378167688846588
+          ],
+          "critic_derivative": [
+            0.10933012515306473,
+            0.11141252517700195
+          ],
+          "active_clamp_fraction": 0.08959338068962097,
+          "critic_probe_mse": 0.35965192317962646,
+          "workforce_probe_separation_gain": 0.002806426906317938
+        }
+      ],
+      "updates": 384,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.07293976098299026,
+          "median": 0.1357915922999382,
+          "maximum": 0.2573919892311096
+        },
+        "critic_step_l2": {
+          "minimum": 0.09612473100423813,
+          "median": 0.2011522278189659,
+          "maximum": 0.37353453040122986
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.24736371636390686,
+          "median": 0.7248483002185822,
+          "maximum": 2.6773343086242676
+        },
+        "critic_first_layer_grad": {
+          "minimum": 471.5703430175781,
+          "median": 1556.0382690429688,
+          "maximum": 7219.84423828125
+        },
+        "critic_residual_mse": {
+          "minimum": 102.42472839355469,
+          "median": 326.5309600830078,
+          "maximum": 1171.5369873046875
+        },
+        "maximum_kl": {
+          "minimum": 0.024605497192777635,
+          "median": 0.04049509286950323,
+          "maximum": 0.4326922007095381
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.6507161458333334,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.5945867896080017,
+          "maximum_probability": 0.5933804512023926,
+          "probability_std": 0.0560009591281414
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.854083240032196,
+          "maximum_probability": 0.7193518280982971,
+          "probability_std": 0.024865727871656418
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9602429866790771,
+          "maximum_probability": 0.6168173551559448,
+          "probability_std": 0.0005707949749194086
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.893510639667511,
+          "maximum_probability": 0.36825838685035706,
+          "probability_std": 0.04826052114367485
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.915952205657959,
+          "maximum_probability": 0.25415709614753723,
+          "probability_std": 0.016686422750353813
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.903186023235321,
+          "maximum_probability": 0.5188778042793274,
+          "probability_std": 0.019338740035891533
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.8808808326721191,
+          "maximum_probability": 0.5417932868003845,
+          "probability_std": 0.009399711154401302
+        }
+      }
+    },
+    "43": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 121.92609426311131,
+          "actor_saturation": [
+            0.0005900065298192203,
+            0.0
+          ],
+          "critic_saturation": [
+            0.7204793095588684,
+            0.5829060673713684
+          ],
+          "actor_derivative": [
+            0.5268710255622864,
+            0.44864416122436523
+          ],
+          "critic_derivative": [
+            0.09595980495214462,
+            0.16181452572345734
+          ],
+          "active_clamp_fraction": 0.031013093888759613,
+          "critic_probe_mse": 0.21397365629673004,
+          "workforce_probe_separation_gain": 0.01602972438558936
+        },
+        {
+          "transitions": 4096,
+          "passed": true,
+          "welfare": 148.04923443370353,
+          "actor_saturation": [
+            0.00115966796875,
+            0.0
+          ],
+          "critic_saturation": [
+            0.72979736328125,
+            0.5134074091911316
+          ],
+          "actor_derivative": [
+            0.5627588629722595,
+            0.4882676601409912
+          ],
+          "critic_derivative": [
+            0.09795361757278442,
+            0.20046554505825043
+          ],
+          "active_clamp_fraction": 0.023432115092873573,
+          "critic_probe_mse": 0.2525269389152527,
+          "workforce_probe_separation_gain": 0.07607623189687729
+        },
+        {
+          "transitions": 8192,
+          "passed": true,
+          "welfare": 149.43375686094896,
+          "actor_saturation": [
+            0.00038655599928461015,
+            0.0
+          ],
+          "critic_saturation": [
+            0.7567952275276184,
+            0.5383097529411316
+          ],
+          "actor_derivative": [
+            0.5549318194389343,
+            0.46900632977485657
+          ],
+          "critic_derivative": [
+            0.08701609820127487,
+            0.19595010578632355
+          ],
+          "active_clamp_fraction": 0.031529977917671204,
+          "critic_probe_mse": 0.2856224477291107,
+          "workforce_probe_separation_gain": 0.046414959244430065
+        },
+        {
+          "transitions": 12288,
+          "passed": true,
+          "welfare": 131.4890673007489,
+          "actor_saturation": [
+            0.0018107095966115594,
+            0.00103759765625
+          ],
+          "critic_saturation": [
+            0.7789713740348816,
+            0.597900390625
+          ],
+          "actor_derivative": [
+            0.5660597681999207,
+            0.4556240141391754
+          ],
+          "critic_derivative": [
+            0.07498332113027573,
+            0.14949627220630646
+          ],
+          "active_clamp_fraction": 0.027911784127354622,
+          "critic_probe_mse": 0.3177359402179718,
+          "workforce_probe_separation_gain": 0.05526364501565695
+        },
+        {
+          "transitions": 16384,
+          "passed": true,
+          "welfare": 133.45159469740628,
+          "actor_saturation": [
+            0.0011189779033884406,
+            0.0008544921875
+          ],
+          "critic_saturation": [
+            0.7683308720588684,
+            0.5737101435661316
+          ],
+          "actor_derivative": [
+            0.5647140145301819,
+            0.4566332995891571
+          ],
+          "critic_derivative": [
+            0.08031470328569412,
+            0.17825572192668915
+          ],
+          "active_clamp_fraction": 0.025671949610114098,
+          "critic_probe_mse": 0.2562934458255768,
+          "workforce_probe_separation_gain": 0.05421128263697028
+        },
+        {
+          "transitions": 20480,
+          "passed": true,
+          "welfare": 127.59170111455367,
+          "actor_saturation": [
+            0.0014444986591115594,
+            0.00046793618821538985
+          ],
+          "critic_saturation": [
+            0.7740071415901184,
+            0.6100667119026184
+          ],
+          "actor_derivative": [
+            0.5843568444252014,
+            0.47065672278404236
+          ],
+          "critic_derivative": [
+            0.07907713949680328,
+            0.1686556190252304
+          ],
+          "active_clamp_fraction": 0.022398345172405243,
+          "critic_probe_mse": 0.29801297187805176,
+          "workforce_probe_separation_gain": 0.018561281263828278
+        },
+        {
+          "transitions": 24576,
+          "passed": true,
+          "welfare": 135.52847427859453,
+          "actor_saturation": [
+            0.0008748372201807797,
+            0.00026448568678461015
+          ],
+          "critic_saturation": [
+            0.7733967900276184,
+            0.6710205078125
+          ],
+          "actor_derivative": [
+            0.5868017673492432,
+            0.48057305812835693
+          ],
+          "critic_derivative": [
+            0.08517766743898392,
+            0.1256793737411499
+          ],
+          "active_clamp_fraction": 0.022398345172405243,
+          "critic_probe_mse": 0.23834256827831268,
+          "workforce_probe_separation_gain": 0.02450930792838335
+        }
+      ],
+      "updates": 384,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.036086130887269974,
+          "median": 0.13344673812389374,
+          "maximum": 0.26031675934791565
+        },
+        "critic_step_l2": {
+          "minimum": 0.09101223200559616,
+          "median": 0.18477624654769897,
+          "maximum": 0.4222436547279358
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.2233997881412506,
+          "median": 1.170261263847351,
+          "maximum": 11.784712791442871
+        },
+        "critic_first_layer_grad": {
+          "minimum": 432.7300109863281,
+          "median": 1840.0249633789062,
+          "maximum": 7242.00634765625
+        },
+        "critic_residual_mse": {
+          "minimum": 108.97742462158203,
+          "median": 324.4307861328125,
+          "maximum": 1122.4459228515625
+        },
+        "maximum_kl": {
+          "minimum": 0.021876139362047044,
+          "median": 0.04474814015483734,
+          "maximum": 0.9297150280418301
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.5634765625,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.6364111304283142,
+          "maximum_probability": 0.5624586939811707,
+          "probability_std": 0.0561382994055748
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9777490496635437,
+          "maximum_probability": 0.5794318318367004,
+          "probability_std": 0.03642541915178299
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.949562132358551,
+          "maximum_probability": 0.6287617683410645,
+          "probability_std": 0.006479224190115929
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9534901976585388,
+          "maximum_probability": 0.2700072228908539,
+          "probability_std": 0.050854526460170746
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.917616069316864,
+          "maximum_probability": 0.27772057056427,
+          "probability_std": 0.022805415093898773
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.8307477831840515,
+          "maximum_probability": 0.593019425868988,
+          "probability_std": 0.11453268676996231
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.8848513960838318,
+          "maximum_probability": 0.5545230507850647,
+          "probability_std": 0.11282660812139511
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "provenance.json": {
+      "bytes": 3996,
+      "sha256": "10f64eeb6e73028ac65f381abf5d817c3f510ce5de5568a46fc4d99dbe820a70"
+    },
+    "seed-29-health.json": {
+      "bytes": 76790,
+      "sha256": "cd7ecf4a9abe8d45daa279d6d9e892e70e94f008a13cb97f8ac2d3f86f7b0a09"
+    },
+    "seed-29-step-0-evaluation.json": {
+      "bytes": 18409,
+      "sha256": "4b77be849c924aade6729c6536725804de1ddd309b1779f6fd2c7a00f37ae508"
+    },
+    "seed-29-step-0.pt": {
+      "bytes": 7129035,
+      "sha256": "75c471a2c6b7590e712073c98601917af256124bc40d334bc9885e0c3774e976"
+    },
+    "seed-29-step-12288-evaluation.json": {
+      "bytes": 18395,
+      "sha256": "db2c1cd665143df558518b58492b27f0ba2f87e637f23ca6e6d9dd3a81d9f17f"
+    },
+    "seed-29-step-12288.pt": {
+      "bytes": 7129547,
+      "sha256": "7e08b117b6ff9ae3918612ece20a83dd03f0dab79f14c363b44582bfe74ea659"
+    },
+    "seed-29-step-16384-evaluation.json": {
+      "bytes": 18346,
+      "sha256": "8c99350a53081d266d5e989e8dacedea6c11cf6966d0ff78640f1ed3e154c5cf"
+    },
+    "seed-29-step-16384.pt": {
+      "bytes": 7129547,
+      "sha256": "27e3df52381a46714768b48a92a80c18c5640cd187acb6d8cef69155aaf15e39"
+    },
+    "seed-29-step-20480-evaluation.json": {
+      "bytes": 18395,
+      "sha256": "dd9ca6fc7498a40e62b6a2942c2bfe238005956c76abd1ccb7f9fdae374ba47f"
+    },
+    "seed-29-step-20480.pt": {
+      "bytes": 7129547,
+      "sha256": "b21c42fbd8ed5df42f069b8ea535ba7518e8a4f45ba60ea4bd830e1fd39da57d"
+    },
+    "seed-29-step-24576-evaluation.json": {
+      "bytes": 18432,
+      "sha256": "3f3806a4d8f3b4f0fc1f23ed1de373a71bf493bdc48affed400e539ad7d9fb9e"
+    },
+    "seed-29-step-24576.pt": {
+      "bytes": 7129547,
+      "sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83"
+    },
+    "seed-29-step-4096-evaluation.json": {
+      "bytes": 18432,
+      "sha256": "229fbf5c410478a0c0860021a2598c69d7c38466a505e0d01ff8e7d49e816cf8"
+    },
+    "seed-29-step-4096.pt": {
+      "bytes": 7129419,
+      "sha256": "1dccbb126a7f7560e2fd28a9e25a3c03b171358ba2f1bbc8f231a9e31f2fa104"
+    },
+    "seed-29-step-8192-evaluation.json": {
+      "bytes": 18372,
+      "sha256": "d22019218741b4ac119fdbefbdcef9c62c5e01dc696f5acd9e95751e3176a302"
+    },
+    "seed-29-step-8192.pt": {
+      "bytes": 7129419,
+      "sha256": "6ca64205352e1ae69bf08d6b4414ff9da2fdf34335be9e7ecb88f40f81727200"
+    },
+    "seed-29-training.json": {
+      "bytes": 1748724,
+      "sha256": "2fd802f4d43edb1f35a8a2ca3270c7d5784494d5b9b85bf9158626fc5e374eb8"
+    },
+    "seed-29-training.jsonl": {
+      "bytes": 1426162,
+      "sha256": "2480294f19e4f1f1099fed74dc6a99cc4b493c4123e99afdd31066eaaae018b3"
+    },
+    "seed-29-updates.json": {
+      "bytes": 382786,
+      "sha256": "a419c3ccb04eac54297060efaf9b35fb75e87ebd76ded55ff567003c27dec76b"
+    },
+    "seed-29-updates.jsonl": {
+      "bytes": 331712,
+      "sha256": "2c0417bf18c4cf00ad03e497d7b1cbf63d3df2683187657d668173c91d173ac3"
+    },
+    "seed-43-health.json": {
+      "bytes": 76882,
+      "sha256": "49371c3f5ab5155853445be5254c583dd4b22659df6824e80c54107e48e77c32"
+    },
+    "seed-43-step-0-evaluation.json": {
+      "bytes": 18390,
+      "sha256": "0d6b60959a824a83ddc9d2221aba68c554a03c225957fbe6cdb4f7be69ede590"
+    },
+    "seed-43-step-0.pt": {
+      "bytes": 7129035,
+      "sha256": "45241906e2590a66bcb53250ffc6760504d2e307eac989ff179011c90559b9ea"
+    },
+    "seed-43-step-12288-evaluation.json": {
+      "bytes": 18391,
+      "sha256": "62e12b391444f3b12ce46b4477558acc3f6ca475448741fdc83c51735efec26a"
+    },
+    "seed-43-step-12288.pt": {
+      "bytes": 7129547,
+      "sha256": "d69237158dbcceb5a8d37997277282252a4a7da5b27447a633f8589108b10466"
+    },
+    "seed-43-step-16384-evaluation.json": {
+      "bytes": 18420,
+      "sha256": "83230bf1ca9538c8111c05648ea285f04de64a1044fc53b612482082a015fd7d"
+    },
+    "seed-43-step-16384.pt": {
+      "bytes": 7129547,
+      "sha256": "ca194c1871b4085b1c7b883e39b69fdb9e4e5f7b86f72c8bfc692d06c065ba10"
+    },
+    "seed-43-step-20480-evaluation.json": {
+      "bytes": 18475,
+      "sha256": "2ac4122afc47d032beaa42b903a2fa312727073e9b763ff15c0eceb0781d3870"
+    },
+    "seed-43-step-20480.pt": {
+      "bytes": 7129547,
+      "sha256": "9235b3ffd536f309d5a2cc30a68ae0322d77b7284c5fabe4878e11d98710e5b3"
+    },
+    "seed-43-step-24576-evaluation.json": {
+      "bytes": 18441,
+      "sha256": "b1ef3e971e45911d6cc5b07d350b6597d7d671090074a4fe7abcd299893e4934"
+    },
+    "seed-43-step-24576.pt": {
+      "bytes": 7129547,
+      "sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7"
+    },
+    "seed-43-step-4096-evaluation.json": {
+      "bytes": 18427,
+      "sha256": "355152b92334899beaf9eff9f3e9bbc3b65bde8301f16e01d12b1b820d479806"
+    },
+    "seed-43-step-4096.pt": {
+      "bytes": 7129419,
+      "sha256": "d7692250440f901aa1b27a0cd3bf77ebf5c03e508720e13286468b3f4fa3b5c0"
+    },
+    "seed-43-step-8192-evaluation.json": {
+      "bytes": 18437,
+      "sha256": "302625641065e3bb9e184d7d15231e24374bf2add39acecb2a11dca6c088109d"
+    },
+    "seed-43-step-8192.pt": {
+      "bytes": 7129419,
+      "sha256": "c9c5a98d8e475de2a032b355331a8591fd750f6019664382ba58252b746a3b20"
+    },
+    "seed-43-training.json": {
+      "bytes": 1750122,
+      "sha256": "a4bb27f2213cfffba8ff99e6092c7fe3a3ccf6e6a0742f4addb5647d5f9f4199"
+    },
+    "seed-43-training.jsonl": {
+      "bytes": 1427560,
+      "sha256": "9f4f0f0ae3c47b6d6ffa1128e5fbf5a08c48ed43c14b8cc220ba2e77df1be433"
+    },
+    "seed-43-updates.json": {
+      "bytes": 382920,
+      "sha256": "cea212d7f146ca6504941388470cd2c55ac186fdc5c6c37f0140435d246a4e96"
+    },
+    "seed-43-updates.jsonl": {
+      "bytes": 331846,
+      "sha256": "76ba3af9545bc3c5bb1329bce0d35b22acaabc98cd8cb46403720b1127021f27"
+    },
+    "summary.json": {
+      "bytes": 31773,
+      "sha256": "59b865179807d530347999c76b0e66650d9f3257ffb80cff3ecca4ff7e087d48"
+    }
+  },
+  "version": "autonomous-native-health-summary-v4",
+  "boundary_pass_meaning": "Fresh recovery monitor only; this is not the retained-Adam final gate verdict."
+}

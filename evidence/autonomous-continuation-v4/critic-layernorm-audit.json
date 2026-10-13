@@ -1,0 +1,407 @@
+{
+  "version": "autonomous-critic-layernorm-audit-v1",
+  "config": {
+    "version": "autonomous-critic-layernorm-audit-v1",
+    "maximum_wall_seconds": 60,
+    "inputs": {
+      "probe": {
+        "path": "runs/autonomous-canary-preflight-v1/probe-v2.pt",
+        "sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308"
+      },
+      "runner": {
+        "path": "scripts/audit_autonomous_critic_layernorm_v1.py",
+        "sha256": "714e52c86944282ef1eb6fec615c3f91521a407cd09c87e20da124b0dc3beabe"
+      },
+      "src/anthropocene_rl/training/autonomous_ppo_v3.py": {
+        "path": "src/anthropocene_rl/training/autonomous_ppo_v3.py",
+        "sha256": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde"
+      },
+      "src/anthropocene_rl/policies/autonomous_ppo_v3.py": {
+        "path": "src/anthropocene_rl/policies/autonomous_ppo_v3.py",
+        "sha256": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a"
+      },
+      "src/anthropocene_rl/policies/autonomous_ppo_v2.py": {
+        "path": "src/anthropocene_rl/policies/autonomous_ppo_v2.py",
+        "sha256": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5"
+      },
+      "src/anthropocene_rl/autonomous_v4/policy.py": {
+        "path": "src/anthropocene_rl/autonomous_v4/policy.py",
+        "sha256": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202"
+      },
+      "src/anthropocene_rl/autonomous_v4/training.py": {
+        "path": "src/anthropocene_rl/autonomous_v4/training.py",
+        "sha256": "eb411113f34578e9ba024a8d89ea48c6d8abf8f247c43f2d54a4cf393d026047"
+      }
+    },
+    "checkpoints": [
+      {
+        "seed": 29,
+        "boundary": 0,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-0.pt",
+        "sha256": "75c471a2c6b7590e712073c98601917af256124bc40d334bc9885e0c3774e976"
+      },
+      {
+        "seed": 29,
+        "boundary": 20480,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-20480.pt",
+        "sha256": "b21c42fbd8ed5df42f069b8ea535ba7518e8a4f45ba60ea4bd830e1fd39da57d"
+      },
+      {
+        "seed": 29,
+        "boundary": 24576,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-24576.pt",
+        "sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83"
+      },
+      {
+        "seed": 43,
+        "boundary": 8192,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-8192.pt",
+        "sha256": "c9c5a98d8e475de2a032b355331a8591fd750f6019664382ba58252b746a3b20"
+      },
+      {
+        "seed": 43,
+        "boundary": 12288,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-12288.pt",
+        "sha256": "d69237158dbcceb5a8d37997277282252a4a7da5b27447a633f8589108b10466"
+      },
+      {
+        "seed": 43,
+        "boundary": 24576,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-24576.pt",
+        "sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7"
+      }
+    ]
+  },
+  "config_sha256": "0f9f41ede8f8bc88f9675659235b34b945e4a3f23f411404ff2bed1265767cf9",
+  "checkpoints": [
+    {
+      "checkpoint": {
+        "seed": 29,
+        "boundary": 0,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-0.pt",
+        "sha256": "75c471a2c6b7590e712073c98601917af256124bc40d334bc9885e0c3774e976"
+      },
+      "original": {
+        "layers": [
+          {
+            "saturated_fraction": 0.65789794921875,
+            "mean_derivative": 0.11540897935628891,
+            "effective_rank": 33.940364837646484
+          },
+          {
+            "saturated_fraction": 0.55230712890625,
+            "mean_derivative": 0.15118998289108276,
+            "effective_rank": 22.46278190612793
+          }
+        ],
+        "value_mean": 77.2693099975586,
+        "value_rms": 81.76375579833984,
+        "input_gradient_mean": 29.354341506958008,
+        "input_gradient_maximum": 90.35191345214844
+      },
+      "layernorm": {
+        "layers": [
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5220928192138672,
+            "effective_rank": 25.53851890563965
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.523692786693573,
+            "effective_rank": 13.064926147460938
+          }
+        ],
+        "value_mean": 60.06733703613281,
+        "value_rms": 62.21985626220703,
+        "input_gradient_mean": 19.38567543029785,
+        "input_gradient_maximum": 31.030410766601562
+      },
+      "value_shift_mean": -17.20197105407715,
+      "value_shift_rms": 20.89381217956543,
+      "value_shift_maximum": 35.56964111328125,
+      "value_correlation": 0.9652281999588013,
+      "pairwise_order_preserved": 0.928399920463562,
+      "actor_and_heads_exact": true,
+      "original_adam_exact": true,
+      "checkpoint_unchanged": true,
+      "learning_rate_only_entry_values_exact": true
+    },
+    {
+      "checkpoint": {
+        "seed": 29,
+        "boundary": 20480,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-20480.pt",
+        "sha256": "b21c42fbd8ed5df42f069b8ea535ba7518e8a4f45ba60ea4bd830e1fd39da57d"
+      },
+      "original": {
+        "layers": [
+          {
+            "saturated_fraction": 0.71197509765625,
+            "mean_derivative": 0.10511711984872818,
+            "effective_rank": 35.824459075927734
+          },
+          {
+            "saturated_fraction": 0.7323811650276184,
+            "mean_derivative": 0.10302817821502686,
+            "effective_rank": 20.54005241394043
+          }
+        ],
+        "value_mean": 115.68302154541016,
+        "value_rms": 119.25765991210938,
+        "input_gradient_mean": 37.24320983886719,
+        "input_gradient_maximum": 140.5958709716797
+      },
+      "layernorm": {
+        "layers": [
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5180251002311707,
+            "effective_rank": 26.05401611328125
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5062254071235657,
+            "effective_rank": 12.028607368469238
+          }
+        ],
+        "value_mean": 87.52136993408203,
+        "value_rms": 88.57109069824219,
+        "input_gradient_mean": 18.296829223632812,
+        "input_gradient_maximum": 33.119140625
+      },
+      "value_shift_mean": -28.16164207458496,
+      "value_shift_rms": 32.76314163208008,
+      "value_shift_maximum": 51.45649719238281,
+      "value_correlation": 0.9445698261260986,
+      "pairwise_order_preserved": 0.898493766784668,
+      "actor_and_heads_exact": true,
+      "original_adam_exact": true,
+      "checkpoint_unchanged": true,
+      "learning_rate_only_entry_values_exact": true
+    },
+    {
+      "checkpoint": {
+        "seed": 29,
+        "boundary": 24576,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-24576.pt",
+        "sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83"
+      },
+      "original": {
+        "layers": [
+          {
+            "saturated_fraction": 0.7053019404411316,
+            "mean_derivative": 0.10933012515306473,
+            "effective_rank": 37.39430236816406
+          },
+          {
+            "saturated_fraction": 0.6975911259651184,
+            "mean_derivative": 0.11141252517700195,
+            "effective_rank": 24.047080993652344
+          }
+        ],
+        "value_mean": 115.9019546508789,
+        "value_rms": 119.13545989990234,
+        "input_gradient_mean": 38.376319885253906,
+        "input_gradient_maximum": 95.37264251708984
+      },
+      "layernorm": {
+        "layers": [
+          {
+            "saturated_fraction": 2.0345052689663135e-05,
+            "mean_derivative": 0.5211037397384644,
+            "effective_rank": 26.29559898376465
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5063666105270386,
+            "effective_rank": 13.469400405883789
+          }
+        ],
+        "value_mean": 90.0383529663086,
+        "value_rms": 91.19982147216797,
+        "input_gradient_mean": 19.664234161376953,
+        "input_gradient_maximum": 37.41187286376953
+      },
+      "value_shift_mean": -25.863603591918945,
+      "value_shift_rms": 29.604703903198242,
+      "value_shift_maximum": 45.3211669921875,
+      "value_correlation": 0.953787088394165,
+      "pairwise_order_preserved": 0.909080982208252,
+      "actor_and_heads_exact": true,
+      "original_adam_exact": true,
+      "checkpoint_unchanged": true,
+      "learning_rate_only_entry_values_exact": true
+    },
+    {
+      "checkpoint": {
+        "seed": 43,
+        "boundary": 8192,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-8192.pt",
+        "sha256": "c9c5a98d8e475de2a032b355331a8591fd750f6019664382ba58252b746a3b20"
+      },
+      "original": {
+        "layers": [
+          {
+            "saturated_fraction": 0.7567952275276184,
+            "mean_derivative": 0.08701609820127487,
+            "effective_rank": 31.985401153564453
+          },
+          {
+            "saturated_fraction": 0.5383097529411316,
+            "mean_derivative": 0.19595010578632355,
+            "effective_rank": 22.54599380493164
+          }
+        ],
+        "value_mean": 82.26451873779297,
+        "value_rms": 86.81169891357422,
+        "input_gradient_mean": 36.484004974365234,
+        "input_gradient_maximum": 101.79486083984375
+      },
+      "layernorm": {
+        "layers": [
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.523041307926178,
+            "effective_rank": 23.563030242919922
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5523350238800049,
+            "effective_rank": 11.937996864318848
+          }
+        ],
+        "value_mean": 60.99738693237305,
+        "value_rms": 62.720279693603516,
+        "input_gradient_mean": 18.666446685791016,
+        "input_gradient_maximum": 27.371631622314453
+      },
+      "value_shift_mean": -21.267122268676758,
+      "value_shift_rms": 27.22300910949707,
+      "value_shift_maximum": 51.489158630371094,
+      "value_correlation": 0.8561567664146423,
+      "pairwise_order_preserved": 0.8200720548629761,
+      "actor_and_heads_exact": true,
+      "original_adam_exact": true,
+      "checkpoint_unchanged": true,
+      "learning_rate_only_entry_values_exact": true
+    },
+    {
+      "checkpoint": {
+        "seed": 43,
+        "boundary": 12288,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-12288.pt",
+        "sha256": "d69237158dbcceb5a8d37997277282252a4a7da5b27447a633f8589108b10466"
+      },
+      "original": {
+        "layers": [
+          {
+            "saturated_fraction": 0.7789713740348816,
+            "mean_derivative": 0.07498332113027573,
+            "effective_rank": 31.59423828125
+          },
+          {
+            "saturated_fraction": 0.597900390625,
+            "mean_derivative": 0.14949627220630646,
+            "effective_rank": 21.588899612426758
+          }
+        ],
+        "value_mean": 94.8904800415039,
+        "value_rms": 98.21910095214844,
+        "input_gradient_mean": 30.519399642944336,
+        "input_gradient_maximum": 92.20934295654297
+      },
+      "layernorm": {
+        "layers": [
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5163248777389526,
+            "effective_rank": 23.672224044799805
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5318195223808289,
+            "effective_rank": 11.878238677978516
+          }
+        ],
+        "value_mean": 70.8939208984375,
+        "value_rms": 72.16586303710938,
+        "input_gradient_mean": 17.48566246032715,
+        "input_gradient_maximum": 28.051042556762695
+      },
+      "value_shift_mean": -23.996553421020508,
+      "value_shift_rms": 28.612037658691406,
+      "value_shift_maximum": 49.53433609008789,
+      "value_correlation": 0.8507869243621826,
+      "pairwise_order_preserved": 0.8165248036384583,
+      "actor_and_heads_exact": true,
+      "original_adam_exact": true,
+      "checkpoint_unchanged": true,
+      "learning_rate_only_entry_values_exact": true
+    },
+    {
+      "checkpoint": {
+        "seed": 43,
+        "boundary": 24576,
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-24576.pt",
+        "sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7"
+      },
+      "original": {
+        "layers": [
+          {
+            "saturated_fraction": 0.7733967900276184,
+            "mean_derivative": 0.08517766743898392,
+            "effective_rank": 31.440135955810547
+          },
+          {
+            "saturated_fraction": 0.6710205078125,
+            "mean_derivative": 0.1256793737411499,
+            "effective_rank": 23.77702522277832
+          }
+        ],
+        "value_mean": 94.44396209716797,
+        "value_rms": 98.86824035644531,
+        "input_gradient_mean": 33.91950988769531,
+        "input_gradient_maximum": 70.13566589355469
+      },
+      "layernorm": {
+        "layers": [
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5166460275650024,
+            "effective_rank": 23.805057525634766
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5162504315376282,
+            "effective_rank": 11.87033462524414
+          }
+        ],
+        "value_mean": 73.07823944091797,
+        "value_rms": 74.53608703613281,
+        "input_gradient_mean": 18.871685028076172,
+        "input_gradient_maximum": 27.006092071533203
+      },
+      "value_shift_mean": -21.365713119506836,
+      "value_shift_rms": 26.88495445251465,
+      "value_shift_maximum": 47.301666259765625,
+      "value_correlation": 0.9372193217277527,
+      "pairwise_order_preserved": 0.8913992643356323,
+      "actor_and_heads_exact": true,
+      "original_adam_exact": true,
+      "checkpoint_unchanged": true,
+      "learning_rate_only_entry_values_exact": true
+    }
+  ],
+  "native_steps": 0,
+  "optimizer_updates": 0,
+  "action_draws": 0,
+  "promotion_allowed": false,
+  "complete": true,
+  "wall_seconds": 0.5144769680009631,
+  "artifact": {
+    "path": "runs/autonomous-critic-layernorm-audit-v1.json",
+    "sha256": "3f3bcf8688a229a2d3e87c7e53c65de297b8c78a8f157567844d1b584dbaebe6",
+    "bytes": 14280
+  }
+}

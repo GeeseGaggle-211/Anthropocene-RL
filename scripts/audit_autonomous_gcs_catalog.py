@@ -35,6 +35,30 @@ def main():
         and not r["actual_strata"].get("husbandry_available")
         and not r["actual_strata"].get("fishing_available")
     ]
+    # Preserve transitive whole groups across every identity, not just each field alone.
+    parents = list(range(len(train)))
+
+    def root(index):
+        while parents[index] != index:
+            index = parents[index]
+        return index
+
+    for key in ["world_seed", "lineage_id", "counterfactual_group_id", "content_sha256"]:
+        seen = {}
+        for index, row in enumerate(train):
+            if row.get(key) is None:
+                continue
+            if row[key] in seen:
+                parents[root(index)] = root(seen[row[key]])
+            else:
+                seen[row[key]] = index
+    groups = defaultdict(list)
+    for index, row in enumerate(train):
+        groups[root(index)].append(row)
+    candidate_ids = {r["snapshot_id"] for r in candidates}
+    complete = [
+        group for group in groups.values() if all(r["snapshot_id"] in candidate_ids for r in group)
+    ]
     selected = []
     for family in sorted({r["scenario_family"] for r in candidates}):
         row = min(
@@ -96,6 +120,8 @@ def main():
         legacy_schema=records[0]["schema"],
         current_schema=dict(action=3, observation=4, environment=4, replay=4, features=761),
         train_metadata_cultivation_only_candidates=len(candidates),
+        complete_train_metadata_candidate_groups=len(complete),
+        records_in_complete_train_metadata_candidate_groups=sum(len(g) for g in complete),
         train_candidates_by_family=dict(Counter(r["scenario_family"] for r in candidates)),
         prospective_train_smoke_sample=selected,
         gcs_published_manifest=audit["dataset"]["published_manifest"],

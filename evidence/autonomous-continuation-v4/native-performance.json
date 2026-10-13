@@ -1,0 +1,42 @@
+{
+  "additional_transitions": 49152,
+  "cumulative_transitions": 98304,
+  "wall_seconds": 2087.1574434910017,
+  "cumulative_wall_seconds": 3993.923440782999,
+  "seeds": [
+    {
+      "seed": 29,
+      "status": "completed",
+      "additional_transitions": 24576,
+      "peak_rss_bytes": 944017408,
+      "mean_step_seconds": 0.039390842791706605,
+      "events": {
+        "movement": 8013,
+        "trades": 1914,
+        "fissions": 6389,
+        "migrants": 203903,
+        "quotes": 11460,
+        "focal_trades": 10,
+        "focal_fissions": 4051,
+        "focal_migrants": 125010
+      }
+    },
+    {
+      "seed": 43,
+      "status": "completed",
+      "additional_transitions": 24576,
+      "peak_rss_bytes": 938496000,
+      "mean_step_seconds": 0.03917367667329863,
+      "events": {
+        "movement": 6592,
+        "trades": 1745,
+        "fissions": 6430,
+        "migrants": 202056,
+        "quotes": 10011,
+        "focal_trades": 3,
+        "focal_fissions": 4152,
+        "focal_migrants": 127765
+      }
+    }
+  ]
+}

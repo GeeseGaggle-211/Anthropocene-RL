@@ -1,0 +1,931 @@
+{
+  "version": "autonomous-retained-diagnostics-summary-v4",
+  "complete": true,
+  "passed": false,
+  "reserved_draws": 159744,
+  "observed_draws": 159744,
+  "checkpoints": [
+    {
+      "seed": 29,
+      "boundary": 0,
+      "selection": {
+        "transitions": 0,
+        "reasons": [
+          "maximum_legal_categorical_confidence"
+        ]
+      },
+      "checkpoint_sha256": "75c471a2c6b7590e712073c98601917af256124bc40d334bc9885e0c3774e976",
+      "status": "completed",
+      "complete": true,
+      "passed": true,
+      "observed_draws": 26624,
+      "reserved_draws": 26624,
+      "original_unchanged": true,
+      "tasks": {
+        "workforce": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.017565272748470306,
+          "final_separation": 0.3962961435317993,
+          "separation_gain": 0.4138614162802696,
+          "critic_mse": 0.05194443464279175
+        },
+        "movement": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.01918955333530903,
+          "final_separation": 0.7860496640205383,
+          "separation_gain": 0.8052392173558474,
+          "critic_mse": 0.665069580078125
+        },
+        "enabled": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.008308758027851582,
+          "final_separation": 0.8680554032325745,
+          "separation_gain": 0.876364161260426,
+          "critic_mse": 0.05868876352906227
+        },
+        "partner": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.004783198237419128,
+          "final_separation": 0.7467089891433716,
+          "separation_gain": 0.7514921873807907,
+          "critic_mse": 0.4614030718803406
+        },
+        "give": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -1.2791948392987251e-05,
+          "final_separation": 0.08711227774620056,
+          "separation_gain": 0.08712506969459355,
+          "critic_mse": 0.06883805990219116
+        },
+        "want": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0031078143510967493,
+          "final_separation": 0.4535640478134155,
+          "separation_gain": 0.4566718621645123,
+          "critic_mse": 0.3565094470977783
+        },
+        "lot": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.006718664895743132,
+          "final_separation": 0.7893213629722595,
+          "separation_gain": 0.7960400278680027,
+          "critic_mse": 0.4919132888317108
+        },
+        "price": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0007399902679026127,
+          "final_separation": 0.8067944049835205,
+          "separation_gain": 0.8075343952514231,
+          "critic_mse": 0.4919132888317108
+        },
+        "activity_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.02915247716009617,
+          "final_separation": 0.593079686164856,
+          "separation_gain": 0.6222321633249521,
+          "critic_mse": 0.2811180651187897
+        },
+        "activity_4": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.01920602284371853,
+          "final_separation": 0.3000108003616333,
+          "separation_gain": 0.31921682320535183,
+          "critic_mse": 0.05194443464279175
+        },
+        "activity_5": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0011597946286201477,
+          "final_separation": 0.6393235921859741,
+          "separation_gain": 0.6404833868145943,
+          "critic_mse": 0.030920227989554405
+        },
+        "activity_9": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0026598814874887466,
+          "final_separation": 0.6045004725456238,
+          "separation_gain": 0.6071603540331125,
+          "critic_mse": 0.03165627643465996
+        },
+        "control_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.009553959593176842,
+          "final_separation": 0.6315377950668335,
+          "separation_gain": 0.6410917546600103,
+          "critic_mse": 0.030920227989554405
+        }
+      },
+      "artifact": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-0.json",
+        "sha256": "56e0e0124922c4158a5bf0121b60cd2b06c9d752f95f89803e9896da5b6daf60"
+      }
+    },
+    {
+      "seed": 29,
+      "boundary": 20480,
+      "selection": {
+        "transitions": 20480,
+        "reasons": [
+          "maximum_actor_or_critic_layer_saturation"
+        ]
+      },
+      "checkpoint_sha256": "b21c42fbd8ed5df42f069b8ea535ba7518e8a4f45ba60ea4bd830e1fd39da57d",
+      "status": "completed",
+      "complete": true,
+      "passed": false,
+      "observed_draws": 26624,
+      "reserved_draws": 26624,
+      "original_unchanged": true,
+      "tasks": {
+        "workforce": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0019473428837954998,
+          "final_separation": 0.3016544580459595,
+          "separation_gain": 0.303601800929755,
+          "critic_mse": 0.026886548846960068
+        },
+        "movement": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.13458377122879028,
+          "final_separation": 0.7720890045166016,
+          "separation_gain": 0.9066727757453918,
+          "critic_mse": 0.4487225115299225
+        },
+        "enabled": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.017754975706338882,
+          "final_separation": 0.8632554411888123,
+          "separation_gain": 0.8810104168951511,
+          "critic_mse": 0.32158347964286804
+        },
+        "partner": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.002450457774102688,
+          "final_separation": 0.7508617639541626,
+          "separation_gain": 0.7533122217282653,
+          "critic_mse": 0.40394750237464905
+        },
+        "give": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0004848758690059185,
+          "final_separation": 0.48553839325904846,
+          "separation_gain": 0.4860232691280544,
+          "critic_mse": 0.05272291600704193
+        },
+        "want": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.013428994454443455,
+          "final_separation": 0.800233781337738,
+          "separation_gain": 0.8136627757921815,
+          "critic_mse": 0.20165927708148956
+        },
+        "lot": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.006234212778508663,
+          "final_separation": 0.03903095796704292,
+          "separation_gain": 0.045265170745551586,
+          "critic_mse": 0.32158347964286804
+        },
+        "price": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.00096112210303545,
+          "final_separation": 0.7895150184631348,
+          "separation_gain": 0.7904761405661702,
+          "critic_mse": 0.32158347964286804
+        },
+        "activity_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.000916874036192894,
+          "final_separation": 0.5893226265907288,
+          "separation_gain": 0.5902395006269217,
+          "critic_mse": 0.10345333069562912
+        },
+        "activity_4": {
+          "status": "completed",
+          "covered": true,
+          "passed": false,
+          "draws": 2048,
+          "initial_separation": -0.007336615584790707,
+          "final_separation": 0.26358702778816223,
+          "separation_gain": 0.27092364337295294,
+          "critic_mse": 1.3974047899246216
+        },
+        "activity_5": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.005299333482980728,
+          "final_separation": 0.6015809774398804,
+          "separation_gain": 0.6068803109228611,
+          "critic_mse": 0.10345333069562912
+        },
+        "activity_9": {
+          "status": "completed",
+          "covered": true,
+          "passed": false,
+          "draws": 2048,
+          "initial_separation": -0.00552019290626049,
+          "final_separation": 0.5922960638999939,
+          "separation_gain": 0.5978162568062544,
+          "critic_mse": 1.3974047899246216
+        },
+        "control_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.004248160868883133,
+          "final_separation": 0.5868293046951294,
+          "separation_gain": 0.5910774655640125,
+          "critic_mse": 0.18285176157951355
+        }
+      },
+      "artifact": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-20480.json",
+        "sha256": "9ecea011e527e911d8a6d18d516602ed16b79efd89a181c6585117b100572dba"
+      }
+    },
+    {
+      "seed": 29,
+      "boundary": 24576,
+      "selection": {
+        "transitions": 24576,
+        "reasons": [
+          "final"
+        ]
+      },
+      "checkpoint_sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83",
+      "status": "completed",
+      "complete": true,
+      "passed": true,
+      "observed_draws": 26624,
+      "reserved_draws": 26624,
+      "original_unchanged": true,
+      "tasks": {
+        "workforce": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.00017364881932735443,
+          "final_separation": 0.18307477235794067,
+          "separation_gain": 0.18324842117726803,
+          "critic_mse": 0.05613454803824425
+        },
+        "movement": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.12504826486110687,
+          "final_separation": 0.7866154313087463,
+          "separation_gain": 0.9116636961698532,
+          "critic_mse": 0.06329257041215897
+        },
+        "enabled": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.027330663055181503,
+          "final_separation": 0.7322437763214111,
+          "separation_gain": 0.7595744393765926,
+          "critic_mse": 0.08536069095134735
+        },
+        "partner": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.000341145321726799,
+          "final_separation": 0.7526932954788208,
+          "separation_gain": 0.7530344408005476,
+          "critic_mse": 0.08368831872940063
+        },
+        "give": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0008730960544198751,
+          "final_separation": 0.09433544427156448,
+          "separation_gain": 0.09520854032598436,
+          "critic_mse": 0.14165416359901428
+        },
+        "want": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.019933652132749557,
+          "final_separation": 0.5642231702804565,
+          "separation_gain": 0.5841568224132061,
+          "critic_mse": 0.6597453951835632
+        },
+        "lot": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.016645114868879318,
+          "final_separation": 0.8052817583084106,
+          "separation_gain": 0.82192687317729,
+          "critic_mse": 0.08536069095134735
+        },
+        "price": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.004462761804461479,
+          "final_separation": 0.7220660448074341,
+          "separation_gain": 0.7265288066118956,
+          "critic_mse": 0.08536069095134735
+        },
+        "activity_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0027505867183208466,
+          "final_separation": 0.26491880416870117,
+          "separation_gain": 0.267669390887022,
+          "critic_mse": 0.07841797173023224
+        },
+        "activity_4": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.004237128421664238,
+          "final_separation": 0.39970922470092773,
+          "separation_gain": 0.403946353122592,
+          "critic_mse": 0.07792573422193527
+        },
+        "activity_5": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0007372274994850159,
+          "final_separation": 0.6576736569404602,
+          "separation_gain": 0.6584108844399452,
+          "critic_mse": 0.07841797173023224
+        },
+        "activity_9": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.003067917190492153,
+          "final_separation": 0.5518439412117004,
+          "separation_gain": 0.5549118584021926,
+          "critic_mse": 0.05613454803824425
+        },
+        "control_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.00249360129237175,
+          "final_separation": 0.6500809192657471,
+          "separation_gain": 0.6525745205581188,
+          "critic_mse": 0.046805307269096375
+        }
+      },
+      "artifact": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-24576.json",
+        "sha256": "47bb39ecc3a4f79ff51e87c062381df337a290954fe959b26f434d209670b1ff"
+      }
+    },
+    {
+      "seed": 43,
+      "boundary": 8192,
+      "selection": {
+        "transitions": 8192,
+        "reasons": [
+          "maximum_legal_categorical_confidence"
+        ]
+      },
+      "checkpoint_sha256": "c9c5a98d8e475de2a032b355331a8591fd750f6019664382ba58252b746a3b20",
+      "status": "completed",
+      "complete": true,
+      "passed": false,
+      "observed_draws": 26624,
+      "reserved_draws": 26624,
+      "original_unchanged": true,
+      "tasks": {
+        "workforce": {
+          "status": "completed",
+          "covered": true,
+          "passed": false,
+          "draws": 2048,
+          "initial_separation": -0.00756126269698143,
+          "final_separation": 0.17485377192497253,
+          "separation_gain": 0.18241503462195396,
+          "critic_mse": 1.8348866701126099
+        },
+        "movement": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.13868194818496704,
+          "final_separation": 0.7964862585067749,
+          "separation_gain": 0.9351682066917419,
+          "critic_mse": 0.29035302996635437
+        },
+        "enabled": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.004711161367595196,
+          "final_separation": 0.8661004304885864,
+          "separation_gain": 0.8708115918561816,
+          "critic_mse": 0.08945800364017487
+        },
+        "partner": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -7.564574480056763e-05,
+          "final_separation": 0.7441765666007996,
+          "separation_gain": 0.7442522123456001,
+          "critic_mse": 0.5419520735740662
+        },
+        "give": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.00016055069863796234,
+          "final_separation": 0.5778054594993591,
+          "separation_gain": 0.5779660101979971,
+          "critic_mse": 0.6898355484008789
+        },
+        "want": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.009572116658091545,
+          "final_separation": 0.7803001999855042,
+          "separation_gain": 0.7898723166435957,
+          "critic_mse": 0.07609669119119644
+        },
+        "lot": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.009525144472718239,
+          "final_separation": 0.8336191773414612,
+          "separation_gain": 0.8431443218141794,
+          "critic_mse": 0.10870073735713959
+        },
+        "price": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.001530664972960949,
+          "final_separation": 0.8439090847969055,
+          "separation_gain": 0.8454397497698665,
+          "critic_mse": 0.10870073735713959
+        },
+        "activity_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0044396426528692245,
+          "final_separation": 0.5560818910598755,
+          "separation_gain": 0.5605215337127447,
+          "critic_mse": 0.032670799642801285
+        },
+        "activity_4": {
+          "status": "completed",
+          "covered": true,
+          "passed": false,
+          "draws": 2048,
+          "initial_separation": -0.0032607577741146088,
+          "final_separation": 0.4660854935646057,
+          "separation_gain": 0.4693462513387203,
+          "critic_mse": 1.8348866701126099
+        },
+        "activity_5": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0002734120935201645,
+          "final_separation": 0.6234194040298462,
+          "separation_gain": 0.6236928161233664,
+          "critic_mse": 0.032670799642801285
+        },
+        "activity_9": {
+          "status": "completed",
+          "covered": true,
+          "passed": false,
+          "draws": 2048,
+          "initial_separation": -0.0023054582998156548,
+          "final_separation": 0.6929833889007568,
+          "separation_gain": 0.6952888472005725,
+          "critic_mse": 1.8348866701126099
+        },
+        "control_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.007071655243635178,
+          "final_separation": 0.6107727289199829,
+          "separation_gain": 0.6178443841636181,
+          "critic_mse": 0.17007146775722504
+        }
+      },
+      "artifact": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-43-step-8192.json",
+        "sha256": "698e6ee98ff0a98fc43828317d7b35d91a81380f9f3b7d5fba1bec69c2d498df"
+      }
+    },
+    {
+      "seed": 43,
+      "boundary": 12288,
+      "selection": {
+        "transitions": 12288,
+        "reasons": [
+          "maximum_actor_or_critic_layer_saturation"
+        ]
+      },
+      "checkpoint_sha256": "d69237158dbcceb5a8d37997277282252a4a7da5b27447a633f8589108b10466",
+      "status": "completed",
+      "complete": true,
+      "passed": true,
+      "observed_draws": 26624,
+      "reserved_draws": 26624,
+      "original_unchanged": true,
+      "tasks": {
+        "workforce": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.011877449229359627,
+          "final_separation": 0.23602837324142456,
+          "separation_gain": 0.2479058224707842,
+          "critic_mse": 0.008567994460463524
+        },
+        "movement": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.13160592317581177,
+          "final_separation": 0.7911840081214905,
+          "separation_gain": 0.9227899312973022,
+          "critic_mse": 0.7159724235534668
+        },
+        "enabled": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.006458001211285591,
+          "final_separation": 0.7559176087379456,
+          "separation_gain": 0.7623756099492311,
+          "critic_mse": 0.23030690848827362
+        },
+        "partner": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.00574357807636261,
+          "final_separation": 0.7323793172836304,
+          "separation_gain": 0.738122895359993,
+          "critic_mse": 0.1843695491552353
+        },
+        "give": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.00027150195091962814,
+          "final_separation": 0.5941896438598633,
+          "separation_gain": 0.5944611458107829,
+          "critic_mse": 0.003544972278177738
+        },
+        "want": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.005387170240283012,
+          "final_separation": 0.6906464695930481,
+          "separation_gain": 0.6960336398333311,
+          "critic_mse": 0.06813441216945648
+        },
+        "lot": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.016875281929969788,
+          "final_separation": 0.7428935170173645,
+          "separation_gain": 0.7597687989473343,
+          "critic_mse": 0.13809427618980408
+        },
+        "price": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.003419790416955948,
+          "final_separation": 0.7932398915290833,
+          "separation_gain": 0.7966596819460392,
+          "critic_mse": 0.23030690848827362
+        },
+        "activity_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.09832863509654999,
+          "final_separation": 0.4358431100845337,
+          "separation_gain": 0.5341717451810837,
+          "critic_mse": 0.16007767617702484
+        },
+        "activity_4": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.018753906711935997,
+          "final_separation": 0.31780901551246643,
+          "separation_gain": 0.3365629222244024,
+          "critic_mse": 0.008567994460463524
+        },
+        "activity_5": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.09833312034606934,
+          "final_separation": 0.687461793422699,
+          "separation_gain": 0.7857949137687683,
+          "critic_mse": 0.00919218547642231
+        },
+        "activity_9": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.05549285188317299,
+          "final_separation": 0.5771075487136841,
+          "separation_gain": 0.6326004005968571,
+          "critic_mse": 0.14643551409244537
+        },
+        "control_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.1378924548625946,
+          "final_separation": 0.5660285353660583,
+          "separation_gain": 0.703920990228653,
+          "critic_mse": 0.00919218547642231
+        }
+      },
+      "artifact": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-43-step-12288.json",
+        "sha256": "1bd21d4e038023082fae2128c735aff8a55f9ce53af6bfa34f04aaa7b5fd331b"
+      }
+    },
+    {
+      "seed": 43,
+      "boundary": 24576,
+      "selection": {
+        "transitions": 24576,
+        "reasons": [
+          "final"
+        ]
+      },
+      "checkpoint_sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7",
+      "status": "completed",
+      "complete": true,
+      "passed": true,
+      "observed_draws": 26624,
+      "reserved_draws": 26624,
+      "original_unchanged": true,
+      "tasks": {
+        "workforce": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0018310481682419777,
+          "final_separation": 0.44256454706192017,
+          "separation_gain": 0.44439559523016214,
+          "critic_mse": 0.29130956530570984
+        },
+        "movement": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.11664605885744095,
+          "final_separation": 0.7805455923080444,
+          "separation_gain": 0.8971916511654854,
+          "critic_mse": 0.0503336526453495
+        },
+        "enabled": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.025944475084543228,
+          "final_separation": 0.7928811311721802,
+          "separation_gain": 0.8188256062567234,
+          "critic_mse": 0.08839564770460129
+        },
+        "partner": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.03172983229160309,
+          "final_separation": 0.7298249006271362,
+          "separation_gain": 0.7615547329187393,
+          "critic_mse": 0.4087893068790436
+        },
+        "give": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.0008310605771839619,
+          "final_separation": 0.39733290672302246,
+          "separation_gain": 0.3981639673002064,
+          "critic_mse": 0.0587959848344326
+        },
+        "want": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.01020863838493824,
+          "final_separation": 0.6144923567771912,
+          "separation_gain": 0.6247009951621294,
+          "critic_mse": 0.17997580766677856
+        },
+        "lot": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.070366270840168,
+          "final_separation": 0.7982514500617981,
+          "separation_gain": 0.8686177209019661,
+          "critic_mse": 0.08839564770460129
+        },
+        "price": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.1147957444190979,
+          "final_separation": 0.7624716758728027,
+          "separation_gain": 0.8772674202919006,
+          "critic_mse": 0.08839564770460129
+        },
+        "activity_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.15315499901771545,
+          "final_separation": 0.5964101552963257,
+          "separation_gain": 0.7495651543140411,
+          "critic_mse": 0.051333799958229065
+        },
+        "activity_4": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.044217776507139206,
+          "final_separation": 0.4636826515197754,
+          "separation_gain": 0.5079004280269146,
+          "critic_mse": 0.12135941535234451
+        },
+        "activity_5": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.07364323735237122,
+          "final_separation": 0.7553797364234924,
+          "separation_gain": 0.8290229737758636,
+          "critic_mse": 0.0577722005546093
+        },
+        "activity_9": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.022994833067059517,
+          "final_separation": 0.6743127703666687,
+          "separation_gain": 0.6973076034337282,
+          "critic_mse": 0.29130956530570984
+        },
+        "control_0": {
+          "status": "completed",
+          "covered": true,
+          "passed": true,
+          "draws": 2048,
+          "initial_separation": -0.08382381498813629,
+          "final_separation": 0.6545655131340027,
+          "separation_gain": 0.738389328122139,
+          "critic_mse": 0.0577722005546093
+        }
+      },
+      "artifact": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-43-step-24576.json",
+        "sha256": "e3a0ccc56458f8d3f0df919ae5b432b3d73aee0b6b3f98314032cc06c56104cd"
+      }
+    }
+  ],
+  "task_count": 78,
+  "actor_passes": 78,
+  "composite_passes": 73,
+  "critic_failures": 5
+}

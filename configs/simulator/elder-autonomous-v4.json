@@ -27,16 +27,19 @@
     "observation": 2,
     "environment": 2
   },
-  "training_status": "V3 remedial CPU canary PASS; 26/26 final retained-Adam adaptation tests PASS; independent GO for scoped plug-in and capped CPU continuation; expansion not launched",
+  "training_status": "Continuation v4 completed; NO-GO for further training promotion: 78/78 actor adaptation tests pass, 73/78 composite tests pass due to critic errors. Smaller critic steps pass 56/56 discarded targets; direct critic LayerNorm insertion passes 3/56. Neither establishes long-term native stability.",
   "movement_categories": 8,
   "prior_autonomous_commit": "5463fd3c5ca34a65fef5a57239f5a0aa65d1e50b",
   "simulator_repository": "GeeseGaggle-211/Anthropocene",
-  "simulator_commit": "6253a6a17d91598a5b484b9669f1d51d50438c75",
+  "simulator_commit": "463e980afd9cc54ee2392fa16a58e1448b695e2a",
   "learner_base_commit": "70ca02b8dffebd9bbcf8eb06cd944c3b786f33ce",
   "bridge_project": "integration/Anthropocene.RLBridge.csproj",
   "policy": "anthropocene_rl.policies.autonomous_ppo_v3.AutonomousPPOV3",
   "normalization": "fixed sign-log observations; actor-only LayerNorm; no evaluation fitting",
   "learner_model_version": "autonomous-ppo-model-v3",
   "learner_checkpoint_version": "autonomous-ppo-checkpoint-v3",
-  "training_config": "configs/training/autonomous-ppo-layernorm-v3-recovery.json"
+  "training_config": "configs/training/autonomous-ppo-layernorm-v3-recovery.json",
+  "scale_out_ready": false,
+  "continuation_report": "docs/AUTONOMOUS_CONTINUATION_RESULTS_V4.md",
+  "reward_scope": "Exclusively controlled village; daughter welfare excluded. Learned daughter controller assignment remains incomplete."
 }

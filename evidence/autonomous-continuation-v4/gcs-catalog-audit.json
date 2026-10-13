@@ -104,6 +104,8 @@
     "features": 761
   },
   "train_metadata_cultivation_only_candidates": 234,
+  "complete_train_metadata_candidate_groups": 161,
+  "records_in_complete_train_metadata_candidate_groups": 234,
   "train_candidates_by_family": {
     "F01": 17,
     "F02": 30,
