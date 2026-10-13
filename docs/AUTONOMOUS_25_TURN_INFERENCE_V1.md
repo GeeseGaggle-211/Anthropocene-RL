@@ -1,0 +1,15 @@
+# Autonomous Elder 25-decision inference gate v1
+
+This is a bounded evaluation of unchanged final continuation-v4 checkpoints, motivated by the user's question about cultivation and longer payoffs. It is not additional PPO training or approval for long-horizon training. `configs/training/autonomous-25-turn-inference-v1.json` freezes checkpoint, bridge, bank, probe, reporting-helper and runner hashes plus all original training source hashes.
+
+Use the two stable-ID-first DEVELOPMENT snapshots per family and both original evaluation sampler seeds, for both final models: 32 episodes, at most 800 native decisions. Use one native process, one Torch thread and a hard 300-second wall limit. Keep HELDOUT sealed and retain the same movement, quote, immigration and fission mechanisms. Never alter checkpoints, optimizers, curriculum or rewards. Replay every completed episode.
+
+Compare the first eight intervals' population, QoL, elapsed years, raw welfare, migration and fission telemetry to the exact original evaluation reconstruction, and compare the world fingerprint at decision eight. The old evaluation did not retain per-step actions or intermediate fingerprints, so no direct comparison of those traces is claimed. Full replay verifies the new recorded 25-decision action sequence.
+
+Report trajectories and equal-family summaries, including welfare per year, and retain requested field expansion and field tiles. Native fields named CurrentFoodSupport and FutureFoodSupport both contain ManagedRecoveryCoverage: they are aliases, not independent current/forecast outputs. Stocks include consumption and exchange effects. None of these is a direct harvest measurement, so this gate cannot establish years-to-payback for cultivation without further production telemetry and a causal comparison.
+
+The mask audit identifies newly active coordinates relative to the fixed train-only diagnostic probe union. It does not detect every unseen combination of already active coordinates, or certify adaptation on new legal faces. Longer decisions may expose new knowledge or resource conditions; report them without calling them covered.
+
+The current learner uses a 100-year exponential discount horizon and correct value bootstrapping at truncation. At 20-year decisions gamma is exp(-0.2); a payoff 500 years away receives exp(-5)=0.00674 before GAE decay. Longer episodes provide more direct observations of outcomes, but do not themselves change discounting. A later 8/25-decision × 100/400-year training comparison is a hypothesis requiring its own frozen sample/time budget and review. There is no claim that cultivation generally takes 500 years to pay back. The parent-settlement reward also does not include daughter settlements' subsequent welfare.
+
+Independent reviewer `/root/independent_review` reviewed the concrete gate and input pins. GO for this evaluation after clarifying the coordinate-mask audit and the aliased support fields; those corrections are included. No additional eight-decision native baseline is needed for the explicitly limited prefix comparison. No training-readiness conclusion follows from this evaluation alone.

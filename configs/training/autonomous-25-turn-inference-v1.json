@@ -1,0 +1,78 @@
+{
+  "version": "autonomous-25-turn-inference-v1",
+  "maximum_steps": 800,
+  "maximum_wall_seconds": 300,
+  "native_workers": 1,
+  "torch_threads": 1,
+  "training_updates": 0,
+  "sampler_seeds": [
+    9101,
+    9102
+  ],
+  "development_ids": [
+    "development-832001-fission",
+    "development-832002-fission",
+    "development-832001-migration",
+    "development-832002-migration",
+    "development-832001-survival",
+    "development-832002-survival",
+    "development-832001-trade",
+    "development-832002-trade"
+  ],
+  "learner_sources": {
+    "/workspace/Anthropocene-RL/scripts/run_autonomous_continuation_v4.py": "9d3a339fd82c29455170d08b602450c62cd4134623bdae571584f4604fd90714",
+    "configs/training/autonomous-ppo-layernorm-v3-recovery.json": "9d0066203bf0594dc770c95a6e192c198a2a4e44b539dbd9b6d931037967b597",
+    "scripts/run_autonomous_ppo_gate.py": "33d48e6f23ebfa0daebd548e16f3cd155b7d873604aa24c98ed95e683780cc51",
+    "src/anthropocene_rl/autonomous/policy.py": "f13dc86ca44bf04c2fbc9ebf394f89e05e527f5bd485ec0f907f2eacb0f452b1",
+    "src/anthropocene_rl/autonomous_v4/__init__.py": "f70d50e0364e336797354ed64cd0ab3d9ce08954667eca19601fc20e296b8f84",
+    "src/anthropocene_rl/autonomous_v4/collection.py": "7cb8f126fb71f62b52a9a52f3376a8ce21c57ece7ac00c18c8c4eb5c3c016aa8",
+    "src/anthropocene_rl/autonomous_v4/continuation.py": "6912e9db17a56bcae125710f2d24ea83033a7f86ce1e289869aeaf6865b56f31",
+    "src/anthropocene_rl/autonomous_v4/contracts.py": "4cee11f4982ef2b635df186bc8e77643ff872b23e07718e541e86f60973089c1",
+    "src/anthropocene_rl/autonomous_v4/diagnostics.py": "c692acfde99a845642ed172bd677e2eac5b7a3f7c451419b339bc9e0e853b703",
+    "src/anthropocene_rl/autonomous_v4/env.py": "a5876c01c75b0f3ca3ba7ced8a009920911a7020834a48e7e5019bbed9d52664",
+    "src/anthropocene_rl/autonomous_v4/inference.py": "b20fbbb86ed867069344397d062c6df197d00bac860d25e0df7fd055e5ddab70",
+    "src/anthropocene_rl/autonomous_v4/policy.py": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202",
+    "src/anthropocene_rl/autonomous_v4/training.py": "eb411113f34578e9ba024a8d89ea48c6d8abf8f247c43f2d54a4cf393d026047",
+    "src/anthropocene_rl/policies/autonomous_inference_v2.py": "ce0abf012b3b0cc251bd2bed4486f8008258463036d43216b0a480cb4cfe6dc0",
+    "src/anthropocene_rl/policies/autonomous_inference_v3.py": "9741a9197f3985e89e0ea73db39eb8438731a1e7b0bf4ba51ae161ff187f00ac",
+    "src/anthropocene_rl/policies/autonomous_ppo_v2.py": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5",
+    "src/anthropocene_rl/policies/autonomous_ppo_v3.py": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a",
+    "src/anthropocene_rl/training/autonomous_ppo_v2.py": "f079b315528c6294359ffd6d12c799a907c2534ee037441dfbe9b77d77e8c5e1",
+    "src/anthropocene_rl/training/autonomous_ppo_v3.py": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde",
+    "src/anthropocene_rl/training/returns.py": "81d3367ce2719b303f4830c34aad2975c4b4e85287f0cf7c04b39d6d8db16878"
+  },
+  "inputs": {
+    "bank": {
+      "path": "datasets/autonomous-ppo-gate-v1/manifest.json",
+      "sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e"
+    },
+    "bridge": {
+      "path": "integration/bin/Release/net8.0/Anthropocene.RLBridge.dll",
+      "sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127"
+    },
+    "probe": {
+      "path": "runs/autonomous-canary-preflight-v1/probe-v2.pt",
+      "sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308"
+    },
+    "welfare": {
+      "path": "runs/autonomous-collapse-continuation-v4-welfare.json",
+      "sha256": "c1eaade60b061bdc61f5ca8f74e6e73137c88b228a0ab889d6cae872afae26b0"
+    },
+    "runner": {
+      "path": "scripts/evaluate_autonomous_25_turns_v1.py",
+      "sha256": "b8bdd65c2eb71ebabe729124786d148948ec0164f0528118c20a2de8b1ecb94d"
+    },
+    "metric_helper": {
+      "path": "scripts/report_autonomous_welfare_v4.py",
+      "sha256": "3a30778a8335ff812a63fc564394325146d1b71f5db60cfb62be176e705d6fb0"
+    },
+    "29": {
+      "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-24576.pt",
+      "sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83"
+    },
+    "43": {
+      "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-24576.pt",
+      "sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7"
+    }
+  }
+}

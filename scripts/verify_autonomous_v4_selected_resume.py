@@ -9,6 +9,7 @@ from pathlib import Path
 import torch
 
 from anthropocene_rl.autonomous_v4.collection import Collector
+from anthropocene_rl.autonomous_v4.provenance import continuation_checkpoint_provenance
 from anthropocene_rl.autonomous_v4.training import state_hash
 from anthropocene_rl.training.autonomous_ppo_v3 import AutonomousTrainerV3 as Trainer
 
@@ -55,11 +56,7 @@ def main():
         seed, boundary = result["seed"], result["additional_transitions"]
         checkpoint = args.run / f"seed-{seed}-step-{boundary}.pt"
         digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
-        provenance = dict(
-            campaign["provenance"],
-            training_seed=seed,
-            parent_checkpoint_sha256=campaign["config"]["parent_checkpoint_sha256"][str(seed)],
-        )
+        provenance = continuation_checkpoint_provenance(campaign, seed)
         models = [Trainer(protocol, seed, provenance) for _ in range(2)]
         collected = []
         for trainer, workers in zip(models, [1, 4], strict=True):

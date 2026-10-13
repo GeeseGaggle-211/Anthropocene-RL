@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/workspace/Anthropocene-RL/scripts/verify_autonomous_v4_selected_resume.py", line 114, in <module>
+    main()
+  File "/workspace/Anthropocene-RL/scripts/verify_autonomous_v4_selected_resume.py", line 66, in main
+    trainer.restore(checkpoint)
+  File "/workspace/Anthropocene-RL/src/anthropocene_rl/training/autonomous_ppo_v3.py", line 57, in restore
+    raise ValueError("Checkpoint provenance/configuration mismatch")
+ValueError: Checkpoint provenance/configuration mismatch
