@@ -1,0 +1,117 @@
+{
+  "version": "autonomous-critic-remedies-v1",
+  "variants": [
+    "original",
+    "lr_1e4",
+    "lr_3e5",
+    "ln_lr_1e4"
+  ],
+  "updates": 64,
+  "maximum_wall_seconds": 300,
+  "final_mse_limit": 0.9,
+  "maximum_last_eight_mse_limit": 0.9,
+  "inputs": {
+    "probe": {
+      "path": "runs/autonomous-canary-preflight-v1/probe-v2.pt",
+      "sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308"
+    },
+    "diagnostic_summary": {
+      "path": "runs/autonomous-collapse-continuation-v4-diagnostics/summary.json",
+      "sha256": "1abcc06f558ad70887fe0ad5f22e645c5d84557bcb9004146fa27a9537e31f18"
+    },
+    "runner": {
+      "path": "scripts/compare_autonomous_critic_remedies_v1.py",
+      "sha256": "583337d2cb9e2494a8686598a6797d75b93f0cc5c94264f1daf567ee519496e9"
+    },
+    "scripts/audit_autonomous_critic_layernorm_v1.py": {
+      "path": "scripts/audit_autonomous_critic_layernorm_v1.py",
+      "sha256": "714e52c86944282ef1eb6fec615c3f91521a407cd09c87e20da124b0dc3beabe"
+    },
+    "scripts/diagnose_autonomous_critic_step_v1.py": {
+      "path": "scripts/diagnose_autonomous_critic_step_v1.py",
+      "sha256": "c9adf75d002b0fa6014d4279a997afcf03bc8f44f82c48dfbcf26dd70ebf3afe"
+    },
+    "src/anthropocene_rl/training/autonomous_ppo_v3.py": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v3.py",
+      "sha256": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v3.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v3.py",
+      "sha256": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a"
+    },
+    "src/anthropocene_rl/policies/autonomous_ppo_v2.py": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v2.py",
+      "sha256": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5"
+    },
+    "src/anthropocene_rl/autonomous_v4/policy.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/policy.py",
+      "sha256": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202"
+    },
+    "src/anthropocene_rl/autonomous_v4/training.py": {
+      "path": "src/anthropocene_rl/autonomous_v4/training.py",
+      "sha256": "eb411113f34578e9ba024a8d89ea48c6d8abf8f247c43f2d54a4cf393d026047"
+    }
+  },
+  "checkpoints": [
+    {
+      "checkpoint": {
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-0.pt",
+        "sha256": "75c471a2c6b7590e712073c98601917af256124bc40d334bc9885e0c3774e976"
+      },
+      "diagnostic": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-0.json",
+        "sha256": "56e0e0124922c4158a5bf0121b60cd2b06c9d752f95f89803e9896da5b6daf60"
+      }
+    },
+    {
+      "checkpoint": {
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-20480.pt",
+        "sha256": "b21c42fbd8ed5df42f069b8ea535ba7518e8a4f45ba60ea4bd830e1fd39da57d"
+      },
+      "diagnostic": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-20480.json",
+        "sha256": "9ecea011e527e911d8a6d18d516602ed16b79efd89a181c6585117b100572dba"
+      }
+    },
+    {
+      "checkpoint": {
+        "path": "runs/autonomous-collapse-continuation-v4/seed-29-step-24576.pt",
+        "sha256": "4f0df88c2faaa4dd39ebfd713903f582d280f6378333803d039fadf46eec6b83"
+      },
+      "diagnostic": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-29-step-24576.json",
+        "sha256": "47bb39ecc3a4f79ff51e87c062381df337a290954fe959b26f434d209670b1ff"
+      }
+    },
+    {
+      "checkpoint": {
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-8192.pt",
+        "sha256": "c9c5a98d8e475de2a032b355331a8591fd750f6019664382ba58252b746a3b20"
+      },
+      "diagnostic": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-43-step-8192.json",
+        "sha256": "698e6ee98ff0a98fc43828317d7b35d91a81380f9f3b7d5fba1bec69c2d498df"
+      }
+    },
+    {
+      "checkpoint": {
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-12288.pt",
+        "sha256": "d69237158dbcceb5a8d37997277282252a4a7da5b27447a633f8589108b10466"
+      },
+      "diagnostic": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-43-step-12288.json",
+        "sha256": "1bd21d4e038023082fae2128c735aff8a55f9ce53af6bfa34f04aaa7b5fd331b"
+      }
+    },
+    {
+      "checkpoint": {
+        "path": "runs/autonomous-collapse-continuation-v4/seed-43-step-24576.pt",
+        "sha256": "af24d708c85735a0783a6e4c35fc860fb04e0e0fdccb8a208bc7e98db742f4e7"
+      },
+      "diagnostic": {
+        "path": "runs/autonomous-collapse-continuation-v4-diagnostics/seed-43-step-24576.json",
+        "sha256": "e3a0ccc56458f8d3f0df919ae5b432b3d73aee0b6b3f98314032cc06c56104cd"
+      }
+    }
+  ]
+}
