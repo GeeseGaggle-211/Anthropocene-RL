@@ -10,7 +10,7 @@ from preflight_autonomous_v4_residual import sha
 from run_autonomous_horizon_diagnostics_v5 import diagnostic_jobs
 from verify_autonomous_v4_selected_resume import equal
 
-from anthropocene_rl.autonomous_v4.collection import Collector
+from anthropocene_rl.autonomous_v4.collection import Collector, episode_seed
 from anthropocene_rl.autonomous_v4.training import state_hash
 from anthropocene_rl.policies.autonomous_inference_v4 import AutonomousElderPolicyV4
 from anthropocene_rl.training.autonomous_ppo_v4 import AutonomousTrainerV4
@@ -45,9 +45,9 @@ def main():
         runner_sha256=sha(__file__),
         complete=False,
         checkpoints=[],
-        training_steps=0,
+        discarded_validation_steps=0,
         replay_steps=0,
-        maximum_training_steps=384,
+        maximum_discarded_validation_steps=384,
         maximum_replay_steps=384,
         maximum_wall_seconds=600,
         retained_training_updates=0,
@@ -76,15 +76,25 @@ def main():
                     deadline=deadline,
                     request_timeout=60,
                 ) as collector:
-                    rows, summaries = collector.rollout(
-                        trainer,
+                    jobs4 = [
+                        dict(
+                            entry=entries[(trainer.episodes + i) % len(entries)],
+                            sampler_seed=episode_seed(
+                                state["provenance"]["training_seed"], trainer.episodes + i
+                            ),
+                            limit=4,
+                        )
+                        for i in range(4)
+                    ]
+                    rows, summaries = collector.collect(
+                        trainer.model,
                         bank,
-                        entries,
-                        state["provenance"]["training_seed"],
-                        16,
+                        jobs4,
+                        trainer.config,
                         verify=True,
                     )
-                report["training_steps"] += len(rows)
+                    trainer.episodes += len(jobs4)
+                report["discarded_validation_steps"] += len(rows)
                 report["replay_steps"] += len(rows)
                 collected.append((rows, summaries, trainer.update(rows)))
                 assert all(
@@ -130,7 +140,7 @@ def main():
                     original_unchanged=True,
                 )
             )
-            assert report["training_steps"] <= 384 and report["replay_steps"] <= 384
+            assert report["discarded_validation_steps"] <= 384 and report["replay_steps"] <= 384
             print(json.dumps(report["checkpoints"][-1]), flush=True)
         report["complete"] = campaign.get("complete", False) and len(report["checkpoints"]) == len(
             jobs

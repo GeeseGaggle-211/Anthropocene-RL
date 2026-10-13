@@ -14,6 +14,12 @@ from preflight_autonomous_v4_residual import sha
 from anthropocene_rl.autonomous_v4.training import episode, state_hash
 from anthropocene_rl.training.autonomous_ppo_v4 import AutonomousTrainerV4
 
+FOOD_STOCK_INDEX = 3  # Native TradeGood: Cloth=0, AnimalFabric=1, HousingMaterial=2, Food=3.
+
+
+def food_stock(observation):
+    return observation["Stocks"][FOOD_STOCK_INDEX]
+
 
 class PanelTransport(RecordedWelfareTransport):
     def __init__(self, *args, baseline_masks, **kwargs):
@@ -38,8 +44,8 @@ class PanelTransport(RecordedWelfareTransport):
             field_tiles_before=before["Context"][16],
             field_tiles_after=None if after is None else after["Context"][16],
             managed_field_coverage=before["Context"][19],
-            food_stock_before=before["Stocks"][0],
-            food_stock_after=None if after is None else after["Stocks"][0],
+            food_stock_before=food_stock(before),
+            food_stock_after=None if after is None else food_stock(after),
             new_legal_coordinates={
                 k: np.argwhere(np.asarray(before[k], dtype=bool) & ~mask).tolist()
                 for k, mask in self.baseline_masks.items()
@@ -151,7 +157,13 @@ def main():
                     ]
                     for key in ("fingerprint", "welfare", "final_population"):
                         assert short[key] == original[key]
-                    row["original_eight_decision_prefix_matches"] = True
+                    for key in ("survived", "events", "elapsed_years"):
+                        assert short[key] == original[key]
+                    assert (
+                        float(np.mean([f["food_met"] for f in short["intervals"]]))
+                        == original["food_met"]
+                    )
+                    row["original_eight_decision_summary_and_final_fingerprint_matches"] = True
                     rows.append(row)
                     (args.output / f"{cell['id']}-episodes.json").write_text(
                         json.dumps(rows, indent=2) + "\n"
@@ -188,6 +200,12 @@ def main():
             )
             print(json.dumps(result["cells"][-1]), flush=True)
         result["complete"] = True
+        result["prefix_verification_scope"] = (
+            "Original eight-decision aggregate reward, final population, food fulfillment, "
+            "events, survival, elapsed years and final world fingerprint match. Original "
+            "intermediate actions/population/QoL traces were not saved. Full new25-turn "
+            "recorded-action replay is verified."
+        )
     except BaseException as error:
         result["error"] = f"{type(error).__name__}: {error}"
         raise
