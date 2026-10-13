@@ -1,0 +1,346 @@
+{
+  "seeds": {
+    "29": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 140.01563773406002,
+          "actor_saturation": [
+            0.000244140625,
+            0.0
+          ],
+          "critic_saturation": [
+            0.6436564326286316,
+            0.71942138671875
+          ],
+          "actor_derivative": [
+            0.5314646363258362,
+            0.4540654420852661
+          ],
+          "critic_derivative": [
+            0.12630414962768555,
+            0.10619470477104187
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.37243494391441345,
+          "workforce_probe_separation_gain": 0.04580582631751895
+        },
+        {
+          "transitions": 4096,
+          "passed": true,
+          "welfare": 141.6023788834395,
+          "actor_saturation": [
+            0.0020955402869731188,
+            0.0
+          ],
+          "critic_saturation": [
+            0.65789794921875,
+            0.55230712890625
+          ],
+          "actor_derivative": [
+            0.5619426965713501,
+            0.48176512122154236
+          ],
+          "critic_derivative": [
+            0.11540897935628891,
+            0.15118998289108276
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.2681773900985718,
+          "workforce_probe_separation_gain": 0.06474945321679115
+        }
+      ],
+      "updates": 64,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.10525564104318619,
+          "median": 0.1559014916419983,
+          "maximum": 0.21980156004428864
+        },
+        "critic_step_l2": {
+          "minimum": 0.10489203035831451,
+          "median": 0.22532843798398972,
+          "maximum": 0.36516261100769043
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.1294490098953247,
+          "median": 0.4452901780605316,
+          "maximum": 0.9768881797790527
+        },
+        "critic_first_layer_grad": {
+          "minimum": 414.9778137207031,
+          "median": 1265.6248168945312,
+          "maximum": 3154.901611328125
+        },
+        "critic_residual_mse": {
+          "minimum": 131.8678436279297,
+          "median": 368.11244201660156,
+          "maximum": 946.373291015625
+        },
+        "maximum_kl": {
+          "minimum": 0.026256907782221395,
+          "median": 0.04042409516064581,
+          "maximum": 0.06621275174336853
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.693359375,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.4196763336658478,
+          "maximum_probability": 0.8140358924865723,
+          "probability_std": 0.010499854572117329
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9907013773918152,
+          "maximum_probability": 0.5514650940895081,
+          "probability_std": 0.0236672256141901
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9970929622650146,
+          "maximum_probability": 0.5315253734588623,
+          "probability_std": 0.0008999549318104982
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9205501675605774,
+          "maximum_probability": 0.3143552839756012,
+          "probability_std": 0.04552869498729706
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9507646560668945,
+          "maximum_probability": 0.1965150237083435,
+          "probability_std": 0.013186066411435604
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.9712786674499512,
+          "maximum_probability": 0.4200105667114258,
+          "probability_std": 0.017900267615914345
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.8867748379707336,
+          "maximum_probability": 0.573771059513092,
+          "probability_std": 0.026076776906847954
+        }
+      }
+    },
+    "43": {
+      "boundaries": [
+        {
+          "transitions": 0,
+          "passed": true,
+          "welfare": 136.18713661449672,
+          "actor_saturation": [
+            0.00020345051598269492,
+            0.0
+          ],
+          "critic_saturation": [
+            0.70361328125,
+            0.67791748046875
+          ],
+          "actor_derivative": [
+            0.5265961289405823,
+            0.4477722644805908
+          ],
+          "critic_derivative": [
+            0.11629894375801086,
+            0.12151813507080078
+          ],
+          "active_clamp_fraction": 0.0,
+          "critic_probe_mse": 0.48763272166252136,
+          "workforce_probe_separation_gain": 0.07054041745141149
+        },
+        {
+          "transitions": 4096,
+          "passed": true,
+          "welfare": 121.92609426311131,
+          "actor_saturation": [
+            0.0005900065298192203,
+            0.0
+          ],
+          "critic_saturation": [
+            0.7204793095588684,
+            0.5829060673713684
+          ],
+          "actor_derivative": [
+            0.5268710255622864,
+            0.44864416122436523
+          ],
+          "critic_derivative": [
+            0.09595980495214462,
+            0.16181452572345734
+          ],
+          "active_clamp_fraction": 0.031013093888759613,
+          "critic_probe_mse": 0.21397365629673004,
+          "workforce_probe_separation_gain": 0.01602972438558936
+        }
+      ],
+      "updates": 64,
+      "optimizer": {
+        "actor_step_l2": {
+          "minimum": 0.08757732063531876,
+          "median": 0.1316792070865631,
+          "maximum": 0.23506103456020355
+        },
+        "critic_step_l2": {
+          "minimum": 0.09922515600919724,
+          "median": 0.1940843164920807,
+          "maximum": 0.26201048493385315
+        },
+        "actor_first_layer_grad": {
+          "minimum": 0.10472340136766434,
+          "median": 0.23758836090564728,
+          "maximum": 0.6198067665100098
+        },
+        "critic_first_layer_grad": {
+          "minimum": 606.2647094726562,
+          "median": 1288.8853149414062,
+          "maximum": 2700.79931640625
+        },
+        "critic_residual_mse": {
+          "minimum": 143.5421142578125,
+          "median": 352.73069763183594,
+          "maximum": 759.2978515625
+        },
+        "maximum_kl": {
+          "minimum": 0.027555841876004614,
+          "median": 0.0397903048303119,
+          "maximum": 0.06487467529137453
+        }
+      },
+      "actor_minibatch_execution_fraction": 0.6875,
+      "final_heads": {
+        "movement": {
+          "eligible": 192,
+          "normalized_entropy": 0.5104288458824158,
+          "maximum_probability": 0.7541232109069824,
+          "probability_std": 0.018856734037399292
+        },
+        "enabled": {
+          "eligible": 165,
+          "normalized_entropy": 0.9496042132377625,
+          "maximum_probability": 0.6311072111129761,
+          "probability_std": 0.00830242969095707
+        },
+        "partner": {
+          "eligible": 46,
+          "normalized_entropy": 0.9891518950462341,
+          "maximum_probability": 0.5611919164657593,
+          "probability_std": 0.0005963281728327274
+        },
+        "give": {
+          "eligible": 192,
+          "normalized_entropy": 0.9845216870307922,
+          "maximum_probability": 0.19381742179393768,
+          "probability_std": 0.03618982806801796
+        },
+        "want": {
+          "eligible": 192,
+          "normalized_entropy": 0.9103711247444153,
+          "maximum_probability": 0.2593776285648346,
+          "probability_std": 0.03703064098954201
+        },
+        "lot": {
+          "eligible": 192,
+          "normalized_entropy": 0.9873663783073425,
+          "maximum_probability": 0.39320769906044006,
+          "probability_std": 0.022592440247535706
+        },
+        "price": {
+          "eligible": 192,
+          "normalized_entropy": 0.8683512806892395,
+          "maximum_probability": 0.595704972743988,
+          "probability_std": 0.004745091777294874
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "provenance.json": {
+      "bytes": 3288,
+      "sha256": "fcfa22753a9c06fa91ada5a06dc24bab4ed9731548293dd2f34c655d40092ddd"
+    },
+    "seed-29-health.json": {
+      "bytes": 21931,
+      "sha256": "357bf3745715a889a8d73173806d67904b8fd3fcc530c09508bbdf900216befd"
+    },
+    "seed-29-step-0-evaluation.json": {
+      "bytes": 18434,
+      "sha256": "6c5561ea3d3be263329850c573016fd7d72dbf787ddc597a12a9cbceae54f391"
+    },
+    "seed-29-step-0.pt": {
+      "bytes": 7116879,
+      "sha256": "166a02a683608fc8ec254d3fba51c510759d97f9a814039e3bd3f62244842542"
+    },
+    "seed-29-step-4096-evaluation.json": {
+      "bytes": 18385,
+      "sha256": "2e7967c0e45154c778a969b2c336ffae507c129272bcdb9ff1c389df61ba62c2"
+    },
+    "seed-29-step-4096.pt": {
+      "bytes": 7128779,
+      "sha256": "3f50dfd885f8d07d53783a39461cdb4dda7ea1914928cf4d7ad4dcb23291c847"
+    },
+    "seed-29-training.json": {
+      "bytes": 292075,
+      "sha256": "bcfb8d1a1f12343504d58974301bed87a1e1becdd5dc0a6ba31b7de2d6e2bff5"
+    },
+    "seed-29-training.jsonl": {
+      "bytes": 238313,
+      "sha256": "3cc287381dae5c6c8cfe3fb231ecde4e0ef66e105fafdb264ab05c80ba20e842"
+    },
+    "seed-29-updates.json": {
+      "bytes": 63819,
+      "sha256": "0d5c3ee45ce925e6519f8f76c00c7628f1a937e3c9f370bb768cf25973e47307"
+    },
+    "seed-29-updates.jsonl": {
+      "bytes": 55305,
+      "sha256": "63f2074bb1b3eaac738db20c0ce52e3443ca31ebdb3e68de2c510ffa942eb73d"
+    },
+    "seed-43-health.json": {
+      "bytes": 21972,
+      "sha256": "75349122c1c1d4ceb41650cfa02e6be6bb9b09f6e8529a290ccec8c7eb407e41"
+    },
+    "seed-43-step-0-evaluation.json": {
+      "bytes": 18465,
+      "sha256": "1613ca6e0d9d8501c66b404dd85dbca45f1efba747a137698df190fa09208404"
+    },
+    "seed-43-step-0.pt": {
+      "bytes": 7116879,
+      "sha256": "0d6d84b226defc3c480b67cc197b55ea6723e77584896350c3f7b0cb09ec4f4c"
+    },
+    "seed-43-step-4096-evaluation.json": {
+      "bytes": 18446,
+      "sha256": "7d1f99f6cc6b20da46a2229b2fec7d729756367f5c083916c6c69ec665e43a84"
+    },
+    "seed-43-step-4096.pt": {
+      "bytes": 7128779,
+      "sha256": "a073f667869c8111d988865a2e8a1159d165aec11ef1b9a8cffa0c5e5cbf0516"
+    },
+    "seed-43-training.json": {
+      "bytes": 292081,
+      "sha256": "5ea87491ac75033038360255181679006517cfe438ea7e13c2642067a07decc1"
+    },
+    "seed-43-training.jsonl": {
+      "bytes": 238319,
+      "sha256": "897163bd8191b743e51f142da111eac8999cccf297e9227a4bd28708807b68ac"
+    },
+    "seed-43-updates.json": {
+      "bytes": 63836,
+      "sha256": "87ef3093cfaccd67abc7130378d248193b71bb71978f985cee5daf3f1a931d0c"
+    },
+    "seed-43-updates.jsonl": {
+      "bytes": 55322,
+      "sha256": "24ef4d051f5fa9cc211853885b91ab154ebbbca3ae42615288183bce67c000af"
+    },
+    "summary.json": {
+      "bytes": 29513,
+      "sha256": "f937da34985868ae2af6a3c528e97b7322807b11624fdb46c07595a2b78b90ba"
+    }
+  }
+}

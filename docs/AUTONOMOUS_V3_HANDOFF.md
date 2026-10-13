@@ -1,3 +1,5 @@
+> Historical native-contract-v3 report, superseded for current training readiness. Its original evidence is preserved below. Actor model v3 now uses native observation/environment/replay v4; see [current results](AUTONOMOUS_COLLAPSE_RESULTS_V3.md) and [scale-out plan](AUTONOMOUS_SCALEOUT_PLAN_V3.md).
+
 # Autonomous Elder economy v3 handoff
 
 Experimental branch: `feature/elder-autonomous-economy`. Native simulator:

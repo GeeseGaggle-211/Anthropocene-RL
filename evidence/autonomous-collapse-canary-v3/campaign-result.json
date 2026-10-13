@@ -1,0 +1,864 @@
+{
+  "config": {
+    "version": "autonomous-collapse-canary-v3",
+    "seeds": [
+      29,
+      43
+    ],
+    "additional_transitions_per_seed": 4096,
+    "maximum_total_transitions": 8192,
+    "workers": 4,
+    "torch_threads": 1,
+    "maximum_wall_seconds": 1800,
+    "native_request_timeout_seconds": 60,
+    "evaluate_every_transitions": 4096,
+    "recovery_probe_steps": 16,
+    "recovery_probe_lr": 0.001,
+    "economic_outcome_abort": false,
+    "numeric_or_replay_abort": true,
+    "reproducible_recovery_failure": "pause_seed_and_diagnose",
+    "resource_growth_factor": 2.0,
+    "rollout_policy": "frozen; sampler SHA256(seed,absolute_episode); canonical episode order",
+    "initialization": "immutable stopped v2-canary checkpoints29/43; explicit v3 conversion; preserve named Adam moments and RNG cursors",
+    "probe": "train-only health-probe-v2; pilot17; 24 episodes; sampler731/732; freeze digest before launch",
+    "checkpoint_selection": "final-or-stopped boundary, never development-best",
+    "curriculum": "frozen autonomous-ppo-gate-v1 four-family bank; all movement/trade/fission/migration live",
+    "critic_probe_lr": 0.0001,
+    "recovery_coverage": "every covered workforce, activity, Beta and categorical head; critic; retained actor and critic optimizer stall",
+    "parent_checkpoint_sha256": {
+      "29": "6d32cc2ca4a4ef9abb97f225e58512e08f73fe506f951bfe14ff4f7f13b6a867",
+      "43": "2bda685a7f743dfb96ef4a622eeeb776c17f002424a9fdafc6e7a31dfd0eb679"
+    },
+    "probe_sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308",
+    "model_config_sha256": "9d0066203bf0594dc770c95a6e192c198a2a4e44b539dbd9b6d931037967b597",
+    "bridge_sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127",
+    "bank_sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e",
+    "previous_campaign_sha256": "35a3a5e64920e344ff0c668c8b40ba34dad1c36e343c544b861562f2b0d72f11"
+  },
+  "provenance": {
+    "pilot": {
+      "bank_sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e",
+      "bridge_sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127",
+      "simulation_source_sha256": "8a1319571e1204a8330306277b96529de23ec3932efff11c61d1964efe996f52",
+      "config_sha256": "bdbb5a7aff69071f217f32cb2e7a73f33cc09baf0fb48f5f9e708ad28f1768c8",
+      "torch": "2.14.1+cpu"
+    },
+    "previous_campaign_sha256": "35a3a5e64920e344ff0c668c8b40ba34dad1c36e343c544b861562f2b0d72f11",
+    "parent_checkpoint_sha256": {
+      "29": "6d32cc2ca4a4ef9abb97f225e58512e08f73fe506f951bfe14ff4f7f13b6a867",
+      "43": "2bda685a7f743dfb96ef4a622eeeb776c17f002424a9fdafc6e7a31dfd0eb679"
+    },
+    "protocol_sha256": "fb4c7bb725b046c3f01e3bc48fc661959d66b23a9119180f0cc47a516b7de18a",
+    "probe_sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308",
+    "learner_files": {
+      "/workspace/Anthropocene-RL/scripts/run_autonomous_collapse_canary_v3.py": "d3e773f8ceb415e493abf72399138af70ce0a9052aadf916b3088a7753ca91fa",
+      "configs/training/autonomous-ppo-layernorm-v3-recovery.json": "9d0066203bf0594dc770c95a6e192c198a2a4e44b539dbd9b6d931037967b597",
+      "scripts/run_autonomous_ppo_gate.py": "33d48e6f23ebfa0daebd548e16f3cd155b7d873604aa24c98ed95e683780cc51",
+      "src/anthropocene_rl/autonomous/policy.py": "f13dc86ca44bf04c2fbc9ebf394f89e05e527f5bd485ec0f907f2eacb0f452b1",
+      "src/anthropocene_rl/autonomous_v4/__init__.py": "f70d50e0364e336797354ed64cd0ab3d9ce08954667eca19601fc20e296b8f84",
+      "src/anthropocene_rl/autonomous_v4/collection.py": "7cb8f126fb71f62b52a9a52f3376a8ce21c57ece7ac00c18c8c4eb5c3c016aa8",
+      "src/anthropocene_rl/autonomous_v4/contracts.py": "4cee11f4982ef2b635df186bc8e77643ff872b23e07718e541e86f60973089c1",
+      "src/anthropocene_rl/autonomous_v4/diagnostics.py": "c692acfde99a845642ed172bd677e2eac5b7a3f7c451419b339bc9e0e853b703",
+      "src/anthropocene_rl/autonomous_v4/env.py": "a5876c01c75b0f3ca3ba7ced8a009920911a7020834a48e7e5019bbed9d52664",
+      "src/anthropocene_rl/autonomous_v4/inference.py": "b20fbbb86ed867069344397d062c6df197d00bac860d25e0df7fd055e5ddab70",
+      "src/anthropocene_rl/autonomous_v4/policy.py": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202",
+      "src/anthropocene_rl/autonomous_v4/training.py": "eb411113f34578e9ba024a8d89ea48c6d8abf8f247c43f2d54a4cf393d026047",
+      "src/anthropocene_rl/policies/autonomous_inference_v2.py": "ce0abf012b3b0cc251bd2bed4486f8008258463036d43216b0a480cb4cfe6dc0",
+      "src/anthropocene_rl/policies/autonomous_inference_v3.py": "9741a9197f3985e89e0ea73db39eb8438731a1e7b0bf4ba51ae161ff187f00ac",
+      "src/anthropocene_rl/policies/autonomous_ppo_v2.py": "eafa8b6c79e57d1d664158be760d9ba56054bc21f6bd90cd4b5bc2a2640d6ad5",
+      "src/anthropocene_rl/policies/autonomous_ppo_v3.py": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a",
+      "src/anthropocene_rl/training/autonomous_ppo_v2.py": "f079b315528c6294359ffd6d12c799a907c2534ee037441dfbe9b77d77e8c5e1",
+      "src/anthropocene_rl/training/autonomous_ppo_v3.py": "1d0df417708468070dd0388452adfce5e0d16ca7b0597f19cd91ea020145cfde",
+      "src/anthropocene_rl/training/returns.py": "81d3367ce2719b303f4830c34aad2975c4b4e85287f0cf7c04b39d6d8db16878"
+    },
+    "collector": "episode-keyed-v1"
+  },
+  "seeds": [
+    {
+      "seed": 29,
+      "status": "completed",
+      "additional_transitions": 4096,
+      "health_evaluations": 2,
+      "initial": {
+        "welfare": 140.01563773406002,
+        "survival": 1.0,
+        "families": {
+          "fission": {
+            "welfare": 44.31044630870922,
+            "survival": 1.0,
+            "population_retention": 0.38437499999999997,
+            "food_met": 0.8886254956475241,
+            "events": {
+              "movement": 1,
+              "trades": 6,
+              "fissions": 15,
+              "migrants": 469,
+              "quotes": 32,
+              "focal_trades": 0,
+              "focal_fissions": 15,
+              "focal_migrants": 452
+            }
+          },
+          "migration": {
+            "welfare": 312.63636077964816,
+            "survival": 1.0,
+            "population_retention": 2.6615384615384614,
+            "food_met": 0.9429781526158577,
+            "events": {
+              "movement": 3,
+              "trades": 0,
+              "fissions": 7,
+              "migrants": 1039,
+              "quotes": 41,
+              "focal_trades": 0,
+              "focal_fissions": 5,
+              "focal_migrants": 900
+            }
+          },
+          "survival": {
+            "welfare": 115.49610344700072,
+            "survival": 1.0,
+            "population_retention": 0.48250000000000004,
+            "food_met": 0.8074294857023787,
+            "events": {
+              "movement": 3,
+              "trades": 5,
+              "fissions": 15,
+              "migrants": 72,
+              "quotes": 14,
+              "focal_trades": 0,
+              "focal_fissions": 15,
+              "focal_migrants": 41
+            }
+          },
+          "trade": {
+            "welfare": 87.6196404008819,
+            "survival": 1.0,
+            "population_retention": 0.8158088235294118,
+            "food_met": 0.7859084465019955,
+            "events": {
+              "movement": 3,
+              "trades": 0,
+              "fissions": 13,
+              "migrants": 1272,
+              "quotes": 29,
+              "focal_trades": 0,
+              "focal_fissions": 8,
+              "focal_migrants": 974
+            }
+          }
+        }
+      },
+      "final": {
+        "welfare": 141.6023788834395,
+        "survival": 1.0,
+        "families": {
+          "fission": {
+            "welfare": 71.72315372266984,
+            "survival": 1.0,
+            "population_retention": 0.5130208333333333,
+            "food_met": 0.9347989462073893,
+            "events": {
+              "movement": 6,
+              "trades": 4,
+              "fissions": 15,
+              "migrants": 29,
+              "quotes": 15,
+              "focal_trades": 0,
+              "focal_fissions": 14,
+              "focal_migrants": 21
+            }
+          },
+          "migration": {
+            "welfare": 297.85694815146024,
+            "survival": 1.0,
+            "population_retention": 2.703846153846154,
+            "food_met": 0.925137989273032,
+            "events": {
+              "movement": 5,
+              "trades": 2,
+              "fissions": 7,
+              "migrants": 1014,
+              "quotes": 24,
+              "focal_trades": 0,
+              "focal_fissions": 3,
+              "focal_migrants": 865
+            }
+          },
+          "survival": {
+            "welfare": 122.54406093276839,
+            "survival": 1.0,
+            "population_retention": 0.5025,
+            "food_met": 0.8274315582462588,
+            "events": {
+              "movement": 6,
+              "trades": 3,
+              "fissions": 14,
+              "migrants": 71,
+              "quotes": 8,
+              "focal_trades": 0,
+              "focal_fissions": 14,
+              "focal_migrants": 45
+            }
+          },
+          "trade": {
+            "welfare": 74.28535272685954,
+            "survival": 1.0,
+            "population_retention": 0.6275735294117647,
+            "food_met": 0.796573261136529,
+            "events": {
+              "movement": 8,
+              "trades": 1,
+              "fissions": 17,
+              "migrants": 1116,
+              "quotes": 33,
+              "focal_trades": 0,
+              "focal_fissions": 10,
+              "focal_migrants": 658
+            }
+          }
+        }
+      },
+      "final_recovery": {
+        "actor_pass": true,
+        "critic_pass": true,
+        "rows": 188,
+        "feature": 745,
+        "roles": [
+          0,
+          1
+        ],
+        "actor_loss_before": -7.527369056245401,
+        "actor_loss_after": -19.534683331764683,
+        "actor_relative_improvement": 1.595154188109975,
+        "separation_before": 0.016535360366106033,
+        "separation_after": 0.08128481358289719,
+        "actor_grad_max": 22.692270278930664,
+        "critic_residual_mse": 0.2681773900985718,
+        "categorical": {
+          "movement": {
+            "covered": true,
+            "rows": 142,
+            "passed": true,
+            "loss_before": 1.966943621635437,
+            "loss_after": 0.4319536089897156,
+            "separation_before": 0.017101019620895386,
+            "separation_after": 0.44647806882858276
+          },
+          "enabled": {
+            "covered": true,
+            "rows": 164,
+            "passed": true,
+            "loss_before": 0.6911473870277405,
+            "loss_after": 0.29261964559555054,
+            "separation_before": 0.008365608751773834,
+            "separation_after": 0.5766927003860474
+          },
+          "partner": {
+            "covered": true,
+            "rows": 46,
+            "passed": true,
+            "loss_before": 0.6903148889541626,
+            "loss_after": 0.20365872979164124,
+            "separation_before": 0.004832345061004162,
+            "separation_after": 0.7004807591438293
+          },
+          "give": {
+            "covered": true,
+            "rows": 42,
+            "passed": true,
+            "loss_before": 2.566882610321045,
+            "loss_after": 0.7787184715270996,
+            "separation_before": 2.6909900043392554e-05,
+            "separation_after": 0.006732712034136057
+          },
+          "want": {
+            "covered": true,
+            "rows": 80,
+            "passed": true,
+            "loss_before": 2.83353853225708,
+            "loss_after": 0.7567309141159058,
+            "separation_before": -0.0029359254986047745,
+            "separation_after": 0.037536852061748505
+          },
+          "lot": {
+            "covered": true,
+            "rows": 164,
+            "passed": true,
+            "loss_before": 1.1841660737991333,
+            "loss_after": 0.46814072132110596,
+            "separation_before": -0.006252892781049013,
+            "separation_after": 0.3495284914970398
+          },
+          "price": {
+            "covered": true,
+            "rows": 164,
+            "passed": true,
+            "loss_before": 1.5769325494766235,
+            "loss_after": 0.6059888005256653,
+            "separation_before": -0.0010409493697807193,
+            "separation_after": 0.15097317099571228
+          }
+        },
+        "conditional_simplex": {
+          "activity_0": {
+            "covered": true,
+            "rows": 192,
+            "passed": true,
+            "loss_before": 2.8835430019422197,
+            "loss_after": -2.532962817562975,
+            "separation_before": -0.025804856792092323,
+            "separation_after": 0.03059864044189453
+          },
+          "activity_1": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_2": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_3": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_4": {
+            "covered": true,
+            "rows": 188,
+            "passed": true,
+            "loss_before": -1.6272637018173848,
+            "loss_after": -7.17260797683145,
+            "separation_before": 0.018297228962183,
+            "separation_after": 0.17561973631381989
+          },
+          "activity_5": {
+            "covered": true,
+            "rows": 192,
+            "passed": true,
+            "loss_before": 1.4613059708717444,
+            "loss_after": -0.19902178489773129,
+            "separation_before": -0.0005595295806415379,
+            "separation_after": 0.14917908608913422
+          },
+          "activity_6": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_7": {
+            "covered": false,
+            "eligible": 4
+          },
+          "activity_8": {
+            "covered": false,
+            "eligible": 4
+          },
+          "activity_9": {
+            "covered": true,
+            "rows": 188,
+            "passed": true,
+            "loss_before": 0.22472280164271063,
+            "loss_after": -0.3278857512122852,
+            "separation_before": -0.0024536207783967257,
+            "separation_after": 0.30864283442497253
+          },
+          "activity_10": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_11": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_12": {
+            "covered": false,
+            "eligible": 0
+          },
+          "control_0": {
+            "covered": true,
+            "rows": 192,
+            "passed": true,
+            "loss_before": 4.528061497531693,
+            "loss_after": -0.24402202663718667,
+            "separation_before": 0.007875010371208191,
+            "separation_after": 0.2213503122329712
+          },
+          "control_1": {
+            "covered": false,
+            "eligible": 4
+          },
+          "control_2": {
+            "covered": false,
+            "eligible": 4
+          }
+        },
+        "passed": true
+      },
+      "training": {
+        "welfare": 118.857797619178,
+        "survival": 1.0,
+        "families": {
+          "fission": {
+            "welfare": 36.75105798014881,
+            "survival": 1.0,
+            "population_retention": 0.27534179687499993,
+            "food_met": 0.76429662698147,
+            "events": {
+              "movement": 107,
+              "trades": 176,
+              "fissions": 249,
+              "migrants": 6780,
+              "quotes": 428,
+              "focal_trades": 0,
+              "focal_fissions": 246,
+              "focal_migrants": 6720
+            }
+          },
+          "migration": {
+            "welfare": 283.1265066344869,
+            "survival": 1.0,
+            "population_retention": 2.2759615384615386,
+            "food_met": 0.9524082757967222,
+            "events": {
+              "movement": 112,
+              "trades": 41,
+              "fissions": 190,
+              "migrants": 13453,
+              "quotes": 436,
+              "focal_trades": 0,
+              "focal_fissions": 90,
+              "focal_migrants": 11663
+            }
+          },
+          "survival": {
+            "welfare": 106.14351015034562,
+            "survival": 1.0,
+            "population_retention": 0.424296875,
+            "food_met": 0.7740229983188653,
+            "events": {
+              "movement": 136,
+              "trades": 94,
+              "fissions": 242,
+              "migrants": 1548,
+              "quotes": 236,
+              "focal_trades": 0,
+              "focal_fissions": 242,
+              "focal_migrants": 1361
+            }
+          },
+          "trade": {
+            "welfare": 49.41011571173073,
+            "survival": 1.0,
+            "population_retention": 0.5265625,
+            "food_met": 0.6963635297324704,
+            "events": {
+              "movement": 97,
+              "trades": 74,
+              "fissions": 352,
+              "migrants": 17524,
+              "quotes": 485,
+              "focal_trades": 3,
+              "focal_fissions": 151,
+              "focal_migrants": 12648
+            }
+          }
+        }
+      },
+      "peak_rss_bytes": 934412288,
+      "mean_step_seconds": 0.039874425696044824
+    },
+    {
+      "seed": 43,
+      "status": "completed",
+      "additional_transitions": 4096,
+      "health_evaluations": 2,
+      "initial": {
+        "welfare": 136.18713661449672,
+        "survival": 1.0,
+        "families": {
+          "fission": {
+            "welfare": 78.44021331163813,
+            "survival": 1.0,
+            "population_retention": 0.5786458333333333,
+            "food_met": 0.9304524971893494,
+            "events": {
+              "movement": 2,
+              "trades": 4,
+              "fissions": 13,
+              "migrants": 183,
+              "quotes": 30,
+              "focal_trades": 0,
+              "focal_fissions": 11,
+              "focal_migrants": 179
+            }
+          },
+          "migration": {
+            "welfare": 284.2367546202677,
+            "survival": 1.0,
+            "population_retention": 2.5346153846153845,
+            "food_met": 0.9423599971515428,
+            "events": {
+              "movement": 3,
+              "trades": 1,
+              "fissions": 9,
+              "migrants": 962,
+              "quotes": 29,
+              "focal_trades": 0,
+              "focal_fissions": 5,
+              "focal_migrants": 786
+            }
+          },
+          "survival": {
+            "welfare": 111.87632200594965,
+            "survival": 1.0,
+            "population_retention": 0.52625,
+            "food_met": 0.7970999229762783,
+            "events": {
+              "movement": 4,
+              "trades": 2,
+              "fissions": 12,
+              "migrants": 93,
+              "quotes": 20,
+              "focal_trades": 0,
+              "focal_fissions": 12,
+              "focal_migrants": 67
+            }
+          },
+          "trade": {
+            "welfare": 70.19525652013147,
+            "survival": 1.0,
+            "population_retention": 0.8172794117647059,
+            "food_met": 0.7554464810179875,
+            "events": {
+              "movement": 3,
+              "trades": 3,
+              "fissions": 11,
+              "migrants": 1316,
+              "quotes": 33,
+              "focal_trades": 0,
+              "focal_fissions": 7,
+              "focal_migrants": 881
+            }
+          }
+        }
+      },
+      "final": {
+        "welfare": 121.92609426311131,
+        "survival": 1.0,
+        "families": {
+          "fission": {
+            "welfare": 69.49360362499047,
+            "survival": 1.0,
+            "population_retention": 0.4106770833333333,
+            "food_met": 0.8463807093033795,
+            "events": {
+              "movement": 16,
+              "trades": 0,
+              "fissions": 14,
+              "migrants": 453,
+              "quotes": 26,
+              "focal_trades": 0,
+              "focal_fissions": 14,
+              "focal_migrants": 445
+            }
+          },
+          "migration": {
+            "welfare": 222.32086606978794,
+            "survival": 1.0,
+            "population_retention": 2.1403846153846158,
+            "food_met": 0.9658753277204084,
+            "events": {
+              "movement": 9,
+              "trades": 2,
+              "fissions": 14,
+              "migrants": 993,
+              "quotes": 29,
+              "focal_trades": 0,
+              "focal_fissions": 9,
+              "focal_migrants": 737
+            }
+          },
+          "survival": {
+            "welfare": 119.75039786382877,
+            "survival": 1.0,
+            "population_retention": 0.51125,
+            "food_met": 0.769433912906631,
+            "events": {
+              "movement": 9,
+              "trades": 3,
+              "fissions": 17,
+              "migrants": 83,
+              "quotes": 17,
+              "focal_trades": 0,
+              "focal_fissions": 15,
+              "focal_migrants": 57
+            }
+          },
+          "trade": {
+            "welfare": 76.1395094938381,
+            "survival": 1.0,
+            "population_retention": 0.7595588235294117,
+            "food_met": 0.7562583296467109,
+            "events": {
+              "movement": 11,
+              "trades": 1,
+              "fissions": 15,
+              "migrants": 1222,
+              "quotes": 34,
+              "focal_trades": 0,
+              "focal_fissions": 10,
+              "focal_migrants": 916
+            }
+          }
+        }
+      },
+      "final_recovery": {
+        "actor_pass": true,
+        "critic_pass": true,
+        "rows": 188,
+        "feature": 745,
+        "roles": [
+          0,
+          1
+        ],
+        "actor_loss_before": -3.4040679045065145,
+        "actor_loss_after": -18.442167432934216,
+        "actor_relative_improvement": 4.417684943511068,
+        "separation_before": 0.004809042904525995,
+        "separation_after": 0.020838767290115356,
+        "actor_grad_max": 19.792192459106445,
+        "critic_residual_mse": 0.21397365629673004,
+        "categorical": {
+          "movement": {
+            "covered": true,
+            "rows": 142,
+            "passed": true,
+            "loss_before": 1.5921679735183716,
+            "loss_after": 0.3277292251586914,
+            "separation_before": 0.057700492441654205,
+            "separation_after": 0.624988317489624
+          },
+          "enabled": {
+            "covered": true,
+            "rows": 164,
+            "passed": true,
+            "loss_before": 0.7204917669296265,
+            "loss_after": 0.35681185126304626,
+            "separation_before": 0.007854079827666283,
+            "separation_after": 0.491531640291214
+          },
+          "partner": {
+            "covered": true,
+            "rows": 46,
+            "passed": true,
+            "loss_before": 0.7038955688476562,
+            "loss_after": 0.3461788296699524,
+            "separation_before": -0.003141555469483137,
+            "separation_after": 0.45804721117019653
+          },
+          "give": {
+            "covered": true,
+            "rows": 42,
+            "passed": true,
+            "loss_before": 1.812864899635315,
+            "loss_after": 0.7377527356147766,
+            "separation_before": -0.00040910072857514024,
+            "separation_after": 0.008057497441768646
+          },
+          "want": {
+            "covered": true,
+            "rows": 80,
+            "passed": true,
+            "loss_before": 2.0343663692474365,
+            "loss_after": 0.4717749059200287,
+            "separation_before": 0.007361553609371185,
+            "separation_after": 0.3578399419784546
+          },
+          "lot": {
+            "covered": true,
+            "rows": 164,
+            "passed": true,
+            "loss_before": 1.1655724048614502,
+            "loss_after": 0.626679003238678,
+            "separation_before": -0.00793098658323288,
+            "separation_after": 0.10521266609430313
+          },
+          "price": {
+            "covered": true,
+            "rows": 164,
+            "passed": true,
+            "loss_before": 1.6018620729446411,
+            "loss_after": 0.5722362399101257,
+            "separation_before": 0.0009383519063703716,
+            "separation_after": 0.2115277796983719
+          }
+        },
+        "conditional_simplex": {
+          "activity_0": {
+            "covered": true,
+            "rows": 192,
+            "passed": true,
+            "loss_before": 1.758135759580859,
+            "loss_after": -2.4107450802001176,
+            "separation_before": -0.009049348533153534,
+            "separation_after": 0.009275772608816624
+          },
+          "activity_1": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_2": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_3": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_4": {
+            "covered": true,
+            "rows": 188,
+            "passed": true,
+            "loss_before": -3.857639495911238,
+            "loss_after": -7.089449246974843,
+            "separation_before": 0.0024975668638944626,
+            "separation_after": 0.12697403132915497
+          },
+          "activity_5": {
+            "covered": true,
+            "rows": 192,
+            "passed": true,
+            "loss_before": 0.7582923056048895,
+            "loss_after": -0.03286019785025435,
+            "separation_before": -0.02101273648440838,
+            "separation_after": 0.02004840224981308
+          },
+          "activity_6": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_7": {
+            "covered": false,
+            "eligible": 4
+          },
+          "activity_8": {
+            "covered": false,
+            "eligible": 4
+          },
+          "activity_9": {
+            "covered": true,
+            "rows": 188,
+            "passed": true,
+            "loss_before": 0.5811283548501815,
+            "loss_after": -0.01840124285768518,
+            "separation_before": -0.02622886188328266,
+            "separation_after": 0.010901791043579578
+          },
+          "activity_10": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_11": {
+            "covered": false,
+            "eligible": 0
+          },
+          "activity_12": {
+            "covered": false,
+            "eligible": 0
+          },
+          "control_0": {
+            "covered": true,
+            "rows": 192,
+            "passed": true,
+            "loss_before": 4.395908722731591,
+            "loss_after": -0.01875240668080342,
+            "separation_before": -0.00030026058084331453,
+            "separation_after": 0.07365234196186066
+          },
+          "control_1": {
+            "covered": false,
+            "eligible": 4
+          },
+          "control_2": {
+            "covered": false,
+            "eligible": 4
+          }
+        },
+        "passed": true
+      },
+      "training": {
+        "welfare": 119.8896743874523,
+        "survival": 1.0,
+        "families": {
+          "fission": {
+            "welfare": 36.329654792090004,
+            "survival": 1.0,
+            "population_retention": 0.276025390625,
+            "food_met": 0.7637029605017409,
+            "events": {
+              "movement": 99,
+              "trades": 172,
+              "fissions": 253,
+              "migrants": 6444,
+              "quotes": 431,
+              "focal_trades": 0,
+              "focal_fissions": 248,
+              "focal_migrants": 6333
+            }
+          },
+          "migration": {
+            "welfare": 294.326188399471,
+            "survival": 1.0,
+            "population_retention": 2.4749999999999996,
+            "food_met": 0.9650717742495065,
+            "events": {
+              "movement": 99,
+              "trades": 19,
+              "fissions": 169,
+              "migrants": 13771,
+              "quotes": 499,
+              "focal_trades": 0,
+              "focal_fissions": 68,
+              "focal_migrants": 12243
+            }
+          },
+          "survival": {
+            "welfare": 101.45694391134873,
+            "survival": 1.0,
+            "population_retention": 0.41890625000000004,
+            "food_met": 0.7526471038121996,
+            "events": {
+              "movement": 129,
+              "trades": 103,
+              "fissions": 237,
+              "migrants": 1914,
+              "quotes": 243,
+              "focal_trades": 0,
+              "focal_fissions": 237,
+              "focal_migrants": 1723
+            }
+          },
+          "trade": {
+            "welfare": 47.445910446899475,
+            "survival": 1.0,
+            "population_retention": 0.523874080882353,
+            "food_met": 0.6829305403837005,
+            "events": {
+              "movement": 100,
+              "trades": 69,
+              "fissions": 330,
+              "migrants": 17804,
+              "quotes": 491,
+              "focal_trades": 0,
+              "focal_fissions": 153,
+              "focal_migrants": 12296
+            }
+          }
+        }
+      },
+      "peak_rss_bytes": 939905024,
+      "mean_step_seconds": 0.03958150426122975
+    }
+  ],
+  "additional_transitions": 8192,
+  "wall_seconds": 373.58211426199887
+}
