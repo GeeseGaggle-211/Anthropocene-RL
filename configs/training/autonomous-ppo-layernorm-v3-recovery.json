@@ -1,0 +1,37 @@
+{
+  "version": "autonomous-ppo-layernorm-v3-recovery-k05",
+  "initialization_seeds": [
+    17,
+    29,
+    43
+  ],
+  "evaluation_rng_seeds": [
+    9101,
+    9102
+  ],
+  "transitions_per_seed": 2048,
+  "episode_limit": 8,
+  "episodes_per_rollout": 8,
+  "epochs": 4,
+  "minibatch": 32,
+  "actor_lr": 0.0003,
+  "critic_lr": 0.0003,
+  "clip": 0.2,
+  "target_kl": 0.03,
+  "entropy_coef": 0.001,
+  "horizon_years": 100,
+  "lambda_ref": 0.95,
+  "reward_scale": 120,
+  "family_weights": {
+    "survival": 0.25,
+    "trade": 0.25,
+    "migration": 0.25,
+    "fission": 0.25
+  },
+  "checkpoint_selection": "final-only",
+  "evaluation": "paired stochastic policies; cumulative native welfare per initial focal resident; equal-family average; missing post-extinction intervals contribute zero",
+  "survival": "fraction of episodes with focal alive at decision 8; endogenous fission daughters not included",
+  "model_version": "autonomous-ppo-model-v3",
+  "uniform_mix": 0.05,
+  "legal_reverse_kl_coef": 0.05
+}

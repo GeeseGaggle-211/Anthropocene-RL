@@ -31,12 +31,20 @@ def _layers(trunk, x):
     return result
 
 
-def _categorical(logits, mask):
+def _distribution(logits, mask, uniform_mix=0.0):
+    if uniform_mix:
+        from anthropocene_rl.policies.autonomous_ppo_v2 import distribution
+
+        return distribution(logits, mask, uniform_mix)[0]
+    return torch.distributions.Categorical(logits=logits.masked_fill(~mask, -torch.inf))
+
+
+def _categorical(logits, mask, uniform_mix=0.0):
     eligible = mask.sum(-1) > 1
     if not eligible.any():
         return dict(eligible=0)
     m = mask[eligible]
-    dist = torch.distributions.Categorical(logits=logits[eligible].masked_fill(~m, -torch.inf))
+    dist = _distribution(logits[eligible], m, uniform_mix)
     return dict(
         eligible=int(eligible.sum()),
         normalized_entropy=float((dist.entropy() / m.sum(-1).log()).mean()),
@@ -107,7 +115,10 @@ def health(model, obs):
         lot=torch.ones(len(h), 3, dtype=torch.bool),
         price=torch.ones(len(h), 3, dtype=torch.bool),
     )
-    cats = {name: _categorical(model.heads[name](h), mask) for name, mask in masks.items()}
+    cats = {
+        name: _categorical(model.heads[name](h), mask, getattr(model, "uniform_mix", 0.0))
+        for name, mask in masks.items()
+    }
     with torch.enable_grad():
         x = obs["x"].clone().requires_grad_()
         value = model.value(dict(obs, x=x))
@@ -255,8 +266,8 @@ def categorical_recovery_probes(model, obs, *, steps=16, lr=0.001):
         def measure(
             clone=clone, name=name, x=x, m=m, target=target, choices=choices, labels=labels
         ):
-            dist = torch.distributions.Categorical(
-                logits=clone.heads[name](clone.actor(x)).masked_fill(~m, -torch.inf)
+            dist = _distribution(
+                clone.heads[name](clone.actor(x)), m, getattr(clone, "uniform_mix", 0.0)
             )
             return -dist.log_prob(target).mean(), (
                 (dist.probs[:, choices[0]] - dist.probs[:, choices[1]]) * labels

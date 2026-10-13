@@ -1,0 +1,36 @@
+{
+  "version": "autonomous-collapse-canary-v3",
+  "seeds": [
+    29,
+    43
+  ],
+  "additional_transitions_per_seed": 4096,
+  "maximum_total_transitions": 8192,
+  "workers": 4,
+  "torch_threads": 1,
+  "maximum_wall_seconds": 1800,
+  "native_request_timeout_seconds": 60,
+  "evaluate_every_transitions": 4096,
+  "recovery_probe_steps": 16,
+  "recovery_probe_lr": 0.001,
+  "economic_outcome_abort": false,
+  "numeric_or_replay_abort": true,
+  "reproducible_recovery_failure": "pause_seed_and_diagnose",
+  "resource_growth_factor": 2.0,
+  "rollout_policy": "frozen; sampler SHA256(seed,absolute_episode); canonical episode order",
+  "initialization": "immutable stopped v2-canary checkpoints29/43; explicit v3 conversion; preserve named Adam moments and RNG cursors",
+  "probe": "train-only health-probe-v2; pilot17; 24 episodes; sampler731/732; freeze digest before launch",
+  "checkpoint_selection": "final-or-stopped boundary, never development-best",
+  "curriculum": "frozen autonomous-ppo-gate-v1 four-family bank; all movement/trade/fission/migration live",
+  "critic_probe_lr": 0.0001,
+  "recovery_coverage": "every covered workforce, activity, Beta and categorical head; critic; retained actor and critic optimizer stall",
+  "parent_checkpoint_sha256": {
+    "29": "6d32cc2ca4a4ef9abb97f225e58512e08f73fe506f951bfe14ff4f7f13b6a867",
+    "43": "2bda685a7f743dfb96ef4a622eeeb776c17f002424a9fdafc6e7a31dfd0eb679"
+  },
+  "probe_sha256": "1eae1380d17c1f884bc221bf858ce4c2c2f1419ea6d5f56d66fac081ac913308",
+  "model_config_sha256": "9d0066203bf0594dc770c95a6e192c198a2a4e44b539dbd9b6d931037967b597",
+  "bridge_sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127",
+  "bank_sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e",
+  "previous_campaign_sha256": "35a3a5e64920e344ff0c668c8b40ba34dad1c36e343c544b861562f2b0d72f11"
+}

@@ -136,12 +136,20 @@ def test_v2_full_scoring_gradient_and_versioned_checkpoint(tmp_path):
 
 
 @pytest.mark.skipif(not os.environ.get("AUTONOMOUS_V4_BRIDGE"), reason="native integration opt-in")
-def test_v2_native_parallel_warm_start_and_populated_resume(tmp_path):
+@pytest.mark.parametrize("version", [2, 3])
+def test_v2_native_parallel_warm_start_and_populated_resume(tmp_path, version):
     from anthropocene_rl.autonomous_v4.collection import Collector
     from anthropocene_rl.autonomous_v4.training import state_hash
 
     torch.set_num_threads(1)
-    config = json.loads(Path("configs/training/autonomous-ppo-remedy-v2.json").read_text())
+    from anthropocene_rl.training.autonomous_ppo_v3 import AutonomousTrainerV3
+
+    trainer_class = AutonomousTrainerV2 if version == 2 else AutonomousTrainerV3
+    config_name = "remedy-v2" if version == 2 else "layernorm-v3"
+    config_path = os.environ.get("AUTONOMOUS_V3_CONFIG") if version == 3 else None
+    config = json.loads(
+        Path(config_path or f"configs/training/autonomous-ppo-{config_name}.json").read_text()
+    )
     bank = Path(os.environ["AUTONOMOUS_V4_BANK"])
     entries = [
         e
@@ -150,7 +158,7 @@ def test_v2_native_parallel_warm_start_and_populated_resume(tmp_path):
     ]
     parent = Path(os.environ["AUTONOMOUS_V2_PARENT"])
     digest = hashlib.sha256(parent.read_bytes()).hexdigest()
-    trainers = [AutonomousTrainerV2(config, seed, {"parent_sha256": digest}) for seed in [17, 29]]
+    trainers = [trainer_class(config, seed, {"parent_sha256": digest}) for seed in [17, 29]]
     for trainer in trainers:
         trainer.warm_start(parent, expected_sha256=digest)
     assert trainers[0].optimizer.state  # Native-canary Adam state survives conversion.
@@ -175,7 +183,7 @@ def test_v2_native_parallel_warm_start_and_populated_resume(tmp_path):
         if phase == 0:
             path = tmp_path / "native-populated-v2.pt"
             trainers[0].checkpoint(path)
-            trainers[1] = AutonomousTrainerV2(config, 43, {"parent_sha256": digest})
+            trainers[1] = trainer_class(config, 43, {"parent_sha256": digest})
             trainers[1].restore(path)
         else:
             for key, value in trainers[0].optimizer.state_dict()["state"].items():
