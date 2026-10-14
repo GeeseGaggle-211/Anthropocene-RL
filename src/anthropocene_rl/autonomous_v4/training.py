@@ -162,14 +162,25 @@ class Trainer:
 
 
 def episode(
-    model, transport, bank, entry, generator, config, *, collect=False, verify=False, scripted=False
+    model,
+    transport,
+    bank,
+    entry,
+    generator,
+    config,
+    *,
+    collect=False,
+    verify=False,
+    scripted=False,
+    decoder=observation,
+    tensor_inputs=inputs,
 ):
     snapshot = (bank / entry["snapshot"]).read_bytes()
     if hashlib.sha256(snapshot).hexdigest() != entry["sha256"]:
         raise ValueError("Snapshot checksum mismatch")
     ids = [entry["focal"]] + ([entry["peer"]] if entry["peer"] else [])
     response = transport.reset_world(snapshot, ids, config["episode_limit"])
-    current = {int(k): observation(v) for k, v in response["observations"].items()}
+    current = {int(k): decoder(v) for k, v in response["observations"].items()}
     focal = entry["focal"]
     rows, welfare, elapsed = [], 0.0, 0.0
     events = dict(
@@ -184,7 +195,7 @@ def episode(
     )
     populations, food, native_seconds = [], [], []
     for _ in range(config["episode_limit"]):
-        obs = inputs([current[focal]])
+        obs = tensor_inputs([current[focal]])
         with torch.no_grad():
             action, logp, _, value = model(obs, generator=generator)
         native = (
@@ -198,13 +209,13 @@ def episode(
                 submitted[peer] = market_peer(current[peer])
         response = transport.step_world(submitted)
         result, telemetry = response["result"], response["result"]["Telemetry"]
-        current = {int(k): observation(v) for k, v in result["Observations"].items()}
+        current = {int(k): decoder(v) for k, v in result["Observations"].items()}
         terminal, truncated = focal not in current, result["Truncated"]
         years, reward = result["ElapsedYears"], result["Rewards"][str(focal)]
         welfare += reward
         elapsed += years
         with torch.no_grad():
-            next_value = 0.0 if terminal else float(model.value(inputs([current[focal]])))
+            next_value = 0.0 if terminal else float(model.value(tensor_inputs([current[focal]])))
         if collect:
             rows.append(
                 dict(

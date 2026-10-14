@@ -1,0 +1,137 @@
+{
+  "version": "autonomous-history-repair-evidence-v6",
+  "correctness": "PASS",
+  "audited_core_curriculum": "PASS",
+  "economic_scale_out": "NO-GO",
+  "gru_gate_reached": false,
+  "simulation_source_sha256": "6bdd8febe608928d9ec985f47ece0300f386843d937c504a17fb69827d59fbc3",
+  "action_version": 3,
+  "observation_version": 5,
+  "environment_version": 5,
+  "replay_version": 5,
+  "save_envelope": "ANTHROPOCENE-12",
+  "learner_model_version": 5,
+  "feature_width": 1061,
+  "native_history_assertions": 77,
+  "native_history_validation_resolves": 9,
+  "native_history_replay_resolves": 9,
+  "native_autonomous_assertions": 471,
+  "native_legacy_assertions": 143,
+  "learner_full_suite": {
+    "passed": 184,
+    "skipped": 5,
+    "seconds": 94.88
+  },
+  "learner_final_history_suite": {
+    "passed": 14,
+    "seconds": 5.73
+  },
+  "net_passing_cases": 189,
+  "frozen_old_mode_fingerprints": 8,
+  "old_mode_fixture_sha256": "2c28c9dca808ac1b0dd9b9f59db74f2d71b42cd92d9f00c9fbea7d5c9a6a2e5f",
+  "failed_old_mode_attempts": {
+    "heuristic_resolves": 8,
+    "reason": "Nomad camp0 selected; no resident Elder economy"
+  },
+  "successful_old_mode_resolves": {
+    "heuristic": 8,
+    "five_head": 6,
+    "five_head_replay": 6
+  },
+  "native_bank_proof": {
+    "validation_resolves": 100,
+    "replay_resolves": 100,
+    "retained_training": 0,
+    "parents": 8,
+    "discarded_ppo_updates": 1,
+    "discarded_ppo_rows": 8,
+    "scope": "TRAIN only"
+  },
+  "generation": {
+    "status": "PASS_WITH_GAPS",
+    "generation_resolves": 3200,
+    "replay_resolves": 3200,
+    "wall_seconds": 167.5651472,
+    "worlds": 24,
+    "trajectories": 128,
+    "snapshots": 511,
+    "unavailable_raw": 69,
+    "unavailable_unique": 65,
+    "initial_failures": 2,
+    "partitions": {
+      "train": 335,
+      "development": 92,
+      "heldout": 84
+    },
+    "eligible": {
+      "train": 196,
+      "development": 42,
+      "heldout": 43
+    },
+    "train_eligible_by_decision": {
+      "0": 64,
+      "2": 59,
+      "8": 43,
+      "25": 30
+    },
+    "events": {
+      "moves": 22,
+      "trades": 389,
+      "migrants": 4212,
+      "daughters": 156
+    },
+    "manifest_sha256": "af25c64bd34cad149fcfa9d56b06a285ce981cb5da4c47a1e4e8ca0625a07b70"
+  },
+  "native_bank_audit": {
+    "reset_requests": 511,
+    "native_steps": 0,
+    "model_calls": 0,
+    "optimizer_updates": 0,
+    "heldout_neural_use": 0,
+    "wall_seconds": 20.201825124000607
+  },
+  "benchmark": {
+    "resolves": 36,
+    "mature_scale_clearance": false,
+    "speedup_claim": false
+  },
+  "retained_new_native_training_transitions": 0,
+  "independent_reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "correctness": "PASS",
+    "scale_out": "NO-GO"
+  },
+  "preservation": {
+    "old_bridge_sha256": "95709ffab3862d95a76a9bf18c63bbf0b0dab771c0a3b2edc4ee030ec773d127",
+    "all_existing_checkpoints_unchanged": true,
+    "all_existing_banks_unchanged": true,
+    "no_main_merge": true,
+    "no_gpu_ecology": true
+  },
+  "review_google_doc": "https://docs.google.com/document/d/1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04/edit",
+  "limitations": [
+    "Direct cultivation-hex selection remains native",
+    "Retention cannot keep herd growth above opening herd",
+    "Reciprocal autonomous quotes require controlled peers",
+    "Husbandry/fishing neural faces remain quarantined",
+    "Existing EMA capture has global herd/event scans",
+    "No repaired-model economic learning campaign performed"
+  ],
+  "evidence_hashes": {
+    "fresh-bank-attempt1.json": "d1c592d9548ddd6a3ccc01df66b5f90dd764e7673faee489ec3fcb90ad96880a",
+    "fresh-bank-attempt2.json": "71848dcb524dd31e88934b5c4cf05ad301b2b332d14eafaa36341b53b86be6fd",
+    "fresh-bank-audit.json": "557379c5eb5da18f6f9954ead67c459edd702e0ba015543f985448dc475e83c2",
+    "fresh-bank-manifest.json": "af25c64bd34cad149fcfa9d56b06a285ce981cb5da4c47a1e4e8ca0625a07b70",
+    "gcs-runtime-status.json": "7db1269c6d97a28c29e8606939a33f5107311825c3791216a8f1ec7c47898006",
+    "independent-final-review.md": "3df36a8e0e90bf4b64a137702357f4c2205e35a01d5b8095b89e94817e144378",
+    "native-benchmark.json": "3ae0fba7bade3b0c297605fc59842f39a60dec7a37f55ddc0a3043d79664456e",
+    "native-proof-summary.json": "073b928327f76d828bcbc2fc4248fe9777f9327e27966ade8648984e9a245d73",
+    "old-mode-fingerprints.txt": "8a524cd65941406edbfe491847d219792cdc50b89b34111303997ac25137513d"
+  },
+  "core_progression_admission": "Stop before MLP input on new herder/fisher masks; explicit boolean override only",
+  "executed_generator_sha256": "36e694b115c3e449b288e700df25f82d4eccffedab2be88d0a6ce82f094ef6e1",
+  "current_generator_sha256": "9ec129ace7592cc972a610fe02b17535aa6e359434148f314aeac359d82a1de1",
+  "post_execution_generator_change": "Skip already-unavailable IDs on future resumes; executed output preserved.",
+  "simulator_commit": "b8894d96eda04c856760081f78ce74e21f9aead4"
+}

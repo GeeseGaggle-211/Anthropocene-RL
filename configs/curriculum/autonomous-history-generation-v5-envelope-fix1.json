@@ -1,0 +1,17 @@
+{
+  "version": "autonomous-history-generation-envelope-v1-prelaunch-review-fix1",
+  "max_generation_resolves": 3600,
+  "max_replay_resolves": 3600,
+  "wall_seconds": 600,
+  "max_candidate_snapshots": 576,
+  "neural_training": 0,
+  "simulation_source_sha256": "6bdd8febe608928d9ec985f47ece0300f386843d937c504a17fb69827d59fbc3",
+  "inputs": {
+    "configs/curriculum/autonomous-history-fresh-v5.json": "aa12b09348dc612844baa7d7dd7f41446eb72bdc619529130cd44d93cc993c7c",
+    "integration/AutonomousHistoryCurriculum.cs": "07721bfe82dae2274333dacece4a00db5bcd94faa8ca4663f308ee428c991348",
+    "integration/SnapshotScenarioFactory.cs": "d795c058db160ba30841a6ea7a075b0e14ebb2fa466583f7b1a222f3013f71d4",
+    "integration/SnapshotBankContracts.cs": "2024a698209c4f4426a1f3788dd48d6d945989c8aeaeace04adabb91d5c1b88d",
+    "docs/AUTONOMOUS_HISTORY_REPAIR_CONTRACT_V6.md": "dbb2a295cbf471ed8bdf5b2cdc9b02ebd94b4231b80d9595e7671016a1492f37"
+  },
+  "supersedes_prelaunch_envelope_sha256": "1dc8440ce6821ad845265de656b9a30b08702925ed30897ddf1bf68c9c1ae382"
+}

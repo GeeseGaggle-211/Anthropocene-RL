@@ -41,6 +41,7 @@ namespace Anthropocene.SnapshotBank
         public int GenerationSeed, CalibrationRolloutSteps;
         public int F15SharedCaptureHorizonSteps;
         public bool VerifyDeterministicRegeneration;
+        public bool EnableHistoryFishing;
         public double LocalMovementRadius;
         public Dictionary<string, double> CapabilityExperienceThresholds =
             new Dictionary<string, double>();

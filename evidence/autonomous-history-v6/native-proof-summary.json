@@ -1,0 +1,187 @@
+{
+  "version": "autonomous-history-native-proof-v6",
+  "status": "PASS",
+  "validation_resolves": 100,
+  "replay_resolves": 100,
+  "bank_sha256": "08e2f10a41f8ba5e5be3f8a05e8e1e9044168889743ca6b0f2078e853d2d469e",
+  "bridge_sha256": "5b653f7cd78ba93d26c078ea64f095c01fda30f5e682a348e7010b88cf193a4a",
+  "script_sha256": "d97ba9ab9678eb8795bfb59d8a73eedb63e3f16ac86577f3b2d3ccf66fc68ee8",
+  "transfers": [
+    {
+      "cell": "small_step-h100-seed29",
+      "parent_sha256": "2f1fa0c59dfd8cbd7f911dcb3e7467c4a070309584dfe2655d1bb8686cb224e5",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "small_step-h100-seed43",
+      "parent_sha256": "bfa13c366c52723eec619ac0a2faef96e49a3ba860ea6dce56207fe1e90b2a84",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "small_step-h400-seed29",
+      "parent_sha256": "9fce23cb19c6cbf732880b0f4c8a694138ca398cf8824727afb8615547d8524b",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "small_step-h400-seed43",
+      "parent_sha256": "a35b4f1fc973bd927bbcfe80930c7ce0a5156ac00b0059523eebc3d2fb06cdfe",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "residual_layernorm-h100-seed29",
+      "parent_sha256": "bb175f32dcb813b4b80d46742161a1d4bdea0626b6a3713de4fb8afb8c4427a0",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "residual_layernorm-h100-seed43",
+      "parent_sha256": "157ee1b7cf482cb2969cb378f928a329579e5ce13d16bbd146062ede593aef5c",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "residual_layernorm-h400-seed29",
+      "parent_sha256": "ab9b927acfdc6e7b33e56d408bb491212984a4de1b25d9d70e09f5d7bbd6b70a",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    },
+    {
+      "cell": "residual_layernorm-h400-seed43",
+      "parent_sha256": "92da997d571eb147d31ccd27be32d2e0e2982b90f100dfd29c58f0dc7d505613",
+      "probabilities_equal": true,
+      "values_equal": true,
+      "observations": 36
+    }
+  ],
+  "retained_native_training": 0,
+  "discarded_native_ppo_mechanical_rows": 8,
+  "discarded_ppo_updates": 1,
+  "canonical_collection": "PASS",
+  "native_ppo_history_gradients": "PASS",
+  "wall_seconds": 12.272035671005142,
+  "observations": 36,
+  "models_converted": 8,
+  "episodes": [
+    {
+      "id": "train-831001-survival",
+      "family": "survival",
+      "steps": 6,
+      "moved": 0,
+      "trades": 0,
+      "source_sha256_unchanged": "54324c6f1b8b2a7b10b6303682f254b2f09c8faceef69fb3a57bcc7187e85c58",
+      "fingerprint": "2A69DA96CA3BC1FF6EF12E11330250402D334DA2217F050501B8970F56D4FA22"
+    },
+    {
+      "id": "train-831001-trade",
+      "family": "trade",
+      "steps": 6,
+      "moved": 0,
+      "trades": 2,
+      "source_sha256_unchanged": "092e59c6664d9825acb1946c8db639b66eddb65e647e1ddd64f774d86f4a4f74",
+      "fingerprint": "4FD4EE94859C5F9CEE2826CA0D539151C7F87ACF40C1112C81BA36003CA3C32B"
+    },
+    {
+      "id": "train-831001-migration",
+      "family": "migration",
+      "steps": 6,
+      "moved": 1,
+      "trades": 0,
+      "source_sha256_unchanged": "2b9c9f58eda8b85fd829cd89c8e770b571fb67c1b6539d9bb10c017fb01a5b6d",
+      "fingerprint": "9421DE395F6464FF682D9B7B19352928BBDFA6F904093745500DEDDBACF22920"
+    },
+    {
+      "id": "train-831001-fission",
+      "family": "fission",
+      "steps": 6,
+      "moved": 0,
+      "trades": 0,
+      "source_sha256_unchanged": "7e327057ba1a7989e8cee84da52be2bdbfc4fa687c4a64cb5bc28a3319352391",
+      "fingerprint": "FD7F69EE030D4C96752C4CA1E5E433F13CE1FA3F2872274ECE58AA05FF3AAE9C"
+    },
+    {
+      "id": "train-831002-survival",
+      "family": "survival",
+      "steps": 6,
+      "moved": 0,
+      "trades": 0,
+      "source_sha256_unchanged": "5d38af062f76edd172d45a25a68e012f0d57289bc1564924e83c8b4823e1628e",
+      "fingerprint": "2CC0A179162177742221C73C891EE9B734771F9EE6FDB578B435C67D5CCCF501"
+    },
+    {
+      "id": "train-831002-trade",
+      "family": "trade",
+      "steps": 6,
+      "moved": 0,
+      "trades": 5,
+      "source_sha256_unchanged": "53b80f892658aed2219a3f7c4c998c957b078364a14b0c415ae021dd19843a7f",
+      "fingerprint": "C79E6B26873CD49E942B2507A74F9B69E7B3E104FD88A70C0F9C2AB3AB66A2DE"
+    },
+    {
+      "id": "train-831002-migration",
+      "family": "migration",
+      "steps": 6,
+      "moved": 1,
+      "trades": 0,
+      "source_sha256_unchanged": "56027e2fb058ae2572e6d30659f649e93008619125153e7be2d1946542719ff2",
+      "fingerprint": "1EBF867EA7B789778310B47E1D3DCFCB82F669E77746BC2B53605E462B3D8A77"
+    },
+    {
+      "id": "train-831002-fission",
+      "family": "fission",
+      "steps": 6,
+      "moved": 0,
+      "trades": 0,
+      "source_sha256_unchanged": "7c8d4e06d69207a8855240d7e4c0bd107c65cc5b8624be4e6b65cc6fb0b2a9b4",
+      "fingerprint": "D2EF45C93D1893ADBDE04F20AB51DF9A2F9322A61B46D6641BF34AA3BB3754DC"
+    },
+    {
+      "id": "train-831003-survival",
+      "family": "survival",
+      "steps": 6,
+      "moved": 0,
+      "trades": 0,
+      "source_sha256_unchanged": "042cdeaa879c5b2c95b52f7609c643df2864b64e324a2cb5d97b40a320b70fa9",
+      "fingerprint": "3876464B1AF3E802D9E5C8D8F25BBFDB2F1A8F69B620F7450FCBDD3C13CB95C5"
+    },
+    {
+      "id": "train-831003-trade",
+      "family": "trade",
+      "steps": 6,
+      "moved": 0,
+      "trades": 2,
+      "source_sha256_unchanged": "78b8b7f59d74aeda0dee0e011997a18139e9241a0024aa3941207cc7b0026107",
+      "fingerprint": "30008DC429AAFF50DD4BE6876E7448AD805370177EE852266D01B2DD85581D76"
+    },
+    {
+      "id": "train-831003-migration",
+      "family": "migration",
+      "steps": 6,
+      "moved": 1,
+      "trades": 0,
+      "source_sha256_unchanged": "5e5a9031d52daa1a1f445f7e3f25e0824da21dfaa149d3eb161b387ca645698b",
+      "fingerprint": "2D8D394C0204F96FAD08B25CC215CFC342C7D773CDE9642D112F9012A2EF0D75"
+    },
+    {
+      "id": "train-831003-fission",
+      "family": "fission",
+      "steps": 6,
+      "moved": 0,
+      "trades": 0,
+      "source_sha256_unchanged": "6df92e2e02f354fa11fb611be09906e5d2d36a2aaf4f6454b77388802160726c",
+      "fingerprint": "5A54D5BEE44BB50EFF48DDD5F81FE03563CDFA1BEA37E384B26D953944D078C0"
+    }
+  ],
+  "raw_proof_sha256": "79b46e5060d929498b49c2ed8929a665d39518de667dc7c7e1d4abc89873bacb",
+  "raw_observations_sha256": "69e4e7913b8acfc0d39ebb29db3ae0d4dd11e85d67e0e69642b7c2c1a9f17c3c"
+}

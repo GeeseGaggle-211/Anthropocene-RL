@@ -63,11 +63,14 @@ class DeadlineTransport(AutonomousTransport):
 class Collector:
     """Native worlds per worker; immutable model shared only during collection."""
 
+    transport_class = DeadlineTransport
+    episode_runner = staticmethod(episode)
+
     def __init__(self, command, *, workers=4, deadline, request_timeout=60):
         if workers not in (1, 2, 4):
             raise ValueError("Only 1, 2, or 4 native workers are allowed")
         self.transports = [
-            DeadlineTransport(command, deadline=deadline, request_timeout=request_timeout)
+            self.transport_class(command, deadline=deadline, request_timeout=request_timeout)
             for _ in range(workers)
         ]
         self.pool = ThreadPoolExecutor(max_workers=workers)
@@ -80,7 +83,7 @@ class Collector:
             result = []
             for job_index in range(index, len(jobs), self.workers):
                 job = jobs[job_index]
-                batch, summary = episode(
+                batch, summary = self.episode_runner(
                     model,
                     self.transports[index],
                     bank,

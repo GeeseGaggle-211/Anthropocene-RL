@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autonomous Environment 5 Step Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "op",
+    "actions"
+  ],
+  "properties": {
+    "op": {
+      "const": "autonomous5_step"
+    },
+    "actions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[0-9]+$"
+      },
+      "additionalProperties": {
+        "$ref": "elder-autonomous-action-v3.schema.json"
+      }
+    }
+  },
+  "$comment": "Negotiated with autonomous5_schema: action3/observation5/environment5/replay5. All living controlled villages submit at one WEGO boundary. Save12 preserves institution/action receipts."
+}

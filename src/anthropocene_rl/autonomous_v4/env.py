@@ -59,6 +59,10 @@ class AutonomousElderEnv(gym.Env):
     """
 
     metadata: ClassVar[dict[str, Any]] = {"render_modes": []}
+    schema_versions = (ACTION_VERSION, OBSERVATION_VERSION, ENVIRONMENT_VERSION, REPLAY_VERSION)
+    feature_width = FEATURE_WIDTH
+    decode_observation = staticmethod(observation)
+    encode_features = staticmethod(features)
 
     def __init__(
         self,
@@ -72,10 +76,18 @@ class AutonomousElderEnv(gym.Env):
         self.peers = dict(peers or {})
         self.limit = decision_limit
         schema = transport.schema()
-        if tuple(
-            schema[k]
-            for k in ("actionVersion", "observationVersion", "environmentVersion", "replayVersion")
-        ) != (ACTION_VERSION, OBSERVATION_VERSION, ENVIRONMENT_VERSION, REPLAY_VERSION):
+        if (
+            tuple(
+                schema[k]
+                for k in (
+                    "actionVersion",
+                    "observationVersion",
+                    "environmentVersion",
+                    "replayVersion",
+                )
+            )
+            != self.schema_versions
+        ):
             raise ValueError("Autonomous schema mismatch")
         self.action_space = spaces.Dict(
             {
@@ -86,16 +98,18 @@ class AutonomousElderEnv(gym.Env):
                 "trade": spaces.MultiDiscrete([2, 8, 11, 11, 3, 3]),
             }
         )
-        self.observation_space = spaces.Box(-np.inf, np.inf, (FEATURE_WIDTH,), np.float32)
+        self.observation_space = spaces.Box(-np.inf, np.inf, (self.feature_width,), np.float32)
         self.current: dict[int, dict[str, Any]] = {}
         self.done = True
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
         response = self.transport.reset_world(self.snapshot, [self.focal, *self.peers], self.limit)
-        self.current = {int(k): observation(v) for k, v in response["observations"].items()}
+        self.current = {
+            int(k): self.decode_observation(v) for k, v in response["observations"].items()
+        }
         self.done = False
-        return features(self.current[self.focal]), {
+        return self.encode_features(self.current[self.focal]), {
             "native": self.current[self.focal],
             "fingerprint": response["fingerprint"],
         }
@@ -111,12 +125,18 @@ class AutonomousElderEnv(gym.Env):
                 actions[camp] = policy({k: v.copy() for k, v in self.current[camp].items()})
         response = self.transport.step_world(actions)
         result = response["result"]
-        self.current = {int(k): observation(v) for k, v in result["Observations"].items()}
+        self.current = {
+            int(k): self.decode_observation(v) for k, v in result["Observations"].items()
+        }
         terminated = self.focal not in self.current
         truncated = result["Truncated"] and not terminated
         self.done = terminated or truncated
         native = self.current.get(self.focal)
-        obs = np.zeros(FEATURE_WIDTH, np.float32) if native is None else features(native)
+        obs = (
+            np.zeros(self.feature_width, np.float32)
+            if native is None
+            else self.encode_features(native)
+        )
         return (
             obs,
             result["Rewards"][str(self.focal)],

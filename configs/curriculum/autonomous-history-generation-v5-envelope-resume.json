@@ -1,0 +1,26 @@
+{
+  "version": "autonomous-history-generation-envelope-v1-resume",
+  "max_generation_resolves": 3600,
+  "max_replay_resolves": 3600,
+  "wall_seconds": 600,
+  "max_candidate_snapshots": 576,
+  "neural_training": 0,
+  "simulation_source_sha256": "6bdd8febe608928d9ec985f47ece0300f386843d937c504a17fb69827d59fbc3",
+  "inputs": {
+    "configs/curriculum/autonomous-history-fresh-v5.json": "950ce063b1de9cd5bf505d592884075014b966b40047cea5597b444ef193e7e3",
+    "integration/AutonomousHistoryCurriculum.cs": "e8f3559a0e7f683b20b96e8cb0cdfdbcd901577106693b38476850739647b62d",
+    "integration/SnapshotScenarioFactory.cs": "e88eb8ec4188c6e153ecb07222622a1c2d74fb1149f115f2485ca56a0546ee11",
+    "integration/SnapshotBankContracts.cs": "960c091107c90cc158f7102bd958b317dbe0b3b6dc05ee6b0d76bbb98986af0a",
+    "docs/AUTONOMOUS_HISTORY_REPAIR_CONTRACT_V6.md": "dbb2a295cbf471ed8bdf5b2cdc9b02ebd94b4231b80d9595e7671016a1492f37"
+  },
+  "supersedes_prelaunch_envelope_sha256": "bfa2d01097532f52d3084902ca34a361b510fc8f7afd84648204f6a1007fcab0",
+  "preserved_attempt1_manifest_sha256": "d1c592d9548ddd6a3ccc01df66b5f90dd764e7673faee489ec3fcb90ad96880a",
+  "cumulative_prior": {
+    "generation_resolves": 125,
+    "replay_resolves": 125,
+    "wall_seconds": 12.0770779,
+    "snapshots": 20,
+    "completed_trajectories": 5
+  },
+  "resume_rule": "Preserve hashes and first failed manifest; skip only exact no-compatible-site factory gaps; cumulative original caps; no replay/regeneration of completed trajectories."
+}

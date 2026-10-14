@@ -75,8 +75,8 @@ namespace Anthropocene.SnapshotBank
                 config.TradeEnabled = true;
                 config.ImmigrationEnabled = true;
                 config.FissionEnabled = true;
-                config.NeolithicFishingEnabled = false;
-                config.CorrectedAquaticSeasonalPressureEnabled = false;
+                config.NeolithicFishingEnabled = plan.EnableHistoryFishing;
+                config.CorrectedAquaticSeasonalPressureEnabled = plan.EnableHistoryFishing;
                 config.FissionPressureRule =
                     FissionPressureRule.CurrentPlusExitOpportunity;
             }
