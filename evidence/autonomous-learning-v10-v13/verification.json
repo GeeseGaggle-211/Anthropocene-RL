@@ -1,0 +1,37 @@
+{
+  "learner": {
+    "passed": 239,
+    "skipped": 5,
+    "full_suite_seconds": 101.4
+  },
+  "native": {
+    "needs": 83,
+    "autonomy": 471,
+    "history": 77,
+    "growth": 63,
+    "old_five_head": 143,
+    "adjacent_other": 3622,
+    "legacy_fingerprints_exact": 8
+  },
+  "native_source_sha256": "65658893cf86707d9e7cbf852ec7932e2bdfaed036ae4571772382c0e5762664",
+  "new_bridge_sha256": "09b0160df28aac71d5465cd2ef38e7b5a74d4576b4c2d0ed34d6987637f197cf",
+  "runtime_gcs": {
+    "spec_revision": "102",
+    "observations_current": true,
+    "network_state": "unknown",
+    "outbound_identities": [],
+    "read_access_verified": false
+  },
+  "suspended_v12": {
+    "status": "UNEXECUTED_SUPERSEDED_BY_NEW_PHYSICS",
+    "native_steps": 0,
+    "model_calls": 0
+  },
+  "review": {
+    "model": "gpt-6-astra",
+    "effort": "high",
+    "native": "GO",
+    "integration": "GO",
+    "scale_out": "NO-GO"
+  }
+}

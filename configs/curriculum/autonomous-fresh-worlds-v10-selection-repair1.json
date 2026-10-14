@@ -1,0 +1,580 @@
+{
+  "version": "fresh-world-admission-v10",
+  "fit_worlds": [
+    886001,
+    886002,
+    886003,
+    886004
+  ],
+  "validation_worlds": [
+    886005,
+    886006
+  ],
+  "development_worlds": [
+    886007,
+    886008
+  ],
+  "calibration": [
+    {
+      "world_seed": 886001,
+      "family": "survival",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886001,
+      "family": "trade",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886001,
+      "family": "migration",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886001,
+      "family": "fission",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886001,
+      "family": "husbandry",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886001,
+      "family": "fishing",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886002,
+      "family": "survival",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886002,
+      "family": "trade",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886002,
+      "family": "migration",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886002,
+      "family": "fission",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886002,
+      "family": "husbandry",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886002,
+      "family": "fishing",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 886005,
+      "family": "survival",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886005,
+      "family": "trade",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886005,
+      "family": "migration",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886005,
+      "family": "fission",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886005,
+      "family": "husbandry",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886005,
+      "family": "fishing",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886006,
+      "family": "survival",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886006,
+      "family": "trade",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886006,
+      "family": "migration",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886006,
+      "family": "fission",
+      "ages": [
+        8,
+        0,
+        2
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886006,
+      "family": "husbandry",
+      "ages": [
+        0,
+        2,
+        8
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 886006,
+      "family": "fishing",
+      "ages": [
+        2,
+        0,
+        8
+      ],
+      "role": "validation"
+    }
+  ],
+  "ppo": [
+    {
+      "world_seed": 886001,
+      "family": "survival",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886001,
+      "family": "trade",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886001,
+      "family": "migration",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886001,
+      "family": "fission",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886001,
+      "family": "husbandry",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886001,
+      "family": "fishing",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886002,
+      "family": "survival",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886002,
+      "family": "trade",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886002,
+      "family": "migration",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886002,
+      "family": "fission",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886002,
+      "family": "husbandry",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886002,
+      "family": "fishing",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886003,
+      "family": "survival",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886003,
+      "family": "trade",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886003,
+      "family": "migration",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886003,
+      "family": "fission",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886003,
+      "family": "husbandry",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886003,
+      "family": "fishing",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886004,
+      "family": "survival",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886004,
+      "family": "trade",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886004,
+      "family": "migration",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886004,
+      "family": "fission",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886004,
+      "family": "husbandry",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    }
+  ],
+  "development": [
+    {
+      "world_seed": 886007,
+      "family": "survival",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886007,
+      "family": "trade",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886007,
+      "family": "migration",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886007,
+      "family": "fission",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886007,
+      "family": "husbandry",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886007,
+      "family": "fishing",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886008,
+      "family": "survival",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886008,
+      "family": "trade",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886008,
+      "family": "migration",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    },
+    {
+      "world_seed": 886008,
+      "family": "fission",
+      "ages": [
+        2,
+        0,
+        8
+      ]
+    },
+    {
+      "world_seed": 886008,
+      "family": "husbandry",
+      "ages": [
+        8,
+        0,
+        2
+      ]
+    },
+    {
+      "world_seed": 886008,
+      "family": "fishing",
+      "ages": [
+        0,
+        2,
+        8
+      ]
+    }
+  ],
+  "selection_rule": "Fixed primary ages balanced by world/family index, then0/2/8 ordered physical fallback; no welfare/model selection",
+  "physical_gap_repair": "Omit only physically unavailable886004/fishing PPO slot recorded by generation, preserving three other fishing fitting worlds and all partitions; no model/welfare selection"
+}

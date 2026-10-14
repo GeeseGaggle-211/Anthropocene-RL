@@ -1,0 +1,17 @@
+{
+  "version": "autonomous-fresh-validation-admission-v11",
+  "stage": "admit",
+  "status": "PASS",
+  "config_sha256": "587297abf6aab9fc5bd77579641078f8829a8b901c201d80029465f11f3943f3",
+  "retained_updates": 0,
+  "budget": {
+    "caps": {},
+    "attempted": {},
+    "prior_resolves": 71365,
+    "total_resolves": 71365,
+    "prior_wall_seconds": 2398.8012206090207,
+    "active_wall_seconds": 1.3587863099965034,
+    "cumulative_wall_seconds": 2400.1600074690214
+  },
+  "cells": []
+}

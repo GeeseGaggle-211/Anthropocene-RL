@@ -1,0 +1,52 @@
+{
+  "version": "autonomous-fresh-world-generation-v10",
+  "status": "PASS",
+  "neural_calls": 0,
+  "optimizer_steps": 0,
+  "manifest_sha256": "748f5b9b28e9cb7981f8d551e242b98f65a4e4e939c3d8aad99cb58554b43771",
+  "snapshots": 188,
+  "source_native_version": "autonomous-opportunity-v9",
+  "actual_generation_resolves": 1175,
+  "actual_replay_resolves": 1175,
+  "unavailable": [
+    {
+      "id": "train-886004-fishing",
+      "decision_index": 0,
+      "ended_at_decision": 0,
+      "reason": "No physically compatible site for requested fishing/field strata."
+    },
+    {
+      "id": "train-886004-fishing",
+      "decision_index": 2,
+      "ended_at_decision": 0,
+      "reason": "No physically compatible site for requested fishing/field strata."
+    },
+    {
+      "id": "train-886004-fishing",
+      "decision_index": 8,
+      "ended_at_decision": 0,
+      "reason": "No physically compatible site for requested fishing/field strata."
+    },
+    {
+      "id": "train-886004-fishing",
+      "decision_index": 25,
+      "ended_at_decision": 0,
+      "reason": "No physically compatible site for requested fishing/field strata."
+    }
+  ],
+  "budget": {
+    "caps": {
+      "generation": 1200,
+      "generation_replay": 1200
+    },
+    "attempted": {
+      "generation": 1200,
+      "generation_replay": 1200
+    },
+    "prior_resolves": 27951,
+    "total_resolves": 30351,
+    "prior_wall_seconds": 912.8917767360253,
+    "active_wall_seconds": 55.88991786699626,
+    "cumulative_wall_seconds": 968.7816948330146
+  }
+}

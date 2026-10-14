@@ -1,0 +1,4823 @@
+{
+  "version": "autonomous-reward-first1024-v11",
+  "stage": "train",
+  "status": "STAGED_REVIEW_REQUIRED",
+  "config_sha256": "1214808de17f0aaaa6325bdc29b84bc609bb6720667c072ccbab3ecb49a1db33",
+  "budget": {
+    "caps": {
+      "training": 9216,
+      "evaluation": 2700,
+      "evaluation_replay": 2700
+    },
+    "attempted": {
+      "training": 9216,
+      "evaluation": 2667,
+      "evaluation_replay": 2667
+    },
+    "prior_resolves": 56199,
+    "total_resolves": 70749,
+    "prior_wall_seconds": 1840.2132565680222,
+    "active_wall_seconds": 539.2975817960105,
+    "cumulative_wall_seconds": 2379.5108385850326
+  },
+  "cells": [
+    {
+      "id": "original-seed101",
+      "seed": 101,
+      "kind": "original",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 8.593560218811035,
+          "actor_step_l2": 0.06822279095649719,
+          "critic_step_l2": 0.18355901539325714,
+          "actor_relative_step": 0.0017253655303342747,
+          "critic_relative_step": 0.004668100746685301,
+          "actor_first_layer_grad": 6.089794635772705,
+          "critic_first_layer_grad": 2.3636105060577393,
+          "advantage_std": 2.889671611046823,
+          "return_std": 9.267353172812227,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.02127547599907583,
+          "clip_fraction": 0.06808035714285714,
+          "head_gradient_max": {
+            "simplex": 35.74613615870476,
+            "movement": 3.9395378809422255,
+            "enabled": 1.7598774135112762,
+            "partner": 0.5725354924798012,
+            "give": 2.6828872822225094,
+            "want": 3.3777642771601677,
+            "lot": 2.5973125379532576,
+            "price": 1.8121535629034042
+          }
+        },
+        {
+          "critic_residual_mse": 7.240769386291504,
+          "actor_step_l2": 0.056300632655620575,
+          "critic_step_l2": 0.23674152791500092,
+          "actor_relative_step": 0.0014238512373666967,
+          "critic_relative_step": 0.006020501508244963,
+          "actor_first_layer_grad": 4.3627238273620605,
+          "critic_first_layer_grad": 1.8399672508239746,
+          "advantage_std": 2.677261702054137,
+          "return_std": 6.679994640428257,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.009892862787050673,
+          "clip_fraction": 0.06473214285714286,
+          "head_gradient_max": {
+            "simplex": 37.835219249129295,
+            "movement": 4.057000124827027,
+            "enabled": 1.8939648251980543,
+            "partner": 0.7950982255861163,
+            "give": 1.8153738155961037,
+            "want": 2.70737549290061,
+            "lot": 2.117582993581891,
+            "price": 1.7729006577283144
+          }
+        },
+        {
+          "critic_residual_mse": 8.218591690063477,
+          "actor_step_l2": 0.0709930956363678,
+          "critic_step_l2": 0.23713593184947968,
+          "actor_relative_step": 0.0017954233508761877,
+          "critic_relative_step": 0.006030356557087219,
+          "actor_first_layer_grad": 4.21487283706665,
+          "critic_first_layer_grad": 2.202087163925171,
+          "advantage_std": 2.836361082056048,
+          "return_std": 7.334580704626632,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.015610651976644217,
+          "clip_fraction": 0.04241071428571429,
+          "head_gradient_max": {
+            "simplex": 38.19644406437874,
+            "movement": 4.106456795707345,
+            "enabled": 1.820266081020236,
+            "partner": 0.5368891409598291,
+            "give": 2.85231944732368,
+            "want": 3.2104633692651987,
+            "lot": 1.9096321500837803,
+            "price": 2.3846804313361645
+          }
+        },
+        {
+          "critic_residual_mse": 13.692985534667969,
+          "actor_step_l2": 0.06534866988658905,
+          "critic_step_l2": 0.24147826433181763,
+          "actor_relative_step": 0.0016526692913402918,
+          "critic_relative_step": 0.00614066632142316,
+          "actor_first_layer_grad": 4.9374003410339355,
+          "critic_first_layer_grad": 2.5811853408813477,
+          "advantage_std": 3.6944377487689497,
+          "return_std": 9.644205931274362,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.013499643374763188,
+          "clip_fraction": 0.07254464285714286,
+          "head_gradient_max": {
+            "simplex": 36.43935176730156,
+            "movement": 3.9831040147691965,
+            "enabled": 1.996655035763979,
+            "partner": 1.4096246054396033,
+            "give": 3.241662124171853,
+            "want": 3.0911993235349655,
+            "lot": 2.2821828722953796,
+            "price": 1.7141191493719816
+          }
+        },
+        {
+          "critic_residual_mse": 38.527793884277344,
+          "actor_step_l2": 0.04028676450252533,
+          "critic_step_l2": 0.17917458713054657,
+          "actor_relative_step": 0.001018849322394856,
+          "critic_relative_step": 0.0045560696875681424,
+          "actor_first_layer_grad": 4.151311874389648,
+          "critic_first_layer_grad": 6.5752129554748535,
+          "advantage_std": 5.989563646127042,
+          "return_std": 11.542745452183366,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.013349626438182546,
+          "clip_fraction": 0.015625,
+          "head_gradient_max": {
+            "simplex": 33.805028438568115,
+            "movement": 4.4071856159716845,
+            "enabled": 1.7560196435078979,
+            "partner": 1.2132182894274592,
+            "give": 3.283410232514143,
+            "want": 3.401615459471941,
+            "lot": 1.4572204807773232,
+            "price": 2.1025700233876705
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00904017873108387,
+            "mean_derivative": 0.6063714027404785,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29379868507385254,
+            "effective_rank": 22.037864403740596
+          },
+          {
+            "saturated_fraction": 0.01529017835855484,
+            "mean_derivative": 0.6261965036392212,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3025379776954651,
+            "effective_rank": 22.851783360358144
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.6000865697860718,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3561224043369293,
+            "effective_rank": 22.8870470490589
+          },
+          {
+            "saturated_fraction": 0.0062500000931322575,
+            "mean_derivative": 0.5966840982437134,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.37019187211990356,
+            "effective_rank": 23.00301483781219
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.44258058071136475,
+        "active_raw_max": 0.46288204193115234,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.02885913848877,
+            "concentration_max": 10.489469528198242,
+            "coordinate_std": 0.08949040621519089,
+            "requested_mean_max": 0.10888396203517914
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.769045352935791,
+            "concentration_max": 7.974977493286133,
+            "coordinate_std": 0.21344636380672455,
+            "requested_mean_max": 0.3878560960292816
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.4265787601470947,
+            "concentration_max": 2.4488773345947266,
+            "coordinate_std": 0.2675151824951172,
+            "requested_mean_max": 0.5636201500892639
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9987660050392151,
+            "maximum_probability": 0.17497187852859497,
+            "probability_std": 0.043314892798662186
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3083142936229706,
+            "maximum_probability": 0.9322473406791687,
+            "probability_std": 0.2806381583213806
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5828697681427002,
+            "maximum_probability": 0.8468840718269348,
+            "probability_std": 0.08870433270931244
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.38333648443222046,
+            "maximum_probability": 0.7915448546409607,
+            "probability_std": 0.09573826193809509
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6251920461654663,
+            "maximum_probability": 0.5312120318412781,
+            "probability_std": 0.05341675132513046
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6288380026817322,
+            "maximum_probability": 0.7432063221931458,
+            "probability_std": 0.11158116906881332
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6386053562164307,
+            "maximum_probability": 0.7354466319084167,
+            "probability_std": 0.11559153348207474
+          }
+        },
+        "value_std": 18.00051498413086,
+        "value_input_gradient": 10.927816390991211,
+        "receipt_sensitivity": {
+          "workforce": 0.00017871461750473827,
+          "activities": 4.3021838791901246e-05,
+          "controls": 0.0010693345684558153,
+          "movement": 0.00040924744098447263,
+          "enabled": 0.003530096262693405,
+          "partner": 0.003938484005630016,
+          "give": 0.0065374658443033695,
+          "want": 0.015834927558898926,
+          "lot": 0.06184767931699753,
+          "price": 0.06312908977270126
+        },
+        "receipt_value_sensitivity": 2.6426494121551514
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/original-seed101-step1024.pt",
+      "checkpoint_sha256": "1c6127fc87ffea6ba048f98b9703d46bf4d1ffaa9b4c92e78e2c87bbe5a0f73e",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 231,
+        "transitions": 5520,
+        "updates": 27
+      },
+      "training_endpoints": {
+        "mean_final_population": 11.386363636363637,
+        "mean_final_realized_qol": 0.15598287096931832,
+        "mean_living_endpoint_qol": 0.15598287096931832,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 44
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.400474081393835,
+              0.00011460595123935491
+            ],
+            "after": [
+              -19.089223964220942,
+              0.012474076822400093
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.69781433733285,
+              -0.012474076822400093
+            ],
+            "after": [
+              -19.59583571093446,
+              0.001969665288925171
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00904017873108387,
+            "mean_derivative": 0.6060075163841248,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29082632064819336,
+            "effective_rank": 22.037997030251343
+          },
+          {
+            "saturated_fraction": 0.014508928172290325,
+            "mean_derivative": 0.6204337477684021,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29639819264411926,
+            "effective_rank": 22.84787376696047
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.01227678544819355,
+            "mean_derivative": 0.6051440834999084,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.36017081141471863,
+            "effective_rank": 22.786455749651147
+          },
+          {
+            "saturated_fraction": 0.00747767835855484,
+            "mean_derivative": 0.5992932915687561,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38554543256759644,
+            "effective_rank": 22.898050121350536
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.500155508518219,
+        "active_raw_max": 0.5420018434524536,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.14118480682373,
+            "concentration_max": 10.600225448608398,
+            "coordinate_std": 0.08891727030277252,
+            "requested_mean_max": 0.11415835469961166
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.774214267730713,
+            "concentration_max": 7.972440242767334,
+            "coordinate_std": 0.21320688724517822,
+            "requested_mean_max": 0.3902188837528229
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.449251174926758,
+            "concentration_max": 2.476154327392578,
+            "coordinate_std": 0.2657787799835205,
+            "requested_mean_max": 0.5721185207366943
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9978969693183899,
+            "maximum_probability": 0.17816300690174103,
+            "probability_std": 0.043388888239860535
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.31414732336997986,
+            "maximum_probability": 0.9306979179382324,
+            "probability_std": 0.27577441930770874
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.6112700700759888,
+            "maximum_probability": 0.8298887610435486,
+            "probability_std": 0.08468008041381836
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.3877614140510559,
+            "maximum_probability": 0.7910301685333252,
+            "probability_std": 0.09570587426424026
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6153120994567871,
+            "maximum_probability": 0.5500409603118896,
+            "probability_std": 0.04947247356176376
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6436727643013,
+            "maximum_probability": 0.7369913458824158,
+            "probability_std": 0.10212227702140808
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6896937489509583,
+            "maximum_probability": 0.7061697840690613,
+            "probability_std": 0.10954699665307999
+          }
+        },
+        "value_std": 18.933116912841797,
+        "value_input_gradient": 11.043810844421387,
+        "receipt_sensitivity": {
+          "workforce": 0.0002478593378327787,
+          "activities": 5.115861858939752e-05,
+          "controls": 0.0013351140078157187,
+          "movement": 0.00045268997200764716,
+          "enabled": 0.004136765841394663,
+          "partner": 0.0041327509097754955,
+          "give": 0.00667320704087615,
+          "want": 0.01568898744881153,
+          "lot": 0.06378048658370972,
+          "price": 0.07058103382587433
+        },
+        "receipt_value_sensitivity": 2.437704563140869
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 274,
+            "zero": 24,
+            "one": 4,
+            "mean": 0.3857418351441855
+          },
+          {
+            "eligible": 67,
+            "zero": 3,
+            "one": 3,
+            "mean": 0.5308000292074383
+          },
+          {
+            "eligible": 67,
+            "zero": 3,
+            "one": 4,
+            "mean": 0.4827050301321356
+          }
+        ],
+        "steps": 300,
+        "average_qol": 0.2195855402628367,
+        "average_population": 31.656666666666666,
+        "annual_welfare": 8.136097115441457,
+        "integrated_welfare": 48816.582692648735,
+        "final_population_mean": 2.4166666666666665,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 152,
+          "trades": 2,
+          "migrants": 369,
+          "daughters": 26,
+          "quotes": 71,
+          "opportunities": 5,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.012069161,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.1019116790601296,
+          0.10276451015580582,
+          0.017814870185258336,
+          0.04839932191872379,
+          0.07919514818620083,
+          0.08848375589195426,
+          0.08615815636860898,
+          0.09550950066093804,
+          0.06947866414652902,
+          0.09383119014386382,
+          0.07902973025490943,
+          0.06970627133729729,
+          0.0677172016897808
+        ],
+        "mean_compiled_staffing": [
+          3.2866666666666666,
+          2.7466666666666666,
+          0.25,
+          1.5366666666666666,
+          2.513333333333333,
+          3.433333333333333,
+          2.6666666666666665,
+          2.8666666666666667,
+          1.7866666666666666,
+          3.0233333333333334,
+          2.91,
+          2.986666666666667,
+          1.65
+        ],
+        "total_production": [
+          28480.003915267862,
+          38178.05660560978,
+          2617.3681087019477,
+          19342.49933332224,
+          1344.6608390313665,
+          22461.9993546919,
+          37.000075663834586,
+          10.734704903791732,
+          868.0776314185072,
+          2317.3979383585274,
+          3208.9997605860553
+        ],
+        "total_extraction": [
+          77109.85716070778,
+          31045.796196203948,
+          73685.25545621717
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 2.4166666666666665,
+        "mean_final_realized_qol": 0.19980415397508333,
+        "mean_living_endpoint_qol": 0.19980415397508333,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "midpoint-seed101",
+      "seed": 101,
+      "kind": "midpoint",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 10.39313793182373,
+          "actor_step_l2": 0.06698236614465714,
+          "critic_step_l2": 0.18634982407093048,
+          "actor_relative_step": 0.0016939949841675997,
+          "critic_relative_step": 0.004739073975890045,
+          "actor_first_layer_grad": 5.511612415313721,
+          "critic_first_layer_grad": 2.7036876678466797,
+          "advantage_std": 3.12709289724353,
+          "return_std": 8.723290134685525,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.01928688665638254,
+          "clip_fraction": 0.0703125,
+          "head_gradient_max": {
+            "simplex": 36.107080698013306,
+            "movement": 4.079698225483298,
+            "enabled": 1.790561250410974,
+            "partner": 0.5466311012860388,
+            "give": 2.3869023332372308,
+            "want": 3.3910640608519316,
+            "lot": 2.1781520787626505,
+            "price": 1.4939519930630922
+          }
+        },
+        {
+          "critic_residual_mse": 6.587978839874268,
+          "actor_step_l2": 0.061862166970968246,
+          "critic_step_l2": 0.2446592152118683,
+          "actor_relative_step": 0.0015645038576631361,
+          "critic_relative_step": 0.006221804302716609,
+          "actor_first_layer_grad": 4.401815891265869,
+          "critic_first_layer_grad": 1.873443603515625,
+          "advantage_std": 2.5592189476174427,
+          "return_std": 5.998364922112554,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.010230544029890033,
+          "clip_fraction": 0.07142857142857142,
+          "head_gradient_max": {
+            "simplex": 36.441336363554,
+            "movement": 4.624539848417044,
+            "enabled": 1.6109668333083391,
+            "partner": 0.7074502403847873,
+            "give": 2.411266705021262,
+            "want": 3.0052570644766092,
+            "lot": 1.85992038436234,
+            "price": 1.8096958920359612
+          }
+        },
+        {
+          "critic_residual_mse": 19.15741539001465,
+          "actor_step_l2": 0.06860598921775818,
+          "critic_step_l2": 0.3024428188800812,
+          "actor_relative_step": 0.0017350531618235694,
+          "critic_relative_step": 0.0076911168411673515,
+          "actor_first_layer_grad": 5.249354362487793,
+          "critic_first_layer_grad": 3.0391898155212402,
+          "advantage_std": 4.2829209099387695,
+          "return_std": 7.241750043413264,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.013729935971718468,
+          "clip_fraction": 0.08482142857142858,
+          "head_gradient_max": {
+            "simplex": 32.68378238379955,
+            "movement": 4.233988406136632,
+            "enabled": 1.4528894126415253,
+            "partner": 1.291715214960277,
+            "give": 3.0010896474123,
+            "want": 3.4930705297738314,
+            "lot": 2.367685070261359,
+            "price": 3.080883465707302
+          }
+        },
+        {
+          "critic_residual_mse": 10.485506057739258,
+          "actor_step_l2": 0.07654847204685211,
+          "critic_step_l2": 0.28895899653434753,
+          "actor_relative_step": 0.0019359144006883989,
+          "critic_relative_step": 0.007348106516204296,
+          "actor_first_layer_grad": 3.744185209274292,
+          "critic_first_layer_grad": 1.6036325693130493,
+          "advantage_std": 3.136731940867511,
+          "return_std": 9.265234466660868,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.016959841805131364,
+          "clip_fraction": 0.0703125,
+          "head_gradient_max": {
+            "simplex": 36.198691204190254,
+            "movement": 3.932831756770611,
+            "enabled": 1.407366992905736,
+            "partner": 1.4505731407552958,
+            "give": 3.13768470287323,
+            "want": 4.0612893383949995,
+            "lot": 1.7997845569625497,
+            "price": 1.9339116849005222
+          }
+        },
+        {
+          "critic_residual_mse": 8.90971565246582,
+          "actor_step_l2": 0.03834539279341698,
+          "critic_step_l2": 0.17180664837360382,
+          "actor_relative_step": 0.0009697563841257614,
+          "critic_relative_step": 0.004368746652853377,
+          "actor_first_layer_grad": 2.6899919509887695,
+          "critic_first_layer_grad": 3.154364585876465,
+          "advantage_std": 2.8111292390440994,
+          "return_std": 6.350174159504103,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.011470464845714075,
+          "clip_fraction": 0.052734375,
+          "head_gradient_max": {
+            "simplex": 34.780744820833206,
+            "movement": 3.2971545979380608,
+            "enabled": 1.3124191677197814,
+            "partner": 0.7675816607661545,
+            "give": 1.6102407183498144,
+            "want": 2.464595552533865,
+            "lot": 1.8108693100512028,
+            "price": 1.717910329811275
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00904017873108387,
+            "mean_derivative": 0.6063714027404785,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29379868507385254,
+            "effective_rank": 22.037864403740596
+          },
+          {
+            "saturated_fraction": 0.01529017835855484,
+            "mean_derivative": 0.6261965036392212,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3025379776954651,
+            "effective_rank": 22.851783360358144
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.6000865697860718,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3561224043369293,
+            "effective_rank": 22.8870470490589
+          },
+          {
+            "saturated_fraction": 0.0062500000931322575,
+            "mean_derivative": 0.5966840982437134,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.37019187211990356,
+            "effective_rank": 23.00301483781219
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.44258058071136475,
+        "active_raw_max": 0.46288204193115234,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.02885913848877,
+            "concentration_max": 10.489469528198242,
+            "coordinate_std": 0.08949040621519089,
+            "requested_mean_max": 0.10888396203517914
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.769045352935791,
+            "concentration_max": 7.974977493286133,
+            "coordinate_std": 0.21344636380672455,
+            "requested_mean_max": 0.3878560960292816
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.4265787601470947,
+            "concentration_max": 2.4488773345947266,
+            "coordinate_std": 0.2675151824951172,
+            "requested_mean_max": 0.5636201500892639
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9987660050392151,
+            "maximum_probability": 0.17497187852859497,
+            "probability_std": 0.043314892798662186
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3083142936229706,
+            "maximum_probability": 0.9322473406791687,
+            "probability_std": 0.2806381583213806
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5828697681427002,
+            "maximum_probability": 0.8468840718269348,
+            "probability_std": 0.08870433270931244
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.38333648443222046,
+            "maximum_probability": 0.7915448546409607,
+            "probability_std": 0.09573826193809509
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6251920461654663,
+            "maximum_probability": 0.5312120318412781,
+            "probability_std": 0.05341675132513046
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6288380026817322,
+            "maximum_probability": 0.7432063221931458,
+            "probability_std": 0.11158116906881332
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6386053562164307,
+            "maximum_probability": 0.7354466319084167,
+            "probability_std": 0.11559153348207474
+          }
+        },
+        "value_std": 18.00051498413086,
+        "value_input_gradient": 10.927816390991211,
+        "receipt_sensitivity": {
+          "workforce": 0.00017871461750473827,
+          "activities": 4.3021838791901246e-05,
+          "controls": 0.0010693345684558153,
+          "movement": 0.00040924744098447263,
+          "enabled": 0.003530096262693405,
+          "partner": 0.003938484005630016,
+          "give": 0.0065374658443033695,
+          "want": 0.015834927558898926,
+          "lot": 0.06184767931699753,
+          "price": 0.06312908977270126
+        },
+        "receipt_value_sensitivity": 2.6426494121551514
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/midpoint-seed101-step1024.pt",
+      "checkpoint_sha256": "69c5a2ed3bd2723f0d9d965367cf6b63acd4fed603abc79a77d0e894be057b93",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 230,
+        "transitions": 5520,
+        "updates": 27
+      },
+      "training_endpoints": {
+        "mean_final_population": 4.558139534883721,
+        "mean_final_realized_qol": 0.11496622252036351,
+        "mean_living_endpoint_qol": 0.11496622252036351,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 43
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.33352238233972,
+              0.0001833498536143452
+            ],
+            "after": [
+              -19.025125683550158,
+              0.011542157270014286
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.665126618489566,
+              -0.011542157270014286
+            ],
+            "after": [
+              -19.594871125957667,
+              0.002212370978668332
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009486607275903225,
+            "mean_derivative": 0.606536865234375,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2914647161960602,
+            "effective_rank": 22.056141929124344
+          },
+          {
+            "saturated_fraction": 0.01439732126891613,
+            "mean_derivative": 0.622971773147583,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29744842648506165,
+            "effective_rank": 22.894236806388864
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.009486607275903225,
+            "mean_derivative": 0.5996543765068054,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3395620584487915,
+            "effective_rank": 22.76574444503666
+          },
+          {
+            "saturated_fraction": 0.006138392724096775,
+            "mean_derivative": 0.5926397442817688,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.332322895526886,
+            "effective_rank": 22.92307111357163
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.4391838610172272,
+        "active_raw_max": 0.5068457126617432,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.11049747467041,
+            "concentration_max": 10.583413124084473,
+            "coordinate_std": 0.08908682316541672,
+            "requested_mean_max": 0.11011599749326706
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7579879760742188,
+            "concentration_max": 7.895424842834473,
+            "coordinate_std": 0.21367672085762024,
+            "requested_mean_max": 0.3885248601436615
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.446571111679077,
+            "concentration_max": 2.480656862258911,
+            "coordinate_std": 0.2663417458534241,
+            "requested_mean_max": 0.5696117877960205
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9983206987380981,
+            "maximum_probability": 0.17705567181110382,
+            "probability_std": 0.0426083505153656
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.31424668431282043,
+            "maximum_probability": 0.92888343334198,
+            "probability_std": 0.26971951127052307
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5775485038757324,
+            "maximum_probability": 0.8479871153831482,
+            "probability_std": 0.08795396238565445
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.40655022859573364,
+            "maximum_probability": 0.7795343399047852,
+            "probability_std": 0.09614026546478271
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6179487705230713,
+            "maximum_probability": 0.5482112765312195,
+            "probability_std": 0.04977067559957504
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6556121110916138,
+            "maximum_probability": 0.7309697866439819,
+            "probability_std": 0.10348421335220337
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6839703321456909,
+            "maximum_probability": 0.7115521430969238,
+            "probability_std": 0.10882807523012161
+          }
+        },
+        "value_std": 13.988432884216309,
+        "value_input_gradient": 9.359606742858887,
+        "receipt_sensitivity": {
+          "workforce": 0.00025610733428038657,
+          "activities": 5.5291762691922486e-05,
+          "controls": 0.0012574071297422051,
+          "movement": 0.00036415160866454244,
+          "enabled": 0.003810218768194318,
+          "partner": 0.004841068293899298,
+          "give": 0.007303230464458466,
+          "want": 0.01570831425487995,
+          "lot": 0.06502920389175415,
+          "price": 0.0690719336271286
+        },
+        "receipt_value_sensitivity": 1.491994857788086
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 271,
+            "zero": 30,
+            "one": 2,
+            "mean": 0.4101868177186707
+          },
+          {
+            "eligible": 68,
+            "zero": 3,
+            "one": 8,
+            "mean": 0.548051946265035
+          },
+          {
+            "eligible": 68,
+            "zero": 1,
+            "one": 1,
+            "mean": 0.5177492015245062
+          }
+        ],
+        "steps": 297,
+        "average_qol": 0.20752502479487678,
+        "average_population": 30.208754208754208,
+        "annual_welfare": 7.023368932223658,
+        "integrated_welfare": 41718.81145740853,
+        "final_population_mean": 2.5,
+        "terminal_episodes": 2,
+        "events": {
+          "movement": 170,
+          "trades": 1,
+          "migrants": 285,
+          "daughters": 23,
+          "quotes": 71,
+          "opportunities": 5,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.012138507407407408,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09852656107584949,
+          0.10603105629959494,
+          0.01946739658442851,
+          0.037156184463029374,
+          0.06692080519662522,
+          0.09508563101489433,
+          0.07632856296420651,
+          0.08395850424181389,
+          0.08259539431873283,
+          0.09543018071073611,
+          0.09031648712690492,
+          0.07902987852635768,
+          0.06915335747682608
+        ],
+        "mean_compiled_staffing": [
+          3.4545454545454546,
+          2.845117845117845,
+          0.2962962962962963,
+          0.622895622895623,
+          2.0134680134680134,
+          2.8754208754208754,
+          2.185185185185185,
+          2.255892255892256,
+          2.774410774410774,
+          3.282828282828283,
+          2.7643097643097643,
+          3.026936026936027,
+          1.8114478114478114
+        ],
+        "total_production": [
+          27089.705453506274,
+          29953.296747343706,
+          2156.3089402378077,
+          22465.620654577404,
+          1379.0302203291974,
+          21415.618212221234,
+          0.0,
+          0.0,
+          978.1357423976978,
+          2002.568446453197,
+          1900.5686988463992
+        ],
+        "total_extraction": [
+          77862.5325228805,
+          38460.0009063124,
+          69324.86712311895
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 2.5,
+        "mean_final_realized_qol": 0.1750796706406357,
+        "mean_living_endpoint_qol": 0.1750796706406357,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "superlinear-seed101",
+      "seed": 101,
+      "kind": "superlinear",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 7.574146747589111,
+          "actor_step_l2": 0.06555826216936111,
+          "critic_step_l2": 0.17522120475769043,
+          "actor_relative_step": 0.0016579791619454548,
+          "critic_relative_step": 0.004456061365398451,
+          "actor_first_layer_grad": 6.4124436378479,
+          "critic_first_layer_grad": 2.196117639541626,
+          "advantage_std": 2.5869821269534357,
+          "return_std": 8.794860450319645,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.012425394577368482,
+          "clip_fraction": 0.056919642857142856,
+          "head_gradient_max": {
+            "simplex": 38.108565270900726,
+            "movement": 3.6223414801061153,
+            "enabled": 1.8547928240150213,
+            "partner": 0.45472281612455845,
+            "give": 3.528955355286598,
+            "want": 2.9378416873514652,
+            "lot": 2.966430915519595,
+            "price": 2.206488661468029
+          }
+        },
+        {
+          "critic_residual_mse": 5.016824245452881,
+          "actor_step_l2": 0.060597002506256104,
+          "critic_step_l2": 0.16811443865299225,
+          "actor_relative_step": 0.0015325082422840799,
+          "critic_relative_step": 0.004275286864124174,
+          "actor_first_layer_grad": 3.2803869247436523,
+          "critic_first_layer_grad": 0.8093200325965881,
+          "advantage_std": 2.2187077541417515,
+          "return_std": 6.0691484582924025,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.009156255464246844,
+          "clip_fraction": 0.04241071428571429,
+          "head_gradient_max": {
+            "simplex": 37.26583477854729,
+            "movement": 4.005386561155319,
+            "enabled": 0.9932723827660084,
+            "partner": 0.7742881895974278,
+            "give": 2.2007018756121397,
+            "want": 3.3430186957120895,
+            "lot": 1.9536429531872272,
+            "price": 1.6193365100771189
+          }
+        },
+        {
+          "critic_residual_mse": 4.35195779800415,
+          "actor_step_l2": 0.06930200010538101,
+          "critic_step_l2": 0.1955927014350891,
+          "actor_relative_step": 0.0017526545098036472,
+          "critic_relative_step": 0.004973965621609246,
+          "actor_first_layer_grad": 3.739583730697632,
+          "critic_first_layer_grad": 1.116999626159668,
+          "advantage_std": 2.0530705651849583,
+          "return_std": 5.737605202337126,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.0186713567160369,
+          "clip_fraction": 0.078125,
+          "head_gradient_max": {
+            "simplex": 37.95307546854019,
+            "movement": 4.93188614398241,
+            "enabled": 1.564686399884522,
+            "partner": 0.6635733470320702,
+            "give": 2.2129244692623615,
+            "want": 2.9619038086384535,
+            "lot": 1.8056432893499732,
+            "price": 2.2273638490587473
+          }
+        },
+        {
+          "critic_residual_mse": 8.143759727478027,
+          "actor_step_l2": 0.07214424014091492,
+          "critic_step_l2": 0.24245142936706543,
+          "actor_relative_step": 0.0018245334602191427,
+          "critic_relative_step": 0.00616546005136688,
+          "actor_first_layer_grad": 2.8829619884490967,
+          "critic_first_layer_grad": 1.9878895282745361,
+          "advantage_std": 2.8078184421309964,
+          "return_std": 8.858591635281858,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.016923514422162514,
+          "clip_fraction": 0.06808035714285714,
+          "head_gradient_max": {
+            "simplex": 36.50090512633324,
+            "movement": 3.574778126552701,
+            "enabled": 1.9504913426935673,
+            "partner": 1.1794124022126198,
+            "give": 2.693963533267379,
+            "want": 2.9554663002490997,
+            "lot": 2.0487440675497055,
+            "price": 1.6713902465999126
+          }
+        },
+        {
+          "critic_residual_mse": 2.1453256607055664,
+          "actor_step_l2": 0.04961289092898369,
+          "critic_step_l2": 0.12867622077465057,
+          "actor_relative_step": 0.001254711218231182,
+          "critic_relative_step": 0.0032720609481349658,
+          "actor_first_layer_grad": 3.9532556533813477,
+          "critic_first_layer_grad": 0.4660567343235016,
+          "advantage_std": 1.4642903978029407,
+          "return_std": 5.8220596821771,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.01672137038579831,
+          "clip_fraction": 0.109375,
+          "head_gradient_max": {
+            "simplex": 33.38149204850197,
+            "movement": 4.364845408126712,
+            "enabled": 1.8721730690449476,
+            "partner": 1.4103965368121862,
+            "give": 2.4416229259222746,
+            "want": 2.782757271081209,
+            "lot": 2.0741593092679977,
+            "price": 2.5016126725822687
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00904017873108387,
+            "mean_derivative": 0.6063714027404785,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29379868507385254,
+            "effective_rank": 22.037864403740596
+          },
+          {
+            "saturated_fraction": 0.01529017835855484,
+            "mean_derivative": 0.6261965036392212,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3025379776954651,
+            "effective_rank": 22.851783360358144
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.6000865697860718,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3561224043369293,
+            "effective_rank": 22.8870470490589
+          },
+          {
+            "saturated_fraction": 0.0062500000931322575,
+            "mean_derivative": 0.5966840982437134,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.37019187211990356,
+            "effective_rank": 23.00301483781219
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.44258058071136475,
+        "active_raw_max": 0.46288204193115234,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.02885913848877,
+            "concentration_max": 10.489469528198242,
+            "coordinate_std": 0.08949040621519089,
+            "requested_mean_max": 0.10888396203517914
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.769045352935791,
+            "concentration_max": 7.974977493286133,
+            "coordinate_std": 0.21344636380672455,
+            "requested_mean_max": 0.3878560960292816
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.4265787601470947,
+            "concentration_max": 2.4488773345947266,
+            "coordinate_std": 0.2675151824951172,
+            "requested_mean_max": 0.5636201500892639
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9987660050392151,
+            "maximum_probability": 0.17497187852859497,
+            "probability_std": 0.043314892798662186
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3083142936229706,
+            "maximum_probability": 0.9322473406791687,
+            "probability_std": 0.2806381583213806
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5828697681427002,
+            "maximum_probability": 0.8468840718269348,
+            "probability_std": 0.08870433270931244
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.38333648443222046,
+            "maximum_probability": 0.7915448546409607,
+            "probability_std": 0.09573826193809509
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6251920461654663,
+            "maximum_probability": 0.5312120318412781,
+            "probability_std": 0.05341675132513046
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6288380026817322,
+            "maximum_probability": 0.7432063221931458,
+            "probability_std": 0.11158116906881332
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6386053562164307,
+            "maximum_probability": 0.7354466319084167,
+            "probability_std": 0.11559153348207474
+          }
+        },
+        "value_std": 18.00051498413086,
+        "value_input_gradient": 10.927816390991211,
+        "receipt_sensitivity": {
+          "workforce": 0.00017871461750473827,
+          "activities": 4.3021838791901246e-05,
+          "controls": 0.0010693345684558153,
+          "movement": 0.00040924744098447263,
+          "enabled": 0.003530096262693405,
+          "partner": 0.003938484005630016,
+          "give": 0.0065374658443033695,
+          "want": 0.015834927558898926,
+          "lot": 0.06184767931699753,
+          "price": 0.06312908977270126
+        },
+        "receipt_value_sensitivity": 2.6426494121551514
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/superlinear-seed101-step1024.pt",
+      "checkpoint_sha256": "19e8a11cfbef3f4b4126e28828d868ee0f971e3b28b07b8a9ab639b1bd33b6da",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 233,
+        "transitions": 5520,
+        "updates": 27
+      },
+      "training_endpoints": {
+        "mean_final_population": 13.652173913043478,
+        "mean_final_realized_qol": 0.17908975215300413,
+        "mean_living_endpoint_qol": 0.17908975215300413,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 46
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.304631473984678,
+              -0.00020956061780452728
+            ],
+            "after": [
+              -19.018034847561573,
+              0.011716955341398716
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.650797732976088,
+              -0.011716955341398716
+            ],
+            "after": [
+              -19.599846556470037,
+              0.002678630407899618
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008816963993012905,
+            "mean_derivative": 0.6053018569946289,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2913341522216797,
+            "effective_rank": 22.02079048099699
+          },
+          {
+            "saturated_fraction": 0.015513393096625805,
+            "mean_derivative": 0.6254686713218689,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2974684536457062,
+            "effective_rank": 22.79735548961296
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.010714286006987095,
+            "mean_derivative": 0.6044918894767761,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3730807304382324,
+            "effective_rank": 22.866801227564086
+          },
+          {
+            "saturated_fraction": 0.0062500000931322575,
+            "mean_derivative": 0.5954638123512268,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3971673846244812,
+            "effective_rank": 22.971724633363877
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.4652208685874939,
+        "active_raw_max": 0.4608461856842041,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.145276069641113,
+            "concentration_max": 10.638001441955566,
+            "coordinate_std": 0.08897233009338379,
+            "requested_mean_max": 0.10935883969068527
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7531378269195557,
+            "concentration_max": 7.932985305786133,
+            "coordinate_std": 0.21397458016872406,
+            "requested_mean_max": 0.38759392499923706
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.420746088027954,
+            "concentration_max": 2.4382100105285645,
+            "coordinate_std": 0.26755210757255554,
+            "requested_mean_max": 0.5661474466323853
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9980326294898987,
+            "maximum_probability": 0.17824403941631317,
+            "probability_std": 0.042999207973480225
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3250603973865509,
+            "maximum_probability": 0.9263328313827515,
+            "probability_std": 0.27358293533325195
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5859092473983765,
+            "maximum_probability": 0.845841109752655,
+            "probability_std": 0.0885193794965744
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.39820200204849243,
+            "maximum_probability": 0.7806458473205566,
+            "probability_std": 0.09463881701231003
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6803885102272034,
+            "maximum_probability": 0.49289625883102417,
+            "probability_std": 0.052778467535972595
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.7133347988128662,
+            "maximum_probability": 0.6873043775558472,
+            "probability_std": 0.11681193858385086
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.7164912223815918,
+            "maximum_probability": 0.6833739876747131,
+            "probability_std": 0.11951038986444473
+          }
+        },
+        "value_std": 19.57030487060547,
+        "value_input_gradient": 11.515766143798828,
+        "receipt_sensitivity": {
+          "workforce": 0.00016874050197657198,
+          "activities": 5.360126669984311e-05,
+          "controls": 0.0010936808539554477,
+          "movement": 0.0002997727715410292,
+          "enabled": 0.00449903029948473,
+          "partner": 0.003703848458826542,
+          "give": 0.007102588657289743,
+          "want": 0.01950453594326973,
+          "lot": 0.0765543058514595,
+          "price": 0.07660198211669922
+        },
+        "receipt_value_sensitivity": 2.7114319801330566
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 274,
+            "zero": 15,
+            "one": 2,
+            "mean": 0.4060014850180467
+          },
+          {
+            "eligible": 86,
+            "zero": 1,
+            "one": 3,
+            "mean": 0.5457111330345805
+          },
+          {
+            "eligible": 86,
+            "zero": 5,
+            "one": 1,
+            "mean": 0.4925411646610165
+          }
+        ],
+        "steps": 300,
+        "average_qol": 0.24099761735399688,
+        "average_population": 31.423333333333332,
+        "annual_welfare": 8.09118222960686,
+        "integrated_welfare": 48547.093377641155,
+        "final_population_mean": 2.6666666666666665,
+        "terminal_episodes": 0,
+        "events": {
+          "movement": 142,
+          "trades": 2,
+          "migrants": 346,
+          "daughters": 25,
+          "quotes": 73,
+          "opportunities": 5,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.012273171666666667,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09517405052322178,
+          0.09847989578567239,
+          0.026000439139254206,
+          0.04459045181194764,
+          0.08534084294323335,
+          0.0820611343231277,
+          0.08426465658120817,
+          0.0841791830247265,
+          0.0789295903746782,
+          0.08793119856402676,
+          0.0776033218764521,
+          0.08177008605949268,
+          0.07367514899295856
+        ],
+        "mean_compiled_staffing": [
+          3.4466666666666668,
+          3.06,
+          0.31333333333333335,
+          1.2266666666666666,
+          2.5033333333333334,
+          2.6166666666666667,
+          2.3433333333333333,
+          2.316666666666667,
+          2.53,
+          3.19,
+          2.81,
+          3.0533333333333332,
+          2.013333333333333
+        ],
+        "total_production": [
+          24582.18366167089,
+          38098.55795960809,
+          2369.1578300315055,
+          20000.411439651507,
+          1513.0310176686744,
+          19945.09720521698,
+          0.8055043925895119,
+          0.8055043925895119,
+          996.3898739673007,
+          2221.8951149443674,
+          4397.045364535293
+        ],
+        "total_extraction": [
+          79374.08438436953,
+          40302.85540193323,
+          71440.91349368326
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 2.6666666666666665,
+        "mean_final_realized_qol": 0.34992442152591713,
+        "mean_living_endpoint_qol": 0.34992442152591713,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "original-seed211",
+      "seed": 211,
+      "kind": "original",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 25.013835906982422,
+          "actor_step_l2": 0.06762132048606873,
+          "critic_step_l2": 0.21444600820541382,
+          "actor_relative_step": 0.001710001150594407,
+          "critic_relative_step": 0.0054540882060509464,
+          "actor_first_layer_grad": 4.153677940368652,
+          "critic_first_layer_grad": 3.209198236465454,
+          "advantage_std": 4.9988292320657655,
+          "return_std": 9.755515796714768,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.01689992804664256,
+          "clip_fraction": 0.0703125,
+          "head_gradient_max": {
+            "simplex": 37.68862235546112,
+            "movement": 3.8155807610601187,
+            "enabled": 1.4146819356828928,
+            "partner": 0.7348575354553759,
+            "give": 2.7634880375117064,
+            "want": 3.628046313300729,
+            "lot": 2.697136392816901,
+            "price": 2.0310063418000937
+          }
+        },
+        {
+          "critic_residual_mse": 7.56781530380249,
+          "actor_step_l2": 0.07146307826042175,
+          "critic_step_l2": 0.2187620848417282,
+          "actor_relative_step": 0.0018071387575517642,
+          "critic_relative_step": 0.0055638061310010695,
+          "actor_first_layer_grad": 3.064652919769287,
+          "critic_first_layer_grad": 2.115633964538574,
+          "advantage_std": 2.750537822776906,
+          "return_std": 8.239082355982879,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.019233557686702082,
+          "clip_fraction": 0.078125,
+          "head_gradient_max": {
+            "simplex": 35.56381048262119,
+            "movement": 4.076358009129763,
+            "enabled": 1.930636191740632,
+            "partner": 1.3621959956362844,
+            "give": 2.7346962988376617,
+            "want": 3.0734959840774536,
+            "lot": 1.6002603992819786,
+            "price": 1.9870893070474267
+          }
+        },
+        {
+          "critic_residual_mse": 9.6644868850708,
+          "actor_step_l2": 0.06507319957017899,
+          "critic_step_l2": 0.19734930992126465,
+          "actor_relative_step": 0.0016455488100227849,
+          "critic_relative_step": 0.005019157548124896,
+          "actor_first_layer_grad": 3.4378466606140137,
+          "critic_first_layer_grad": 2.4160208702087402,
+          "advantage_std": 3.0624277040847416,
+          "return_std": 7.900101953690701,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.013653441714406574,
+          "clip_fraction": 0.07700892857142858,
+          "head_gradient_max": {
+            "simplex": 35.51900178194046,
+            "movement": 3.8673792611807585,
+            "enabled": 1.1931250719353557,
+            "partner": 0.726254784502089,
+            "give": 2.2151555912569165,
+            "want": 3.817805454134941,
+            "lot": 1.8489791369065642,
+            "price": 2.699654595926404
+          }
+        },
+        {
+          "critic_residual_mse": 50.727386474609375,
+          "actor_step_l2": 0.0614207424223423,
+          "critic_step_l2": 0.3259899318218231,
+          "actor_relative_step": 0.0015531865732993193,
+          "critic_relative_step": 0.008290653895393347,
+          "actor_first_layer_grad": 3.9025299549102783,
+          "critic_first_layer_grad": 2.938995361328125,
+          "advantage_std": 6.78679452970457,
+          "return_std": 12.005865128574463,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.029048193007478056,
+          "clip_fraction": 0.08370535714285714,
+          "head_gradient_max": {
+            "simplex": 36.66242343187332,
+            "movement": 4.793809719383717,
+            "enabled": 1.9155286317691207,
+            "partner": 1.2221953514963388,
+            "give": 3.0835742969065905,
+            "want": 3.3565779086202383,
+            "lot": 1.5349492011591792,
+            "price": 2.305890614166856
+          }
+        },
+        {
+          "critic_residual_mse": 11.558253288269043,
+          "actor_step_l2": 0.044575199484825134,
+          "critic_step_l2": 0.18102067708969116,
+          "actor_relative_step": 0.0011271972854312732,
+          "critic_relative_step": 0.004603466381204801,
+          "actor_first_layer_grad": 3.0281410217285156,
+          "critic_first_layer_grad": 2.1626651287078857,
+          "advantage_std": 3.394366758567902,
+          "return_std": 9.735949201159775,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.008401878120623936,
+          "clip_fraction": 0.0390625,
+          "head_gradient_max": {
+            "simplex": 36.1992499679327,
+            "movement": 3.9429486468434334,
+            "enabled": 0.9386763623915613,
+            "partner": 0.6968441111966968,
+            "give": 2.5592855513095856,
+            "want": 2.5505814347416162,
+            "lot": 2.1447448786348104,
+            "price": 1.0257784565910697
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.0071428571827709675,
+            "mean_derivative": 0.6080405712127686,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3112723231315613,
+            "effective_rank": 22.22058777744268
+          },
+          {
+            "saturated_fraction": 0.01618303544819355,
+            "mean_derivative": 0.625603973865509,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.32894274592399597,
+            "effective_rank": 22.97805908349612
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0075892857275903225,
+            "mean_derivative": 0.6029919385910034,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3494727909564972,
+            "effective_rank": 22.979346015924957
+          },
+          {
+            "saturated_fraction": 0.00837053544819355,
+            "mean_derivative": 0.6042858362197876,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3675314784049988,
+            "effective_rank": 23.89335335154377
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.30373162031173706,
+        "active_raw_max": 0.30884066224098206,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.947789192199707,
+            "concentration_max": 10.398059844970703,
+            "coordinate_std": 0.08990346640348434,
+            "requested_mean_max": 0.0988692119717598
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7881033420562744,
+            "concentration_max": 7.832310199737549,
+            "coordinate_std": 0.2133321911096573,
+            "requested_mean_max": 0.37214910984039307
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3718349933624268,
+            "concentration_max": 2.4361212253570557,
+            "coordinate_std": 0.2721250355243683,
+            "requested_mean_max": 0.5164773464202881
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9962276220321655,
+            "maximum_probability": 0.1990235596895218,
+            "probability_std": 0.04227686673402786
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.30392757058143616,
+            "maximum_probability": 0.9289451837539673,
+            "probability_std": 0.29492488503456116
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5239809155464172,
+            "maximum_probability": 0.8245845437049866,
+            "probability_std": 0.0890226736664772
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.39193296432495117,
+            "maximum_probability": 0.7901159524917603,
+            "probability_std": 0.09967071563005447
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6463653445243835,
+            "maximum_probability": 0.49004173278808594,
+            "probability_std": 0.058289334177970886
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.5834913849830627,
+            "maximum_probability": 0.7496654987335205,
+            "probability_std": 0.14407145977020264
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6104440689086914,
+            "maximum_probability": 0.7336821556091309,
+            "probability_std": 0.15012575685977936
+          }
+        },
+        "value_std": 18.72968292236328,
+        "value_input_gradient": 13.10774040222168,
+        "receipt_sensitivity": {
+          "workforce": 0.00011320754128973931,
+          "activities": 3.0227065508370288e-05,
+          "controls": 0.00019301488646306098,
+          "movement": 0.00043387990444898605,
+          "enabled": 0.007203630171716213,
+          "partner": 0.002376395044848323,
+          "give": 0.008399305865168571,
+          "want": 0.021097034215927124,
+          "lot": 0.07069321721792221,
+          "price": 0.07551854103803635
+        },
+        "receipt_value_sensitivity": 3.830585241317749
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/original-seed211-step1024.pt",
+      "checkpoint_sha256": "ca73dcedb9445b1fda2b5168f21218ead6b5a821bd5b00c1f003a38f5039f877",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 231,
+        "transitions": 5520,
+        "updates": 28
+      },
+      "training_endpoints": {
+        "mean_final_population": 5.840909090909091,
+        "mean_final_realized_qol": 0.17631570262875473,
+        "mean_living_endpoint_qol": 0.17240397349693382,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 44
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.321676487669777,
+              -0.0010578117799013853
+            ],
+            "after": [
+              -19.02152767450577,
+              0.010640368796885014
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.697195066764454,
+              -0.010640368796885014
+            ],
+            "after": [
+              -19.61700100468744,
+              0.0038417153991758823
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00691964291036129,
+            "mean_derivative": 0.6064783334732056,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3067588806152344,
+            "effective_rank": 22.197279087159853
+          },
+          {
+            "saturated_fraction": 0.0167410708963871,
+            "mean_derivative": 0.6255173683166504,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3191227316856384,
+            "effective_rank": 22.97504881314055
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0071428571827709675,
+            "mean_derivative": 0.601292610168457,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.34555870294570923,
+            "effective_rank": 23.063246236372212
+          },
+          {
+            "saturated_fraction": 0.008928571827709675,
+            "mean_derivative": 0.6065959334373474,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.36274880170822144,
+            "effective_rank": 24.05000162268818
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.29877668619155884,
+        "active_raw_max": 0.39273813366889954,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.957581520080566,
+            "concentration_max": 10.446882247924805,
+            "coordinate_std": 0.08983033895492554,
+            "requested_mean_max": 0.10324474424123764
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.8142662048339844,
+            "concentration_max": 7.842441082000732,
+            "coordinate_std": 0.2125706523656845,
+            "requested_mean_max": 0.37427371740341187
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3952014446258545,
+            "concentration_max": 2.457724094390869,
+            "coordinate_std": 0.27113014459609985,
+            "requested_mean_max": 0.5179795622825623
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9957262873649597,
+            "maximum_probability": 0.19612166285514832,
+            "probability_std": 0.04299834370613098
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.34175366163253784,
+            "maximum_probability": 0.9137316346168518,
+            "probability_std": 0.30415141582489014
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5591281056404114,
+            "maximum_probability": 0.8192883729934692,
+            "probability_std": 0.08032587170600891
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.40694859623908997,
+            "maximum_probability": 0.7776042222976685,
+            "probability_std": 0.09614470601081848
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6682687997817993,
+            "maximum_probability": 0.4807877242565155,
+            "probability_std": 0.05783909559249878
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.5892737507820129,
+            "maximum_probability": 0.7469725608825684,
+            "probability_std": 0.13992182910442352
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6413335204124451,
+            "maximum_probability": 0.7106989026069641,
+            "probability_std": 0.15346747636795044
+          }
+        },
+        "value_std": 17.65855598449707,
+        "value_input_gradient": 13.788784980773926,
+        "receipt_sensitivity": {
+          "workforce": 0.0001653553481446579,
+          "activities": 3.818274853983894e-05,
+          "controls": 0.00019895490549970418,
+          "movement": 0.0004829156678169966,
+          "enabled": 0.011793453246355057,
+          "partner": 0.0029042272362858057,
+          "give": 0.009312613867223263,
+          "want": 0.023012204095721245,
+          "lot": 0.07236038893461227,
+          "price": 0.08184883743524551
+        },
+        "receipt_value_sensitivity": 4.279853343963623
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 266,
+            "zero": 14,
+            "one": 8,
+            "mean": 0.48749449449782317
+          },
+          {
+            "eligible": 68,
+            "zero": 2,
+            "one": 0,
+            "mean": 0.5071052088884377
+          },
+          {
+            "eligible": 68,
+            "zero": 2,
+            "one": 4,
+            "mean": 0.4967598927892379
+          }
+        ],
+        "steps": 292,
+        "average_qol": 0.16390729305971724,
+        "average_population": 32.47260273972603,
+        "annual_welfare": 6.95156012578812,
+        "integrated_welfare": 40597.11113460262,
+        "final_population_mean": 1.5,
+        "terminal_episodes": 3,
+        "events": {
+          "movement": 135,
+          "trades": 0,
+          "migrants": 403,
+          "daughters": 23,
+          "quotes": 61,
+          "opportunities": 9,
+          "compatible_proposals": 0
+        },
+        "native_step_seconds_mean": 0.012361473287671234,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10125483190764963,
+          0.09678555161157641,
+          0.022243535795314757,
+          0.03164244976610962,
+          0.07194198142641993,
+          0.08596514121943269,
+          0.0807485111510391,
+          0.08448418957847756,
+          0.07924145655646855,
+          0.09374778920931147,
+          0.08133355050632263,
+          0.08105698080192704,
+          0.08955403046995046
+        ],
+        "mean_compiled_staffing": [
+          3.160958904109589,
+          2.993150684931507,
+          0.5,
+          0.726027397260274,
+          2.2636986301369864,
+          2.7773972602739727,
+          3.339041095890411,
+          2.2054794520547945,
+          2.7739726027397262,
+          3.1267123287671232,
+          2.328767123287671,
+          2.791095890410959,
+          3.4863013698630136
+        ],
+        "total_production": [
+          27465.606142407654,
+          42939.07085576071,
+          3107.8486552749423,
+          29142.753881893685,
+          2282.6929063764724,
+          23562.06090275414,
+          946.806560879004,
+          38.658789262587554,
+          2114.997572273562,
+          2735.0155949925174,
+          1965.2857052234333
+        ],
+        "total_extraction": [
+          70265.13975258394,
+          69314.59098417492,
+          58932.5524598727
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 1.5,
+        "mean_final_realized_qol": 0.07022105227004506,
+        "mean_living_endpoint_qol": 0.07022105227004506,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "midpoint-seed211",
+      "seed": 211,
+      "kind": "midpoint",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 22.575571060180664,
+          "actor_step_l2": 0.06730980426073074,
+          "critic_step_l2": 0.21068613231182098,
+          "actor_relative_step": 0.001702123559622688,
+          "critic_relative_step": 0.0053584618293276405,
+          "actor_first_layer_grad": 4.6152544021606445,
+          "critic_first_layer_grad": 3.6397171020507812,
+          "advantage_std": 4.7499185331241485,
+          "return_std": 9.24925103014296,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.020206033527835742,
+          "clip_fraction": 0.07477678571428571,
+          "head_gradient_max": {
+            "simplex": 36.767908826470375,
+            "movement": 3.410089749842882,
+            "enabled": 1.3998104492202401,
+            "partner": 0.8537665884941816,
+            "give": 2.826114296913147,
+            "want": 3.619776025414467,
+            "lot": 2.651324722915888,
+            "price": 2.146771385334432
+          }
+        },
+        {
+          "critic_residual_mse": 6.405033111572266,
+          "actor_step_l2": 0.0718836709856987,
+          "critic_step_l2": 0.21261031925678253,
+          "actor_relative_step": 0.0018177752926436326,
+          "critic_relative_step": 0.005407325923182615,
+          "actor_first_layer_grad": 3.2755508422851562,
+          "critic_first_layer_grad": 1.744964838027954,
+          "advantage_std": 2.5299872329998045,
+          "return_std": 7.603865482106033,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.020800438415109524,
+          "clip_fraction": 0.05580357142857143,
+          "head_gradient_max": {
+            "simplex": 35.581421345472336,
+            "movement": 4.614518843591213,
+            "enabled": 1.8411903930827975,
+            "partner": 1.4892908921465278,
+            "give": 2.77089405618608,
+            "want": 3.2102024890482426,
+            "lot": 2.1546354964375496,
+            "price": 1.8726217271760106
+          }
+        },
+        {
+          "critic_residual_mse": 8.304068565368652,
+          "actor_step_l2": 0.07027717679738998,
+          "critic_step_l2": 0.2058635652065277,
+          "actor_relative_step": 0.001777144348771546,
+          "critic_relative_step": 0.00523568621152868,
+          "actor_first_layer_grad": 3.833347797393799,
+          "critic_first_layer_grad": 2.2228167057037354,
+          "advantage_std": 2.8455184966003833,
+          "return_std": 7.518795861264687,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.018154678458132734,
+          "clip_fraction": 0.08147321428571429,
+          "head_gradient_max": {
+            "simplex": 35.09624694287777,
+            "movement": 4.037416340783238,
+            "enabled": 1.4510480230674148,
+            "partner": 0.7108659469522536,
+            "give": 2.9173580333590508,
+            "want": 3.4377464670687914,
+            "lot": 2.0162038998678327,
+            "price": 2.12007980234921
+          }
+        },
+        {
+          "critic_residual_mse": 8.844465255737305,
+          "actor_step_l2": 0.06351997703313828,
+          "critic_step_l2": 0.22630740702152252,
+          "actor_relative_step": 0.0016062709849979978,
+          "critic_relative_step": 0.005755507997664816,
+          "actor_first_layer_grad": 2.3500993251800537,
+          "critic_first_layer_grad": 2.195965051651001,
+          "advantage_std": 2.967018555595202,
+          "return_std": 7.8284287342237615,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.012989065555055242,
+          "clip_fraction": 0.04017857142857143,
+          "head_gradient_max": {
+            "simplex": 37.575562968850136,
+            "movement": 3.2586455419659615,
+            "enabled": 1.5075638815760612,
+            "partner": 0.5015579811297357,
+            "give": 2.4470676463097334,
+            "want": 2.934777131304145,
+            "lot": 1.489440605044365,
+            "price": 1.744404099881649
+          }
+        },
+        {
+          "critic_residual_mse": 16.61320686340332,
+          "actor_step_l2": 0.044568952172994614,
+          "critic_step_l2": 0.19994626939296722,
+          "actor_relative_step": 0.0011270409370516814,
+          "critic_relative_step": 0.005084910151748747,
+          "actor_first_layer_grad": 3.6379733085632324,
+          "critic_first_layer_grad": 1.3505891561508179,
+          "advantage_std": 3.8449089092243356,
+          "return_std": 8.266209409553754,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.018162206682868234,
+          "clip_fraction": 0.095703125,
+          "head_gradient_max": {
+            "simplex": 39.409528970718384,
+            "movement": 4.405373204499483,
+            "enabled": 1.9310425044968724,
+            "partner": 1.1015597912482917,
+            "give": 3.5510395411401987,
+            "want": 3.120633015409112,
+            "lot": 2.0854500830173492,
+            "price": 1.4256846252828836
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.0071428571827709675,
+            "mean_derivative": 0.6080405712127686,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3112723231315613,
+            "effective_rank": 22.22058777744268
+          },
+          {
+            "saturated_fraction": 0.01618303544819355,
+            "mean_derivative": 0.625603973865509,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.32894274592399597,
+            "effective_rank": 22.97805908349612
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0075892857275903225,
+            "mean_derivative": 0.6029919385910034,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3494727909564972,
+            "effective_rank": 22.979346015924957
+          },
+          {
+            "saturated_fraction": 0.00837053544819355,
+            "mean_derivative": 0.6042858362197876,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3675314784049988,
+            "effective_rank": 23.89335335154377
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.30373162031173706,
+        "active_raw_max": 0.30884066224098206,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.947789192199707,
+            "concentration_max": 10.398059844970703,
+            "coordinate_std": 0.08990346640348434,
+            "requested_mean_max": 0.0988692119717598
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7881033420562744,
+            "concentration_max": 7.832310199737549,
+            "coordinate_std": 0.2133321911096573,
+            "requested_mean_max": 0.37214910984039307
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3718349933624268,
+            "concentration_max": 2.4361212253570557,
+            "coordinate_std": 0.2721250355243683,
+            "requested_mean_max": 0.5164773464202881
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9962276220321655,
+            "maximum_probability": 0.1990235596895218,
+            "probability_std": 0.04227686673402786
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.30392757058143616,
+            "maximum_probability": 0.9289451837539673,
+            "probability_std": 0.29492488503456116
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5239809155464172,
+            "maximum_probability": 0.8245845437049866,
+            "probability_std": 0.0890226736664772
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.39193296432495117,
+            "maximum_probability": 0.7901159524917603,
+            "probability_std": 0.09967071563005447
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6463653445243835,
+            "maximum_probability": 0.49004173278808594,
+            "probability_std": 0.058289334177970886
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.5834913849830627,
+            "maximum_probability": 0.7496654987335205,
+            "probability_std": 0.14407145977020264
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6104440689086914,
+            "maximum_probability": 0.7336821556091309,
+            "probability_std": 0.15012575685977936
+          }
+        },
+        "value_std": 18.72968292236328,
+        "value_input_gradient": 13.10774040222168,
+        "receipt_sensitivity": {
+          "workforce": 0.00011320754128973931,
+          "activities": 3.0227065508370288e-05,
+          "controls": 0.00019301488646306098,
+          "movement": 0.00043387990444898605,
+          "enabled": 0.007203630171716213,
+          "partner": 0.002376395044848323,
+          "give": 0.008399305865168571,
+          "want": 0.021097034215927124,
+          "lot": 0.07069321721792221,
+          "price": 0.07551854103803635
+        },
+        "receipt_value_sensitivity": 3.830585241317749
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/midpoint-seed211-step1024.pt",
+      "checkpoint_sha256": "dda94ecedebcda57aed03aa13888a308cac517bde67bef8aa550e3cd8b76d1c3",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 232,
+        "transitions": 5520,
+        "updates": 28
+      },
+      "training_endpoints": {
+        "mean_final_population": 5.511111111111111,
+        "mean_final_realized_qol": 0.17956703761148046,
+        "mean_living_endpoint_qol": 0.17574223579370002,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 45
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.249185037219878,
+              -0.0008587964111939073
+            ],
+            "after": [
+              -18.953812392306162,
+              0.010323294438421726
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.636432440924867,
+              -0.010323294438421726
+            ],
+            "after": [
+              -19.606304736879352,
+              0.0036112263333052397
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.007031249813735485,
+            "mean_derivative": 0.606791079044342,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3071610927581787,
+            "effective_rank": 22.19893154509439
+          },
+          {
+            "saturated_fraction": 0.01629464328289032,
+            "mean_derivative": 0.6253958940505981,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.31951192021369934,
+            "effective_rank": 22.99376541028476
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.006138392724096775,
+            "mean_derivative": 0.5991492867469788,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3314356207847595,
+            "effective_rank": 22.951331948549463
+          },
+          {
+            "saturated_fraction": 0.00848214328289032,
+            "mean_derivative": 0.604709267616272,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3299126923084259,
+            "effective_rank": 23.91848906422799
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.2985771894454956,
+        "active_raw_max": 0.3931146264076233,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 9.008091926574707,
+            "concentration_max": 10.504919052124023,
+            "coordinate_std": 0.08961640298366547,
+            "requested_mean_max": 0.10096590220928192
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.79721736907959,
+            "concentration_max": 7.806879997253418,
+            "coordinate_std": 0.21295267343521118,
+            "requested_mean_max": 0.3765873610973358
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.385016918182373,
+            "concentration_max": 2.4461982250213623,
+            "coordinate_std": 0.2711963355541229,
+            "requested_mean_max": 0.5296647548675537
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9959683418273926,
+            "maximum_probability": 0.19593025743961334,
+            "probability_std": 0.04282262176275253
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3459307551383972,
+            "maximum_probability": 0.9110494256019592,
+            "probability_std": 0.3075806498527527
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5678519010543823,
+            "maximum_probability": 0.8083207607269287,
+            "probability_std": 0.0804760754108429
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.38579848408699036,
+            "maximum_probability": 0.7862903475761414,
+            "probability_std": 0.09456077218055725
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6647435426712036,
+            "maximum_probability": 0.48934730887413025,
+            "probability_std": 0.05651583522558212
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.5863425135612488,
+            "maximum_probability": 0.7502102255821228,
+            "probability_std": 0.13442784547805786
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6584871411323547,
+            "maximum_probability": 0.7000649571418762,
+            "probability_std": 0.15296007692813873
+          }
+        },
+        "value_std": 14.682829856872559,
+        "value_input_gradient": 11.689708709716797,
+        "receipt_sensitivity": {
+          "workforce": 0.00016583122487645596,
+          "activities": 3.9842587284510955e-05,
+          "controls": 0.0004401407204568386,
+          "movement": 0.0005068267346359789,
+          "enabled": 0.012490124441683292,
+          "partner": 0.0029551766347140074,
+          "give": 0.008550800383090973,
+          "want": 0.023240922018885612,
+          "lot": 0.07184424996376038,
+          "price": 0.08516092598438263
+        },
+        "receipt_value_sensitivity": 3.001331329345703
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 269,
+            "zero": 10,
+            "one": 6,
+            "mean": 0.45491846352970006
+          },
+          {
+            "eligible": 75,
+            "zero": 3,
+            "one": 2,
+            "mean": 0.48559274981880485
+          },
+          {
+            "eligible": 75,
+            "zero": 1,
+            "one": 2,
+            "mean": 0.5236638011141427
+          }
+        ],
+        "steps": 295,
+        "average_qol": 0.15234897563275854,
+        "average_population": 31.552542372881355,
+        "annual_welfare": 6.7130809760194445,
+        "integrated_welfare": 39607.17775851472,
+        "final_population_mean": 1.0833333333333333,
+        "terminal_episodes": 5,
+        "events": {
+          "movement": 133,
+          "trades": 0,
+          "migrants": 381,
+          "daughters": 24,
+          "quotes": 59,
+          "opportunities": 9,
+          "compatible_proposals": 0
+        },
+        "native_step_seconds_mean": 0.014383690847457628,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09745391307659025,
+          0.090623475562667,
+          0.021110569697438117,
+          0.032218022706290345,
+          0.07170801013712305,
+          0.08160713920564604,
+          0.09516242088890298,
+          0.07762427586569685,
+          0.08843083955829706,
+          0.10114866381044622,
+          0.07800801506623896,
+          0.07706272737994087,
+          0.08784192704472245
+        ],
+        "mean_compiled_staffing": [
+          2.9322033898305087,
+          2.8372881355932202,
+          0.6,
+          0.6813559322033899,
+          1.959322033898305,
+          2.701694915254237,
+          3.7220338983050847,
+          2.0542372881355933,
+          2.772881355932203,
+          3.1728813559322036,
+          2.0915254237288137,
+          2.698305084745763,
+          3.328813559322034
+        ],
+        "total_production": [
+          25638.26598533129,
+          50566.27151333498,
+          2992.5746635846053,
+          26113.76317521055,
+          2189.9455053907573,
+          23016.705380256797,
+          928.0686780227587,
+          49.55824408223832,
+          1052.7941779106245,
+          2717.9680442243744,
+          1786.163422388035
+        ],
+        "total_extraction": [
+          68442.46501758073,
+          66357.39764942451,
+          53599.28207367283
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 1.0833333333333333,
+        "mean_final_realized_qol": 0.1249185013720115,
+        "mean_living_endpoint_qol": 0.12187272365308499,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "superlinear-seed211",
+      "seed": 211,
+      "kind": "superlinear",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 17.40601921081543,
+          "actor_step_l2": 0.07355964183807373,
+          "critic_step_l2": 0.18276338279247284,
+          "actor_relative_step": 0.0018601688236232104,
+          "critic_relative_step": 0.004648291749182747,
+          "actor_first_layer_grad": 4.934034824371338,
+          "critic_first_layer_grad": 1.742658019065857,
+          "advantage_std": 4.147837443879501,
+          "return_std": 9.453171204596964,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.016064984605335845,
+          "clip_fraction": 0.0546875,
+          "head_gradient_max": {
+            "simplex": 37.68494302034378,
+            "movement": 4.549765143543482,
+            "enabled": 1.7329407967627048,
+            "partner": 0.5567288030870259,
+            "give": 2.4273664634674788,
+            "want": 2.8315907828509808,
+            "lot": 1.7956694476306438,
+            "price": 1.7362560015171766
+          }
+        },
+        {
+          "critic_residual_mse": 7.103585243225098,
+          "actor_step_l2": 0.07413492351770401,
+          "critic_step_l2": 0.18250355124473572,
+          "actor_relative_step": 0.0018747083508457978,
+          "critic_relative_step": 0.004641680200636668,
+          "actor_first_layer_grad": 2.947021722793579,
+          "critic_first_layer_grad": 1.452429175376892,
+          "advantage_std": 2.6588618863611626,
+          "return_std": 7.216693417019926,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.02323803536050372,
+          "clip_fraction": 0.08705357142857142,
+          "head_gradient_max": {
+            "simplex": 35.80585911870003,
+            "movement": 4.109895223751664,
+            "enabled": 1.6458176895976067,
+            "partner": 0.937795015051961,
+            "give": 3.107430601492524,
+            "want": 3.1716072987765074,
+            "lot": 1.8346799295395613,
+            "price": 1.7192143946886063
+          }
+        },
+        {
+          "critic_residual_mse": 8.65070629119873,
+          "actor_step_l2": 0.07110659033060074,
+          "critic_step_l2": 0.187248095870018,
+          "actor_relative_step": 0.001798123988383393,
+          "critic_relative_step": 0.004762295435004847,
+          "actor_first_layer_grad": 5.109908103942871,
+          "critic_first_layer_grad": 1.6407694816589355,
+          "advantage_std": 2.9375657525925964,
+          "return_std": 6.861449929173927,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.018865473962448538,
+          "clip_fraction": 0.08816964285714286,
+          "head_gradient_max": {
+            "simplex": 37.647756695747375,
+            "movement": 4.814979527145624,
+            "enabled": 1.7018208289518952,
+            "partner": 0.7196755914483219,
+            "give": 2.5713022891432047,
+            "want": 3.5069404132664204,
+            "lot": 3.040756531059742,
+            "price": 2.454555492848158
+          }
+        },
+        {
+          "critic_residual_mse": 7.88593053817749,
+          "actor_step_l2": 0.0678439661860466,
+          "critic_step_l2": 0.17975899577140808,
+          "actor_relative_step": 0.0017156216282421932,
+          "critic_relative_step": 0.004571674207177925,
+          "actor_first_layer_grad": 2.2489964962005615,
+          "critic_first_layer_grad": 2.688814878463745,
+          "advantage_std": 2.806739645640426,
+          "return_std": 8.323026944986285,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.014919512523769305,
+          "clip_fraction": 0.04799107142857143,
+          "head_gradient_max": {
+            "simplex": 37.84181831777096,
+            "movement": 3.245323523879051,
+            "enabled": 2.0793881630524993,
+            "partner": 0.6473955316469073,
+            "give": 1.8389002913609147,
+            "want": 3.119025904685259,
+            "lot": 1.7923567686229944,
+            "price": 2.850093400105834
+          }
+        },
+        {
+          "critic_residual_mse": 4.568344593048096,
+          "actor_step_l2": 0.04018155857920647,
+          "critic_step_l2": 0.1399298459291458,
+          "actor_relative_step": 0.001016098781984981,
+          "critic_relative_step": 0.0035586519657111126,
+          "actor_first_layer_grad": 4.317070960998535,
+          "critic_first_layer_grad": 0.7237057685852051,
+          "advantage_std": 2.059117846195421,
+          "return_std": 6.836431971106047,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.008967458526222667,
+          "clip_fraction": 0.052734375,
+          "head_gradient_max": {
+            "simplex": 39.07096014916897,
+            "movement": 3.891475934535265,
+            "enabled": 1.2307788273319602,
+            "partner": 0.7457423228770494,
+            "give": 2.709950227290392,
+            "want": 2.3876912854611874,
+            "lot": 2.551964856684208,
+            "price": 1.4348449651151896
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.0071428571827709675,
+            "mean_derivative": 0.6080405712127686,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3112723231315613,
+            "effective_rank": 22.22058777744268
+          },
+          {
+            "saturated_fraction": 0.01618303544819355,
+            "mean_derivative": 0.625603973865509,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.32894274592399597,
+            "effective_rank": 22.97805908349612
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0075892857275903225,
+            "mean_derivative": 0.6029919385910034,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3494727909564972,
+            "effective_rank": 22.979346015924957
+          },
+          {
+            "saturated_fraction": 0.00837053544819355,
+            "mean_derivative": 0.6042858362197876,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3675314784049988,
+            "effective_rank": 23.89335335154377
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.30373162031173706,
+        "active_raw_max": 0.30884066224098206,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.947789192199707,
+            "concentration_max": 10.398059844970703,
+            "coordinate_std": 0.08990346640348434,
+            "requested_mean_max": 0.0988692119717598
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7881033420562744,
+            "concentration_max": 7.832310199737549,
+            "coordinate_std": 0.2133321911096573,
+            "requested_mean_max": 0.37214910984039307
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3718349933624268,
+            "concentration_max": 2.4361212253570557,
+            "coordinate_std": 0.2721250355243683,
+            "requested_mean_max": 0.5164773464202881
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9962276220321655,
+            "maximum_probability": 0.1990235596895218,
+            "probability_std": 0.04227686673402786
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.30392757058143616,
+            "maximum_probability": 0.9289451837539673,
+            "probability_std": 0.29492488503456116
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5239809155464172,
+            "maximum_probability": 0.8245845437049866,
+            "probability_std": 0.0890226736664772
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.39193296432495117,
+            "maximum_probability": 0.7901159524917603,
+            "probability_std": 0.09967071563005447
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6463653445243835,
+            "maximum_probability": 0.49004173278808594,
+            "probability_std": 0.058289334177970886
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.5834913849830627,
+            "maximum_probability": 0.7496654987335205,
+            "probability_std": 0.14407145977020264
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6104440689086914,
+            "maximum_probability": 0.7336821556091309,
+            "probability_std": 0.15012575685977936
+          }
+        },
+        "value_std": 18.72968292236328,
+        "value_input_gradient": 13.10774040222168,
+        "receipt_sensitivity": {
+          "workforce": 0.00011320754128973931,
+          "activities": 3.0227065508370288e-05,
+          "controls": 0.00019301488646306098,
+          "movement": 0.00043387990444898605,
+          "enabled": 0.007203630171716213,
+          "partner": 0.002376395044848323,
+          "give": 0.008399305865168571,
+          "want": 0.021097034215927124,
+          "lot": 0.07069321721792221,
+          "price": 0.07551854103803635
+        },
+        "receipt_value_sensitivity": 3.830585241317749
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/superlinear-seed211-step1024.pt",
+      "checkpoint_sha256": "3dc59f81aa4959a8c9c54901a9283b395fe2bc92db73f3e45e9448cf3b5e6e3a",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 232,
+        "transitions": 5520,
+        "updates": 28
+      },
+      "training_endpoints": {
+        "mean_final_population": 6.022222222222222,
+        "mean_final_realized_qol": 0.21966737500566677,
+        "mean_living_endpoint_qol": 0.20659170280986291,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 45
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.300113131350166,
+              -0.0009600691264495254
+            ],
+            "after": [
+              -19.004870284200955,
+              0.009842006489634514
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.70344242708449,
+              -0.009842006489634514
+            ],
+            "after": [
+              -19.61631222794413,
+              0.0038484670221805573
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.006808035541325808,
+            "mean_derivative": 0.6072441935539246,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30321204662323,
+            "effective_rank": 22.20108615020495
+          },
+          {
+            "saturated_fraction": 0.01651785708963871,
+            "mean_derivative": 0.6243212223052979,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.31335753202438354,
+            "effective_rank": 22.99296812774748
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.6100091338157654,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.36405131220817566,
+            "effective_rank": 23.04142690043867
+          },
+          {
+            "saturated_fraction": 0.008816963993012905,
+            "mean_derivative": 0.6037378907203674,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4035412669181824,
+            "effective_rank": 23.948674594649905
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.28543025255203247,
+        "active_raw_max": 0.36722999811172485,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.994186401367188,
+            "concentration_max": 10.47872543334961,
+            "coordinate_std": 0.08965805917978287,
+            "requested_mean_max": 0.10342743992805481
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.814880847930908,
+            "concentration_max": 7.824439525604248,
+            "coordinate_std": 0.21235010027885437,
+            "requested_mean_max": 0.3831475079059601
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.39475154876709,
+            "concentration_max": 2.475545644760132,
+            "coordinate_std": 0.270926833152771,
+            "requested_mean_max": 0.5259063243865967
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9933924674987793,
+            "maximum_probability": 0.20102478563785553,
+            "probability_std": 0.042576439678668976
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3424767851829529,
+            "maximum_probability": 0.9143797755241394,
+            "probability_std": 0.3027433753013611
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5216596722602844,
+            "maximum_probability": 0.8532336950302124,
+            "probability_std": 0.09173663705587387
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.4011852741241455,
+            "maximum_probability": 0.7813483476638794,
+            "probability_std": 0.09589553624391556
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6598451733589172,
+            "maximum_probability": 0.4827074408531189,
+            "probability_std": 0.05461040511727333
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.5642251968383789,
+            "maximum_probability": 0.7664242386817932,
+            "probability_std": 0.12281927466392517
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6306313872337341,
+            "maximum_probability": 0.7262976765632629,
+            "probability_std": 0.13846983015537262
+          }
+        },
+        "value_std": 22.993806838989258,
+        "value_input_gradient": 14.56889820098877,
+        "receipt_sensitivity": {
+          "workforce": 0.00015404071018565446,
+          "activities": 3.292425753897987e-05,
+          "controls": 0.0003764460561797023,
+          "movement": 0.00040688927401788533,
+          "enabled": 0.011874379590153694,
+          "partner": 0.0026940631214529276,
+          "give": 0.00869539100676775,
+          "want": 0.021699337288737297,
+          "lot": 0.06470019370317459,
+          "price": 0.07666468620300293
+        },
+        "receipt_value_sensitivity": 6.140317916870117
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 265,
+            "zero": 12,
+            "one": 8,
+            "mean": 0.45068984152859104
+          },
+          {
+            "eligible": 68,
+            "zero": 2,
+            "one": 0,
+            "mean": 0.467123428252368
+          },
+          {
+            "eligible": 68,
+            "zero": 1,
+            "one": 1,
+            "mean": 0.5385014442421492
+          }
+        ],
+        "steps": 291,
+        "average_qol": 0.18686490043116677,
+        "average_population": 32.99312714776632,
+        "annual_welfare": 7.680715583725698,
+        "integrated_welfare": 44701.764697283565,
+        "final_population_mean": 2.0833333333333335,
+        "terminal_episodes": 5,
+        "events": {
+          "movement": 137,
+          "trades": 0,
+          "migrants": 401,
+          "daughters": 23,
+          "quotes": 72,
+          "opportunities": 9,
+          "compatible_proposals": 0
+        },
+        "native_step_seconds_mean": 0.012069620962199313,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10676186420711953,
+          0.09449890762524316,
+          0.016968389531305774,
+          0.03347943187260429,
+          0.07160599802571613,
+          0.0919365255246534,
+          0.08723780624422267,
+          0.08477216116183667,
+          0.07920495876771025,
+          0.08292190852476819,
+          0.08838043254464419,
+          0.07615925770513343,
+          0.08607235826504225
+        ],
+        "mean_compiled_staffing": [
+          3.3195876288659796,
+          3.0790378006872854,
+          0.5498281786941581,
+          0.8006872852233677,
+          2.3092783505154637,
+          3.2508591065292096,
+          3.415807560137457,
+          2.508591065292096,
+          2.7938144329896906,
+          2.6391752577319587,
+          2.29553264604811,
+          2.8281786941580758,
+          3.202749140893471
+        ],
+        "total_production": [
+          30182.428926288354,
+          43984.8369652809,
+          3088.0984504970434,
+          26561.35845347796,
+          1706.552446433695,
+          25138.935343034747,
+          983.1907567241034,
+          53.79664931745346,
+          1111.584571141073,
+          2317.795950686173,
+          1023.364508093684
+        ],
+        "total_extraction": [
+          71399.47194503048,
+          65441.755861078884,
+          58095.21754335384
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 2.0833333333333335,
+        "mean_final_realized_qol": 0.18301907987552554,
+        "mean_living_endpoint_qol": 0.18105475686539083,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "original-seed307",
+      "seed": 307,
+      "kind": "original",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 27.884557723999023,
+          "actor_step_l2": 0.06882254034280777,
+          "critic_step_l2": 0.2838471233844757,
+          "actor_relative_step": 0.0017403360104775631,
+          "critic_relative_step": 0.00722038798895955,
+          "actor_first_layer_grad": 4.948596477508545,
+          "critic_first_layer_grad": 4.985733509063721,
+          "advantage_std": 5.103227932720289,
+          "return_std": 10.287620297689033,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.01349753394271487,
+          "clip_fraction": 0.0546875,
+          "head_gradient_max": {
+            "simplex": 37.09122556447983,
+            "movement": 3.794128919020295,
+            "enabled": 1.1531611196696758,
+            "partner": 0.862486716825515,
+            "give": 2.7474259231239557,
+            "want": 3.300065426155925,
+            "lot": 2.5373084619641304,
+            "price": 2.9437160193920135
+          }
+        },
+        {
+          "critic_residual_mse": 41.0721435546875,
+          "actor_step_l2": 0.06993421912193298,
+          "critic_step_l2": 0.3164268732070923,
+          "actor_relative_step": 0.0017684391735113551,
+          "critic_relative_step": 0.008048683116371498,
+          "actor_first_layer_grad": 8.176779747009277,
+          "critic_first_layer_grad": 2.7663533687591553,
+          "advantage_std": 6.3750942664517485,
+          "return_std": 12.54562613571304,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.01412829498575232,
+          "clip_fraction": 0.04575892857142857,
+          "head_gradient_max": {
+            "simplex": 36.10816100239754,
+            "movement": 4.203858891502023,
+            "enabled": 1.9960105754435062,
+            "partner": 0.9626574395224452,
+            "give": 2.8376191277056932,
+            "want": 3.0772289037704468,
+            "lot": 2.2536123786121607,
+            "price": 2.216104058548808
+          }
+        },
+        {
+          "critic_residual_mse": 20.052244186401367,
+          "actor_step_l2": 0.06589335948228836,
+          "critic_step_l2": 0.27965694665908813,
+          "actor_relative_step": 0.0016662471031753572,
+          "critic_relative_step": 0.007112971019576041,
+          "actor_first_layer_grad": 7.137489318847656,
+          "critic_first_layer_grad": 1.7134064435958862,
+          "advantage_std": 4.17955088282262,
+          "return_std": 12.770520235954859,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.012610331118209826,
+          "clip_fraction": 0.06808035714285714,
+          "head_gradient_max": {
+            "simplex": 37.15276783704758,
+            "movement": 4.000210028141737,
+            "enabled": 1.562417465262115,
+            "partner": 0.9415144389495254,
+            "give": 2.2114064432680607,
+            "want": 2.9655301459133625,
+            "lot": 1.9386497242376208,
+            "price": 1.4679944161325693
+          }
+        },
+        {
+          "critic_residual_mse": 11.560568809509277,
+          "actor_step_l2": 0.06762305647134781,
+          "critic_step_l2": 0.21115830540657043,
+          "actor_relative_step": 0.0017099828621083852,
+          "critic_relative_step": 0.00537048433738014,
+          "actor_first_layer_grad": 4.442853927612305,
+          "critic_first_layer_grad": 1.5521315336227417,
+          "advantage_std": 3.2446214192889093,
+          "return_std": 8.724983699168247,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.018831473887653365,
+          "clip_fraction": 0.06696428571428571,
+          "head_gradient_max": {
+            "simplex": 37.31441247463226,
+            "movement": 4.681284733116627,
+            "enabled": 1.225114713422954,
+            "partner": 0.8856814284808934,
+            "give": 2.3276077173650265,
+            "want": 2.681886637583375,
+            "lot": 1.491546668112278,
+            "price": 1.7140516843646765
+          }
+        },
+        {
+          "critic_residual_mse": 6.663536548614502,
+          "actor_step_l2": 0.0332072488963604,
+          "critic_step_l2": 0.12143246829509735,
+          "actor_relative_step": 0.0008397086826118353,
+          "critic_relative_step": 0.00308835440067412,
+          "actor_first_layer_grad": 5.082964897155762,
+          "critic_first_layer_grad": 0.8149996399879456,
+          "advantage_std": 2.430671853287495,
+          "return_std": 6.27326311620294,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.008376577778603587,
+          "clip_fraction": 0.017578125,
+          "head_gradient_max": {
+            "simplex": 35.546806544065475,
+            "movement": 4.451810171827674,
+            "enabled": 1.0498850191943347,
+            "partner": 0.4081439815927297,
+            "give": 1.7200597282499075,
+            "want": 2.479586811736226,
+            "lot": 0.9183807699009776,
+            "price": 1.1439273385331035
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.609904408454895,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2890501022338867,
+            "effective_rank": 22.280846065372653
+          },
+          {
+            "saturated_fraction": 0.02421874925494194,
+            "mean_derivative": 0.6551580429077148,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30471429228782654,
+            "effective_rank": 22.978175912216955
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.01138392835855484,
+            "mean_derivative": 0.6104817986488342,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38734108209609985,
+            "effective_rank": 23.373812563467354
+          },
+          {
+            "saturated_fraction": 0.012500000186264515,
+            "mean_derivative": 0.6083078384399414,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4186881482601166,
+            "effective_rank": 24.03654296974527
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.2794882655143738,
+        "active_raw_max": 0.24371449649333954,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.793004035949707,
+            "concentration_max": 10.194619178771973,
+            "coordinate_std": 0.09061868488788605,
+            "requested_mean_max": 0.10020677000284195
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.786304235458374,
+            "concentration_max": 8.00322437286377,
+            "coordinate_std": 0.21312016248703003,
+            "requested_mean_max": 0.37643590569496155
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3887906074523926,
+            "concentration_max": 2.410517692565918,
+            "coordinate_std": 0.271511048078537,
+            "requested_mean_max": 0.5129891037940979
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9983869791030884,
+            "maximum_probability": 0.1832662671804428,
+            "probability_std": 0.042869798839092255
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3587679862976074,
+            "maximum_probability": 0.9188280701637268,
+            "probability_std": 0.2912108898162842
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5737853646278381,
+            "maximum_probability": 0.8438644409179688,
+            "probability_std": 0.08906732499599457
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.3517129123210907,
+            "maximum_probability": 0.8187441229820251,
+            "probability_std": 0.09214866906404495
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.656080961227417,
+            "maximum_probability": 0.5264785885810852,
+            "probability_std": 0.0465327650308609
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.7029291391372681,
+            "maximum_probability": 0.69602370262146,
+            "probability_std": 0.09607713669538498
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6925597190856934,
+            "maximum_probability": 0.7052170038223267,
+            "probability_std": 0.09268247336149216
+          }
+        },
+        "value_std": 21.478954315185547,
+        "value_input_gradient": 13.617311477661133,
+        "receipt_sensitivity": {
+          "workforce": 0.00020365239470265806,
+          "activities": 3.034108340216335e-05,
+          "controls": 0.0002993145026266575,
+          "movement": 0.00036564934998750687,
+          "enabled": 0.009480763226747513,
+          "partner": 0.0016951058059930801,
+          "give": 0.006405177526175976,
+          "want": 0.021739736199378967,
+          "lot": 0.08572675287723541,
+          "price": 0.08360803127288818
+        },
+        "receipt_value_sensitivity": 4.360367298126221
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/original-seed307-step1024.pt",
+      "checkpoint_sha256": "81ccf69a8e060b435f8951d143fa8ca0f9516e280966d88c9be4863de8822dab",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 235,
+        "transitions": 5520,
+        "updates": 29
+      },
+      "training_endpoints": {
+        "mean_final_population": 12.217391304347826,
+        "mean_final_realized_qol": 0.16422792129843924,
+        "mean_living_endpoint_qol": 0.16422792129843924,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 46
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.44741703691752,
+              0.0004690270870923996
+            ],
+            "after": [
+              -19.06396790211516,
+              0.012375612743198872
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.687942579068483,
+              -0.012375612743198872
+            ],
+            "after": [
+              -19.598583530480205,
+              0.0018064416944980621
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.01015624962747097,
+            "mean_derivative": 0.6106078624725342,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2904554605484009,
+            "effective_rank": 22.279220456356878
+          },
+          {
+            "saturated_fraction": 0.02287946455180645,
+            "mean_derivative": 0.6497544646263123,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30598804354667664,
+            "effective_rank": 22.98569251240662
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.01015624962747097,
+            "mean_derivative": 0.605606198310852,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3791375458240509,
+            "effective_rank": 23.325207165828985
+          },
+          {
+            "saturated_fraction": 0.011272321455180645,
+            "mean_derivative": 0.6008214950561523,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3959464430809021,
+            "effective_rank": 23.85171239898741
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.3670041859149933,
+        "active_raw_max": 0.3264015018939972,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.817513465881348,
+            "concentration_max": 10.300076484680176,
+            "coordinate_std": 0.0904468446969986,
+            "requested_mean_max": 0.1036371961236
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7642242908477783,
+            "concentration_max": 7.958794593811035,
+            "coordinate_std": 0.2136898636817932,
+            "requested_mean_max": 0.37956124544143677
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3968513011932373,
+            "concentration_max": 2.41605544090271,
+            "coordinate_std": 0.2710455656051636,
+            "requested_mean_max": 0.5205589532852173
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9975141882896423,
+            "maximum_probability": 0.18780925869941711,
+            "probability_std": 0.04209361970424652
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.35326844453811646,
+            "maximum_probability": 0.92058926820755,
+            "probability_std": 0.28892889618873596
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.6010137796401978,
+            "maximum_probability": 0.8113386631011963,
+            "probability_std": 0.08474225550889969
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.3582088351249695,
+            "maximum_probability": 0.8145724534988403,
+            "probability_std": 0.09252024441957474
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6098130345344543,
+            "maximum_probability": 0.555412232875824,
+            "probability_std": 0.046011194586753845
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6420262455940247,
+            "maximum_probability": 0.7330998182296753,
+            "probability_std": 0.09796331077814102
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6219373941421509,
+            "maximum_probability": 0.7485002875328064,
+            "probability_std": 0.09188570827245712
+          }
+        },
+        "value_std": 20.218069076538086,
+        "value_input_gradient": 13.174330711364746,
+        "receipt_sensitivity": {
+          "workforce": 0.0002963637816719711,
+          "activities": 3.92034235119354e-05,
+          "controls": 0.0004647436726372689,
+          "movement": 0.0006313234334811568,
+          "enabled": 0.010911798104643822,
+          "partner": 0.001721664215438068,
+          "give": 0.0074149686843156815,
+          "want": 0.020846102386713028,
+          "lot": 0.08544579148292542,
+          "price": 0.0808090940117836
+        },
+        "receipt_value_sensitivity": 2.668292999267578
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 269,
+            "zero": 18,
+            "one": 5,
+            "mean": 0.45752932766761867
+          },
+          {
+            "eligible": 59,
+            "zero": 2,
+            "one": 4,
+            "mean": 0.47484772969813877
+          },
+          {
+            "eligible": 59,
+            "zero": 0,
+            "one": 1,
+            "mean": 0.5178686435013363
+          }
+        ],
+        "steps": 295,
+        "average_qol": 0.17696810329068297,
+        "average_population": 29.477966101694914,
+        "annual_welfare": 6.932093532472924,
+        "integrated_welfare": 40899.35184159025,
+        "final_population_mean": 1.5833333333333333,
+        "terminal_episodes": 4,
+        "events": {
+          "movement": 147,
+          "trades": 1,
+          "migrants": 286,
+          "daughters": 24,
+          "quotes": 50,
+          "opportunities": 5,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.01206196406779661,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09460375837377992,
+          0.10090120734624995,
+          0.016121984554882007,
+          0.022688844355386116,
+          0.06515855431689531,
+          0.07658311462482925,
+          0.07841220641449778,
+          0.08398595065467607,
+          0.07604684411425085,
+          0.09566078694074708,
+          0.10012702644155802,
+          0.09161508910199156,
+          0.0980946327602561
+        ],
+        "mean_compiled_staffing": [
+          3.471186440677966,
+          2.593220338983051,
+          0.26440677966101694,
+          0.6169491525423729,
+          2.152542372881356,
+          1.9627118644067796,
+          2.3254237288135595,
+          2.5016949152542374,
+          1.9898305084745762,
+          2.9322033898305087,
+          2.925423728813559,
+          2.610169491525424,
+          3.1322033898305084
+        ],
+        "total_production": [
+          21398.66754126901,
+          35613.05542470957,
+          3561.7751675650875,
+          23807.326513967495,
+          1701.064220646612,
+          19590.942472379997,
+          116.1500297387086,
+          2.5213116110892693,
+          1359.8693662037654,
+          1951.776328787694,
+          5281.483222156739
+        ],
+        "total_extraction": [
+          65950.54526213459,
+          67618.72193205422,
+          75465.66396823981
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 1.5833333333333333,
+        "mean_final_realized_qol": 0.12291371884879902,
+        "mean_living_endpoint_qol": 0.12291371884879902,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "midpoint-seed307",
+      "seed": 307,
+      "kind": "midpoint",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 30.018922805786133,
+          "actor_step_l2": 0.06932444125413895,
+          "critic_step_l2": 0.28021371364593506,
+          "actor_relative_step": 0.0017530277278325218,
+          "critic_relative_step": 0.007127962785835006,
+          "actor_first_layer_grad": 5.303665637969971,
+          "critic_first_layer_grad": 5.179986953735352,
+          "advantage_std": 5.227250564617914,
+          "return_std": 9.751259228708713,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.014971938213123554,
+          "clip_fraction": 0.05022321428571429,
+          "head_gradient_max": {
+            "simplex": 36.78397813439369,
+            "movement": 3.7128091920167208,
+            "enabled": 1.1681870371103287,
+            "partner": 0.8018936780281365,
+            "give": 3.0336220264434814,
+            "want": 3.227989614009857,
+            "lot": 2.3510733507573605,
+            "price": 2.9270500037819147
+          }
+        },
+        {
+          "critic_residual_mse": 30.277799606323242,
+          "actor_step_l2": 0.06437037885189056,
+          "critic_step_l2": 0.3034631609916687,
+          "actor_relative_step": 0.0016277451871752153,
+          "critic_relative_step": 0.00771888743477723,
+          "actor_first_layer_grad": 8.972967147827148,
+          "critic_first_layer_grad": 1.6891859769821167,
+          "advantage_std": 5.478026085596568,
+          "return_std": 11.11096400041052,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.01930275263633638,
+          "clip_fraction": 0.0625,
+          "head_gradient_max": {
+            "simplex": 36.43889802694321,
+            "movement": 4.264192175120115,
+            "enabled": 1.9122761897742748,
+            "partner": 0.9657038850709796,
+            "give": 2.8028519582003355,
+            "want": 2.9552134592086077,
+            "lot": 2.807727102190256,
+            "price": 2.1461464799940586
+          }
+        },
+        {
+          "critic_residual_mse": 15.80993366241455,
+          "actor_step_l2": 0.06463517248630524,
+          "critic_step_l2": 0.25881969928741455,
+          "actor_relative_step": 0.0016344327146795565,
+          "critic_relative_step": 0.0065829271318193485,
+          "actor_first_layer_grad": 6.410449028015137,
+          "critic_first_layer_grad": 1.5256867408752441,
+          "advantage_std": 3.5704618777940538,
+          "return_std": 11.779479504113665,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.01577687331017623,
+          "clip_fraction": 0.04241071428571429,
+          "head_gradient_max": {
+            "simplex": 35.85585895180702,
+            "movement": 4.4295019544661045,
+            "enabled": 1.3663062863051891,
+            "partner": 0.8917098301462829,
+            "give": 2.082493981346488,
+            "want": 2.524420388042927,
+            "lot": 1.6625612452626228,
+            "price": 1.5003126543015242
+          }
+        },
+        {
+          "critic_residual_mse": 10.125161170959473,
+          "actor_step_l2": 0.06479738652706146,
+          "critic_step_l2": 0.20820511877536774,
+          "actor_relative_step": 0.0016385338386435072,
+          "critic_relative_step": 0.005295394647767632,
+          "actor_first_layer_grad": 3.982024669647217,
+          "critic_first_layer_grad": 1.6234225034713745,
+          "advantage_std": 3.0413886295874537,
+          "return_std": 7.685960537250161,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.016546541314056817,
+          "clip_fraction": 0.07924107142857142,
+          "head_gradient_max": {
+            "simplex": 37.14648059010506,
+            "movement": 3.8424724210053682,
+            "enabled": 1.4299204675480723,
+            "partner": 1.0923271849751472,
+            "give": 2.095937411300838,
+            "want": 1.8698314214125276,
+            "lot": 2.0767219811677933,
+            "price": 1.2727732006460428
+          }
+        },
+        {
+          "critic_residual_mse": 3.5492889881134033,
+          "actor_step_l2": 0.04366511479020119,
+          "critic_step_l2": 0.1037268340587616,
+          "actor_relative_step": 0.0011041573839535104,
+          "critic_relative_step": 0.0026381026473518234,
+          "actor_first_layer_grad": 4.749875545501709,
+          "critic_first_layer_grad": 0.5681062340736389,
+          "advantage_std": 1.7191093855338317,
+          "return_std": 5.662879883471199,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.015912318742928873,
+          "clip_fraction": 0.068359375,
+          "head_gradient_max": {
+            "simplex": 36.50921514630318,
+            "movement": 3.7550600674003363,
+            "enabled": 1.4859742177650332,
+            "partner": 0.5303174913860857,
+            "give": 2.3354602456092834,
+            "want": 2.1977598341181874,
+            "lot": 1.7509603835642338,
+            "price": 1.8099809885025024
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.609904408454895,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2890501022338867,
+            "effective_rank": 22.280846065372653
+          },
+          {
+            "saturated_fraction": 0.02421874925494194,
+            "mean_derivative": 0.6551580429077148,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30471429228782654,
+            "effective_rank": 22.978175912216955
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.01138392835855484,
+            "mean_derivative": 0.6104817986488342,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38734108209609985,
+            "effective_rank": 23.373812563467354
+          },
+          {
+            "saturated_fraction": 0.012500000186264515,
+            "mean_derivative": 0.6083078384399414,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4186881482601166,
+            "effective_rank": 24.03654296974527
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.2794882655143738,
+        "active_raw_max": 0.24371449649333954,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.793004035949707,
+            "concentration_max": 10.194619178771973,
+            "coordinate_std": 0.09061868488788605,
+            "requested_mean_max": 0.10020677000284195
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.786304235458374,
+            "concentration_max": 8.00322437286377,
+            "coordinate_std": 0.21312016248703003,
+            "requested_mean_max": 0.37643590569496155
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3887906074523926,
+            "concentration_max": 2.410517692565918,
+            "coordinate_std": 0.271511048078537,
+            "requested_mean_max": 0.5129891037940979
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9983869791030884,
+            "maximum_probability": 0.1832662671804428,
+            "probability_std": 0.042869798839092255
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3587679862976074,
+            "maximum_probability": 0.9188280701637268,
+            "probability_std": 0.2912108898162842
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5737853646278381,
+            "maximum_probability": 0.8438644409179688,
+            "probability_std": 0.08906732499599457
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.3517129123210907,
+            "maximum_probability": 0.8187441229820251,
+            "probability_std": 0.09214866906404495
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.656080961227417,
+            "maximum_probability": 0.5264785885810852,
+            "probability_std": 0.0465327650308609
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.7029291391372681,
+            "maximum_probability": 0.69602370262146,
+            "probability_std": 0.09607713669538498
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6925597190856934,
+            "maximum_probability": 0.7052170038223267,
+            "probability_std": 0.09268247336149216
+          }
+        },
+        "value_std": 21.478954315185547,
+        "value_input_gradient": 13.617311477661133,
+        "receipt_sensitivity": {
+          "workforce": 0.00020365239470265806,
+          "activities": 3.034108340216335e-05,
+          "controls": 0.0002993145026266575,
+          "movement": 0.00036564934998750687,
+          "enabled": 0.009480763226747513,
+          "partner": 0.0016951058059930801,
+          "give": 0.006405177526175976,
+          "want": 0.021739736199378967,
+          "lot": 0.08572675287723541,
+          "price": 0.08360803127288818
+        },
+        "receipt_value_sensitivity": 4.360367298126221
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/midpoint-seed307-step1024.pt",
+      "checkpoint_sha256": "982d0cc91f926d16aa7c17a65f078cbe02b73ffb0b16a130e0f4578ef2e8423e",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 235,
+        "transitions": 5520,
+        "updates": 29
+      },
+      "training_endpoints": {
+        "mean_final_population": 10.282608695652174,
+        "mean_final_realized_qol": 0.17017025765733185,
+        "mean_living_endpoint_qol": 0.16617172902710795,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 46
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.432371674288866,
+              0.0004952062154188752
+            ],
+            "after": [
+              -19.042819726841543,
+              0.012248199433088303
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.66859538867164,
+              -0.012248199433088303
+            ],
+            "after": [
+              -19.59266822778954,
+              0.0017520614201202989
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00993303582072258,
+            "mean_derivative": 0.6098594069480896,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28826412558555603,
+            "effective_rank": 22.27783073260896
+          },
+          {
+            "saturated_fraction": 0.02287946455180645,
+            "mean_derivative": 0.6499026417732239,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30177950859069824,
+            "effective_rank": 22.97915819617771
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.00993303582072258,
+            "mean_derivative": 0.6047104001045227,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.37326014041900635,
+            "effective_rank": 23.303449189433014
+          },
+          {
+            "saturated_fraction": 0.010937499813735485,
+            "mean_derivative": 0.6001443266868591,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38236650824546814,
+            "effective_rank": 23.80050498747206
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.3463263511657715,
+        "active_raw_max": 0.35235869884490967,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.842052459716797,
+            "concentration_max": 10.317152976989746,
+            "coordinate_std": 0.0903436467051506,
+            "requested_mean_max": 0.10469765961170197
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7634992599487305,
+            "concentration_max": 7.951870441436768,
+            "coordinate_std": 0.21373747289180756,
+            "requested_mean_max": 0.3772972524166107
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3883097171783447,
+            "concentration_max": 2.411290168762207,
+            "coordinate_std": 0.2714555859565735,
+            "requested_mean_max": 0.5173596143722534
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9978651404380798,
+            "maximum_probability": 0.18625757098197937,
+            "probability_std": 0.042234569787979126
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3216281831264496,
+            "maximum_probability": 0.925683319568634,
+            "probability_std": 0.2640573978424072
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.606155514717102,
+            "maximum_probability": 0.802760124206543,
+            "probability_std": 0.0837114006280899
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.35798323154449463,
+            "maximum_probability": 0.8140775561332703,
+            "probability_std": 0.09147238731384277
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.6048348546028137,
+            "maximum_probability": 0.5590682029724121,
+            "probability_std": 0.045422058552503586
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.6270915865898132,
+            "maximum_probability": 0.743866503238678,
+            "probability_std": 0.09517079591751099
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6326369643211365,
+            "maximum_probability": 0.7400627732276917,
+            "probability_std": 0.09564638882875443
+          }
+        },
+        "value_std": 18.67040252685547,
+        "value_input_gradient": 12.334086418151855,
+        "receipt_sensitivity": {
+          "workforce": 0.00027509330539032817,
+          "activities": 3.8468533603008837e-05,
+          "controls": 0.00040753441862761974,
+          "movement": 0.0005752429133281112,
+          "enabled": 0.00590877328068018,
+          "partner": 0.0018335948698222637,
+          "give": 0.007336941082030535,
+          "want": 0.019981559365987778,
+          "lot": 0.07999101281166077,
+          "price": 0.08119132369756699
+        },
+        "receipt_value_sensitivity": 2.202641248703003
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 273,
+            "zero": 9,
+            "one": 5,
+            "mean": 0.4761695631198827
+          },
+          {
+            "eligible": 61,
+            "zero": 0,
+            "one": 3,
+            "mean": 0.518058367746447
+          },
+          {
+            "eligible": 61,
+            "zero": 2,
+            "one": 2,
+            "mean": 0.5155553309979866
+          }
+        ],
+        "steps": 299,
+        "average_qol": 0.18685386512977578,
+        "average_population": 28.712374581939798,
+        "annual_welfare": 6.531410317107944,
+        "integrated_welfare": 39057.833696305504,
+        "final_population_mean": 1.5833333333333333,
+        "terminal_episodes": 2,
+        "events": {
+          "movement": 136,
+          "trades": 1,
+          "migrants": 277,
+          "daughters": 24,
+          "quotes": 61,
+          "opportunities": 5,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.012358391638795986,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10736360137006734,
+          0.09912158219715098,
+          0.018377836378835527,
+          0.027328066466001673,
+          0.06901365990563768,
+          0.08005387901075708,
+          0.07643751957544045,
+          0.08445083337051199,
+          0.07658261770847477,
+          0.0907846363745389,
+          0.10603054559000985,
+          0.08887044580509441,
+          0.07558477624747942
+        ],
+        "mean_compiled_staffing": [
+          3.4414715719063547,
+          2.468227424749164,
+          0.25418060200668896,
+          0.5819397993311036,
+          2.270903010033445,
+          1.9698996655518395,
+          2.1270903010033444,
+          2.100334448160535,
+          2.3043478260869565,
+          2.591973244147157,
+          3.180602006688963,
+          2.471571906354515,
+          2.9498327759197323
+        ],
+        "total_production": [
+          17756.97345049,
+          31362.270495903656,
+          3587.3147209975473,
+          29520.420041688933,
+          1625.759495399864,
+          21797.371002028434,
+          118.16104930676048,
+          12.41233684043764,
+          1466.757811416817,
+          2165.140180626156,
+          3291.284658019969
+        ],
+        "total_extraction": [
+          63345.98716886286,
+          65877.61845773799,
+          83229.08182817079
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 1.5833333333333333,
+        "mean_final_realized_qol": 0.06328497499535936,
+        "mean_living_endpoint_qol": 0.06328497499535936,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    },
+    {
+      "id": "superlinear-seed307",
+      "seed": 307,
+      "kind": "superlinear",
+      "status": "COMPLETE",
+      "transitions": 1024,
+      "updates": [
+        {
+          "critic_residual_mse": 28.50682258605957,
+          "actor_step_l2": 0.06757185608148575,
+          "critic_step_l2": 0.22866733372211456,
+          "actor_relative_step": 0.0017087095862439552,
+          "critic_relative_step": 0.005816746881870503,
+          "actor_first_layer_grad": 6.241806507110596,
+          "critic_first_layer_grad": 3.2456107139587402,
+          "advantage_std": 4.750376311664609,
+          "return_std": 9.766095431347598,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.012701016922875126,
+          "clip_fraction": 0.041294642857142856,
+          "head_gradient_max": {
+            "simplex": 37.05472731590271,
+            "movement": 4.786378391087055,
+            "enabled": 1.239508107304573,
+            "partner": 0.5939557761885226,
+            "give": 2.808405540883541,
+            "want": 2.798531027510762,
+            "lot": 3.0533436872065067,
+            "price": 2.6520517989993095
+          }
+        },
+        {
+          "critic_residual_mse": 17.623313903808594,
+          "actor_step_l2": 0.06198469176888466,
+          "critic_step_l2": 0.28037649393081665,
+          "actor_relative_step": 0.0015674206163299575,
+          "critic_relative_step": 0.007131799716296118,
+          "actor_first_layer_grad": 5.409404754638672,
+          "critic_first_layer_grad": 1.0335077047348022,
+          "advantage_std": 4.198013199899848,
+          "return_std": 8.563618042014145,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.015018417265960017,
+          "clip_fraction": 0.05133928571428571,
+          "head_gradient_max": {
+            "simplex": 37.31313341856003,
+            "movement": 3.9669388197362423,
+            "enabled": 1.8545377543196082,
+            "partner": 0.8461811682209373,
+            "give": 2.649245463311672,
+            "want": 2.813053233548999,
+            "lot": 2.4104137904942036,
+            "price": 2.100477572530508
+          }
+        },
+        {
+          "critic_residual_mse": 16.69916343688965,
+          "actor_step_l2": 0.06680741161108017,
+          "critic_step_l2": 0.2466532588005066,
+          "actor_relative_step": 0.001689368585344639,
+          "critic_relative_step": 0.006273626946431285,
+          "actor_first_layer_grad": 8.650766372680664,
+          "critic_first_layer_grad": 1.9285444021224976,
+          "advantage_std": 3.9382584985232842,
+          "return_std": 11.571296298751339,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.02133251845877184,
+          "clip_fraction": 0.06808035714285714,
+          "head_gradient_max": {
+            "simplex": 35.403433844447136,
+            "movement": 4.155889777466655,
+            "enabled": 1.0646183146163821,
+            "partner": 1.1892031440511346,
+            "give": 2.228937960229814,
+            "want": 2.8292183354496956,
+            "lot": 1.8787305587902665,
+            "price": 1.973250998184085
+          }
+        },
+        {
+          "critic_residual_mse": 5.790445804595947,
+          "actor_step_l2": 0.06222954019904137,
+          "critic_step_l2": 0.17937599122524261,
+          "actor_relative_step": 0.0015736021343227971,
+          "critic_relative_step": 0.004562210173508655,
+          "actor_first_layer_grad": 5.322537899017334,
+          "critic_first_layer_grad": 0.9490180015563965,
+          "advantage_std": 2.2507109914727668,
+          "return_std": 6.952771814528291,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.012397137974652951,
+          "clip_fraction": 0.041294642857142856,
+          "head_gradient_max": {
+            "simplex": 37.294968634843826,
+            "movement": 4.059672564268112,
+            "enabled": 1.6699891611933708,
+            "partner": 0.9936640812084079,
+            "give": 2.365259449928999,
+            "want": 2.4914813339710236,
+            "lot": 1.8036492988467216,
+            "price": 1.3462526202201843
+          }
+        },
+        {
+          "critic_residual_mse": 1.721046805381775,
+          "actor_step_l2": 0.04752130061388016,
+          "critic_step_l2": 0.09105319529771805,
+          "actor_relative_step": 0.0012016679656681145,
+          "critic_relative_step": 0.0023157807711444932,
+          "actor_first_layer_grad": 2.962928056716919,
+          "critic_first_layer_grad": 0.42819687724113464,
+          "advantage_std": 1.2826415931225887,
+          "return_std": 5.357372632738942,
+          "actor_updates": 16,
+          "minibatches": 16,
+          "maximum_kl": 0.01232372257405449,
+          "clip_fraction": 0.041015625,
+          "head_gradient_max": {
+            "simplex": 33.41080875694752,
+            "movement": 4.6657970286905766,
+            "enabled": 1.2559585124254227,
+            "partner": 0.919813190586865,
+            "give": 2.1954370196908712,
+            "want": 2.687787367030978,
+            "lot": 2.5528811924159527,
+            "price": 2.4504959490150213
+          }
+        }
+      ],
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009151785634458065,
+            "mean_derivative": 0.609904408454895,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2890501022338867,
+            "effective_rank": 22.280846065372653
+          },
+          {
+            "saturated_fraction": 0.02421874925494194,
+            "mean_derivative": 0.6551580429077148,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30471429228782654,
+            "effective_rank": 22.978175912216955
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.01138392835855484,
+            "mean_derivative": 0.6104817986488342,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38734108209609985,
+            "effective_rank": 23.373812563467354
+          },
+          {
+            "saturated_fraction": 0.012500000186264515,
+            "mean_derivative": 0.6083078384399414,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4186881482601166,
+            "effective_rank": 24.03654296974527
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.2794882655143738,
+        "active_raw_max": 0.24371449649333954,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.793004035949707,
+            "concentration_max": 10.194619178771973,
+            "coordinate_std": 0.09061868488788605,
+            "requested_mean_max": 0.10020677000284195
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.786304235458374,
+            "concentration_max": 8.00322437286377,
+            "coordinate_std": 0.21312016248703003,
+            "requested_mean_max": 0.37643590569496155
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.3887906074523926,
+            "concentration_max": 2.410517692565918,
+            "coordinate_std": 0.271511048078537,
+            "requested_mean_max": 0.5129891037940979
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9983869791030884,
+            "maximum_probability": 0.1832662671804428,
+            "probability_std": 0.042869798839092255
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.3587679862976074,
+            "maximum_probability": 0.9188280701637268,
+            "probability_std": 0.2912108898162842
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.5737853646278381,
+            "maximum_probability": 0.8438644409179688,
+            "probability_std": 0.08906732499599457
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.3517129123210907,
+            "maximum_probability": 0.8187441229820251,
+            "probability_std": 0.09214866906404495
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.656080961227417,
+            "maximum_probability": 0.5264785885810852,
+            "probability_std": 0.0465327650308609
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.7029291391372681,
+            "maximum_probability": 0.69602370262146,
+            "probability_std": 0.09607713669538498
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6925597190856934,
+            "maximum_probability": 0.7052170038223267,
+            "probability_std": 0.09268247336149216
+          }
+        },
+        "value_std": 21.478954315185547,
+        "value_input_gradient": 13.617311477661133,
+        "receipt_sensitivity": {
+          "workforce": 0.00020365239470265806,
+          "activities": 3.034108340216335e-05,
+          "controls": 0.0002993145026266575,
+          "movement": 0.00036564934998750687,
+          "enabled": 0.009480763226747513,
+          "partner": 0.0016951058059930801,
+          "give": 0.006405177526175976,
+          "want": 0.021739736199378967,
+          "lot": 0.08572675287723541,
+          "price": 0.08360803127288818
+        },
+        "receipt_value_sensitivity": 4.360367298126221
+      },
+      "checkpoint": "runs/autonomous-reward-first1024-v11/superlinear-seed307-step1024.pt",
+      "checkpoint_sha256": "bacd09aa15d1d38f8e7df37e9776d4e7c9af95817c455b30556b7d2159420704",
+      "durable_transitions": 1024,
+      "checkpoint_counters": {
+        "episodes": 236,
+        "transitions": 5520,
+        "updates": 29
+      },
+      "training_endpoints": {
+        "mean_final_population": 12.23404255319149,
+        "mean_final_realized_qol": 0.1762945746094985,
+        "mean_living_endpoint_qol": 0.1723341168638478,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 47
+        }
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.397745957234644,
+              0.0004945934051647782
+            ],
+            "after": [
+              -19.017455628097753,
+              0.011885548010468483
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.65527458069164,
+              -0.011885548010468483
+            ],
+            "after": [
+              -19.597222885328755,
+              0.002040225313976407
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_signed_switch": true
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009821428917348385,
+            "mean_derivative": 0.6103656888008118,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28438979387283325,
+            "effective_rank": 22.264201480407806
+          },
+          {
+            "saturated_fraction": 0.0234375,
+            "mean_derivative": 0.6514140367507935,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29563388228416443,
+            "effective_rank": 22.961802486546315
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.011830356903374195,
+            "mean_derivative": 0.6132211685180664,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4032668471336365,
+            "effective_rank": 23.443053809491968
+          },
+          {
+            "saturated_fraction": 0.009821428917348385,
+            "mean_derivative": 0.5998142957687378,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.43728047609329224,
+            "effective_rank": 23.875407695487738
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.3214956223964691,
+        "active_raw_max": 0.33955639600753784,
+        "simplex": {
+          "workforce": {
+            "eligible": 35,
+            "concentration_mean": 8.83717155456543,
+            "concentration_max": 10.282819747924805,
+            "coordinate_std": 0.09038008004426956,
+            "requested_mean_max": 0.10442808270454407
+          },
+          "activities": {
+            "eligible": 153,
+            "concentration_mean": 2.7686212062835693,
+            "concentration_max": 7.924590110778809,
+            "coordinate_std": 0.21350713074207306,
+            "requested_mean_max": 0.3812026083469391
+          },
+          "controls": {
+            "eligible": 45,
+            "concentration_mean": 2.398737668991089,
+            "concentration_max": 2.4173526763916016,
+            "coordinate_std": 0.2710654139518738,
+            "requested_mean_max": 0.5154764652252197
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 33,
+            "normalized_entropy": 0.9979313015937805,
+            "maximum_probability": 0.1863631308078766,
+            "probability_std": 0.04224862903356552
+          },
+          "enabled": {
+            "eligible": 21,
+            "normalized_entropy": 0.34880051016807556,
+            "maximum_probability": 0.9223794341087341,
+            "probability_std": 0.27452465891838074
+          },
+          "partner": {
+            "eligible": 4,
+            "normalized_entropy": 0.596939742565155,
+            "maximum_probability": 0.822839617729187,
+            "probability_std": 0.0858733206987381
+          },
+          "give": {
+            "eligible": 35,
+            "normalized_entropy": 0.3714222013950348,
+            "maximum_probability": 0.8068942427635193,
+            "probability_std": 0.09107352048158646
+          },
+          "want": {
+            "eligible": 35,
+            "normalized_entropy": 0.647148609161377,
+            "maximum_probability": 0.5380165576934814,
+            "probability_std": 0.04449126869440079
+          },
+          "lot": {
+            "eligible": 35,
+            "normalized_entropy": 0.7028728723526001,
+            "maximum_probability": 0.6950562596321106,
+            "probability_std": 0.0978187844157219
+          },
+          "price": {
+            "eligible": 35,
+            "normalized_entropy": 0.6925748586654663,
+            "maximum_probability": 0.7035319209098816,
+            "probability_std": 0.0953001007437706
+          }
+        },
+        "value_std": 24.718460083007812,
+        "value_input_gradient": 14.482864379882812,
+        "receipt_sensitivity": {
+          "workforce": 0.00023220331058837473,
+          "activities": 3.817734614131041e-05,
+          "controls": 0.0003500309830997139,
+          "movement": 0.00047259192797355354,
+          "enabled": 0.007702982518821955,
+          "partner": 0.0019300120184198022,
+          "give": 0.0072317891754209995,
+          "want": 0.021219803020358086,
+          "lot": 0.0852135643362999,
+          "price": 0.08328144997358322
+        },
+        "receipt_value_sensitivity": 3.490154266357422
+      },
+      "evaluation": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 272,
+            "zero": 9,
+            "one": 5,
+            "mean": 0.48403380170041976
+          },
+          {
+            "eligible": 60,
+            "zero": 2,
+            "one": 4,
+            "mean": 0.49704604008449743
+          },
+          {
+            "eligible": 60,
+            "zero": 2,
+            "one": 1,
+            "mean": 0.5169208850261132
+          }
+        ],
+        "steps": 298,
+        "average_qol": 0.18611061946124569,
+        "average_population": 28.42281879194631,
+        "annual_welfare": 6.857348922437509,
+        "integrated_welfare": 40869.79957772755,
+        "final_population_mean": 1.5,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 177,
+          "trades": 1,
+          "migrants": 245,
+          "daughters": 24,
+          "quotes": 64,
+          "opportunities": 5,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.012428321476510068,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10170786722162134,
+          0.10598338437203006,
+          0.019725920504548328,
+          0.02203119240508016,
+          0.0747278272402722,
+          0.08369448910289459,
+          0.08353318871427912,
+          0.0889201331672408,
+          0.07691226100423923,
+          0.07881589068493118,
+          0.09758097437244086,
+          0.08762279635239818,
+          0.07874407485802386
+        ],
+        "mean_compiled_staffing": [
+          3.1711409395973154,
+          2.684563758389262,
+          0.2684563758389262,
+          0.4798657718120805,
+          2.5503355704697985,
+          2.087248322147651,
+          2.208053691275168,
+          2.4194630872483223,
+          2.1879194630872485,
+          2.5939597315436242,
+          2.8422818791946307,
+          2.3691275167785233,
+          2.5604026845637584
+        ],
+        "total_production": [
+          22670.920720998383,
+          31000.910148759755,
+          3673.13884059406,
+          28051.526441386988,
+          1549.3381543387338,
+          17849.160952297763,
+          120.17997961569519,
+          2.5381442933114973,
+          1279.1958764855472,
+          1991.8357840547292,
+          2859.80114591938
+        ],
+        "total_extraction": [
+          60104.41117816028,
+          56464.54530190026,
+          73922.11883639192
+        ]
+      },
+      "evaluation_endpoints": {
+        "mean_final_population": 1.5,
+        "mean_final_realized_qol": 0.14748460834723057,
+        "mean_living_endpoint_qol": 0.14748460834723057,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      }
+    }
+  ],
+  "calibrations": []
+}

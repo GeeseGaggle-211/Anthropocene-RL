@@ -18,6 +18,10 @@ namespace Anthropocene.RLBridge
                 var observed = camp == null || camp.Population <= 0 ? null : AutonomousElderHistoryEnvironment.Observe(world, id);
                 return new {
                     schemaVersion = 1, population = camp?.Population ?? 0, qol = camp?.QoL ?? 0,
+                    needsProfile = world.Config.Neolithic.SubsistenceNeedsCovered ? "subsistence-needs-v13" : "legacy",
+                    automaticNeedsResidents = camp == null ? 0 : SubsistenceNeeds.CoveredResidents(world, camp, camp.Population),
+                    physicalClothingPerCapita = camp == null ? 0 : SubsistenceNeeds.PhysicalClothingFraction(camp),
+                    clothingCoverage = camp?.ClothPerCapita ?? 0, housingCoverage = camp?.HousingPerCapita ?? 0,
                     knownControlledCounterpartyOrdinals = observed == null ? Array.Empty<int>() :
                         Enumerable.Range(0, observed.CounterpartyIds.Length).Where(n =>
                             observed.CounterpartyMask[n] && controlled.Contains(observed.CounterpartyIds[n])).ToArray(),
@@ -50,6 +54,12 @@ namespace Anthropocene.RLBridge
             else if (transform == "tools_empty")
                 c.Inventory.HandTools = c.Inventory.Tools = c.Inventory.FarmTools = c.Inventory.HerdingTools = c.Inventory.FishingTools = 0;
             else if (transform == "wood_three") c.Inventory.Wood = 3;
+            else if (transform == "subsistence_needs_v13")
+            {
+                world.Config.Neolithic.SubsistenceNeedsCovered = true;
+                foreach (var camp in world.Camps)
+                    camp.PhysicalClothingPerCapita = SubsistenceNeeds.PhysicalClothingFraction(camp);
+            }
             else if (transform != "none") throw new ArgumentException("Unknown analysis-only snapshot transformation.");
             return SaveCodec.Save(world);
         }

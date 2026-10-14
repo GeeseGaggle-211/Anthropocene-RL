@@ -1,0 +1,27 @@
+{
+  "version": "autonomous-fresh-validation-generation-v11",
+  "status": "PASS",
+  "neural_calls": 0,
+  "optimizer_steps": 0,
+  "manifest_sha256": "1c89b526d8daa9ad95e8389279688def8e827a2d32d48d8b866162459dfdcde1",
+  "snapshots": 48,
+  "source_native_version": "autonomous-opportunity-v9",
+  "actual_generation_resolves": 300,
+  "actual_replay_resolves": 300,
+  "unavailable": [],
+  "budget": {
+    "caps": {
+      "generation": 300,
+      "generation_replay": 300
+    },
+    "attempted": {
+      "generation": 300,
+      "generation_replay": 300
+    },
+    "prior_resolves": 70765,
+    "total_resolves": 71365,
+    "prior_wall_seconds": 2381.7420891210204,
+    "active_wall_seconds": 17.059131257992703,
+    "cumulative_wall_seconds": 2398.8012206090207
+  }
+}

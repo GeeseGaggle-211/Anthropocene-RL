@@ -1,0 +1,170 @@
+{
+  "version": "autonomous-fixed-current-critic-repair-v11",
+  "status": "NO-GO_CRITIC",
+  "config_sha256": "f506d727fd8e9eaab9bbd5e38073ddada00a4a4e4c568d807f25f92ef7285abb",
+  "unchanged_seed307": {
+    "path": "runs/autonomous-reward-first1024-v11/superlinear-seed307-step1024.pt",
+    "sha256": "bacd09aa15d1d38f8e7df37e9776d4e7c9af95817c455b30556b7d2159420704"
+  },
+  "budget": {
+    "caps": {
+      "repair": 450,
+      "repair_replay": 450
+    },
+    "attempted": {
+      "repair": 443,
+      "repair_replay": 443
+    },
+    "prior_resolves": 74949,
+    "total_resolves": 75835,
+    "prior_wall_seconds": 2458.228495364019,
+    "active_wall_seconds": 18.758816785993986,
+    "cumulative_wall_seconds": 2476.987312771016
+  },
+  "repairs": [
+    {
+      "seed": 101,
+      "entry": {
+        "mse": 303.3738098144531,
+        "return_variance": 442.3802795410156,
+        "mse_over_return_variance": 0.685776070599742,
+        "explained_variance": 0.33011164454101105,
+        "mean_value_bias": -2.6511168479919434,
+        "constant_mse": 453.2228698730469,
+        "fitting_mse": 20.06573486328125
+      },
+      "final": {
+        "mse": 241.96963500976562,
+        "return_variance": 442.3802795410156,
+        "mse_over_return_variance": 0.5469720197763274,
+        "explained_variance": 0.4608829162032315,
+        "mean_value_bias": -1.864099383354187,
+        "constant_mse": 453.2228698730469,
+        "fitting_mse": 0.21847636997699738
+      },
+      "passed": false,
+      "intercept_before": {
+        "normalized_head_delta": 0.008692119270563126,
+        "fitting_rows": 224,
+        "raw_mean_applied_delta": 0.07065430283546448
+      },
+      "intercept_after": {
+        "normalized_head_delta": 0.010489802807569504,
+        "fitting_rows": 224,
+        "raw_mean_applied_delta": 0.08526671677827835
+      },
+      "strata": {
+        "below100": {
+          "rows": 99,
+          "mse": 14.338138580322266,
+          "mean_value_bias": -0.14513996243476868,
+          "return_variance": 70.72602081298828,
+          "explained_variance": 0.7975699367252123,
+          "mse_over_return_variance": 0.20272791280361666
+        },
+        "100to249": {
+          "rows": 100,
+          "mse": 7.1919264793396,
+          "mean_value_bias": 0.3590807318687439,
+          "return_variance": 131.1637725830078,
+          "explained_variance": 0.9461513826163929,
+          "mse_over_return_variance": 0.05483165311357711
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 702.1024780273438,
+          "mean_value_bias": -5.7890496253967285,
+          "return_variance": 1106.25244140625,
+          "explained_variance": 0.3956267200151836,
+          "mse_over_return_variance": 0.634667506030398
+        }
+      },
+      "checkpoint": "runs/autonomous-fixed-current-critic-repair-v11/critic-repaired-superlinear-seed101.pt",
+      "checkpoint_sha256": "df22efb395857080e9a187462a4d2602568dbd2b71add37d4dc2d321015affe8",
+      "fitting_cache": "runs/autonomous-fixed-current-critic-repair-v11/fitting-seed101.pt",
+      "fitting_cache_sha256": "7ef609006118dab7c95d93371cafc58dc57bb44d56fd1771b3b170c78fc56122",
+      "validation_predictions": "runs/autonomous-fixed-current-critic-repair-v11/validation-predictions-seed101.pt",
+      "validation_predictions_sha256": "4d8c3983c457ceeea7247e01999d8bc650b3220372f31804874669b8d0046f34",
+      "protected_before": "055df504a0c1d3ec75a64d754ae73f657a58a11edb3f71af4214774358f9986b",
+      "protected_after": "055df504a0c1d3ec75a64d754ae73f657a58a11edb3f71af4214774358f9986b",
+      "actor_heads_rng_adam_anchors_scale_counters_unchanged": true,
+      "checkpoint_counters": {
+        "episodes": 233,
+        "transitions": 5520,
+        "updates": 27
+      }
+    },
+    {
+      "seed": 211,
+      "entry": {
+        "mse": 107.40132141113281,
+        "return_variance": 232.38816833496094,
+        "mse_over_return_variance": 0.4621634663272792,
+        "explained_variance": 0.5445749386843195,
+        "mean_value_bias": -1.2513676881790161,
+        "constant_mse": 237.3691864013672,
+        "fitting_mse": 27.578140258789062
+      },
+      "final": {
+        "mse": 113.46517181396484,
+        "return_variance": 232.38816833496094,
+        "mse_over_return_variance": 0.48825709427003955,
+        "explained_variance": 0.5219525336887421,
+        "mean_value_bias": -1.5403233766555786,
+        "constant_mse": 237.3691864013672,
+        "fitting_mse": 0.06200823932886124
+      },
+      "passed": false,
+      "intercept_before": {
+        "normalized_head_delta": -0.05423419177532196,
+        "fitting_rows": 219,
+        "raw_mean_applied_delta": -0.4749429523944855
+      },
+      "intercept_after": {
+        "normalized_head_delta": 0.005987859331071377,
+        "fitting_rows": 219,
+        "raw_mean_applied_delta": 0.052437204867601395
+      },
+      "strata": {
+        "below100": {
+          "rows": 100,
+          "mse": 20.656166076660156,
+          "mean_value_bias": -0.4378962814807892,
+          "return_variance": 36.83392333984375,
+          "explained_variance": 0.44441393310874966,
+          "mse_over_return_variance": 0.560791906039401
+        },
+        "100to249": {
+          "rows": 98,
+          "mse": 12.267533302307129,
+          "mean_value_bias": -0.3570968508720398,
+          "return_variance": 129.3985137939453,
+          "explained_variance": 0.9061811821004094,
+          "mse_over_return_variance": 0.09480428285167167
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 305.4478454589844,
+          "mean_value_bias": -3.8023133277893066,
+          "return_variance": 525.7444458007812,
+          "explained_variance": 0.4465176042574488,
+          "mse_over_return_variance": 0.5809815926704565
+        }
+      },
+      "checkpoint": "runs/autonomous-fixed-current-critic-repair-v11/critic-repaired-superlinear-seed211.pt",
+      "checkpoint_sha256": "0308b7ef07971a0f3d7efc3355abd3e2fb62597cf19eca5a880e9ab01807ef30",
+      "fitting_cache": "runs/autonomous-fixed-current-critic-repair-v11/fitting-seed211.pt",
+      "fitting_cache_sha256": "752c2cc1489691b9371160b4bc298881ffda1063e911b10aea2b6015c0de7a7e",
+      "validation_predictions": "runs/autonomous-fixed-current-critic-repair-v11/validation-predictions-seed211.pt",
+      "validation_predictions_sha256": "6337a28d6ef126e1a5f2140d61bb0a0fe04a6a99d4eca42ccbb1216c890663cd",
+      "protected_before": "ac7aec04fbb49ea4eb6200cfcfdf2a714d24789d12149b9545c5211fe47bc59a",
+      "protected_after": "ac7aec04fbb49ea4eb6200cfcfdf2a714d24789d12149b9545c5211fe47bc59a",
+      "actor_heads_rng_adam_anchors_scale_counters_unchanged": true,
+      "checkpoint_counters": {
+        "episodes": 232,
+        "transitions": 5520,
+        "updates": 28
+      }
+    }
+  ]
+}

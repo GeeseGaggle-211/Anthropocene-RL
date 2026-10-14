@@ -1,0 +1,10 @@
+{
+  "version": "autonomous-reward-envelope-v11",
+  "prior_resolves": 51913,
+  "prior_active_seconds": 1695.8695237250067,
+  "additional_resolve_cap": 24000,
+  "additional_active_seconds_cap": 1200,
+  "total_resolve_ceiling": 75913,
+  "total_active_second_ceiling": 2895.8695237250067,
+  "scope": "Three matched1024-transition CPU arms; separately reviewed stages; no expensive scale-out or GPU ecology; potential equivalence test not duplicate training"
+}

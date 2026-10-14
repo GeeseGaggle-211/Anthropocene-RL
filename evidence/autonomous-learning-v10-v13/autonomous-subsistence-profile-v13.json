@@ -1,0 +1,17 @@
+{
+  "profile": "subsistence-needs-v13",
+  "gear_baseline": 0.8,
+  "save_envelope": "ANTHROPOCENE-14",
+  "source_sha256": "51b149f1671be7f4beeb2c5a313d78d52b3530266c5161844dcd27eec6c0c3f3",
+  "derived_sha256": "21f002c558c7846a7370e1997c39c4c6881eaa6f2a7cbb3c69836b853e76d57c",
+  "changed_rule": "Gatherer job gear baseline; hunter goods cohort remains excluded",
+  "fresh_transport_derivation": true,
+  "profile_reset": true,
+  "controlled": [
+    4,
+    5
+  ],
+  "native_resolves": 0,
+  "active_seconds": 0.8480366849980783,
+  "configuration_hash": "2F73CEACEA0EFD60E586CFC0F6DA98D249AF1E4852DCF0F2E65F17D9819FFB21"
+}

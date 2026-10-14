@@ -1,0 +1,34 @@
+{
+  "version": "autonomous-fresh-admission-v10",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "inputs": {
+    "bank": {
+      "path": "datasets/autonomous-fresh-worlds-v10/manifest.json",
+      "sha256": "748f5b9b28e9cb7981f8d551e242b98f65a4e4e939c3d8aad99cb58554b43771"
+    },
+    "selection": {
+      "path": "configs/curriculum/autonomous-fresh-worlds-v10-selection.json",
+      "sha256": "01d94cd8f484b0b838cd9bda7430ef1bd479e1fb744e35e4bf351e76150dbf92"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-fresh-generation-v10/budget.json",
+      "sha256": "cc6262de19e2d5dd158aeb27c22f7d5ab1af3f10d9487ef5ab53b9dba7cc1131"
+    },
+    "bridge": {
+      "path": "integration/history-v9-steering/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "b580b75b7f1d4f5e124b514e83347e51a8c3b5b2317c78b83ccbfb1a87707fad"
+    },
+    "runner": {
+      "path": "scripts/audit_autonomous_opportunity_v9.py",
+      "sha256": "ef7f551d67bfdd6b922303a7030d22998aa208df7d21ecd8488b2f3569c79703"
+    },
+    "opportunity": {
+      "path": "src/anthropocene_rl/autonomous_v6/opportunity.py",
+      "sha256": "af22d7647e9185566983111d3a8460075cb0b215c860b56191cc48b94efe8a65"
+    },
+    "contract": {
+      "path": "docs/AUTONOMOUS_LEARNING_CONTRACT_V10.md",
+      "sha256": "2829f1a292360fb9aa6f090128a14907cbcf681303438bf3273acbef1e660049"
+    }
+  }
+}

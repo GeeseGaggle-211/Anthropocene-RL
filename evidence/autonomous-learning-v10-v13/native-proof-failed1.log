@@ -1,0 +1,5 @@
+Unhandled exception. System.Exception: Subsistence needs: one general craftsperson makes20 cloth per20-year turn with inputs/tools actual=80 expected=20
+   at SubsistenceNeedsChecks.Check(Boolean value, String text) in /workspace/Anthropocene-elder/Tools/Headless/SubsistenceNeedsChecks.cs:line 12
+   at SubsistenceNeedsChecks.Near(Double value, Double expected, String text) in /workspace/Anthropocene-elder/Tools/Headless/SubsistenceNeedsChecks.cs:line 13
+   at SubsistenceNeedsChecks.Run() in /workspace/Anthropocene-elder/Tools/Headless/SubsistenceNeedsChecks.cs:line 89
+   at Program.Main(String[] args) in /workspace/Anthropocene-elder/Tools/Headless/Program.cs:line 269

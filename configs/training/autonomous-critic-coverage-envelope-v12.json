@@ -1,0 +1,10 @@
+{
+  "version": "autonomous-critic-coverage-envelope-v12",
+  "prior_resolves": 75835,
+  "prior_active_seconds": 2476.987312771016,
+  "additional_resolve_cap": 13000,
+  "additional_active_seconds_cap": 900,
+  "total_resolve_ceiling": 88835,
+  "total_active_second_ceiling": 3376.987312771016,
+  "scope": "CPU critic-only coverage/variance; no PPO, retries or broad scale-out"
+}

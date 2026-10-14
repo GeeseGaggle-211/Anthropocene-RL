@@ -1,0 +1,37 @@
+{
+  "version": "autonomous-fresh-world-generation-v10",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "caps": {
+    "generation": 1200,
+    "generation_replay": 1200
+  },
+  "maximum_additional_wall_seconds": 600,
+  "maximum_campaign_additional_seconds": 900,
+  "maximum_campaign_additional_resolves": 24000,
+  "inputs": {
+    "plan": {
+      "path": "configs/curriculum/autonomous-fresh-worlds-v10.json",
+      "sha256": "daf1323c9c9b34b8feb469d4e9995c7797c67edfeea9554873a6a063bd4b9f5d"
+    },
+    "generator": {
+      "path": "integration/opportunity-v9/bin/Release/net8.0/AutonomousOpportunityCurriculum.dll",
+      "sha256": "d30322e1cbaee8cc7ff16ba9bb3105a33fbfd44441ec00938c5c9a5f2ff71a15"
+    },
+    "runner": {
+      "path": "scripts/generate_autonomous_curriculum_v10.py",
+      "sha256": "c73295b826402f0ac890982bce5699f111260db23f3320f7493426145f9673d3"
+    },
+    "contract": {
+      "path": "docs/AUTONOMOUS_LEARNING_CONTRACT_V10.md",
+      "sha256": "2829f1a292360fb9aa6f090128a14907cbcf681303438bf3273acbef1e660049"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-opportunity-postflight-v9.7/budget.json",
+      "sha256": "ca7b3a051c9e215b767d076ad21ddd85f774d75fcb71f80a08164f38aecd01c6"
+    },
+    "generator_source": {
+      "path": "integration/AutonomousOpportunityCurriculum.cs",
+      "sha256": "46aba56452ed5e23a06f5f635d4139bb78f52b087ac4102b4acf1cb71fc7572b"
+    }
+  }
+}

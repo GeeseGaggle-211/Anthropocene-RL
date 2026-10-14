@@ -1,0 +1,63 @@
+# Independent final review: subsistence needs V13
+
+Read-only review of the current native and learner source, shared design documents, focused check implementation, and cached execution evidence. No native simulation, model construction/forward/sampling, optimizer, or source edit was performed by this reviewer. The only written artifact is this review.
+
+## Verdict
+
+- **Native mechanics: GO for the explicit experimental profile.** No confirmed P1/P2 mechanics defect found. The new 80% Gatherer gear baseline implements the requested narrow change and preserves the separate food/water and real-shelter cohesion rules.
+- **Integration: GO.** The one P2 found during this review was fixed and its triggering case was verified against the actual fresh native transport. There are no remaining confirmed P1/P2 findings in the reviewed change. This integration GO covers profile activation, schema/layout compatibility and the reviewed persistence path; it does not establish neural rollout quality.
+- **Training scale-out: NO-GO.** The native proof does not establish calibrated values, successful learning, or economic improvement for neural policies under this changed profile. New-profile critic calibration and a bounded basic canary remain required before a new PPO tranche or scale-out. All three imported critics need validation; the previously passing old-physics critic is not automatically calibrated for V13.
+
+## Resolved P2: pure snapshot derivation before environment reset
+
+The initial new `derive_profile_snapshot` helper called `autonomous6_prepare_probe` on a fresh transport, but the bridge's active-environment guard ran before that pure operation. The fake transport test bypassed this guard, so the initial helper failed unless an unrelated reset had already occurred.
+
+The final bridge dispatches prepare-probe before the active-environment guard and explicitly requires Native6 for the V13 transform. The operation derives from the supplied snapshot and does not access or mutate an active environment; step/capture/replay still require reset. I inspected this final diff and `/workspace/Anthropocene-RL/runs/autonomous-subsistence-profile-v13/summary.json`: actual fresh-transport derivation succeeded, then the derived snapshot reset with controlled Elders[4,5], with zero native resolves. The old snapshot SHA256 is51b149f1671be7f4beeb2c5a313d78d52b3530266c5161844dcd27eec6c0c3f3; the derived Save14 snapshot is21f002c558c7846a7370e1997c39c4c6881eaa6f2a7cbb3c69836b853e76d57c. This closes the finding.
+
+## Native semantics checked
+
+`SubsistenceNeeds` counts implicit plus explicit Gatherers from the accepted resident ledger by subtracting all other assignments. Dispatched Hunter entities remain outside the resident goods cohort; biological food consumers retain existing accounting. Manufacturing serves N-.80G person-equivalents. Real clothes and shelter fill the non-Gatherer requirement first and then upgrade Gatherer gear. `GearQuality` prevents the early expectation ramp from lifting unupgraded Gatherer gear above .80 while preserving the old ramp for other jobs.
+
+The implementation does not mint goods, housing, storage or trade inventory. Food and water still multiply quality; real structural shelter alone changes social cohesion. Current needs feed the next committed-QoL growth ceiling, rather than retroactively changing current planned births or canceling starvation. Small well-fed camps can recover, while large unsheltered camps and food-starved camps are not guaranteed recovery.
+
+Demand, clothing feedstock, candidate forecasts and need-production housing gaps use the same job-derived requirement. The full-population production search envelope remains conservative before staffing; actual candidate demand uses actual candidate assignments. No temporary mutation of the world mode or fake staffing is introduced by the new logic. Migration projections follow the existing proportional source job loss and implicit Gatherer arrivals. Daughter projections follow the existing proportional split and Farmer-release rule. Separate physical clothing coverage prevents effective automatic coverage from being interpreted as manufactured clothing by these estimators.
+
+The new runtime flag defaults false, and both new fields are excluded from the old metadata serializer. Enabled saves use a distinct Save14 envelope, preserve history/growth extension identity through flags, and persist sorted optional physical clothing fractions. Configuration identity gains a mode/baseline discriminator only when enabled. Unsupported old readers cannot silently load enabled worlds under legacy needs. Action4, observation/environment/replay6 and model/checkpoint8 widths remain unchanged; profile support is explicit optional schema metadata.
+
+The new hot-path work is bounded by the thirteen roles. Projection sorting is O(roles log roles), independent of map size, population count and simulated duration. Broader mature-scale runtime measurements remain distinct from this source-level complexity assessment.
+
+## Evidence inspected and practical limits
+
+`/workspace/scratch/elder-needs-v13-proof-attempt3.log` reports PASS83 assertions, 26 direct resolves and 24 replay resolves. The focused source checks all/mixed/no Gatherers, explicit assignments, physical stock conservation, expectation ceiling, real shelter cohesion, job projection, feedstock bounds, dispatch cohort accounting, real craft receipts, tools, save/load, malformed physical fractions, chronology, and exact replay/continuation.
+
+The paired five-decision native rollouts start with24 residents. Food-rich legacy mode ends24 with QoL0 and integrated welfare0; enabled mode ends29 with QoL.7880407047 and welfare1989.5543739. First enabled quality is.7905357666 with positive annual growth ceiling.0025604275. Both food-starved modes end14 with quality0. These results establish the intended local mechanism and the retained food limitation, not broad learned-policy competence.
+
+The craft proof reads actual receipt output20 and stock20, while the production method returns labor used80. Earlier failed harness attempts must remain in the accounting: their mistake was confusing this return value with output, and they do not constitute successful native rollout evidence. The pre-correction proof configuration/source pin must not be described as the exact executed source. Archive the executed source and record its new pins explicitly without rewriting historical attempts.
+
+The full learner regression log `/workspace/Anthropocene-RL/runs/autonomous-reward-regression-v11/pytest-needs-v13.txt` reports239 passed and5 skipped in101.40 seconds. This is compatibility evidence, not new-profile critic calibration.
+
+Cached old-mode regressions inspected: autonomous PASS471; history PASS77 with9 validation plus9 replay resolves; growth PASS63 with19 validation plus19 replay resolves. The focused check also confirms that assigning the new physical fraction in disabled mode leaves serialized bytes unchanged. Cross-binary old-baseline fingerprint comparison and the parent's additional scale/regression runs should be recorded separately when complete; they were not independently rerun here.
+
+The focused suite exercises projections rather than full enabled-mode immigration/fission events, and checks dispatch preparation rather than an actual hunter reintegration event. It also does not demonstrate every new-profile trade/production ordering combination. Avoid describing those as fully executed end-to-end coverage merely because the relevant helper is tested. These are validation limits, not confirmed source defects, and do not negate the narrow isolated-camp proof.
+
+## Learning and provenance boundary
+
+Old V11 actor responsiveness/signed tests and the better alpha endpoint point estimates remain old-physics results. The cached fixed repair summary is explicitly `NO-GO_CRITIC`: seed101 final MSE/return variance .546972 with explained variance .460883; seed211 .488257 and .521953; both fail. The bounded repair protected actor parameters and other recorded state but did not establish critic readiness. An old-profile critic passing previously also cannot bypass new-profile calibration.
+
+Keep V12 old-physics generation/collection plans suspended and preserve their original pins. Explicitly derive new snapshots with Save14 and new source/configuration hashes, preserve the old bank/checkpoints as historical inputs, and label imported checkpoints as probes until calibrated. No new PPO or critic calibration for V13 was established by the reviewed evidence. A native-mechanics GO must not be relabeled as a scale-out GO.
+
+## Next safe learning gate
+
+A tightly capped two-Elder plug using protected model8 checkpoints can establish that the new profile executes the existing observation/action/reward path. It cannot establish critic readiness or clear training scale-out. Before another PPO tranche, use a separately pinned new-profile calibration/canary envelope, validate all three critics against the original true-welfare target with the agreed H400/25-decision conventions, keep source/configuration/snapshot/checkpoint identities explicit, and require the predeclared calibration and behavioral gates. Preserve the failed V11 repair and suspended V12 history. This review does not authorize an open-ended collection or training campaign.
+
+## Final packaging addendum
+
+**GO for the two additional hunks.** I inspected `/workspace/Anthropocene-elder/Assets/_Anthropocene/Scripts/Runtime/Presentation/OpeningGame.cs` and `/workspace/Anthropocene-elder/Tools/Headless/AutonomousElderHistoryChecks.cs`. `OpeningGame.NewGame` enables the experimental profile after JSON tuning and before generation. This makes the requested mechanic active for newly created playable games on this branch, while the configuration's API/default remains false and the separate load path still calls SaveCodec without overriding historical mode. This is consistent with the requested game change. The extra optional benchmark argument defaults false and only selects the fixture profile; existing call sites retain their previous behavior. Neither hunk changes simulation mechanics beyond the reviewed mode selection.
+
+The Unity presentation hunk is source-reviewed only. The headless proof and bridge build do not compile or exercise Unity presentation, and no Unity build/manual new-game/load test is established here. Report that limitation explicitly. The simulation-only source identity does not cover the presentation and test-harness hunks; preserve their separate diff/source identities in final packaging.
+
+I also inspected the new focused benchmark method. History initialization occurs in setup before the timed region, so both direct heuristic observation construction and autonomous history observations have valid initialized state. Setup/reset and neural inference are explicitly excluded. The cached attempt2 result reports32 complete native world steps at1 and80 villages, enabled/disabled and heuristic/uniform-action paths. At80 villages the enabled medians are96.674ms heuristic and76.385ms autonomous6-uniform, with allocations56.290MB and53.501MB respectively. These three retained timing samples per cell are a bounded runtime smoke measurement, not a robust proof of a speed improvement: fixed run order, warmup/JIT, and changed planner decisions can affect the enabled/disabled comparison. Keep the first benchmark attempt's one resolved world and later harness failure in aggregate execution accounting.
+
+I independently compared `/workspace/scratch/elder-needs-v13-old-fingerprints.txt` with both the stored `runs/autonomous-causal-gate-v8-preflight/old-mode-555.txt` and `runs/autonomous-history-repair-v6/old-baseline-fingerprints.txt`. All eight lines match exactly. This strengthens the disabled-mode compatibility verdict beyond the focused serializer assertion.
+
+The actual two-Elder model8 plug summary `/workspace/Anthropocene-RL/runs/autonomous-model8-subsistence-plug-v13/summary.json` reports PASS for8 native steps plus8 replay steps with Elders4/5. It records independent models/RNG, owner-only observations, a common WEGO boundary, exact Save14 continuation/replay, restored objective/sampler sidecar, local reward identity, and unchanged retained checkpoint hashes. Its explicit `probe_only:true` and `new_profile_training_ready:false` are the correct interpretation. This supplies executed integration evidence; it does not promote either critic or clear training. **Final verdict remains native/integration GO, training scale-out NO-GO pending the new-profile calibration/basic-canary gate.**

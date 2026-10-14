@@ -1,0 +1,44 @@
+{
+  "version": "autonomous-model8-subsistence-plug-v13",
+  "status": "PASS",
+  "probe_only": true,
+  "new_profile_training_ready": false,
+  "config_sha256": "e82249c18a512aecd7f13943e75bba3fa8266709775a0a47ec07c8ca57fb2784",
+  "plug": {
+    "status": "PASS",
+    "controlled": [
+      4,
+      5
+    ],
+    "native_steps": 8,
+    "replay_steps": 8,
+    "checkpoints": {
+      "4": "19e8a11cfbef3f4b4126e28828d868ee0f971e3b28b07b8a9ab639b1bd33b6da",
+      "5": "3dc59f81aa4959a8c9c54901a9283b395fe2bc92db73f3e45e9448cf3b5e6e3a"
+    },
+    "independent_models_and_rng": true,
+    "owner_observations_only": true,
+    "common_wego_boundary": true,
+    "exact_save_resume_and_replay": true,
+    "objective_p0_and_sampler_sidecar_restored": true,
+    "sidecar_sha256": "ab7c6f380449c0bbd644f97a1b4c82ef74aca0cf59f93b1d5b37fcee1871cf6d",
+    "local_reward_identity": true,
+    "retained_checkpoints_unchanged": true,
+    "trace_sha256": "52b509668c5a7dd2bae95cf8ceacd418ac83101ba173c9e8d8927cf4b7f6cb90"
+  },
+  "budget": {
+    "caps": {
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "attempted": {
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "prior_resolves": 75835,
+    "total_resolves": 75851,
+    "prior_wall_seconds": 2476.987312771016,
+    "active_wall_seconds": 2.2425100240070606,
+    "cumulative_wall_seconds": 2479.2298230260203
+  }
+}

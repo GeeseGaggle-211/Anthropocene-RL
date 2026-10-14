@@ -1,0 +1,152 @@
+[
+  {
+    "path": "runs/autonomous-fresh-generation-v10/summary.json",
+    "sha256": "0fbd48fdaf87c9d5cc15138c2db650c91163c16166c59d4f901186303891b358",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-fresh-generation-v10.json"
+  },
+  {
+    "path": "runs/autonomous-fresh-admission-v10/summary.json",
+    "sha256": "73c72ac247a9fcbb3293b48499dafeed14701c848b6f82e122d8892711f867ae",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-fresh-admission-v10.json"
+  },
+  {
+    "path": "runs/autonomous-learning-calibration-v10/summary.json",
+    "sha256": "1c655228f7548f3d3ce12e7d630140c38b8f97b522d27b7d015777a2ed64ad7c",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-learning-calibration-v10.json"
+  },
+  {
+    "path": "runs/autonomous-learning-first1024-v10/summary.json",
+    "sha256": "11ef5c8fc1c13b0356e53d0e281d40c17be043a199a6299ac6181ea4299b9203",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-learning-first1024-v10.json"
+  },
+  {
+    "path": "runs/autonomous-learning-final4096-v10/summary.json",
+    "sha256": "885b848330cbb13840a85168ab0e76f3039d7e889ce7137db461aa2fd7d2855d",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-learning-final4096-v10.json"
+  },
+  {
+    "path": "runs/autonomous-current-value-audit-v10/summary.json",
+    "sha256": "2c39e6de8bc3f81e050559c0e28698b44a6d52d1db9219b9460f127f7c015e3c",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-current-value-audit-v10.json"
+  },
+  {
+    "path": "runs/autonomous-reward-calibration-v11/summary.json",
+    "sha256": "a8bd3cafa8b638d2a273b0b709a16ea8fc1aa448192468f4260422b1dd876dee",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-reward-calibration-v11.json"
+  },
+  {
+    "path": "runs/autonomous-objective-entry-restoration-v11/summary.json",
+    "sha256": "9e8eeaa70d9cd153fa6efcf721ae9889f3a87f295f405c659b6486d322715334",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-objective-entry-restoration-v11.json"
+  },
+  {
+    "path": "runs/autonomous-reward-first1024-v11/summary.json",
+    "sha256": "3c8d1de59d3d5bf98b8aa0511fec2a92d6189281fa43211b7f81bd7414ba0ffe",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-reward-first1024-v11.json"
+  },
+  {
+    "path": "runs/autonomous-model8-plug-v11/summary.json",
+    "sha256": "88912e4e33f7dbdbdd3ff0e7f25e3f595c4874049d6b8a9427f83be79a2bf731",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-model8-plug-v11.json"
+  },
+  {
+    "path": "runs/autonomous-fresh-validation-generation-v11/summary.json",
+    "sha256": "30bfa027e253a3f0fc58f4ce80b3e18fbf7fbab81cf99b1c017d4707201a1591",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-fresh-validation-generation-v11.json"
+  },
+  {
+    "path": "runs/autonomous-fresh-validation-admission-v11/summary.json",
+    "sha256": "60d3d4f69116459638920ee859e835b19ee3e159216545e36afcfc2af6001ef2",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-fresh-validation-admission-v11.json"
+  },
+  {
+    "path": "runs/autonomous-fresh-validation-current-value-v11/summary.json",
+    "sha256": "92b522eed13f87e8a6b1ba6eb2635c1f14ca02511f42d2e9f0b04642a89a1cdf",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-fresh-validation-current-value-v11.json"
+  },
+  {
+    "path": "runs/autonomous-fixed-current-critic-repair-v11/summary.json",
+    "sha256": "89bf6d4b0c91df8807ef40f6ad4343fb06d0ac1e513d53558227383abdb9f782",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-fixed-current-critic-repair-v11.json"
+  },
+  {
+    "path": "runs/autonomous-model8-subsistence-plug-v13/summary.json",
+    "sha256": "28b6f0dfa469b8b86247f90682f4d873540cd0113d2c774677041e3f0f9be042",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-model8-subsistence-plug-v13.json"
+  },
+  {
+    "path": "runs/autonomous-subsistence-profile-v13/summary.json",
+    "sha256": "0f09b1f3e6409b1b70ca137c3e6763a8609a37c06824b05d64afdeb4cd6d348b",
+    "compact": "evidence/autonomous-learning-v10-v13/autonomous-subsistence-profile-v13.json"
+  },
+  {
+    "path": "/tmp/autonomous-learning-v10-independent-review.md",
+    "sha256": "d22ca273eb2db63854e0a1baae1180e142fa7a4160d45085c68e4c169b83461e",
+    "copy": "independent-v10.md"
+  },
+  {
+    "path": "/tmp/autonomous-learning-v11-independent-review.md",
+    "sha256": "64cc2c967fc0a06c6b1eb4fffc80242f21989a969af6ebbe9be44f05561c8217",
+    "copy": "independent-v11.md"
+  },
+  {
+    "path": "/tmp/autonomous-needs-review-v13.md",
+    "sha256": "4c9da51e71bc11f62613369d8662e557aad595d8c9cdfeb865d83ecdfc85afce",
+    "copy": "needs-design-review.md"
+  },
+  {
+    "path": "/tmp/autonomous-subsistence-final-astra-v13.md",
+    "sha256": "03943ebbcf01f08305da9a00c663ddde07f8187dfee5799938da4be601466ec7",
+    "copy": "independent-v13.md"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-proof-attempt1.log",
+    "sha256": "91c566a578a2cd2661903f502beafc41b614f44d2b6553271e8b834111350b09",
+    "copy": "native-proof-failed1.log"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-proof-attempt2.log",
+    "sha256": "fb8758723055d4a4bebc53415e865a8c64c3ee1cebafccca75fc01480ce303d9",
+    "copy": "native-proof-failed2.log"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-proof-attempt3.log",
+    "sha256": "3293331f5ddf8a954c73df317af68d8312c4627e11134021301aa6cf95e7e609",
+    "copy": "native-proof.json"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-autonomous-regression.log",
+    "sha256": "5621e6a34b522c0e0ec6d45c9f92eb9c3a099052fbc621e42f906a017295cfd3",
+    "copy": "native-autonomy-regression.log"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-history-regression.log",
+    "sha256": "a107d30c650bcf46f2b65108c082cf69990538a268c0aad88d42c577b5fe53d1",
+    "copy": "native-history-regression.log"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-growth-regression.log",
+    "sha256": "ad2ef9149c6ea055ecfb543a0ec911f51a11363a13b30a97c086a615df95929d",
+    "copy": "native-growth-regression.log"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-adjacent-regression.log",
+    "sha256": "910f6c0ac767a9f477a0dcb380c7858603e785a09ba20bee92d0428dc96df977",
+    "copy": "native-adjacent-regression.log"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-old-fingerprints.txt",
+    "sha256": "8a524cd65941406edbfe491847d219792cdc50b89b34111303997ac25137513d",
+    "copy": "legacy-fingerprints.txt"
+  },
+  {
+    "path": "/workspace/scratch/elder-needs-v13-benchmark-attempt2.json",
+    "sha256": "f81c1d521aa56505fff8f9aff667c15a2ee82c9bdb51e043fae76083a00e1e04",
+    "copy": "native-benchmark.json"
+  },
+  {
+    "path": "runs/autonomous-reward-regression-v11/pytest-needs-v13.txt",
+    "sha256": "559da1a4bd3fbfd879126a8a55b90cbec45b065209ebc43b31cea11667d28ca2",
+    "copy": "learner-regression.txt"
+  }
+]

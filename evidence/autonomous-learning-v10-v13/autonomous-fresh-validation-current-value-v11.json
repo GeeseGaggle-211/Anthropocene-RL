@@ -1,0 +1,1038 @@
+{
+  "version": "autonomous-fresh-validation-current-value-v11",
+  "stage": "evaluate",
+  "status": "REVIEW_REQUIRED",
+  "config_sha256": "37d955e590d8f0560a55f1743920acfb1b35bd9735fba3d9a54605405e9a72b7",
+  "retained_updates": 0,
+  "budget": {
+    "caps": {
+      "evaluation": 1800,
+      "evaluation_replay": 1800
+    },
+    "attempted": {
+      "evaluation": 1792,
+      "evaluation_replay": 1792
+    },
+    "prior_resolves": 71365,
+    "total_resolves": 74949,
+    "prior_wall_seconds": 2400.1600074690214,
+    "active_wall_seconds": 58.06848739400448,
+    "cumulative_wall_seconds": 2458.228495364019
+  },
+  "cells": [
+    {
+      "seed": 101,
+      "kind": "original",
+      "summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 274,
+            "zero": 22,
+            "one": 2,
+            "mean": 0.3716214281169271
+          },
+          {
+            "eligible": 53,
+            "zero": 2,
+            "one": 2,
+            "mean": 0.5554812115402497
+          },
+          {
+            "eligible": 53,
+            "zero": 2,
+            "one": 3,
+            "mean": 0.5429643037110002
+          }
+        ],
+        "steps": 299,
+        "average_qol": 0.1889524455742818,
+        "average_population": 29.993311036789297,
+        "annual_welfare": 7.198559084759421,
+        "integrated_welfare": 43047.38332686134,
+        "final_population_mean": 1.5,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 159,
+          "trades": 1,
+          "migrants": 279,
+          "daughters": 24,
+          "quotes": 68,
+          "opportunities": 9,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.05294947190635452,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10230316945806545,
+          0.10666076630739799,
+          0.015577030713030479,
+          0.03201321498178425,
+          0.07419519236169181,
+          0.09266869780616517,
+          0.08603540903867432,
+          0.07791326979217943,
+          0.08062273965339067,
+          0.10131706662639106,
+          0.0784158316736265,
+          0.08142284669543196,
+          0.0708547648921707
+        ],
+        "mean_compiled_staffing": [
+          2.879598662207358,
+          4.066889632107023,
+          0.3110367892976589,
+          0.5752508361204013,
+          2.531772575250836,
+          2.568561872909699,
+          2.6722408026755855,
+          2.237458193979933,
+          2.68561872909699,
+          2.7558528428093645,
+          2.4816053511705687,
+          1.9933110367892977,
+          2.234113712374582
+        ],
+        "total_production": [
+          24050.347200332784,
+          49051.56727460049,
+          2597.6171065210215,
+          23853.09101073664,
+          1464.7154141519175,
+          26311.82832241416,
+          2.55974708398838,
+          5.407651254992654,
+          558.6112674677485,
+          2385.1069520775363,
+          696.4351017171608
+        ],
+        "total_extraction": [
+          50865.524901227895,
+          48721.548049492725,
+          63121.519875889964
+        ]
+      },
+      "endpoints": {
+        "mean_final_population": 1.5,
+        "mean_final_realized_qol": 0.24100388497519656,
+        "mean_living_endpoint_qol": 0.24100388497519656,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      },
+      "mean_integrated_original_welfare": 3587.2819439051113,
+      "scheduled_500year_annual_welfare": 7.174563887810223,
+      "metrics": {
+        "target": {
+          "rows": 299,
+          "mse": 21.8990478515625,
+          "return_variance": 77.8143539428711,
+          "mse_over_return_variance": 0.2814268414750331,
+          "explained_variance": 0.7337828306166227,
+          "mean_value_bias": 1.0879020690917969
+        },
+        "zero_tail": {
+          "rows": 299,
+          "mse": 24.027414321899414,
+          "return_variance": 78.468505859375,
+          "mse_over_return_variance": 0.3062045601449253,
+          "explained_variance": 0.7824888643915658,
+          "mean_value_bias": 2.638113021850586
+        },
+        "doubled_tail": {
+          "rows": 299,
+          "mse": 30.59734535217285,
+          "return_variance": 83.18055725097656,
+          "mse_over_return_variance": 0.3678425146858899,
+          "explained_variance": 0.6347269313254531,
+          "mean_value_bias": -0.4623088538646698
+        }
+      },
+      "strata": {
+        "below100": {
+          "rows": 99,
+          "mse": 8.372991561889648,
+          "mean_value_bias": 1.4218991994857788,
+          "return_variance": 51.866455078125,
+          "explained_variance": 0.8775471666195956,
+          "mse_over_return_variance": 0.16143365782908517
+        },
+        "100to249": {
+          "rows": 100,
+          "mse": 29.210670471191406,
+          "mean_value_bias": 1.1153855323791504,
+          "return_variance": 107.69210052490234,
+          "explained_variance": 0.7403097810982444,
+          "mse_over_return_variance": 0.27124246187803563
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 27.978219985961914,
+          "mean_value_bias": 0.7297622561454773,
+          "return_variance": 70.88052368164062,
+          "explained_variance": 0.6127897221792868,
+          "mse_over_return_variance": 0.39472366360646394
+        }
+      },
+      "mean_tail_weight": 0.5119646206504012,
+      "cache": "runs/autonomous-fresh-validation-current-value-v11/audit-original-seed101.pt",
+      "cache_sha256": "d8f7637c7ece1e416bb1bcc4a8ae8e5772511cead6c8ad3a63abc81f2799d7db",
+      "protected_hash": "2d7e6796330efac1721541c6c908e94f14075112843eb5a0b27ed54878976ba8",
+      "checkpoint_sha256": "1c6127fc87ffea6ba048f98b9703d46bf4d1ffaa9b4c92e78e2c87bbe5a0f73e",
+      "retained_state_unchanged": true
+    },
+    {
+      "seed": 101,
+      "kind": "superlinear",
+      "summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 274,
+            "zero": 22,
+            "one": 4,
+            "mean": 0.37355492215164693
+          },
+          {
+            "eligible": 68,
+            "zero": 4,
+            "one": 1,
+            "mean": 0.49509857321899764
+          },
+          {
+            "eligible": 68,
+            "zero": 3,
+            "one": 2,
+            "mean": 0.46188016039848123
+          }
+        ],
+        "steps": 299,
+        "average_qol": 0.24238779683084882,
+        "average_population": 32.819397993311036,
+        "annual_welfare": 11.639370952986315,
+        "integrated_welfare": 69603.43829885816,
+        "final_population_mean": 2.75,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 151,
+          "trades": 1,
+          "migrants": 272,
+          "daughters": 24,
+          "quotes": 64,
+          "opportunities": 11,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.016332878929765884,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09515702804964318,
+          0.10273804712685199,
+          0.02114008214855708,
+          0.04046876658550996,
+          0.07920954494826986,
+          0.08208497815040625,
+          0.09170899437178755,
+          0.09046650568413526,
+          0.06984416451631771,
+          0.09235198831103125,
+          0.08212823824601005,
+          0.07754526495412581,
+          0.07515639690735434
+        ],
+        "mean_compiled_staffing": [
+          3.3779264214046822,
+          3.9732441471571907,
+          0.34448160535117056,
+          1.1270903010033444,
+          2.5050167224080266,
+          2.5652173913043477,
+          2.8929765886287626,
+          3.020066889632107,
+          2.234113712374582,
+          3.391304347826087,
+          2.311036789297659,
+          2.0735785953177257,
+          3.0033444816053514
+        ],
+        "total_production": [
+          20703.45525470465,
+          55131.2776005758,
+          14586.846167737462,
+          21506.502197096357,
+          2259.229496558887,
+          26189.014112006607,
+          0.0,
+          5.3721603089531005,
+          355.2143256275485,
+          3220.2556084474427,
+          2240.8090006224375
+        ],
+        "total_extraction": [
+          53542.47674947222,
+          66687.66295521178,
+          61369.16735080025
+        ]
+      },
+      "endpoints": {
+        "mean_final_population": 2.75,
+        "mean_final_realized_qol": 0.14846231209611463,
+        "mean_living_endpoint_qol": 0.14846231209611463,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      },
+      "mean_integrated_original_welfare": 5800.286524904848,
+      "scheduled_500year_annual_welfare": 11.600573049809697,
+      "metrics": {
+        "target": {
+          "rows": 299,
+          "mse": 303.3738098144531,
+          "return_variance": 442.3802795410156,
+          "mse_over_return_variance": 0.685776070599742,
+          "explained_variance": 0.33011164454101105,
+          "mean_value_bias": -2.6511166095733643
+        },
+        "zero_tail": {
+          "rows": 299,
+          "mse": 302.2680969238281,
+          "return_variance": 439.8619079589844,
+          "mse_over_return_variance": 0.6871886186425891,
+          "explained_variance": 0.3181620985201613,
+          "mean_value_bias": -1.5341439247131348
+        },
+        "doubled_tail": {
+          "rows": 299,
+          "mse": 321.8187255859375,
+          "return_variance": 459.7426452636719,
+          "mse_over_return_variance": 0.6999975505891298,
+          "explained_variance": 0.3308860023603293,
+          "mean_value_bias": -3.7680888175964355
+        }
+      },
+      "strata": {
+        "below100": {
+          "rows": 99,
+          "mse": 17.696584701538086,
+          "mean_value_bias": -1.1926933526992798,
+          "return_variance": 70.72602081298828,
+          "explained_variance": 0.7698998651701295,
+          "mse_over_return_variance": 0.25021321004798064
+        },
+        "100to249": {
+          "rows": 100,
+          "mse": 3.329118251800537,
+          "mean_value_bias": -0.09171472489833832,
+          "return_variance": 131.1637725830078,
+          "explained_variance": 0.9746827455438603,
+          "mse_over_return_variance": 0.02538138531882867
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 886.239013671875,
+          "mean_value_bias": -6.654358386993408,
+          "return_variance": 1106.25244140625,
+          "explained_variance": 0.23890930899252072,
+          "mse_over_return_variance": 0.801118244354157
+        }
+      },
+      "mean_tail_weight": 0.5119646206504012,
+      "cache": "runs/autonomous-fresh-validation-current-value-v11/audit-superlinear-seed101.pt",
+      "cache_sha256": "012e1777f6046a7637d9afb4560d2b5ac286e9963bcf562b97e14f474dbeec59",
+      "protected_hash": "d5e4bf907f0a84d4a5acdf90a5b25e11e8ccef3a6c6b25434c2923ffe6eac298",
+      "checkpoint_sha256": "19e8a11cfbef3f4b4126e28828d868ee0f971e3b28b07b8a9ab639b1bd33b6da",
+      "retained_state_unchanged": true
+    },
+    {
+      "seed": 211,
+      "kind": "original",
+      "summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 272,
+            "zero": 12,
+            "one": 7,
+            "mean": 0.4563579385438481
+          },
+          {
+            "eligible": 50,
+            "zero": 3,
+            "one": 3,
+            "mean": 0.5042527897074033
+          },
+          {
+            "eligible": 50,
+            "zero": 1,
+            "one": 1,
+            "mean": 0.5511222766819163
+          }
+        ],
+        "steps": 297,
+        "average_qol": 0.22974976364661173,
+        "average_population": 32.20875420875421,
+        "annual_welfare": 9.55419163269566,
+        "integrated_welfare": 56751.898298212225,
+        "final_population_mean": 1.75,
+        "terminal_episodes": 2,
+        "events": {
+          "movement": 147,
+          "trades": 3,
+          "migrants": 331,
+          "daughters": 26,
+          "quotes": 54,
+          "opportunities": 13,
+          "compatible_proposals": 3
+        },
+        "native_step_seconds_mean": 0.013771268350168349,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09685211105105318,
+          0.09395831323342989,
+          0.013897591524177223,
+          0.0414785050915694,
+          0.07650080573089156,
+          0.08239641571080292,
+          0.07590610743260195,
+          0.0927402225356071,
+          0.08349563889896613,
+          0.09124808853116131,
+          0.07972523865097912,
+          0.09071191236194777,
+          0.08108904924681279
+        ],
+        "mean_compiled_staffing": [
+          2.983164983164983,
+          2.606060606060606,
+          0.2996632996632997,
+          1.1818181818181819,
+          2.5117845117845117,
+          2.5353535353535355,
+          2.6363636363636362,
+          3.441077441077441,
+          2.6565656565656566,
+          3.484848484848485,
+          2.468013468013468,
+          2.6936026936026938,
+          2.7104377104377106
+        ],
+        "total_production": [
+          30855.94199731238,
+          44339.70231736678,
+          6342.588012248495,
+          20798.456241045424,
+          1201.4232377734231,
+          20269.584452838768,
+          0.0,
+          1.2952409847129787,
+          933.9211225400404,
+          1559.196963001328,
+          3245.333453442586
+        ],
+        "total_extraction": [
+          66901.29432888997,
+          59489.173569846855,
+          62765.27727402915
+        ]
+      },
+      "endpoints": {
+        "mean_final_population": 1.75,
+        "mean_final_realized_qol": 0.1603223659394403,
+        "mean_living_endpoint_qol": 0.1603223659394403,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      },
+      "mean_integrated_original_welfare": 4729.324858184352,
+      "scheduled_500year_annual_welfare": 9.458649716368704,
+      "metrics": {
+        "target": {
+          "rows": 297,
+          "mse": 90.37237548828125,
+          "return_variance": 241.06297302246094,
+          "mse_over_return_variance": 0.3748911512837803,
+          "explained_variance": 0.625110336217757,
+          "mean_value_bias": 0.019032077863812447
+        },
+        "zero_tail": {
+          "rows": 297,
+          "mse": 109.24310302734375,
+          "return_variance": 238.54574584960938,
+          "mse_over_return_variance": 0.4579545220488477,
+          "explained_variance": 0.5583430891964567,
+          "mean_value_bias": 1.9717299938201904
+        },
+        "doubled_tail": {
+          "rows": 297,
+          "mse": 99.43621826171875,
+          "return_variance": 263.88873291015625,
+          "mse_over_return_variance": 0.3768111550847185,
+          "explained_variance": 0.637357920673113,
+          "mean_value_bias": -1.9336661100387573
+        }
+      },
+      "strata": {
+        "below100": {
+          "rows": 100,
+          "mse": 9.4089937210083,
+          "mean_value_bias": 0.5675012469291687,
+          "return_variance": 44.405364990234375,
+          "explained_variance": 0.7953640061508858,
+          "mse_over_return_variance": 0.21188866982801574
+        },
+        "100to249": {
+          "rows": 97,
+          "mse": 36.20425796508789,
+          "mean_value_bias": 0.37632688879966736,
+          "return_variance": 160.23695373535156,
+          "explained_variance": 0.7749418428537678,
+          "mse_over_return_variance": 0.22594200102482656
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 223.8788604736328,
+          "mean_value_bias": -0.8760145306587219,
+          "return_variance": 488.79986572265625,
+          "explained_variance": 0.5435525230264805,
+          "mse_over_return_variance": 0.4580174344824004
+        }
+      },
+      "mean_tail_weight": 0.4685565398667583,
+      "cache": "runs/autonomous-fresh-validation-current-value-v11/audit-original-seed211.pt",
+      "cache_sha256": "ab2ef57599f9f6ad26a0d721655babacdc0a191e1d12a7f198e7511212fc64e8",
+      "protected_hash": "3bf0b2f6b4be575d93e51d4073d618b43c858f85d6f8844a7b62d13248883ac1",
+      "checkpoint_sha256": "ca73dcedb9445b1fda2b5168f21218ead6b5a821bd5b00c1f003a38f5039f877",
+      "retained_state_unchanged": true
+    },
+    {
+      "seed": 211,
+      "kind": "superlinear",
+      "summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 273,
+            "zero": 15,
+            "one": 5,
+            "mean": 0.4462204933078141
+          },
+          {
+            "eligible": 73,
+            "zero": 3,
+            "one": 6,
+            "mean": 0.5316433019601622
+          },
+          {
+            "eligible": 73,
+            "zero": 2,
+            "one": 3,
+            "mean": 0.5754552972969973
+          }
+        ],
+        "steps": 298,
+        "average_qol": 0.2554106281673622,
+        "average_population": 32.76845637583892,
+        "annual_welfare": 10.083851617801539,
+        "integrated_welfare": 60099.75564209717,
+        "final_population_mean": 2.3333333333333335,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 151,
+          "trades": 3,
+          "migrants": 350,
+          "daughters": 25,
+          "quotes": 57,
+          "opportunities": 13,
+          "compatible_proposals": 3
+        },
+        "native_step_seconds_mean": 0.013549998322147651,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10170604388166939,
+          0.09590495339007339,
+          0.021004022974820312,
+          0.03611149212681167,
+          0.07169504556528103,
+          0.09141731764924699,
+          0.07260804026893043,
+          0.09438211849435794,
+          0.07801652944484219,
+          0.08857252059774763,
+          0.07794945382559759,
+          0.08594675925074625,
+          0.08468570252987505
+        ],
+        "mean_compiled_staffing": [
+          3.0,
+          2.6879194630872485,
+          0.3288590604026846,
+          1.1610738255033557,
+          2.5268456375838926,
+          2.778523489932886,
+          2.4832214765100673,
+          3.51006711409396,
+          2.5369127516778525,
+          3.5671140939597317,
+          2.5738255033557045,
+          2.7013422818791946,
+          2.912751677852349
+        ],
+        "total_production": [
+          31773.969549900212,
+          40462.891034566564,
+          7324.289423105981,
+          22974.046330570534,
+          1523.6217974381761,
+          22423.576864225335,
+          104.63750811342496,
+          5.547018439259788,
+          979.1752590991708,
+          1698.1420005725574,
+          2239.8805261904886
+        ],
+        "total_extraction": [
+          66638.73721574228,
+          64725.23461560517,
+          65648.27607677443
+        ]
+      },
+      "endpoints": {
+        "mean_final_population": 2.3333333333333335,
+        "mean_final_realized_qol": 0.41363904749488367,
+        "mean_living_endpoint_qol": 0.41363904749488367,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      },
+      "mean_integrated_original_welfare": 5008.312970174764,
+      "scheduled_500year_annual_welfare": 10.016625940349527,
+      "metrics": {
+        "target": {
+          "rows": 298,
+          "mse": 107.40132141113281,
+          "return_variance": 232.38816833496094,
+          "mse_over_return_variance": 0.4621634663272792,
+          "explained_variance": 0.544574905853928,
+          "mean_value_bias": -1.2513673305511475
+        },
+        "zero_tail": {
+          "rows": 298,
+          "mse": 108.78659057617188,
+          "return_variance": 236.16983032226562,
+          "mse_over_return_variance": 0.4606286519651011,
+          "explained_variance": 0.5394870957600345,
+          "mean_value_bias": -0.16531404852867126
+        },
+        "doubled_tail": {
+          "rows": 298,
+          "mse": 113.4103012084961,
+          "return_variance": 233.64173889160156,
+          "mse_over_return_variance": 0.48540257295856276,
+          "explained_variance": 0.5379816215379561,
+          "mean_value_bias": -2.3374204635620117
+        }
+      },
+      "strata": {
+        "below100": {
+          "rows": 100,
+          "mse": 5.682638168334961,
+          "mean_value_bias": -0.4252334535121918,
+          "return_variance": 36.83392333984375,
+          "explained_variance": 0.850631866862915,
+          "mse_over_return_variance": 0.15427729801967566
+        },
+        "100to249": {
+          "rows": 98,
+          "mse": 9.711956024169922,
+          "mean_value_bias": -0.2441902905702591,
+          "return_variance": 129.3985137939453,
+          "explained_variance": 0.92540620212043,
+          "mse_over_return_variance": 0.07505461801234656
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 304.8555603027344,
+          "mean_value_bias": -3.064535617828369,
+          "return_variance": 525.7444458007812,
+          "explained_variance": 0.4380079423743095,
+          "mse_over_return_variance": 0.5798550279278697
+        }
+      },
+      "mean_tail_weight": 0.5136826227331206,
+      "cache": "runs/autonomous-fresh-validation-current-value-v11/audit-superlinear-seed211.pt",
+      "cache_sha256": "52f23b0be298f2e2544d2ca48ba3c42a2e3d7df5646cf218cea28fec7358d8ca",
+      "protected_hash": "a5a837ccd7b1eb1accfede2a028389cd1d8077aa1073aa07634ffb2f01ba3da2",
+      "checkpoint_sha256": "3dc59f81aa4959a8c9c54901a9283b395fe2bc92db73f3e45e9448cf3b5e6e3a",
+      "retained_state_unchanged": true
+    },
+    {
+      "seed": 307,
+      "kind": "original",
+      "summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 275,
+            "zero": 14,
+            "one": 10,
+            "mean": 0.4431521493936301
+          },
+          {
+            "eligible": 69,
+            "zero": 2,
+            "one": 2,
+            "mean": 0.49779647184401654
+          },
+          {
+            "eligible": 69,
+            "zero": 5,
+            "one": 2,
+            "mean": 0.46942728593702804
+          }
+        ],
+        "steps": 300,
+        "average_qol": 0.2015198353941237,
+        "average_population": 31.626666666666665,
+        "annual_welfare": 8.246565538165548,
+        "integrated_welfare": 49479.39322899329,
+        "final_population_mean": 1.75,
+        "terminal_episodes": 0,
+        "events": {
+          "movement": 165,
+          "trades": 2,
+          "migrants": 301,
+          "daughters": 23,
+          "quotes": 52,
+          "opportunities": 11,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.012491480666666666,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.10715883749186884,
+          0.09312161842687786,
+          0.0163880765717478,
+          0.03209420209263686,
+          0.06791769881447268,
+          0.09057538716132263,
+          0.08042810166145022,
+          0.09043259385876035,
+          0.07632315267745048,
+          0.08718868638518089,
+          0.09040658830725307,
+          0.09105138398377094,
+          0.07691367256720756
+        ],
+        "mean_compiled_staffing": [
+          3.3233333333333333,
+          2.533333333333333,
+          0.31666666666666665,
+          0.8333333333333334,
+          1.93,
+          3.263333333333333,
+          2.4433333333333334,
+          2.74,
+          2.1266666666666665,
+          2.6933333333333334,
+          3.94,
+          3.1033333333333335,
+          2.38
+        ],
+        "total_production": [
+          36182.2687806746,
+          46759.13927884423,
+          5146.0006617699755,
+          30713.26651799558,
+          1328.6381896111254,
+          30143.022720910907,
+          800.152538375065,
+          132.96651945997175,
+          1239.9668413594632,
+          2741.771746610525,
+          1832.9414559036873
+        ],
+        "total_extraction": [
+          79339.63180512472,
+          48730.468266861106,
+          99872.63251974573
+        ]
+      },
+      "endpoints": {
+        "mean_final_population": 1.75,
+        "mean_final_realized_qol": 0.16343679409998646,
+        "mean_living_endpoint_qol": 0.16343679409998646,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      },
+      "mean_integrated_original_welfare": 4123.282769082774,
+      "scheduled_500year_annual_welfare": 8.246565538165548,
+      "metrics": {
+        "target": {
+          "rows": 300,
+          "mse": 24.827152252197266,
+          "return_variance": 145.37803649902344,
+          "mse_over_return_variance": 0.17077650001390712,
+          "explained_variance": 0.829303308477202,
+          "mean_value_bias": 0.10771944373846054
+        },
+        "zero_tail": {
+          "rows": 300,
+          "mse": 29.264413833618164,
+          "return_variance": 144.3276824951172,
+          "mse_over_return_variance": 0.20276369250651705,
+          "explained_variance": 0.8059115594504465,
+          "mean_value_bias": 1.118964672088623
+        },
+        "doubled_tail": {
+          "rows": 300,
+          "mse": 29.555696487426758,
+          "return_variance": 153.54896545410156,
+          "mse_over_return_variance": 0.19248385295218068,
+          "explained_variance": 0.8128327355153565,
+          "mean_value_bias": -0.9035255908966064
+        }
+      },
+      "strata": {
+        "below100": {
+          "rows": 100,
+          "mse": 3.4293572902679443,
+          "mean_value_bias": 1.1360093355178833,
+          "return_variance": 26.83415985107422,
+          "explained_variance": 0.920294133598051,
+          "mse_over_return_variance": 0.12779819861327468
+        },
+        "100to249": {
+          "rows": 100,
+          "mse": 36.46438980102539,
+          "mean_value_bias": -0.30051112174987793,
+          "return_variance": 187.6961669921875,
+          "explained_variance": 0.8062076533535553,
+          "mse_over_return_variance": 0.19427349202364452
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 34.58769607543945,
+          "mean_value_bias": -0.5123399496078491,
+          "return_variance": 197.5196533203125,
+          "explained_variance": 0.8262187971430355,
+          "mse_over_return_variance": 0.17511014977000533
+        }
+      },
+      "mean_tail_weight": 0.5566451693617089,
+      "cache": "runs/autonomous-fresh-validation-current-value-v11/audit-original-seed307.pt",
+      "cache_sha256": "71af50ee44ce20fd0aab8c20ff87ce2bbffbda5f5e04fcd9c7f292d8b7292901",
+      "protected_hash": "a7db5042dad8a8949ffe493d5d3190eac60c3901d5f3f205ac74eae179ea4c34",
+      "checkpoint_sha256": "81ccf69a8e060b435f8951d143fa8ca0f9516e280966d88c9be4863de8822dab",
+      "retained_state_unchanged": true
+    },
+    {
+      "seed": 307,
+      "kind": "superlinear",
+      "summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 274,
+            "zero": 12,
+            "one": 11,
+            "mean": 0.4601950623609988
+          },
+          {
+            "eligible": 89,
+            "zero": 6,
+            "one": 5,
+            "mean": 0.4990834662832716
+          },
+          {
+            "eligible": 89,
+            "zero": 9,
+            "one": 5,
+            "mean": 0.43426851214799234
+          }
+        ],
+        "steps": 299,
+        "average_qol": 0.20796984329400656,
+        "average_population": 31.926421404682273,
+        "annual_welfare": 8.550713314330528,
+        "integrated_welfare": 51133.26561969656,
+        "final_population_mean": 2.1666666666666665,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 156,
+          "trades": 2,
+          "migrants": 305,
+          "daughters": 24,
+          "quotes": 71,
+          "opportunities": 11,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.012619026755852842,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.09881573322664843,
+          0.09390351992500402,
+          0.02597351419342104,
+          0.03676653829564426,
+          0.0739818342736369,
+          0.09141819778747232,
+          0.07739119443079893,
+          0.08739674926711882,
+          0.07423638251107695,
+          0.08698286288714834,
+          0.09549200872856095,
+          0.08773965676115683,
+          0.06990180771231208
+        ],
+        "mean_compiled_staffing": [
+          3.3244147157190636,
+          2.57190635451505,
+          0.431438127090301,
+          0.9230769230769231,
+          2.150501672240803,
+          3.180602006688963,
+          2.2474916387959865,
+          2.819397993311037,
+          2.1438127090301005,
+          2.6354515050167224,
+          3.9464882943143813,
+          3.1638795986622075,
+          2.387959866220736
+        ],
+        "total_production": [
+          35535.26791683545,
+          44119.69319192601,
+          5051.117036083754,
+          30464.381561893864,
+          1408.962313557155,
+          29437.03711917243,
+          794.3372102525668,
+          117.0346773557346,
+          1356.82329422508,
+          2606.168055900193,
+          2017.5199663076912
+        ],
+        "total_extraction": [
+          80555.46440165583,
+          48462.07229418263,
+          99655.7006774871
+        ]
+      },
+      "endpoints": {
+        "mean_final_population": 2.1666666666666665,
+        "mean_final_realized_qol": 0.17759649256302415,
+        "mean_living_endpoint_qol": 0.17759649256302415,
+        "convention": "Last native closed-interval QoL; separately zero when focal endpoint extinct",
+        "episodes": {
+          "omitted_list_entries": 12
+        }
+      },
+      "mean_integrated_original_welfare": 4261.1054683080465,
+      "scheduled_500year_annual_welfare": 8.522210936616094,
+      "metrics": {
+        "target": {
+          "rows": 299,
+          "mse": 25.813232421875,
+          "return_variance": 109.59504699707031,
+          "mse_over_return_variance": 0.23553283774370787,
+          "explained_variance": 0.7659963819998856,
+          "mean_value_bias": -0.4093836545944214
+        },
+        "zero_tail": {
+          "rows": 299,
+          "mse": 27.441526412963867,
+          "return_variance": 110.44678497314453,
+          "mse_over_return_variance": 0.248459259539663,
+          "explained_variance": 0.751663905751681,
+          "mean_value_bias": 0.11662665009498596
+        },
+        "doubled_tail": {
+          "rows": 299,
+          "mse": 26.117883682250977,
+          "return_variance": 110.12287139892578,
+          "mse_over_return_variance": 0.2371703838672858,
+          "explained_variance": 0.7707749397690526,
+          "mean_value_bias": -0.935393750667572
+        }
+      },
+      "strata": {
+        "below100": {
+          "rows": 99,
+          "mse": 4.668288230895996,
+          "mean_value_bias": 0.36933737993240356,
+          "return_variance": 33.46535873413086,
+          "explained_variance": 0.8645800264523879,
+          "mse_over_return_variance": 0.1394961359292071
+        },
+        "100to249": {
+          "rows": 100,
+          "mse": 40.272491455078125,
+          "mean_value_bias": -0.4725393056869507,
+          "return_variance": 172.0452880859375,
+          "explained_variance": 0.7672170949237084,
+          "mse_over_return_variance": 0.2340807580557615
+        },
+        "250plus": {
+          "rows": 100,
+          "mse": 32.287471771240234,
+          "mean_value_bias": -1.1171646118164062,
+          "return_variance": 115.92461395263672,
+          "explained_variance": 0.7322448244496305,
+          "mse_over_return_variance": 0.2785212792205796
+        }
+      },
+      "mean_tail_weight": 0.5119646206504012,
+      "cache": "runs/autonomous-fresh-validation-current-value-v11/audit-superlinear-seed307.pt",
+      "cache_sha256": "9af860ac68beab8cb0d315982afce594b019da91770b69c268f9aa576d816ced",
+      "protected_hash": "7cbc40a0c8644b5e2cca1b50fed95769977cd319af82ce9e36f7012a4d1c29b4",
+      "checkpoint_sha256": "bacd09aa15d1d38f8e7df37e9776d4e7c9af95817c455b30556b7d2159420704",
+      "retained_state_unchanged": true
+    }
+  ]
+}

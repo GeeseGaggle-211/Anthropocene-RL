@@ -1,0 +1,42 @@
+{
+  "version": "autonomous-model8-plug-v11",
+  "status": "PASS",
+  "config_sha256": "9649dccb4c1297b6c2985318e904d9f57f6fa29fa7da744c03314a2a97d7c75d",
+  "plug": {
+    "status": "PASS",
+    "controlled": [
+      4,
+      5
+    ],
+    "native_steps": 8,
+    "replay_steps": 8,
+    "checkpoints": {
+      "4": "19e8a11cfbef3f4b4126e28828d868ee0f971e3b28b07b8a9ab639b1bd33b6da",
+      "5": "3dc59f81aa4959a8c9c54901a9283b395fe2bc92db73f3e45e9448cf3b5e6e3a"
+    },
+    "independent_models_and_rng": true,
+    "owner_observations_only": true,
+    "common_wego_boundary": true,
+    "exact_save_resume_and_replay": true,
+    "objective_p0_and_sampler_sidecar_restored": true,
+    "sidecar_sha256": "ab7c6f380449c0bbd644f97a1b4c82ef74aca0cf59f93b1d5b37fcee1871cf6d",
+    "local_reward_identity": true,
+    "retained_checkpoints_unchanged": true,
+    "trace_sha256": "ecd8b2ca4a7a4f17a68e27fc0848b02cd1c094da7d79efd1e44152bb8cf11589"
+  },
+  "budget": {
+    "caps": {
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "attempted": {
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "prior_resolves": 70749,
+    "total_resolves": 70765,
+    "prior_wall_seconds": 2379.5108385850326,
+    "active_wall_seconds": 2.231250145996455,
+    "cumulative_wall_seconds": 2381.7420891210204
+  }
+}

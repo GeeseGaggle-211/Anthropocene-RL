@@ -21,6 +21,8 @@ namespace Anthropocene.RLBridge
                 historyWidth = 301, featureWidth = 1062,
                 historyFeatures = System.Linq.Enumerable.Concat(AutonomousElderHistoryContract.FeatureNames,
                     new[] { "previous_action_version" }), saveEnvelope = "ANTHROPOCENE-13",
+                additionalSaveEnvelopes = new[] { "ANTHROPOCENE-14" },
+                needsProfiles = new[] { "legacy", "subsistence-needs-v13" },
                 controlTransform = "clip((latent-.05)/.90,0,1)", herdRetention = "post-growth" };
             if (growth) op = op.Replace("autonomous6_", "autonomous5_");
             if (op == "autonomous5_schema") return new { ok = true, actionVersion = 3,
@@ -38,6 +40,16 @@ namespace Anthropocene.RLBridge
                 if (growth) growthEnvironment = candidate; else environment = candidate;
                 return new { ok = true, observations, fingerprint = candidate.Replay.InitialFingerprint,
                     buildHash = candidate.Replay.BuildHash, configurationHash = candidate.Replay.ConfigurationHash };
+            }
+            if (op == "autonomous5_prepare_probe")
+            {
+                // Pure derivation does not require or mutate an active episode.
+                var snapshot = Convert.FromBase64String(root.GetProperty("snapshot").GetString());
+                int camp = root.GetProperty("focal").GetInt32();
+                string transform = root.GetProperty("transform").GetString();
+                if (transform == "subsistence_needs_v13" && !growth)
+                    throw new ArgumentException("Native6 is required for the subsistence needs profile.");
+                return new { ok = true, snapshot = AutonomousOwnerDiagnostics.Derive(snapshot, camp, transform) };
             }
             if (active == null) throw new InvalidOperationException("Versioned autonomous reset required.");
             if (op == "autonomous5_quote_address")
@@ -63,15 +75,6 @@ namespace Anthropocene.RLBridge
                     return new { ok = true, snapshot, replay = active.Replay,
                         ownerDiagnostics = AutonomousOwnerDiagnostics.Capture(snapshot, active.Replay.Controlled) };
                 return new { ok = true, snapshot, replay = active.Replay };
-            }
-            if (op == "autonomous5_prepare_probe")
-            {
-                // Analysis-only derived copies. Never mutate an environment or
-                // original bank, and never present these diagnostics to a model.
-                var snapshot = Convert.FromBase64String(root.GetProperty("snapshot").GetString());
-                int camp = root.GetProperty("focal").GetInt32();
-                return new { ok = true, snapshot = AutonomousOwnerDiagnostics.Derive(snapshot, camp,
-                    root.GetProperty("transform").GetString()) };
             }
             throw new ArgumentException("Unknown autonomous5 operation.");
         }

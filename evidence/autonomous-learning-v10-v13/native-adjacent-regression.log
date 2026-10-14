@@ -1,0 +1,21 @@
+PASS: 34 dispatch cohort assertions
+PASS: 658 fission assertions
+PASS: 337 immigration assertions
+PASS: 486 trade assertions
+PASS: 64 goods-storage assertions
+PASS: 142 demand-control assertions
+PASS: 143 Elder RL assertions
+PASS: 66 clothing feedstock assertions
+PASS: 1157 QoL cohesion assertions
+PASS: 678 QoL mortality assertions
+TIMING FissionChecks 4.7s
+TIMING ImmigrationChecks 0.7s
+TIMING DispatchCohortChecks 0.6s
+TIMING ElderRLChecks 0.6s
+TIMING TradeChecks 0.5s
+TIMING GoodsStorageChecks 0.2s
+TIMING DemandControlChecks 0.2s
+TIMING ClothingFeedstockChecks 0.1s
+TIMING QoLMortalityChecks 0.0s
+TIMING QoLCohesionChecks 0.0s
+TIMING fixed checks jobs=1 wall=7.7s peakWorkingSetMiB=121

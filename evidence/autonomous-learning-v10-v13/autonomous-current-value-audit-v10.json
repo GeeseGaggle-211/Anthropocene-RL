@@ -1,0 +1,130 @@
+{
+  "version": "autonomous-current-value-audit-v10",
+  "status": "REVIEW_REQUIRED",
+  "config_sha256": "5d7da0b044886f731b7a196e4a5bf98a61fe7e091b3b28224de2f39c3fd8b84c",
+  "budget": {
+    "caps": {
+      "audit": 225,
+      "audit_replay": 225
+    },
+    "attempted": {
+      "audit": 222,
+      "audit_replay": 222
+    },
+    "prior_resolves": 51469,
+    "total_resolves": 51913,
+    "prior_wall_seconds": 1687.5459431490162,
+    "active_wall_seconds": 8.32358018499508,
+    "cumulative_wall_seconds": 1695.8695237250067
+  },
+  "cells": [
+    {
+      "seed": 101,
+      "protected_before": "57863e3b43ff7dd4ce116a540abbfc9b211bb0dab572be6d299a699deede92d7",
+      "protected_after": "57863e3b43ff7dd4ce116a540abbfc9b211bb0dab572be6d299a699deede92d7",
+      "metrics": {
+        "target": {
+          "rows": 72,
+          "mse": 3.385390520095825,
+          "return_variance": 10.13174057006836,
+          "mse_over_return_variance": 0.3341371106655748,
+          "explained_variance": 0.6925570882632555,
+          "mean_value_bias": 0.5200563669204712
+        },
+        "zero_tail": {
+          "rows": 72,
+          "mse": 3.395493745803833,
+          "return_variance": 10.201682090759277,
+          "mse_over_return_variance": 0.3328366553276037,
+          "explained_variance": 0.6845054597733116,
+          "mean_value_bias": 0.4206171929836273
+        },
+        "doubled_tail": {
+          "rows": 72,
+          "mse": 3.4394590854644775,
+          "return_variance": 10.106196403503418,
+          "mse_over_return_variance": 0.340331708205488,
+          "explained_variance": 0.6976424479681498,
+          "mean_value_bias": 0.6194955706596375
+        }
+      },
+      "mean_tail_weight": 0.1932795726950378,
+      "terminated": 2,
+      "truncated": 1,
+      "cache": "runs/autonomous-current-value-audit-v10/targets-seed101.pt",
+      "cache_sha256": "5f9042324cf14baf8928c416ffd371fee5f75777e45d876f46371c560f1e3b2f"
+    },
+    {
+      "seed": 211,
+      "protected_before": "29253bfc80127d8392da5073eeb72724eaade321a7cc45faa9d29c66bd3e2cc8",
+      "protected_after": "29253bfc80127d8392da5073eeb72724eaade321a7cc45faa9d29c66bd3e2cc8",
+      "metrics": {
+        "target": {
+          "rows": 75,
+          "mse": 1.6331418752670288,
+          "return_variance": 7.833861351013184,
+          "mse_over_return_variance": 0.20847214446242507,
+          "explained_variance": 0.8329753947915118,
+          "mean_value_bias": -0.5698195099830627
+        },
+        "zero_tail": {
+          "rows": 75,
+          "mse": 1.923695683479309,
+          "return_variance": 8.185873031616211,
+          "mse_over_return_variance": 0.2350018960774788,
+          "explained_variance": 0.783759717761149,
+          "mean_value_bias": -0.39189282059669495
+        },
+        "doubled_tail": {
+          "rows": 75,
+          "mse": 1.8490952253341675,
+          "return_variance": 7.925040245056152,
+          "mse_over_return_variance": 0.23332313378316047,
+          "explained_variance": 0.8372284463779633,
+          "mean_value_bias": -0.7477459907531738
+        }
+      },
+      "mean_tail_weight": 0.5566451693617088,
+      "terminated": 0,
+      "truncated": 3,
+      "cache": "runs/autonomous-current-value-audit-v10/targets-seed211.pt",
+      "cache_sha256": "882468e55bb54fca6e468bcaf7cb7fa29317c5f2eb6bbf2e7bc9c1bdfb7d7991"
+    },
+    {
+      "seed": 307,
+      "protected_before": "3e801c662ebbb76e571558d7b438b5f58d42714dda9ed292f080eb185c1a8bf0",
+      "protected_after": "3e801c662ebbb76e571558d7b438b5f58d42714dda9ed292f080eb185c1a8bf0",
+      "metrics": {
+        "target": {
+          "rows": 75,
+          "mse": 10.895586967468262,
+          "return_variance": 23.25177001953125,
+          "mse_over_return_variance": 0.4685917226222382,
+          "explained_variance": 0.5315017508537709,
+          "mean_value_bias": -0.04662017524242401
+        },
+        "zero_tail": {
+          "rows": 75,
+          "mse": 15.415278434753418,
+          "return_variance": 26.290294647216797,
+          "mse_over_return_variance": 0.586348637077194,
+          "explained_variance": 0.49847442839310185,
+          "mean_value_bias": 1.493326187133789
+        },
+        "doubled_tail": {
+          "rows": 75,
+          "mse": 12.38389778137207,
+          "return_variance": 21.478376388549805,
+          "mse_over_return_variance": 0.5765751357245964,
+          "explained_variance": 0.5406214714602045,
+          "mean_value_bias": -1.5865668058395386
+        }
+      },
+      "mean_tail_weight": 0.5566451693617088,
+      "terminated": 0,
+      "truncated": 3,
+      "cache": "runs/autonomous-current-value-audit-v10/targets-seed307.pt",
+      "cache_sha256": "c9d65d558f041adadc295f741d7c879f0038344e1e3aeeae7d5999584d2cf051"
+    }
+  ]
+}

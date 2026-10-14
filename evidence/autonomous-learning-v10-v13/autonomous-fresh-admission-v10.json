@@ -1,0 +1,19 @@
+{
+  "version": "opportunity-admission-v9",
+  "status": "PASS",
+  "neural_calls": 0,
+  "native_resolves": 0,
+  "source_bank_sha256": "748f5b9b28e9cb7981f8d551e242b98f65a4e4e939c3d8aad99cb58554b43771",
+  "corpus_rows": 12,
+  "corpus_sha256": "99aef05042e0bd177381d93709d0c293b260342d38e6825758de51ad7079c392",
+  "observations_sha256": "28fca9559ece752b568d35336aaaec7c15742b100b446b4ee836b30d77287e4f",
+  "budget": {
+    "caps": {},
+    "attempted": {},
+    "prior_resolves": 30351,
+    "total_resolves": 30351,
+    "prior_wall_seconds": 968.7816948330146,
+    "active_wall_seconds": 3.9229214770020917,
+    "cumulative_wall_seconds": 972.7046168000234
+  }
+}
