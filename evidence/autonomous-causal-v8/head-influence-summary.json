@@ -1,0 +1,1411 @@
+{
+  "version": "autonomous-head-influence-v7",
+  "status": "COMPLETE",
+  "config_sha256": "a3b628097cd50ea55ffbd421dfaa2bf5507b4bebbd56a22f80fdb255ef152826",
+  "validation_resolves": 512,
+  "replay_resolves": 512,
+  "model_calls": 0,
+  "optimizer_updates": 0,
+  "cases": [
+    {
+      "id": "workforce-0",
+      "group": "workforce",
+      "index": 0,
+      "entry": "train-871001-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction",
+        "foodMet"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "extraction",
+        "foodMet"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-1",
+      "group": "workforce",
+      "index": 1,
+      "entry": "train-871002-survival-d0",
+      "transform": "tools_empty",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-2",
+      "group": "workforce",
+      "index": 2,
+      "entry": "train-871003-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-3",
+      "group": "workforce",
+      "index": 3,
+      "entry": "train-871004-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-4",
+      "group": "workforce",
+      "index": 4,
+      "entry": "train-871005-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-5",
+      "group": "workforce",
+      "index": 5,
+      "entry": "train-871006-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-6",
+      "group": "workforce",
+      "index": 6,
+      "entry": "train-871007-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction",
+        "foodMet"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "extraction",
+        "foodMet"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "workforce-7",
+      "group": "workforce",
+      "index": 7,
+      "entry": "train-871008-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-0",
+      "group": "gathering_recipes",
+      "index": 0,
+      "entry": "train-871001-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "extraction",
+        "foodMet"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "extraction",
+        "foodMet"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-1",
+      "group": "gathering_recipes",
+      "index": 1,
+      "entry": "train-871002-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-2",
+      "group": "gathering_recipes",
+      "index": 2,
+      "entry": "train-871003-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "production"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "production"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-3",
+      "group": "gathering_recipes",
+      "index": 3,
+      "entry": "train-871004-survival-d0",
+      "transform": "materials_empty",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": false
+    },
+    {
+      "id": "gathering_recipes-4",
+      "group": "gathering_recipes",
+      "index": 4,
+      "entry": "train-871005-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-5",
+      "group": "gathering_recipes",
+      "index": 5,
+      "entry": "train-871006-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "population",
+        "stocks",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "stocks",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-6",
+      "group": "gathering_recipes",
+      "index": 6,
+      "entry": "train-871007-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "production"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "production"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "gathering_recipes-7",
+      "group": "gathering_recipes",
+      "index": 7,
+      "entry": "train-871008-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "production"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "production"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-0",
+      "group": "cultivation",
+      "index": 0,
+      "entry": "train-871001-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "foodMet"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "foodMet"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-1",
+      "group": "cultivation",
+      "index": 1,
+      "entry": "train-871002-survival-d0",
+      "transform": "tools_empty",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-2",
+      "group": "cultivation",
+      "index": 2,
+      "entry": "train-871003-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "endingCapital"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "endingCapital"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-3",
+      "group": "cultivation",
+      "index": 3,
+      "entry": "train-871004-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "foodMet"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "foodMet"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-4",
+      "group": "cultivation",
+      "index": 4,
+      "entry": "train-871005-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-5",
+      "group": "cultivation",
+      "index": 5,
+      "entry": "train-871006-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "population",
+        "stocks",
+        "endingCapital"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "stocks",
+        "endingCapital"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-6",
+      "group": "cultivation",
+      "index": 6,
+      "entry": "train-871007-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "foodMet"
+      ],
+      "physical_changed_fields": [
+        "qol",
+        "stocks",
+        "endingCapital",
+        "foodMet"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "cultivation-7",
+      "group": "cultivation",
+      "index": 7,
+      "entry": "train-871008-survival-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "endingCapital"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "endingCapital"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-0",
+      "group": "breeding",
+      "index": 0,
+      "entry": "train-871001-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-1",
+      "group": "breeding",
+      "index": 1,
+      "entry": "train-871002-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-2",
+      "group": "breeding",
+      "index": 2,
+      "entry": "train-871004-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-3",
+      "group": "breeding",
+      "index": 3,
+      "entry": "train-871006-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-4",
+      "group": "breeding",
+      "index": 4,
+      "entry": "train-871007-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-5",
+      "group": "breeding",
+      "index": 5,
+      "entry": "train-871008-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-6",
+      "group": "breeding",
+      "index": 6,
+      "entry": "train-871009-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": true
+    },
+    {
+      "id": "breeding-7",
+      "group": "breeding",
+      "index": 7,
+      "entry": "train-871010-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "newbornAnimals",
+        "slaughtered",
+        "slaughterFood"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-0",
+      "group": "retention",
+      "index": 0,
+      "entry": "train-871001-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-1",
+      "group": "retention",
+      "index": 1,
+      "entry": "train-871002-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-2",
+      "group": "retention",
+      "index": 2,
+      "entry": "train-871004-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-3",
+      "group": "retention",
+      "index": 3,
+      "entry": "train-871006-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-4",
+      "group": "retention",
+      "index": 4,
+      "entry": "train-871007-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-5",
+      "group": "retention",
+      "index": 5,
+      "entry": "train-871008-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-6",
+      "group": "retention",
+      "index": 6,
+      "entry": "train-871009-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "retention-7",
+      "group": "retention",
+      "index": 7,
+      "entry": "train-871010-husbandry-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "slaughtered",
+        "slaughterFood",
+        "ownedAnimals",
+        "endingAnimals"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-0",
+      "group": "fishing",
+      "index": 0,
+      "entry": "train-871004-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-1",
+      "group": "fishing",
+      "index": 1,
+      "entry": "train-871007-fishing-d0",
+      "transform": "tools_empty",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-2",
+      "group": "fishing",
+      "index": 2,
+      "entry": "train-871008-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-3",
+      "group": "fishing",
+      "index": 3,
+      "entry": "train-871009-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-4",
+      "group": "fishing",
+      "index": 4,
+      "entry": "train-871014-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-5",
+      "group": "fishing",
+      "index": 5,
+      "entry": "train-871015-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-6",
+      "group": "fishing",
+      "index": 6,
+      "entry": "train-871016-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "fishing-7",
+      "group": "fishing",
+      "index": 7,
+      "entry": "train-871004-fishing-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "compiledStaffing",
+        "extraction"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "aquaticHarvest",
+        "extraction"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-0",
+      "group": "movement",
+      "index": 0,
+      "entry": "train-871001-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "knownControlledCounterpartyOrdinals",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants",
+        "daughters"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants",
+        "daughters"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-1",
+      "group": "movement",
+      "index": 1,
+      "entry": "train-871002-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "knownControlledCounterpartyOrdinals",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants",
+        "daughters"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants",
+        "daughters"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-2",
+      "group": "movement",
+      "index": 2,
+      "entry": "train-871003-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "knownControlledCounterpartyOrdinals",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants",
+        "daughters"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants",
+        "daughters"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-3",
+      "group": "movement",
+      "index": 3,
+      "entry": "train-871004-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-4",
+      "group": "movement",
+      "index": 4,
+      "entry": "train-871005-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-5",
+      "group": "movement",
+      "index": 5,
+      "entry": "train-871006-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "extraction",
+        "moved",
+        "immigrants"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "extraction",
+        "moved",
+        "immigrants"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-6",
+      "group": "movement",
+      "index": 6,
+      "entry": "train-871007-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "movement-7",
+      "group": "movement",
+      "index": 7,
+      "entry": "train-871008-migration-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "physical_changed_fields": [
+        "population",
+        "qol",
+        "stocks",
+        "endingCapital",
+        "moved",
+        "immigrants"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "quotes-0",
+      "group": "quotes",
+      "index": 0,
+      "entry": "train-871001-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "quotes-1",
+      "group": "quotes",
+      "index": 1,
+      "entry": "train-871002-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": false
+    },
+    {
+      "id": "quotes-2",
+      "group": "quotes",
+      "index": 2,
+      "entry": "train-871003-trade-d0",
+      "transform": "wood_three",
+      "nonparticipating_peer": false,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "quotes-3",
+      "group": "quotes",
+      "index": 3,
+      "entry": "train-871004-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": true,
+      "mode": "native_endpoint",
+      "changed_first_receipt_fields": [],
+      "physical_changed_fields": [],
+      "different_endpoint": false
+    },
+    {
+      "id": "quotes-4",
+      "group": "quotes",
+      "index": 4,
+      "entry": "train-871005-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "quotes-5",
+      "group": "quotes",
+      "index": 5,
+      "entry": "train-871006-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "quotes-6",
+      "group": "quotes",
+      "index": 6,
+      "entry": "train-871007-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "different_endpoint": true
+    },
+    {
+      "id": "quotes-7",
+      "group": "quotes",
+      "index": 7,
+      "entry": "train-871008-trade-d0",
+      "transform": "none",
+      "nonparticipating_peer": false,
+      "mode": "policy_mean",
+      "changed_first_receipt_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "physical_changed_fields": [
+        "stocks",
+        "settledTrades",
+        "settledGive",
+        "settledWant"
+      ],
+      "different_endpoint": true
+    }
+  ],
+  "control_mean_range": [
+    0.038461974735219166,
+    0.9615380252647808
+  ],
+  "source_bank_unchanged": true,
+  "wall_seconds": 41.81339340600243,
+  "group_summary": {
+    "breeding": {
+      "cases": 8,
+      "first_receipt_changes": 4,
+      "physical_changes": 4
+    },
+    "cultivation": {
+      "cases": 8,
+      "first_receipt_changes": 8,
+      "physical_changes": 8
+    },
+    "fishing": {
+      "cases": 8,
+      "first_receipt_changes": 8,
+      "physical_changes": 8
+    },
+    "gathering_recipes": {
+      "cases": 8,
+      "first_receipt_changes": 7,
+      "physical_changes": 7
+    },
+    "movement": {
+      "cases": 8,
+      "first_receipt_changes": 8,
+      "physical_changes": 8
+    },
+    "quotes": {
+      "cases": 8,
+      "first_receipt_changes": 6,
+      "physical_changes": 6
+    },
+    "retention": {
+      "cases": 8,
+      "first_receipt_changes": 8,
+      "physical_changes": 8
+    },
+    "workforce": {
+      "cases": 8,
+      "first_receipt_changes": 8,
+      "physical_changes": 8
+    }
+  },
+  "herd_growth_authority": "NO-GO: action3 target is opening animals times retention"
+}

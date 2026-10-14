@@ -1,0 +1,157 @@
+{
+  "version": "autonomous-causal-calibration-v8",
+  "horizons": [
+    100,
+    400
+  ],
+  "feature_modes": [
+    "full",
+    "receipt_none"
+  ],
+  "episode_limits": [
+    8,
+    25
+  ],
+  "seeds": [
+    11,
+    23,
+    61
+  ],
+  "transitions_per_cell": 400,
+  "workers": 4,
+  "torch_threads": 1,
+  "maximum_wall_seconds": 1800,
+  "critic_max_epochs": 256,
+  "reversal_steps": 16,
+  "reversal_lr": 0.001,
+  "fit_worlds": [
+    871001,
+    871002,
+    871003,
+    871004,
+    871005,
+    871006,
+    871007,
+    871008
+  ],
+  "validation_worlds": [
+    871009,
+    871010,
+    871011,
+    871012
+  ],
+  "ppo_worlds": [
+    871001,
+    871002,
+    871003,
+    871004,
+    871005,
+    871006,
+    871007,
+    871008
+  ],
+  "calibration_entries": [
+    "train-871001-survival-d0",
+    "train-871002-trade-d2",
+    "train-871003-migration-d8",
+    "train-871004-fishing-d25",
+    "train-871005-fission-d0",
+    "train-871006-husbandry-d2",
+    "train-871007-survival-d8",
+    "train-871008-trade-d25",
+    "train-871009-fishing-d0",
+    "train-871010-fission-d2",
+    "train-871011-husbandry-d8",
+    "train-871012-migration-d25"
+  ],
+  "ppo_entries": [
+    "train-871001-survival-d0",
+    "train-871002-trade-d2",
+    "train-871003-migration-d8",
+    "train-871004-fishing-d25",
+    "train-871005-fission-d0",
+    "train-871006-husbandry-d2",
+    "train-871007-survival-d8",
+    "train-871008-trade-d25"
+  ],
+  "reset_order": "eight fixed interleaved resets: six families; two per age0/2/8/25; identical cycle, no family/age block; actual reset counts reported",
+  "development_entries": [
+    "development-872002-trade-d8",
+    "development-872003-migration-d8"
+  ],
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "inputs": {
+    "bank": {
+      "path": "datasets/autonomous-history-fresh-v5/manifest.json",
+      "sha256": "af25c64bd34cad149fcfa9d56b06a285ce981cb5da4c47a1e4e8ca0625a07b70"
+    },
+    "bridge": {
+      "path": "integration/history-v8/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "bc88a71cacde55c4716864a1fd55577c55dac9d7abf9b316d178d3e57ef3a477"
+    },
+    "probe": {
+      "path": "runs/autonomous-causal-gate-v8-preflight/observations-v6.json",
+      "sha256": "44b14f5ba71e298de43beec74e678e3feea8b30ba15bd13ffb4ca18a960f2df0"
+    },
+    "prior_stage": {
+      "path": "runs/autonomous-growth-repair-v8/summary.json",
+      "sha256": "d92e695fd1897e715c6409400be82b8e5baf1087ba0eca51bd0cf75e08f53699"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-growth-repair-v8/budget.json",
+      "sha256": "a47255ade128429c164c1e0b934107caaf9be2615d8088295f9329856c8e3a3d"
+    },
+    "parent_h100": {
+      "path": "runs/autonomous-critic-horizon-gate-v5/residual_layernorm-h100-seed29-step-4096.pt",
+      "sha256": "bb175f32dcb813b4b80d46742161a1d4bdea0626b6a3713de4fb8afb8c4427a0"
+    },
+    "parent_h400": {
+      "path": "runs/autonomous-critic-horizon-gate-v5/residual_layernorm-h400-seed29-step-4096.pt",
+      "sha256": "ab9b927acfdc6e7b33e56d408bb491212984a4de1b25d9d70e09f5d7bbd6b70a"
+    },
+    "runner": {
+      "path": "scripts/run_autonomous_causal_gate_v7.py",
+      "sha256": "5ddef17dbb0edab05e7ecde28a9f4542d5d24b0a003344e876ffaf3fd4dc0fc8"
+    },
+    "causal": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal.py",
+      "sha256": "96f0d17593bdabc6c265d062d14186251a02e37964863480d5baed4bced66ec9"
+    },
+    "budget": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal_budget.py",
+      "sha256": "0426cfc756b74dd463b2f2d52c71530d231867b9c8718e7588461a4cd834085a"
+    },
+    "diagnostics": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal_diagnostics.py",
+      "sha256": "5fafc764752a23e49142cd1a499ede3d6ae7ead005203864eb51cf9592ae79a8"
+    },
+    "model": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v6.py",
+      "sha256": "e06f640b9dfa9dee89fe3f951cfdab0274720d55b195cfa28385010eddbcbc64"
+    },
+    "trainer": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v6.py",
+      "sha256": "b2987404f0eab40fe53a389adad91080e53b21b2dc1704bb850daa898cd2bc6f"
+    },
+    "contract": {
+      "path": "docs/AUTONOMOUS_DIRECT_CONTROL_CONTRACT_V8.md",
+      "sha256": "acdeab996702611350716b22fda6e4b8b45173607ec776c30041d1befc1b8bd4"
+    },
+    "update_measurement": {
+      "path": "scripts/run_autonomous_continuation_v4.py",
+      "sha256": "9d3a339fd82c29455170d08b602450c62cd4134623bdae571584f4604fd90714"
+    },
+    "native6_contracts": {
+      "path": "src/anthropocene_rl/autonomous_v6/contracts.py",
+      "sha256": "71b7bd0565b36ffa9cd9abe2f260958f970b7cdc40fc14a5e61eb3c248d1398d"
+    },
+    "native6_policy": {
+      "path": "src/anthropocene_rl/autonomous_v6/policy.py",
+      "sha256": "08021f181dd512756071f43fe336d170854b3e97f31559a59fe023bf20cbb941"
+    },
+    "native6_env": {
+      "path": "src/anthropocene_rl/autonomous_v6/env.py",
+      "sha256": "4748108d6e13d77ebac71be05fdd5e247eb3fc81c50aea6e13c3d981eae9c0fd"
+    }
+  }
+}

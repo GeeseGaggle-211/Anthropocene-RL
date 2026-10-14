@@ -1,0 +1,974 @@
+{
+  "version": "autonomous-causal-gate-v8",
+  "stage": "calibrate",
+  "status": "NO-GO_CRITIC",
+  "config_sha256": "4e1288638997f9abf3167be504d13aa28c16bac328e4307e8bbbba83def2c7b9",
+  "target_cohorts": [
+    {
+      "horizon": 100,
+      "fitting_rows": 200,
+      "validation_rows": 100,
+      "protected_state": "3dffa075f806b01e572a5b454694bfcc414c8d333948856220b457d15722267c",
+      "native_summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 297,
+            "zero": 198,
+            "one": 0,
+            "mean": 0.02658346865998555
+          },
+          {
+            "eligible": 75,
+            "zero": 31,
+            "one": 0,
+            "mean": 0.11211508846044001
+          },
+          {
+            "eligible": 75,
+            "zero": 25,
+            "one": 0,
+            "mean": 0.15110377456394974
+          }
+        ],
+        "steps": 300,
+        "average_qol": 0.8379332880944451,
+        "average_population": 128.12666666666667,
+        "annual_welfare": 109.71605849799167,
+        "integrated_welfare": 658296.35098795,
+        "final_population_mean": 75.83333333333333,
+        "terminal_episodes": 0,
+        "events": {
+          "movement": 85,
+          "trades": 0,
+          "migrants": 78,
+          "daughters": 31,
+          "quotes": 41
+        },
+        "native_step_seconds_mean": 0.06442682433333334,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.334425903986903,
+          0.32373064254316886,
+          0.014866687479352577,
+          0.021631388624496792,
+          0.018609382779252812,
+          0.04578627361944806,
+          0.013148488335750398,
+          0.04378435244251221,
+          0.013079534725704611,
+          0.10319256750347726,
+          0.027216636401980406,
+          0.024656638532789394,
+          0.015871503025163096
+        ],
+        "mean_compiled_staffing": [
+          42.333333333333336,
+          41.60333333333333,
+          1.9066666666666667,
+          2.99,
+          2.35,
+          6.456666666666667,
+          1.76,
+          5.3933333333333335,
+          1.5533333333333332,
+          13.11,
+          3.52,
+          3.2466666666666666,
+          1.9033333333333333
+        ],
+        "total_production": [
+          17653.580204679292,
+          42171.890825559414,
+          89479.23284637963,
+          25948.984065020093,
+          12875.592651163706,
+          84430.51535559077,
+          1055.7904319993384,
+          199.6108322190648,
+          319.11940018994227,
+          14714.074427708272,
+          6196.007551745465
+        ],
+        "total_extraction": [
+          87400.38453170695,
+          66519.30621032952,
+          95609.20412436922
+        ]
+      },
+      "tail_weight_mean": 0.17944890321237225,
+      "tail_weight_at_reset": [
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461,
+        0.006737946999085461
+      ],
+      "target_mean": 90.5096435546875,
+      "zero_tail_mean": 70.49749545170046,
+      "doubled_tail_mean": 110.52179564569718
+    },
+    {
+      "horizon": 400,
+      "fitting_rows": 200,
+      "validation_rows": 100,
+      "protected_state": "aaba4e7f33c5bff689d8b0bcce5a5721e12f9ed66d3cde62e2e931177cbe5ea6",
+      "native_summary": {
+        "episodes": 12,
+        "physical_control_endpoints": [
+          {
+            "eligible": 296,
+            "zero": 198,
+            "one": 0,
+            "mean": 0.02073003527640603
+          },
+          {
+            "eligible": 79,
+            "zero": 5,
+            "one": 9,
+            "mean": 0.5796841449589756
+          },
+          {
+            "eligible": 79,
+            "zero": 21,
+            "one": 0,
+            "mean": 0.1870450043600562
+          }
+        ],
+        "steps": 300,
+        "average_qol": 0.8221069451402154,
+        "average_population": 136.99,
+        "annual_welfare": 117.09920706882312,
+        "integrated_welfare": 702595.2424129387,
+        "final_population_mean": 114.83333333333333,
+        "terminal_episodes": 0,
+        "events": {
+          "movement": 161,
+          "trades": 0,
+          "migrants": 31,
+          "daughters": 32,
+          "quotes": 34
+        },
+        "native_step_seconds_mean": 0.023767251333333333,
+        "family_counts": {
+          "fishing": 2,
+          "fission": 2,
+          "husbandry": 2,
+          "migration": 2,
+          "survival": 2,
+          "trade": 2
+        },
+        "mean_requested_workforce": [
+          0.35617494332404764,
+          0.2994866556617521,
+          0.017099251389318268,
+          0.019621291924529556,
+          0.024907317613272962,
+          0.04232371541909601,
+          0.013861939448294178,
+          0.025947107592155398,
+          0.014892741470818649,
+          0.12859969903827648,
+          0.020616684891345136,
+          0.021924408802768927,
+          0.014544243424325158
+        ],
+        "mean_compiled_staffing": [
+          47.81,
+          40.526666666666664,
+          2.5033333333333334,
+          3.2133333333333334,
+          3.46,
+          6.2,
+          1.5833333333333333,
+          3.5866666666666664,
+          2.2466666666666666,
+          18.226666666666667,
+          2.546666666666667,
+          3.0,
+          2.0866666666666664
+        ],
+        "total_production": [
+          15197.584836271164,
+          35023.30962866563,
+          64675.21939686265,
+          28609.42328514747,
+          14781.093443226337,
+          66268.17477398085,
+          710.0960906822592,
+          287.05062579008296,
+          3267.5652885806767,
+          15251.576151833355,
+          3333.0362387605705
+        ],
+        "total_extraction": [
+          83403.04514008961,
+          52230.3394733742,
+          69930.85066871821
+        ]
+      },
+      "tail_weight_mean": 0.5566451693617089,
+      "tail_weight_at_reset": [
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902,
+        0.2865047968601902
+      ],
+      "target_mean": 257.9789733886719,
+      "zero_tail_mean": 162.00755762980728,
+      "doubled_tail_mean": 353.95039634261366
+    }
+  ],
+  "calibrations": [
+    {
+      "horizon": 100,
+      "feature_mode": "full",
+      "report": {
+        "passed": true,
+        "entry": {
+          "mse": 3033.24755859375,
+          "normalized_mse": 0.46448016256866625,
+          "normalized_bias": 0.06158863300538648
+        },
+        "final": {
+          "mse": 2816.7587890625,
+          "normalized_mse": 0.43132931123730184,
+          "normalized_bias": -0.15384768923526232
+        },
+        "constant_mse": 6530.41357421875,
+        "epochs": 32,
+        "optimizer_steps": 224,
+        "trace": [
+          {
+            "epoch": 32,
+            "gradient_norm": 650.3775634765625,
+            "mse": 2816.7587890625,
+            "normalized_mse": 0.43132931123730184,
+            "normalized_bias": -0.15384768923526232,
+            "ready": true
+          }
+        ],
+        "protected_state_before": "3dffa075f806b01e572a5b454694bfcc414c8d333948856220b457d15722267c",
+        "protected_state_after": "3dffa075f806b01e572a5b454694bfcc414c8d333948856220b457d15722267c",
+        "target_semantics": "censored n-step plus frozen tail",
+        "readiness_rule": "MSE <= .95 * TRAIN-constant validation MSE; bias <= .5; nonworse entry",
+        "degenerate_constant": false
+      },
+      "checkpoint": "runs/autonomous-causal-calibration-v8/calibrated-h100-full.pt",
+      "checkpoint_sha256": "192da272a5f40d09139acb26ad03afadfb56f7cc261ffdbbd770fe919552bd2c",
+      "health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00408935546875,
+            "mean_derivative": 0.591376781463623,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.27966323494911194,
+            "effective_rank": 10.913591525650144
+          },
+          {
+            "saturated_fraction": 0.004638671875,
+            "mean_derivative": 0.48887693881988525,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.20791223645210266,
+            "effective_rank": 8.571768057901687
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0030517578125,
+            "mean_derivative": 0.5870750546455383,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2412034571170807,
+            "effective_rank": 10.641302427020893
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.47919848561286926,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.21988141536712646,
+            "effective_rank": 6.186621402579738
+          }
+        ],
+        "active_clamp_fraction": 0.020483193919062614,
+        "active_raw_min": -6.012975692749023,
+        "active_raw_max": 13.814336776733398,
+        "simplex": {
+          "workforce": {
+            "eligible": 64,
+            "concentration_mean": 32.77314376831055,
+            "concentration_max": 39.2713623046875,
+            "coordinate_std": 0.04170047864317894,
+            "requested_mean_max": 0.3317394256591797
+          },
+          "activities": {
+            "eligible": 240,
+            "concentration_mean": 9.656941413879395,
+            "concentration_max": 15.645586013793945,
+            "coordinate_std": 0.10340382158756256,
+            "requested_mean_max": 0.6755462288856506
+          },
+          "controls": {
+            "eligible": 72,
+            "concentration_mean": 6.6230854988098145,
+            "concentration_max": 10.784479141235352,
+            "coordinate_std": 0.12083408236503601,
+            "requested_mean_max": 0.8895270824432373
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 56,
+            "normalized_entropy": 0.5819271802902222,
+            "maximum_probability": 0.6577920317649841,
+            "probability_std": 0.09381356835365295
+          },
+          "enabled": {
+            "eligible": 16,
+            "normalized_entropy": 0.9514296650886536,
+            "maximum_probability": 0.6282307505607605,
+            "probability_std": 0.013835620135068893
+          },
+          "partner": {
+            "eligible": 0
+          },
+          "give": {
+            "eligible": 64,
+            "normalized_entropy": 0.8661981225013733,
+            "maximum_probability": 0.3978063762187958,
+            "probability_std": 0.027616584673523903
+          },
+          "want": {
+            "eligible": 64,
+            "normalized_entropy": 0.9476191401481628,
+            "maximum_probability": 0.22627800703048706,
+            "probability_std": 0.015228626318275928
+          },
+          "lot": {
+            "eligible": 64,
+            "normalized_entropy": 0.8624688386917114,
+            "maximum_probability": 0.5956147313117981,
+            "probability_std": 0.03882553055882454
+          },
+          "price": {
+            "eligible": 64,
+            "normalized_entropy": 0.9671712517738342,
+            "maximum_probability": 0.44752830266952515,
+            "probability_std": 0.03485101833939552
+          }
+        },
+        "value_std": 29.487987518310547,
+        "value_input_gradient": 48.21320724487305,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 0.05418211221694946
+      }
+    },
+    {
+      "horizon": 100,
+      "feature_mode": "receipt_none",
+      "report": {
+        "passed": true,
+        "entry": {
+          "mse": 3033.24755859375,
+          "normalized_mse": 0.46448016256866625,
+          "normalized_bias": 0.06158863300538648
+        },
+        "final": {
+          "mse": 2798.810302734375,
+          "normalized_mse": 0.4285808656566141,
+          "normalized_bias": -0.1491241584932098
+        },
+        "constant_mse": 6530.41357421875,
+        "epochs": 32,
+        "optimizer_steps": 224,
+        "trace": [
+          {
+            "epoch": 32,
+            "gradient_norm": 934.1395263671875,
+            "mse": 2798.810302734375,
+            "normalized_mse": 0.4285808656566141,
+            "normalized_bias": -0.1491241584932098,
+            "ready": true
+          }
+        ],
+        "protected_state_before": "3dffa075f806b01e572a5b454694bfcc414c8d333948856220b457d15722267c",
+        "protected_state_after": "3dffa075f806b01e572a5b454694bfcc414c8d333948856220b457d15722267c",
+        "target_semantics": "censored n-step plus frozen tail",
+        "readiness_rule": "MSE <= .95 * TRAIN-constant validation MSE; bias <= .5; nonworse entry",
+        "degenerate_constant": false
+      },
+      "checkpoint": "runs/autonomous-causal-calibration-v8/calibrated-h100-receipt_none.pt",
+      "checkpoint_sha256": "14ee5fe5e779e947595d508995d9be8062b07f4394059e920a95003047fdaca3",
+      "health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00408935546875,
+            "mean_derivative": 0.591376781463623,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.27966323494911194,
+            "effective_rank": 10.913591525650144
+          },
+          {
+            "saturated_fraction": 0.004638671875,
+            "mean_derivative": 0.48887693881988525,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.20791223645210266,
+            "effective_rank": 8.571768057901687
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0045166015625,
+            "mean_derivative": 0.5954005122184753,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2508138418197632,
+            "effective_rank": 10.678948151944264
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.4848315715789795,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.25111502408981323,
+            "effective_rank": 6.504178407998845
+          }
+        ],
+        "active_clamp_fraction": 0.020483193919062614,
+        "active_raw_min": -6.012975692749023,
+        "active_raw_max": 13.814336776733398,
+        "simplex": {
+          "workforce": {
+            "eligible": 64,
+            "concentration_mean": 32.77314376831055,
+            "concentration_max": 39.2713623046875,
+            "coordinate_std": 0.04170047864317894,
+            "requested_mean_max": 0.3317394256591797
+          },
+          "activities": {
+            "eligible": 240,
+            "concentration_mean": 9.656941413879395,
+            "concentration_max": 15.645586013793945,
+            "coordinate_std": 0.10340382158756256,
+            "requested_mean_max": 0.6755462288856506
+          },
+          "controls": {
+            "eligible": 72,
+            "concentration_mean": 6.6230854988098145,
+            "concentration_max": 10.784479141235352,
+            "coordinate_std": 0.12083408236503601,
+            "requested_mean_max": 0.8895270824432373
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 56,
+            "normalized_entropy": 0.5819271802902222,
+            "maximum_probability": 0.6577920317649841,
+            "probability_std": 0.09381356835365295
+          },
+          "enabled": {
+            "eligible": 16,
+            "normalized_entropy": 0.9514296650886536,
+            "maximum_probability": 0.6282307505607605,
+            "probability_std": 0.013835620135068893
+          },
+          "partner": {
+            "eligible": 0
+          },
+          "give": {
+            "eligible": 64,
+            "normalized_entropy": 0.8661981225013733,
+            "maximum_probability": 0.3978063762187958,
+            "probability_std": 0.027616584673523903
+          },
+          "want": {
+            "eligible": 64,
+            "normalized_entropy": 0.9476191401481628,
+            "maximum_probability": 0.22627800703048706,
+            "probability_std": 0.015228626318275928
+          },
+          "lot": {
+            "eligible": 64,
+            "normalized_entropy": 0.8624688386917114,
+            "maximum_probability": 0.5956147313117981,
+            "probability_std": 0.03882553055882454
+          },
+          "price": {
+            "eligible": 64,
+            "normalized_entropy": 0.9671712517738342,
+            "maximum_probability": 0.44752830266952515,
+            "probability_std": 0.03485101833939552
+          }
+        },
+        "value_std": 28.981355667114258,
+        "value_input_gradient": 50.427852630615234,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 0.0
+      }
+    },
+    {
+      "horizon": 400,
+      "feature_mode": "full",
+      "report": {
+        "passed": false,
+        "entry": {
+          "mse": 70642.7734375,
+          "normalized_mse": 1.1438192597897965,
+          "normalized_bias": -0.6054218839093468
+        },
+        "final": {
+          "mse": 57424.359375,
+          "normalized_mse": 0.929792037289246,
+          "normalized_bias": -0.5926671186287078
+        },
+        "constant_mse": 61760.43359375,
+        "epochs": 256,
+        "optimizer_steps": 1792,
+        "trace": [
+          {
+            "epoch": 32,
+            "gradient_norm": 659.2833862304688,
+            "mse": 69381.3984375,
+            "normalized_mse": 1.1233955851715591,
+            "normalized_bias": -0.6321087556349633,
+            "ready": false
+          },
+          {
+            "epoch": 64,
+            "gradient_norm": 1141.3046875,
+            "mse": 67450.3125,
+            "normalized_mse": 1.0921282215030594,
+            "normalized_bias": -0.6354359094075493,
+            "ready": false
+          },
+          {
+            "epoch": 96,
+            "gradient_norm": 2037.6158447265625,
+            "mse": 65350.8515625,
+            "normalized_mse": 1.0581345978295291,
+            "normalized_bias": -0.6292405151852359,
+            "ready": false
+          },
+          {
+            "epoch": 128,
+            "gradient_norm": 769.0008544921875,
+            "mse": 63668.734375,
+            "normalized_mse": 1.0308984356198418,
+            "normalized_bias": -0.6266357798047629,
+            "ready": false
+          },
+          {
+            "epoch": 160,
+            "gradient_norm": 308.88336181640625,
+            "mse": 61951.36328125,
+            "normalized_mse": 1.0030914563967588,
+            "normalized_bias": -0.6173751277861204,
+            "ready": false
+          },
+          {
+            "epoch": 192,
+            "gradient_norm": 955.5646362304688,
+            "mse": 60380.51171875,
+            "normalized_mse": 0.9776568622546127,
+            "normalized_bias": -0.609669052694127,
+            "ready": false
+          },
+          {
+            "epoch": 224,
+            "gradient_norm": 544.6275634765625,
+            "mse": 58886.0390625,
+            "normalized_mse": 0.9534589645183307,
+            "normalized_bias": -0.601944054668484,
+            "ready": false
+          },
+          {
+            "epoch": 256,
+            "gradient_norm": 1764.6822509765625,
+            "mse": 57424.359375,
+            "normalized_mse": 0.929792037289246,
+            "normalized_bias": -0.5926671186287078,
+            "ready": false
+          }
+        ],
+        "protected_state_before": "aaba4e7f33c5bff689d8b0bcce5a5721e12f9ed66d3cde62e2e931177cbe5ea6",
+        "protected_state_after": "aaba4e7f33c5bff689d8b0bcce5a5721e12f9ed66d3cde62e2e931177cbe5ea6",
+        "target_semantics": "censored n-step plus frozen tail",
+        "readiness_rule": "MSE <= .95 * TRAIN-constant validation MSE; bias <= .5; nonworse entry",
+        "degenerate_constant": false
+      },
+      "checkpoint": "runs/autonomous-causal-calibration-v8/calibrated-h400-full.pt",
+      "checkpoint_sha256": "535ecf65ec8f5b63ff5e0b27c34242df0af6510e76566d2e38cf46abfbb9dbc4",
+      "health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.006591796875,
+            "mean_derivative": 0.610161542892456,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2838551104068756,
+            "effective_rank": 10.78028272280552
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.4779047966003418,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2137269824743271,
+            "effective_rank": 8.394009546465647
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.01019287109375,
+            "mean_derivative": 0.6113485097885132,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2882234454154968,
+            "effective_rank": 11.511633939478763
+          },
+          {
+            "saturated_fraction": 0.00347900390625,
+            "mean_derivative": 0.3295428156852722,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2697194218635559,
+            "effective_rank": 5.868086738523627
+          }
+        ],
+        "active_clamp_fraction": 0.04149159789085388,
+        "active_raw_min": -6.270742416381836,
+        "active_raw_max": 14.238117218017578,
+        "simplex": {
+          "workforce": {
+            "eligible": 64,
+            "concentration_mean": 33.447818756103516,
+            "concentration_max": 38.329837799072266,
+            "coordinate_std": 0.03944994509220123,
+            "requested_mean_max": 0.37093231081962585
+          },
+          "activities": {
+            "eligible": 240,
+            "concentration_mean": 9.2203950881958,
+            "concentration_max": 14.537363052368164,
+            "coordinate_std": 0.10348210483789444,
+            "requested_mean_max": 0.6679299473762512
+          },
+          "controls": {
+            "eligible": 72,
+            "concentration_mean": 7.395071029663086,
+            "concentration_max": 12.118412017822266,
+            "coordinate_std": 0.1389109492301941,
+            "requested_mean_max": 0.8478209972381592
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 56,
+            "normalized_entropy": 0.6202896237373352,
+            "maximum_probability": 0.6077268719673157,
+            "probability_std": 0.10447815805673599
+          },
+          "enabled": {
+            "eligible": 16,
+            "normalized_entropy": 0.9572298526763916,
+            "maximum_probability": 0.6073946952819824,
+            "probability_std": 0.055168069899082184
+          },
+          "partner": {
+            "eligible": 0
+          },
+          "give": {
+            "eligible": 64,
+            "normalized_entropy": 0.9652154445648193,
+            "maximum_probability": 0.22014769911766052,
+            "probability_std": 0.0252684373408556
+          },
+          "want": {
+            "eligible": 64,
+            "normalized_entropy": 0.9458810091018677,
+            "maximum_probability": 0.1871201992034912,
+            "probability_std": 0.016045331954956055
+          },
+          "lot": {
+            "eligible": 64,
+            "normalized_entropy": 0.9939010739326477,
+            "maximum_probability": 0.3742274045944214,
+            "probability_std": 0.023390939459204674
+          },
+          "price": {
+            "eligible": 64,
+            "normalized_entropy": 0.9913626909255981,
+            "maximum_probability": 0.3771286904811859,
+            "probability_std": 0.03212716057896614
+          }
+        },
+        "value_std": 63.79273223876953,
+        "value_input_gradient": 85.29025268554688,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 1.2984669208526611
+      }
+    },
+    {
+      "horizon": 400,
+      "feature_mode": "receipt_none",
+      "report": {
+        "passed": false,
+        "entry": {
+          "mse": 70642.7734375,
+          "normalized_mse": 1.1438192597897965,
+          "normalized_bias": -0.6054218839093468
+        },
+        "final": {
+          "mse": 57649.62890625,
+          "normalized_mse": 0.9334395105685268,
+          "normalized_bias": -0.587382664134083
+        },
+        "constant_mse": 61760.43359375,
+        "epochs": 256,
+        "optimizer_steps": 1792,
+        "trace": [
+          {
+            "epoch": 32,
+            "gradient_norm": 718.1197509765625,
+            "mse": 69314.3984375,
+            "normalized_mse": 1.1223107482282062,
+            "normalized_bias": -0.62761584616762,
+            "ready": false
+          },
+          {
+            "epoch": 64,
+            "gradient_norm": 1427.869384765625,
+            "mse": 67288.203125,
+            "normalized_mse": 1.089503411967778,
+            "normalized_bias": -0.6260072037162582,
+            "ready": false
+          },
+          {
+            "epoch": 96,
+            "gradient_norm": 2123.518798828125,
+            "mse": 65315.37109375,
+            "normalized_mse": 1.0575601124076264,
+            "normalized_bias": -0.6244376300428733,
+            "ready": false
+          },
+          {
+            "epoch": 128,
+            "gradient_norm": 1262.96923828125,
+            "mse": 63667.0,
+            "normalized_mse": 1.0308703533202355,
+            "normalized_bias": -0.6231558265611437,
+            "ready": false
+          },
+          {
+            "epoch": 160,
+            "gradient_norm": 305.7295227050781,
+            "mse": 62013.671875,
+            "normalized_mse": 1.004100331984645,
+            "normalized_bias": -0.6139350800488366,
+            "ready": false
+          },
+          {
+            "epoch": 192,
+            "gradient_norm": 744.2161865234375,
+            "mse": 60504.71875,
+            "normalized_mse": 0.9796679723460187,
+            "normalized_bias": -0.6061048473411637,
+            "ready": false
+          },
+          {
+            "epoch": 224,
+            "gradient_norm": 534.686767578125,
+            "mse": 59146.06640625,
+            "normalized_mse": 0.9576692222613449,
+            "normalized_bias": -0.6003901857427538,
+            "ready": false
+          },
+          {
+            "epoch": 256,
+            "gradient_norm": 1947.3375244140625,
+            "mse": 57649.62890625,
+            "normalized_mse": 0.9334395105685268,
+            "normalized_bias": -0.587382664134083,
+            "ready": false
+          }
+        ],
+        "protected_state_before": "aaba4e7f33c5bff689d8b0bcce5a5721e12f9ed66d3cde62e2e931177cbe5ea6",
+        "protected_state_after": "aaba4e7f33c5bff689d8b0bcce5a5721e12f9ed66d3cde62e2e931177cbe5ea6",
+        "target_semantics": "censored n-step plus frozen tail",
+        "readiness_rule": "MSE <= .95 * TRAIN-constant validation MSE; bias <= .5; nonworse entry",
+        "degenerate_constant": false
+      },
+      "checkpoint": "runs/autonomous-causal-calibration-v8/calibrated-h400-receipt_none.pt",
+      "checkpoint_sha256": "97dcb85968b0eed8b4e8ce3bd408b5825783a7a2430ebc42028022ae024432c4",
+      "health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.006591796875,
+            "mean_derivative": 0.610161542892456,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2838551104068756,
+            "effective_rank": 10.78028272280552
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.4779047966003418,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2137269824743271,
+            "effective_rank": 8.394009546465647
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0111083984375,
+            "mean_derivative": 0.6129108667373657,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29848986864089966,
+            "effective_rank": 11.726250740006613
+          },
+          {
+            "saturated_fraction": 0.00335693359375,
+            "mean_derivative": 0.3230045437812805,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.27496564388275146,
+            "effective_rank": 6.088293630957766
+          }
+        ],
+        "active_clamp_fraction": 0.04149159789085388,
+        "active_raw_min": -6.270742416381836,
+        "active_raw_max": 14.238117218017578,
+        "simplex": {
+          "workforce": {
+            "eligible": 64,
+            "concentration_mean": 33.447818756103516,
+            "concentration_max": 38.329837799072266,
+            "coordinate_std": 0.03944994509220123,
+            "requested_mean_max": 0.37093231081962585
+          },
+          "activities": {
+            "eligible": 240,
+            "concentration_mean": 9.2203950881958,
+            "concentration_max": 14.537363052368164,
+            "coordinate_std": 0.10348210483789444,
+            "requested_mean_max": 0.6679299473762512
+          },
+          "controls": {
+            "eligible": 72,
+            "concentration_mean": 7.395071029663086,
+            "concentration_max": 12.118412017822266,
+            "coordinate_std": 0.1389109492301941,
+            "requested_mean_max": 0.8478209972381592
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 56,
+            "normalized_entropy": 0.6202896237373352,
+            "maximum_probability": 0.6077268719673157,
+            "probability_std": 0.10447815805673599
+          },
+          "enabled": {
+            "eligible": 16,
+            "normalized_entropy": 0.9572298526763916,
+            "maximum_probability": 0.6073946952819824,
+            "probability_std": 0.055168069899082184
+          },
+          "partner": {
+            "eligible": 0
+          },
+          "give": {
+            "eligible": 64,
+            "normalized_entropy": 0.9652154445648193,
+            "maximum_probability": 0.22014769911766052,
+            "probability_std": 0.0252684373408556
+          },
+          "want": {
+            "eligible": 64,
+            "normalized_entropy": 0.9458810091018677,
+            "maximum_probability": 0.1871201992034912,
+            "probability_std": 0.016045331954956055
+          },
+          "lot": {
+            "eligible": 64,
+            "normalized_entropy": 0.9939010739326477,
+            "maximum_probability": 0.3742274045944214,
+            "probability_std": 0.023390939459204674
+          },
+          "price": {
+            "eligible": 64,
+            "normalized_entropy": 0.9913626909255981,
+            "maximum_probability": 0.3771286904811859,
+            "probability_std": 0.03212716057896614
+          }
+        },
+        "value_std": 63.3572998046875,
+        "value_input_gradient": 84.13187408447266,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 0.0
+      }
+    }
+  ],
+  "cells": [],
+  "baselines": [],
+  "wall_seconds": 39.13081350301218,
+  "passed": false
+}

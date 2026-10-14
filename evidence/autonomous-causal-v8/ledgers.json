@@ -1,0 +1,179 @@
+[
+  {
+    "stage": "heads",
+    "path": "runs/autonomous-head-influence-v7/summary.json",
+    "ledger": {
+      "version": "autonomous-head-influence-v7",
+      "status": "COMPLETE",
+      "validation_resolves": 512,
+      "replay_resolves": 512,
+      "wall_seconds": 41.81339340600243,
+      "model_calls": 0,
+      "optimizer_updates": 0,
+      "total_resolves": 1024,
+      "aggregation": "compact head summary; full immutable raw anchored in artifact-index"
+    }
+  },
+  {
+    "stage": "repair",
+    "path": "runs/autonomous-growth-repair-v8/summary.json",
+    "ledger": {
+      "version": "autonomous-growth-repair-v8",
+      "status": "PASS",
+      "physical_growth_proved": true,
+      "attempts": [
+        {
+          "log": "runs/autonomous-growth-repair-v8/attempt-1.log",
+          "assertions": 56,
+          "validationResolves": 17,
+          "replayResolves": 16,
+          "wallSeconds": 0.913715,
+          "result": "FAILED"
+        },
+        {
+          "log": "runs/autonomous-growth-repair-v8/attempt-2.log",
+          "assertions": 63,
+          "validationResolves": 19,
+          "replayResolves": 19,
+          "wallSeconds": 1.0021879,
+          "physicalGrowthProved": true,
+          "births": [
+            0,
+            22,
+            49
+          ],
+          "schema": 6,
+          "result": "PASS"
+        }
+      ],
+      "validation_resolves": 36,
+      "replay_resolves": 35,
+      "wall_seconds": 1.9159029,
+      "inference_calls": 0,
+      "retained_ppo_transitions": 0
+    }
+  },
+  {
+    "stage": "calibration",
+    "path": "runs/autonomous-causal-calibration-v8/budget.json",
+    "ledger": {
+      "caps": {
+        "calibration": 600,
+        "calibration_replay": 600
+      },
+      "attempted": {
+        "calibration": 600,
+        "calibration_replay": 600
+      },
+      "prior_resolves": 1095,
+      "total_resolves": 2295,
+      "prior_wall_seconds": 43.72929630600243,
+      "active_wall_seconds": 39.16414011300367,
+      "cumulative_wall_seconds": 82.89343702001497
+    }
+  },
+  {
+    "stage": "intercept",
+    "path": "runs/autonomous-critic-intercept-v8/budget.json",
+    "ledger": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 2295,
+      "total_resolves": 2295,
+      "prior_wall_seconds": 82.89343702001497,
+      "active_wall_seconds": 1.0642460620001657,
+      "cumulative_wall_seconds": 83.95768379300716
+    }
+  },
+  {
+    "stage": "aborted_matrix",
+    "path": "runs/autonomous-causal-matrix-v8/budget.json",
+    "ledger": {
+      "caps": {
+        "training": 9600,
+        "evaluation": 1500,
+        "evaluation_replay": 1500
+      },
+      "attempted": {
+        "training": 14,
+        "evaluation": 50,
+        "evaluation_replay": 50
+      },
+      "prior_resolves": 2295,
+      "total_resolves": 2409,
+      "prior_wall_seconds": 83.95768379300716,
+      "active_wall_seconds": 4.419303375005256,
+      "cumulative_wall_seconds": 88.37698731799901
+    }
+  },
+  {
+    "stage": "resumed_matrix",
+    "path": "runs/autonomous-causal-matrix-resume-v8/budget.json",
+    "ledger": {
+      "caps": {
+        "training": 9600,
+        "evaluation": 1450,
+        "evaluation_replay": 1450
+      },
+      "attempted": {
+        "training": 9600,
+        "evaluation": 1450,
+        "evaluation_replay": 1450
+      },
+      "prior_resolves": 2409,
+      "total_resolves": 14909,
+      "prior_wall_seconds": 88.37698731799901,
+      "active_wall_seconds": 467.97259959200164,
+      "cumulative_wall_seconds": 556.3495875109948
+    }
+  },
+  {
+    "stage": "cold_audit",
+    "path": "runs/autonomous-causal-gate-v8-postflight/analysis-budget.json",
+    "ledger": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 14909,
+      "total_resolves": 14909,
+      "prior_wall_seconds": 556.3495875109948,
+      "active_wall_seconds": 2.4163286359980702,
+      "cumulative_wall_seconds": 558.7659166469966
+    }
+  },
+  {
+    "stage": "mature_audit",
+    "path": "runs/autonomous-causal-gate-v8-postflight/mature-analysis-budget.json",
+    "ledger": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 14909,
+      "total_resolves": 14909,
+      "prior_wall_seconds": 558.7659166469966,
+      "active_wall_seconds": 3.0885890209901845,
+      "cumulative_wall_seconds": 561.8545064889913
+    }
+  },
+  {
+    "stage": "postflight",
+    "path": "runs/autonomous-native-postflight-v8/budget.json",
+    "ledger": {
+      "caps": {
+        "performance": 16,
+        "heuristic": 50,
+        "plug": 8,
+        "plug_replay": 8
+      },
+      "attempted": {
+        "performance": 16,
+        "heuristic": 50,
+        "plug": 8,
+        "plug_replay": 8
+      },
+      "prior_resolves": 14909,
+      "total_resolves": 14991,
+      "prior_wall_seconds": 561.8545064889913,
+      "active_wall_seconds": 7.552739279999514,
+      "cumulative_wall_seconds": 569.4072460189927
+    }
+  }
+]

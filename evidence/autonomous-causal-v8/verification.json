@@ -1,0 +1,31 @@
+{
+  "learner": {
+    "collected": 208,
+    "passed": 203,
+    "skipped": 5,
+    "failed": 0,
+    "log": "runs/autonomous-causal-gate-v8-preflight/learner-regression-postflight.log",
+    "log_sha256": "b5613f16f3b6f7375385d238f12d9d0ad076bb6bc860c6952ffff9871f407c28"
+  },
+  "native": {
+    "old_autonomous_assertions": 471,
+    "old_five_head_assertions": 143,
+    "old_history_assertions": 77,
+    "growth_assertions": 63,
+    "old_mode_fingerprints_equal": 8,
+    "baseline": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+    "growth_births": [
+      0,
+      22,
+      49
+    ]
+  },
+  "formatting": "git diff --check PASS",
+  "reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "native_calls": 0,
+    "model_forwards": 0,
+    "ppo_updates": 0
+  }
+}

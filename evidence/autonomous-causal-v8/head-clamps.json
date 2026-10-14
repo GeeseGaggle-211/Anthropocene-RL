@@ -1,0 +1,2098 @@
+{
+  "version": "native6-fixed-state-head-clamps",
+  "rows": [
+    {
+      "id": "h100-full-limit8-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 46,
+          "below": 0,
+          "above": 46,
+          "minimum": -6.03608512878418,
+          "maximum": 13.66604232788086
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.69034481048584,
+          "maximum": 12.332164764404297
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.231234550476074,
+          "maximum": 9.656481742858887,
+          "latent_mean_min": 0.0473962128162384,
+          "latent_mean_max": 0.06076103821396828,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.011956709126631415
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.797041416168213,
+          "maximum": 3.1615304946899414,
+          "latent_mean_min": 0.13119982182979584,
+          "latent_mean_max": 0.13329848647117615,
+          "deterministic_control_min": 0.0902220242553287,
+          "deterministic_control_max": 0.09255387385686238
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.2869133949279785,
+          "maximum": 2.01263689994812,
+          "latent_mean_min": 0.18450023233890533,
+          "latent_mean_max": 0.1865980178117752,
+          "deterministic_control_min": 0.1494447025987837,
+          "deterministic_control_max": 0.15177557534641692
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-full-limit25-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 35,
+          "below": 0,
+          "above": 35,
+          "minimum": -5.997941017150879,
+          "maximum": 13.690378189086914
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.7003631591796875,
+          "maximum": 12.257213592529297
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.236786842346191,
+          "maximum": 9.730001449584961,
+          "latent_mean_min": 0.04706903174519539,
+          "latent_mean_max": 0.06332960724830627,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0148106747203403
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.6341540813446045,
+          "maximum": 2.9584927558898926,
+          "latent_mean_min": 0.13959378004074097,
+          "latent_mean_max": 0.14309073984622955,
+          "deterministic_control_min": 0.09954864448971218,
+          "deterministic_control_max": 0.1034341553846995
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.8665423393249512,
+          "maximum": 1.8265025615692139,
+          "latent_mean_min": 0.20637600123882294,
+          "latent_mean_max": 0.2110077291727066,
+          "deterministic_control_min": 0.17375111248758104,
+          "deterministic_control_max": 0.17889747685856291
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-receipt_none-limit8-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.949044704437256,
+          "maximum": 13.64855670928955
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.677589416503906,
+          "maximum": 12.284527778625488
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.232765197753906,
+          "maximum": 9.626814842224121,
+          "latent_mean_min": 0.047527726739645004,
+          "latent_mean_max": 0.06852538883686066,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.020583765374289614
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.4777071475982666,
+          "maximum": 2.7559542655944824,
+          "latent_mean_min": 0.1489415168762207,
+          "latent_mean_max": 0.1533232182264328,
+          "deterministic_control_min": 0.10993501875135633,
+          "deterministic_control_max": 0.11480357580714755
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.9272148609161377,
+          "maximum": 1.9688830375671387,
+          "latent_mean_min": 0.19653703272342682,
+          "latent_mean_max": 0.20115646719932556,
+          "deterministic_control_min": 0.16281892524825203,
+          "deterministic_control_max": 0.16795163022147286
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-receipt_none-limit25-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 38,
+          "below": 0,
+          "above": 38,
+          "minimum": -6.009764671325684,
+          "maximum": 13.703529357910156
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.689894676208496,
+          "maximum": 12.282110214233398
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.2555437088012695,
+          "maximum": 9.762511253356934,
+          "latent_mean_min": 0.04691823199391365,
+          "latent_mean_max": 0.06347595900297165,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.014973287781079607
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.6119742393493652,
+          "maximum": 2.834444522857666,
+          "latent_mean_min": 0.1440611034631729,
+          "latent_mean_max": 0.1475048065185547,
+          "deterministic_control_min": 0.10451233718130323,
+          "deterministic_control_max": 0.1083386739095052
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.9484643936157227,
+          "maximum": 1.9964814186096191,
+          "latent_mean_min": 0.19441334903240204,
+          "latent_mean_max": 0.19896380603313446,
+          "deterministic_control_min": 0.16045927670266893,
+          "deterministic_control_max": 0.1655153400368161
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-full-limit8-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 46,
+          "below": 0,
+          "above": 46,
+          "minimum": -6.037567138671875,
+          "maximum": 13.68354606628418
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.705369472503662,
+          "maximum": 12.316150665283203
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.256464958190918,
+          "maximum": 9.724771499633789,
+          "latent_mean_min": 0.047082819044589996,
+          "latent_mean_max": 0.06049047410488129,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.011656082338756982
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.939648151397705,
+          "maximum": 2.8954110145568848,
+          "latent_mean_min": 0.1378650665283203,
+          "latent_mean_max": 0.13978779315948486,
+          "deterministic_control_min": 0.09762785169813368,
+          "deterministic_control_max": 0.09976421462164985
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.110865592956543,
+          "maximum": 1.8160566091537476,
+          "latent_mean_min": 0.199481800198555,
+          "latent_mean_max": 0.20250563323497772,
+          "deterministic_control_min": 0.16609088910950556,
+          "deterministic_control_max": 0.1694507035944197
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-full-limit25-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.934118270874023,
+          "maximum": 13.527120590209961
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.6468892097473145,
+          "maximum": 12.274130821228027
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.192096710205078,
+          "maximum": 9.584822654724121,
+          "latent_mean_min": 0.047735992819070816,
+          "latent_mean_max": 0.06521418690681458,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.016904652118682858
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.5119822025299072,
+          "maximum": 2.41294527053833,
+          "latent_mean_min": 0.16161471605300903,
+          "latent_mean_max": 0.1647021323442459,
+          "deterministic_control_min": 0.12401635117001003,
+          "deterministic_control_max": 0.12744681371582878
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.8027980327606201,
+          "maximum": 1.6121623516082764,
+          "latent_mean_min": 0.22153089940547943,
+          "latent_mean_max": 0.22606521844863892,
+          "deterministic_control_min": 0.1905898882283105,
+          "deterministic_control_max": 0.19562802049848768
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-receipt_none-limit8-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 46,
+          "below": 0,
+          "above": 46,
+          "minimum": -5.997073173522949,
+          "maximum": 13.576581954956055
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 8,
+          "below": 0,
+          "above": 8,
+          "minimum": -4.676844120025635,
+          "maximum": 12.228035926818848
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.232904434204102,
+          "maximum": 9.669170379638672,
+          "latent_mean_min": 0.04733909294009209,
+          "latent_mean_max": 0.06233115494251251,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.013701283269458343
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.83920955657959,
+          "maximum": 2.6746065616607666,
+          "latent_mean_min": 0.14660672843456268,
+          "latent_mean_max": 0.14878951013088226,
+          "deterministic_control_min": 0.1073408093717363,
+          "deterministic_control_max": 0.10976612236764695
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.3221521377563477,
+          "maximum": 2.2683305740356445,
+          "latent_mean_min": 0.1715964823961258,
+          "latent_mean_max": 0.1737615317106247,
+          "deterministic_control_min": 0.13510720266236198,
+          "deterministic_control_max": 0.1375128130118052
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-receipt_none-limit25-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.868866920471191,
+          "maximum": 13.430316925048828
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 7,
+          "below": 0,
+          "above": 7,
+          "minimum": -4.618864059448242,
+          "maximum": 12.190860748291016
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.156785011291504,
+          "maximum": 9.523656845092773,
+          "latent_mean_min": 0.04803123697638512,
+          "latent_mean_max": 0.06866765767335892,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.020741841859287683
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.411458730697632,
+          "maximum": 2.2389402389526367,
+          "latent_mean_min": 0.17100755870342255,
+          "latent_mean_max": 0.17510269582271576,
+          "deterministic_control_min": 0.13445284300380284,
+          "deterministic_control_max": 0.13900299535857308
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.542729377746582,
+          "maximum": 1.3255181312561035,
+          "latent_mean_min": 0.25182801485061646,
+          "latent_mean_max": 0.2581959366798401,
+          "deterministic_control_min": 0.2242533498340183,
+          "deterministic_control_max": 0.23132881853315565
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-full-limit8-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.864801406860352,
+          "maximum": 13.284976959228516
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 7,
+          "below": 0,
+          "above": 7,
+          "minimum": -4.573537349700928,
+          "maximum": 12.086986541748047
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.089020729064941,
+          "maximum": 9.421977996826172,
+          "latent_mean_min": 0.04853617027401924,
+          "latent_mean_max": 0.06656254082918167,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.018402823143535186
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.571497678756714,
+          "maximum": 2.595001459121704,
+          "latent_mean_min": 0.1533563882112503,
+          "latent_mean_max": 0.1562260091304779,
+          "deterministic_control_min": 0.11484043134583366,
+          "deterministic_control_max": 0.11802889903386433
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.7734909057617188,
+          "maximum": 1.6780765056610107,
+          "latent_mean_min": 0.21855680644512177,
+          "latent_mean_max": 0.22274458408355713,
+          "deterministic_control_min": 0.18728534049457976,
+          "deterministic_control_max": 0.19193842675950792
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-full-limit25-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.94498348236084,
+          "maximum": 13.453314781188965
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 7,
+          "below": 0,
+          "above": 7,
+          "minimum": -4.636610984802246,
+          "maximum": 12.082451820373535
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.1545000076293945,
+          "maximum": 9.612621307373047,
+          "latent_mean_min": 0.04763002321124077,
+          "latent_mean_max": 0.06392934173345566,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.015477046370506283
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.8641440868377686,
+          "maximum": 2.831439733505249,
+          "latent_mean_min": 0.14083218574523926,
+          "latent_mean_max": 0.14295515418052673,
+          "deterministic_control_min": 0.10092465082804361,
+          "deterministic_control_max": 0.1032835046450297
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.5133247375488281,
+          "maximum": 1.4351885318756104,
+          "latent_mean_min": 0.2459181845188141,
+          "latent_mean_max": 0.24977773427963257,
+          "deterministic_control_min": 0.21768687168757123,
+          "deterministic_control_max": 0.22197526031070286
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-receipt_none-limit8-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.875758171081543,
+          "maximum": 13.301126480102539
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 7,
+          "below": 0,
+          "above": 7,
+          "minimum": -4.572902679443359,
+          "maximum": 12.086248397827148
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.0965895652771,
+          "maximum": 9.422019958496094,
+          "latent_mean_min": 0.04853176325559616,
+          "latent_mean_max": 0.06535927951335907,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.01706586612595452
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.6918067932128906,
+          "maximum": 2.6748015880584717,
+          "latent_mean_min": 0.1485578417778015,
+          "latent_mean_max": 0.1511116921901703,
+          "deterministic_control_min": 0.10950871308644612,
+          "deterministic_control_max": 0.11234632465574476
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.0260512828826904,
+          "maximum": 1.8527415990829468,
+          "latent_mean_min": 0.19991113245487213,
+          "latent_mean_max": 0.20317238569259644,
+          "deterministic_control_min": 0.16656792494985792,
+          "deterministic_control_max": 0.1701915396584405
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h100-receipt_none-limit25-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 31,
+          "below": 0,
+          "above": 31,
+          "minimum": -5.94101619720459,
+          "maximum": 13.473674774169922
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 7,
+          "below": 0,
+          "above": 7,
+          "minimum": -4.631219863891602,
+          "maximum": 12.102134704589844
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.156026840209961,
+          "maximum": 9.628242492675781,
+          "latent_mean_min": 0.04755927994847298,
+          "latent_mean_max": 0.06397662311792374,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.01552958124213748
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.8165979385375977,
+          "maximum": 2.7262935638427734,
+          "latent_mean_min": 0.14504298567771912,
+          "latent_mean_max": 0.1472335159778595,
+          "deterministic_control_min": 0.1056033174196879,
+          "deterministic_control_max": 0.10803723997539944
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.7205286026000977,
+          "maximum": 1.6906404495239258,
+          "latent_mean_min": 0.22005221247673035,
+          "latent_mean_max": 0.22371625900268555,
+          "deterministic_control_min": 0.1889469027519226,
+          "deterministic_control_max": 0.1930180655585395
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-full-limit8-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 48,
+          "below": 0,
+          "above": 48,
+          "minimum": -6.27591609954834,
+          "maximum": 14.415184020996094
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 33,
+          "below": 0,
+          "above": 33,
+          "minimum": -4.817526817321777,
+          "maximum": 13.470783233642578
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.586408615112305,
+          "maximum": 11.197786331176758,
+          "latent_mean_min": 0.04128506779670715,
+          "latent_mean_max": 0.0477927140891552,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.4059721231460571,
+          "maximum": -0.3508090376853943,
+          "latent_mean_min": 0.41102567315101624,
+          "latent_mean_max": 0.43142440915107727,
+          "deterministic_control_min": 0.40113963683446247,
+          "deterministic_control_max": 0.4238048990567525
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.6177687644958496,
+          "maximum": 2.0477659702301025,
+          "latent_mean_min": 0.17674779891967773,
+          "latent_mean_max": 0.17907483875751495,
+          "deterministic_control_min": 0.14083088768853083,
+          "deterministic_control_max": 0.14341648750834995
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-full-limit25-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 47,
+          "below": 0,
+          "above": 47,
+          "minimum": -6.275686264038086,
+          "maximum": 14.328193664550781
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 25,
+          "below": 0,
+          "above": 25,
+          "minimum": -4.691221714019775,
+          "maximum": 13.331047058105469
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.499646186828613,
+          "maximum": 11.021644592285156,
+          "latent_mean_min": 0.04191674292087555,
+          "latent_mean_max": 0.04969387501478195,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.6388754844665527,
+          "maximum": -0.4212634563446045,
+          "latent_mean_min": 0.40343210101127625,
+          "latent_mean_max": 0.42418372631073,
+          "deterministic_control_min": 0.3927023344569736,
+          "deterministic_control_max": 0.4157596959008111
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.395077705383301,
+          "maximum": 1.8577299118041992,
+          "latent_mean_min": 0.1910521239042282,
+          "latent_mean_max": 0.19401031732559204,
+          "deterministic_control_min": 0.15672458211580914,
+          "deterministic_control_max": 0.16001146369510227
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-receipt_none-limit8-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 48,
+          "below": 0,
+          "above": 48,
+          "minimum": -6.301943302154541,
+          "maximum": 14.433629989624023
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 33,
+          "below": 0,
+          "above": 33,
+          "minimum": -4.835652828216553,
+          "maximum": 13.489215850830078
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.589730262756348,
+          "maximum": 11.200052261352539,
+          "latent_mean_min": 0.04127642884850502,
+          "latent_mean_max": 0.0477227047085762,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.3459854125976562,
+          "maximum": -0.43566471338272095,
+          "latent_mean_min": 0.4233986437320709,
+          "latent_mean_max": 0.4436209201812744,
+          "deterministic_control_min": 0.41488738192452324,
+          "deterministic_control_max": 0.4373565779791938
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.8126277923583984,
+          "maximum": 2.3836584091186523,
+          "latent_mean_min": 0.1581544578075409,
+          "latent_mean_max": 0.16114990413188934,
+          "deterministic_control_min": 0.12017161978615654,
+          "deterministic_control_max": 0.12349989347987704
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-receipt_none-limit25-seed11",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 50,
+          "below": 0,
+          "above": 50,
+          "minimum": -6.346307754516602,
+          "maximum": 14.403876304626465
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 25,
+          "below": 0,
+          "above": 25,
+          "minimum": -4.74333381652832,
+          "maximum": 13.405963897705078
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.530706405639648,
+          "maximum": 11.048608779907227,
+          "latent_mean_min": 0.041813068091869354,
+          "latent_mean_max": 0.05028693750500679,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0003188194500075415
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.8488008975982666,
+          "maximum": -0.08221343904733658,
+          "latent_mean_min": 0.3606492280960083,
+          "latent_mean_max": 0.3778998553752899,
+          "deterministic_control_min": 0.34516580899556476,
+          "deterministic_control_max": 0.364333172639211
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.5382299423217773,
+          "maximum": 1.9643937349319458,
+          "latent_mean_min": 0.18189547955989838,
+          "latent_mean_max": 0.18446606397628784,
+          "deterministic_control_min": 0.14655053284433153,
+          "deterministic_control_max": 0.14940673775143096
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-full-limit8-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.3155717849731445,
+          "maximum": 14.495536804199219
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 33,
+          "below": 0,
+          "above": 33,
+          "minimum": -4.77061653137207,
+          "maximum": 13.545516967773438
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.574626922607422,
+          "maximum": 11.1986722946167,
+          "latent_mean_min": 0.041285548359155655,
+          "latent_mean_max": 0.04839719831943512,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.0609639883041382,
+          "maximum": -0.41968852281570435,
+          "latent_mean_min": 0.44237881898880005,
+          "latent_mean_max": 0.46597400307655334,
+          "deterministic_control_min": 0.43597646554311115,
+          "deterministic_control_max": 0.4621933367517259
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.8557260036468506,
+          "maximum": 2.3591830730438232,
+          "latent_mean_min": 0.1585898995399475,
+          "latent_mean_max": 0.16167695820331573,
+          "deterministic_control_min": 0.120655443933275,
+          "deterministic_control_max": 0.12408550911479525
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-full-limit25-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.433038711547852,
+          "maximum": 14.485363960266113
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 32,
+          "below": 0,
+          "above": 32,
+          "minimum": -4.821424961090088,
+          "maximum": 13.535985946655273
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.568859100341797,
+          "maximum": 11.150482177734375,
+          "latent_mean_min": 0.04145095497369766,
+          "latent_mean_max": 0.04945940896868706,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.715524435043335,
+          "maximum": -0.09115248173475266,
+          "latent_mean_min": 0.36828377842903137,
+          "latent_mean_max": 0.3876226246356964,
+          "deterministic_control_min": 0.35364864269892377,
+          "deterministic_control_max": 0.37513624959521824
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.4039125442504883,
+          "maximum": 2.1647067070007324,
+          "latent_mean_min": 0.17456325888633728,
+          "latent_mean_max": 0.17997565865516663,
+          "deterministic_control_min": 0.1384036209848192,
+          "deterministic_control_max": 0.1444173985057407
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-receipt_none-limit8-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.330902576446533,
+          "maximum": 14.53288459777832
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 33,
+          "below": 0,
+          "above": 33,
+          "minimum": -4.778619289398193,
+          "maximum": 13.575662612915039
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.588879585266113,
+          "maximum": 11.226215362548828,
+          "latent_mean_min": 0.041188377887010574,
+          "latent_mean_max": 0.04828706011176109,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.0340027809143066,
+          "maximum": -0.3632921576499939,
+          "latent_mean_min": 0.4389569163322449,
+          "latent_mean_max": 0.4628738760948181,
+          "deterministic_control_min": 0.43217435148027206,
+          "deterministic_control_max": 0.4587487512164646
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.908808708190918,
+          "maximum": 2.388122797012329,
+          "latent_mean_min": 0.15672889351844788,
+          "latent_mean_max": 0.15994812548160553,
+          "deterministic_control_min": 0.11858765946494208,
+          "deterministic_control_max": 0.12216458386845058
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-receipt_none-limit25-seed23",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.39661979675293,
+          "maximum": 14.465670585632324
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 32,
+          "below": 0,
+          "above": 32,
+          "minimum": -4.795477867126465,
+          "maximum": 13.538198471069336
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.562230110168457,
+          "maximum": 11.159465789794922,
+          "latent_mean_min": 0.041422341018915176,
+          "latent_mean_max": 0.04900146648287773,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.7118955850601196,
+          "maximum": -0.14494001865386963,
+          "latent_mean_min": 0.37377655506134033,
+          "latent_mean_max": 0.39327025413513184,
+          "deterministic_control_min": 0.35975172784593373,
+          "deterministic_control_max": 0.3814113934834798
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.3574233055114746,
+          "maximum": 2.2463319301605225,
+          "latent_mean_min": 0.17177468538284302,
+          "latent_mean_max": 0.17727671563625336,
+          "deterministic_control_min": 0.13530520598093668,
+          "deterministic_control_max": 0.1414185729291704
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-full-limit8-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.362057685852051,
+          "maximum": 14.443862915039062
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 29,
+          "below": 0,
+          "above": 29,
+          "minimum": -4.786910533905029,
+          "maximum": 13.439370155334473
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.567584991455078,
+          "maximum": 11.216669082641602,
+          "latent_mean_min": 0.041226841509342194,
+          "latent_mean_max": 0.049331922084093094,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.3283731937408447,
+          "maximum": -0.022893020883202553,
+          "latent_mean_min": 0.3838951885700226,
+          "latent_mean_max": 0.40345120429992676,
+          "deterministic_control_min": 0.3709946539666918,
+          "deterministic_control_max": 0.39272356033325195
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.932914972305298,
+          "maximum": 2.265509843826294,
+          "latent_mean_min": 0.16154953837394714,
+          "latent_mean_max": 0.16480743885040283,
+          "deterministic_control_min": 0.12394393152660793,
+          "deterministic_control_max": 0.12756382094489202
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-full-limit25-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.326048851013184,
+          "maximum": 14.478899002075195
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 32,
+          "below": 0,
+          "above": 32,
+          "minimum": -4.800809860229492,
+          "maximum": 13.530959129333496
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.583860397338867,
+          "maximum": 11.197826385498047,
+          "latent_mean_min": 0.0412856824696064,
+          "latent_mean_max": 0.04907086864113808,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.5388814210891724,
+          "maximum": 0.2716411352157593,
+          "latent_mean_min": 0.3422186076641083,
+          "latent_mean_max": 0.3598904609680176,
+          "deterministic_control_min": 0.3246873418490092,
+          "deterministic_control_max": 0.3443227344089084
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.565709114074707,
+          "maximum": 1.8980271816253662,
+          "latent_mean_min": 0.18448087573051453,
+          "latent_mean_max": 0.1881161630153656,
+          "deterministic_control_min": 0.14942319525612727,
+          "deterministic_control_max": 0.15346240335040623
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-receipt_none-limit8-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 55,
+          "below": 0,
+          "above": 55,
+          "minimum": -6.360813140869141,
+          "maximum": 14.446606636047363
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 33,
+          "below": 0,
+          "above": 33,
+          "minimum": -4.796541213989258,
+          "maximum": 13.46575927734375
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.569266319274902,
+          "maximum": 11.20600700378418,
+          "latent_mean_min": 0.041262343525886536,
+          "latent_mean_max": 0.04918874427676201,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.5310200452804565,
+          "maximum": 0.15450045466423035,
+          "latent_mean_min": 0.35396191477775574,
+          "latent_mean_max": 0.37041816115379333,
+          "deterministic_control_min": 0.33773546086417305,
+          "deterministic_control_max": 0.3560201790597704
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.8414902687072754,
+          "maximum": 2.2988033294677734,
+          "latent_mean_min": 0.16130827367305756,
+          "latent_mean_max": 0.16422107815742493,
+          "deterministic_control_min": 0.12367585963673061,
+          "deterministic_control_max": 0.12691230906380546
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    },
+    {
+      "id": "h400-receipt_none-limit25-seed61",
+      "heads": {
+        "workforce": {
+          "active": 704,
+          "clamped": 51,
+          "below": 0,
+          "above": 51,
+          "minimum": -6.321107864379883,
+          "maximum": 14.414012908935547
+        },
+        "activities": {
+          "active": 1056,
+          "clamped": 32,
+          "below": 0,
+          "above": 32,
+          "minimum": -4.794349670410156,
+          "maximum": 13.469589233398438
+        }
+      },
+      "controls": [
+        {
+          "active": 80,
+          "clamped": 0,
+          "minimum": -5.556980133056641,
+          "maximum": 11.122550964355469,
+          "latent_mean_min": 0.04155002534389496,
+          "latent_mean_max": 0.04974439740180969,
+          "deterministic_control_min": 0.0,
+          "deterministic_control_max": 0.0
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -1.631323218345642,
+          "maximum": 0.24003590643405914,
+          "latent_mean_min": 0.34043094515800476,
+          "latent_mean_max": 0.35713693499565125,
+          "deterministic_control_min": 0.32270105017556083,
+          "deterministic_control_max": 0.3412632611062792
+        },
+        {
+          "active": 32,
+          "clamped": 0,
+          "minimum": -2.4720916748046875,
+          "maximum": 1.7813160419464111,
+          "latent_mean_min": 0.19260255992412567,
+          "latent_mean_max": 0.19646432995796204,
+          "deterministic_control_min": 0.15844728880458409,
+          "deterministic_control_max": 0.1627381443977356
+        }
+      ],
+      "frozen_critic_anchors": {
+        "reference_critic": [
+          {
+            "saturated_fraction": 0.62969970703125,
+            "mean_derivative": 0.12216353416442871,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.16860413551330566,
+            "effective_rank": 11.971104651892901
+          },
+          {
+            "saturated_fraction": 0.64996337890625,
+            "mean_derivative": 0.13787421584129333,
+            "fixed_saturated_units": 0.00390625,
+            "observation_std": 0.2504744529724121,
+            "effective_rank": 8.847180023767796
+          }
+        ],
+        "initial_normalized_critic": [
+          {
+            "saturated_fraction": 0.00048828125,
+            "mean_derivative": 0.5282963514328003,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.15147359669208527,
+            "effective_rank": 10.334316220123807
+          },
+          {
+            "saturated_fraction": 0.0,
+            "mean_derivative": 0.5156260132789612,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.13718748092651367,
+            "effective_rank": 5.917651112415729
+          }
+        ]
+      }
+    }
+  ],
+  "model_forward_batches": 24,
+  "optimizer_steps": 0,
+  "native_resolves": 0,
+  "wall_seconds": 2.414325434001512,
+  "control_mean_semantics": "T(E[latent control]), deterministic compiled mean request; not E[T(latent)]"
+}

@@ -1,0 +1,59 @@
+{
+  "version": "autonomous-critic-intercept-v8",
+  "maximum_closed_form_fits": 2,
+  "additional_native_resolves": 0,
+  "additional_optimizer_steps": 0,
+  "selection": "onlyfailedH400",
+  "intercept": "mean(TRAIN target - TRAIN prediction)",
+  "readiness": "original fixed constant/entry/bias constraints",
+  "inputs": {
+    "original_summary": {
+      "path": "runs/autonomous-causal-calibration-v8/summary.json",
+      "sha256": "a89b681bb6f07c5964b7c85211ee26a27cb70d66cc29ffc09677ee835fdcbb55"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-causal-calibration-v8/budget.json",
+      "sha256": "090714f9e8ac6da1ecc532f4e4d6ad25439e02e1de8e5901446499e2aa0a2526"
+    },
+    "native_targets_h400": {
+      "path": "runs/autonomous-causal-calibration-v8/native-targets-h400.pt",
+      "sha256": "33d7551094754c65af1e424b6fbd207402623eede7e7ff23fa9acd610dd5a597"
+    },
+    "runner": {
+      "path": "scripts/recenter_autonomous_critic_v8.py",
+      "sha256": "7ff115320829e9f635e61153583af641efd2ff87dff88964773b38e2340223d3"
+    },
+    "intercept": {
+      "path": "src/anthropocene_rl/autonomous_v6/calibration.py",
+      "sha256": "08128e85c806224e939fa90b21c76b4329058c382d78c7d6e28a95ec74183266"
+    },
+    "causal_runner": {
+      "path": "scripts/run_autonomous_causal_gate_v7.py",
+      "sha256": "5ddef17dbb0edab05e7ecde28a9f4542d5d24b0a003344e876ffaf3fd4dc0fc8"
+    },
+    "causal": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal.py",
+      "sha256": "96f0d17593bdabc6c265d062d14186251a02e37964863480d5baed4bced66ec9"
+    },
+    "ready_h100_full": {
+      "path": "runs/autonomous-causal-calibration-v8/calibrated-h100-full.pt",
+      "sha256": "192da272a5f40d09139acb26ad03afadfb56f7cc261ffdbbd770fe919552bd2c"
+    },
+    "ready_h100_receipt_none": {
+      "path": "runs/autonomous-causal-calibration-v8/calibrated-h100-receipt_none.pt",
+      "sha256": "14ee5fe5e779e947595d508995d9be8062b07f4394059e920a95003047fdaca3"
+    },
+    "failed_h400_full": {
+      "path": "runs/autonomous-causal-calibration-v8/calibrated-h400-full.pt",
+      "sha256": "535ecf65ec8f5b63ff5e0b27c34242df0af6510e76566d2e38cf46abfbb9dbc4"
+    },
+    "failed_h400_receipt_none": {
+      "path": "runs/autonomous-causal-calibration-v8/calibrated-h400-receipt_none.pt",
+      "sha256": "97dcb85968b0eed8b4e8ce3bd408b5825783a7a2430ebc42028022ae024432c4"
+    },
+    "addendum": {
+      "path": "docs/AUTONOMOUS_CRITIC_INTERCEPT_ADDENDUM_V8_1.md",
+      "sha256": "94d8bef252d3c9b476f69a2c4b288aa8e599583e297261f150eb560114504e52"
+    }
+  }
+}

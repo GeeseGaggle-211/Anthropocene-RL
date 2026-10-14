@@ -1,0 +1,28 @@
+{
+  "version": "autonomous-growth-repair-v8",
+  "maximum_validation_resolves": 128,
+  "maximum_replay_resolves": 128,
+  "maximum_wall_seconds": 600,
+  "inputs": {
+    "headless": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/growth-v8/bin/Release/net8.0/Anthropocene.Headless.dll",
+      "sha256": "27e95cf66e16824598c065a9629a57f4809dc80569299dccb9a34c2c9c42c9e5"
+    },
+    "proof": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/AutonomousGrowthChecks.cs",
+      "sha256": "dff928e2980bc739cc7c52ec3c2e27c891963277f596ef9fe1fafa656ab417a8"
+    },
+    "bridge": {
+      "path": "integration/history-v8/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "bc88a71cacde55c4716864a1fd55577c55dac9d7abf9b316d178d3e57ef3a477"
+    },
+    "contract": {
+      "path": "docs/AUTONOMOUS_DIRECT_CONTROL_CONTRACT_V8.md",
+      "sha256": "acdeab996702611350716b22fda6e4b8b45173607ec776c30041d1befc1b8bd4"
+    },
+    "head_stage": {
+      "path": "runs/autonomous-head-influence-v7/summary.json",
+      "sha256": "fbc9d6bef03d479963e2ac1df8117b7e8ea3f7a9f9402d464baeb846bf94b228"
+    }
+  }
+}

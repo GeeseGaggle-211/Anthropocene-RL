@@ -24,3 +24,12 @@ def inputs(observations):
             )
         },
     )
+
+
+def inputs_with_mode(observations, mode="full"):
+    if mode not in ("full", "receipt_none"):
+        raise ValueError("Unknown receipt-history feature mode")
+    result = inputs(observations)
+    if mode == "receipt_none":
+        result["x"][:, 761:] = 0
+    return result

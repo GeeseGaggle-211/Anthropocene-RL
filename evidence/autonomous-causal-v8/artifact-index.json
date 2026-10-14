@@ -1,0 +1,137 @@
+[
+  {
+    "path": "runs/autonomous-head-influence-v7/summary.json",
+    "bytes": 1998608,
+    "sha256": "fbc9d6bef03d479963e2ac1df8117b7e8ea3f7a9f9402d464baeb846bf94b228"
+  },
+  {
+    "path": "runs/autonomous-growth-repair-v8/summary.json",
+    "bytes": 808,
+    "sha256": "d92e695fd1897e715c6409400be82b8e5baf1087ba0eca51bd0cf75e08f53699"
+  },
+  {
+    "path": "runs/autonomous-causal-calibration-v8/summary.json",
+    "bytes": 1418389,
+    "sha256": "a89b681bb6f07c5964b7c85211ee26a27cb70d66cc29ffc09677ee835fdcbb55"
+  },
+  {
+    "path": "runs/autonomous-causal-calibration-v8/budget.json",
+    "bytes": 337,
+    "sha256": "090714f9e8ac6da1ecc532f4e4d6ad25439e02e1de8e5901446499e2aa0a2526"
+  },
+  {
+    "path": "runs/autonomous-critic-intercept-v8/summary.json",
+    "bytes": 1417348,
+    "sha256": "3816cc4b63e80356d1e4daa0bcbfc08025dd56050a9464fafaf257e4a0ff87f6"
+  },
+  {
+    "path": "runs/autonomous-critic-intercept-v8/budget.json",
+    "bytes": 224,
+    "sha256": "8df0ea390ffa58e8cdd4614c349f8053d0552af044bd896b8cb4ef432a7ca844"
+  },
+  {
+    "path": "runs/autonomous-causal-matrix-v8/summary.json",
+    "bytes": 127932,
+    "sha256": "97eb8af61b4e1b5699721f3444825099e7a14ba4a138e30d47c81aadc49a1b24"
+  },
+  {
+    "path": "runs/autonomous-causal-matrix-v8/budget.json",
+    "bytes": 375,
+    "sha256": "f3de4f27910b90749246b6474c5fb73ec8056eb9b1dddb563ef3c6f7ef909ae1"
+  },
+  {
+    "path": "runs/autonomous-causal-matrix-resume-v8/summary.json",
+    "bytes": 3852063,
+    "sha256": "7935f2b6efa0d667ac560216409320a8c90b8249f32185836efed3eab4fbdb3c"
+  },
+  {
+    "path": "runs/autonomous-causal-matrix-resume-v8/budget.json",
+    "bytes": 383,
+    "sha256": "68ba558571ad073905f3997a37c9814e99f4cb493197094478589d6a51c877cb"
+  },
+  {
+    "path": "runs/autonomous-native-postflight-v8/summary.json",
+    "bytes": 13220,
+    "sha256": "34f7bc519870807118a8d648f080fa1d463f11eb0d9ccbae15a704f5ef92cd4f"
+  },
+  {
+    "path": "runs/autonomous-native-postflight-v8/budget.json",
+    "bytes": 391,
+    "sha256": "6c1fdf435ef154859662746a5a245bc676aec1c1fb1c3d44b00ff53a91ec8239"
+  },
+  {
+    "path": "runs/autonomous-native-postflight-v8/two-elder-traces.json",
+    "bytes": 473987,
+    "sha256": "acc0486193481613d4e0d3bb8a425ca2e2931db26a3541d9d862bf5486d9cf40"
+  },
+  {
+    "path": "runs/autonomous-causal-gate-v8-postflight/head-clamps.json",
+    "bytes": 66846,
+    "sha256": "fc1ac6b490305b15a65ec40b7b8e038036973365421b1c6d0eecd87a987ad175"
+  },
+  {
+    "path": "runs/autonomous-causal-gate-v8-postflight/mature-head-audit.json",
+    "bytes": 26848,
+    "sha256": "e947b2dfa05a16219ff2d69d8663585f20ba1e177c0355f3b83edec81dcfca5b"
+  },
+  {
+    "path": "configs/training/autonomous-head-influence-v7-plan.json",
+    "bytes": 15938,
+    "sha256": "a3b628097cd50ea55ffbd421dfaa2bf5507b4bebbd56a22f80fdb255ef152826"
+  },
+  {
+    "path": "configs/training/autonomous-causal-matrix-resume-v8-plan.json",
+    "bytes": 6870,
+    "sha256": "0eed63a69600170753257b4aa412cb5a9ba1c6630906033b292449d3306009b0"
+  },
+  {
+    "path": "configs/training/autonomous-causal-calibration-v8-plan.json",
+    "bytes": 4973,
+    "sha256": "4e1288638997f9abf3167be504d13aa28c16bac328e4307e8bbbba83def2c7b9"
+  },
+  {
+    "path": "configs/training/autonomous-growth-repair-v8-plan.json",
+    "bytes": 1127,
+    "sha256": "bdb87eaf446e86c46eb16047ba62d62d59289e756e377de13d8f3c9f076396af"
+  },
+  {
+    "path": "configs/training/autonomous-causal-matrix-v8-plan.json",
+    "bytes": 6271,
+    "sha256": "a988c77e8c4c9f6f907df0a4bff190f55995be712c9b3c0798caaaa6b0fe06e4"
+  },
+  {
+    "path": "configs/training/autonomous-native-postflight-v8-plan.json",
+    "bytes": 2596,
+    "sha256": "955fb2102adb5c65179b9c3afe53d24422b7a2b8709023142098957586ba4abb"
+  },
+  {
+    "path": "configs/training/autonomous-critic-intercept-v8-plan.json",
+    "bytes": 2547,
+    "sha256": "eb87bd2ba603582d736d485ffd7014c43a4ebe9c4ef743872f57fd19c4b1131f"
+  },
+  {
+    "path": "configs/training/autonomous-growth-repair-v8-attempt2-plan.json",
+    "bytes": 1283,
+    "sha256": "d85d67d6169de351dad460efd4a50793dd2926e81767dfa2ebb418fb9043d3c4"
+  },
+  {
+    "path": "evidence/autonomous-causal-v8/source-at-launch/causal.py",
+    "bytes": 11870,
+    "sha256": "96f0d17593bdabc6c265d062d14186251a02e37964863480d5baed4bced66ec9"
+  },
+  {
+    "path": "evidence/autonomous-causal-v8/source-at-launch/run_autonomous_causal_gate_v7.py",
+    "bytes": 20351,
+    "sha256": "5ddef17dbb0edab05e7ecde28a9f4542d5d24b0a003344e876ffaf3fd4dc0fc8"
+  },
+  {
+    "path": "evidence/autonomous-causal-v8/source-at-launch/contracts_v6.py",
+    "bytes": 1453,
+    "sha256": "71b7bd0565b36ffa9cd9abe2f260958f970b7cdc40fc14a5e61eb3c248d1398d"
+  },
+  {
+    "path": "evidence/autonomous-causal-v8/source-at-launch/env_v6.py",
+    "bytes": 1776,
+    "sha256": "4748108d6e13d77ebac71be05fdd5e247eb3fc81c50aea6e13c3d981eae9c0fd"
+  }
+]

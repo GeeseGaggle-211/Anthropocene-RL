@@ -1,0 +1,35 @@
+{
+  "version": "autonomous-growth-repair-v8",
+  "status": "PASS",
+  "physical_growth_proved": true,
+  "attempts": [
+    {
+      "log": "runs/autonomous-growth-repair-v8/attempt-1.log",
+      "assertions": 56,
+      "validationResolves": 17,
+      "replayResolves": 16,
+      "wallSeconds": 0.913715,
+      "result": "FAILED"
+    },
+    {
+      "log": "runs/autonomous-growth-repair-v8/attempt-2.log",
+      "assertions": 63,
+      "validationResolves": 19,
+      "replayResolves": 19,
+      "wallSeconds": 1.0021879,
+      "physicalGrowthProved": true,
+      "births": [
+        0,
+        22,
+        49
+      ],
+      "schema": 6,
+      "result": "PASS"
+    }
+  ],
+  "validation_resolves": 36,
+  "replay_resolves": 35,
+  "wall_seconds": 1.9159029,
+  "inference_calls": 0,
+  "retained_ppo_transitions": 0
+}

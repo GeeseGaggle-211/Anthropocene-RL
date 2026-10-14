@@ -1,0 +1,64 @@
+{
+  "version": "autonomous-native-postflight-v8.3",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "caps": {
+    "performance": 16,
+    "heuristic": 50,
+    "plug": 8,
+    "plug_replay": 8
+  },
+  "maximum_wall_seconds": 1800,
+  "maximum_total_resolves": 15080,
+  "development_entries": [
+    "development-872002-trade-d8",
+    "development-872003-migration-d8"
+  ],
+  "checkpoint_selection": "predeclared h400/full/25/seed61; no winner selection",
+  "training": false,
+  "inputs": {
+    "bank": {
+      "path": "datasets/autonomous-history-fresh-v5/manifest.json",
+      "sha256": "af25c64bd34cad149fcfa9d56b06a285ce981cb5da4c47a1e4e8ca0625a07b70"
+    },
+    "bridge": {
+      "path": "integration/history-v8/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "bc88a71cacde55c4716864a1fd55577c55dac9d7abf9b316d178d3e57ef3a477"
+    },
+    "native_tool": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/performance-v8/bin/Release/net8.0/Anthropocene.Headless.dll",
+      "sha256": "117b742ae4add5de918b4c7ffe7b87c754f9030def5dc2bdfb85732808265c43"
+    },
+    "checkpoint": {
+      "path": "runs/autonomous-causal-matrix-resume-v8/h400-full-limit25-seed61-step-400.pt",
+      "sha256": "5ad19464154ca94e794a0ebb46e35121308309f1378d79acaa504860e31ac199"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-causal-gate-v8-postflight/mature-analysis-budget.json",
+      "sha256": "8d742b077ef6c1b6f8eb5c6c124a8401f4aa08bc4209de689f69483f32be9648"
+    },
+    "runner": {
+      "path": "scripts/run_autonomous_postflight_v8.py",
+      "sha256": "f99b8f80bc3b719f341a549d5b0cdeb4261af461370bf6d2b48765ddb648358f"
+    },
+    "inference": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v6.py",
+      "sha256": "a39bb5764a471b2031d2a959864f89163dca4c54e73bed68cd7a0eca28b91deb"
+    },
+    "contracts": {
+      "path": "src/anthropocene_rl/autonomous_v6/contracts.py",
+      "sha256": "cef5738fbee2f41dd4c80b752ced6532b5ec9fbc075000ec65eed069b4a1411d"
+    },
+    "env": {
+      "path": "src/anthropocene_rl/autonomous_v6/env.py",
+      "sha256": "5d92a0d112e00406b9d01847e6c25dbb12efc7af1031377761d927f73451949b"
+    },
+    "native_benchmark": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/AutonomousElderHistoryChecks.cs",
+      "sha256": "aba9149e031508f5b48a7c9a13d6068672ca74dfad7378e7dcdbfe3678c19d5e"
+    },
+    "native_panel": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/AutonomousGrowthChecks.cs",
+      "sha256": "3ab799f6e77594031f6ce2a88e797f2b0fed0202cdf97864881c6474a1f0cd9d"
+    }
+  }
+}

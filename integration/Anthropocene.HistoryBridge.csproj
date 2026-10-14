@@ -7,6 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(AnthropoceneSimRoot)/Assets/_Anthropocene/Simulation/*.cs" />
-    <Compile Include="BridgeProgram.cs" /><Compile Include="AutonomousBridge.cs" /><Compile Include="AutonomousHistoryBridge.cs" />
+    <Compile Include="BridgeProgram.cs" /><Compile Include="AutonomousBridge.cs" /><Compile Include="AutonomousHistoryBridge.cs" /><Compile Include="AutonomousOwnerDiagnostics.cs" />
   </ItemGroup>
 </Project>

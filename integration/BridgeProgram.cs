@@ -31,7 +31,7 @@ namespace Anthropocene.RLBridge
                     var root = document.RootElement;
                     string op = root.GetProperty("op").GetString() ?? "";
 #if AUTONOMOUS_ELDER_HISTORY
-                    if (op.StartsWith("autonomous5_", StringComparison.Ordinal))
+                    if (op.StartsWith("autonomous5_", StringComparison.Ordinal) || op.StartsWith("autonomous6_", StringComparison.Ordinal))
                     {
                         Write(AutonomousHistoryBridge.Handle(op, root, Json));
                         continue;

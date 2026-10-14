@@ -1,0 +1,90 @@
+{
+  "version": "autonomous-scaleout-readiness-v9-proposal",
+  "status": "PROPOSED_NOT_EXECUTED",
+  "previous_gate": "autonomous-causal-v8",
+  "objective": "Establish economic opportunities and responsive heads before broad training; poor-choice welfare alone is acceptable",
+  "unchanged": {
+    "reward_scope": "focal opening population x realized QoL x physical years; no daughter future welfare",
+    "families": [
+      "survival",
+      "trade",
+      "migration",
+      "fishing",
+      "fission",
+      "husbandry"
+    ],
+    "movement": true,
+    "migration": true,
+    "fission": true,
+    "physical_horizons_years": [
+      100,
+      400
+    ],
+    "episode_decisions": 25,
+    "expensive_training": false,
+    "gpu_ecology": false,
+    "merge_main": false
+  },
+  "stages": [
+    {
+      "stage": "opportunity_and_representation",
+      "learning": false,
+      "requirements": [
+        "Validate reciprocal executable quote opportunities using own knowledge and independent policies; record positive/negative/stock-limited settlement",
+        "Keep original MLP choices legal; no utility veto, policy rescue, shared foreign inventory or access to current other-agent action",
+        "DEV must include legal husbandry controls and fishing, with actual nutrition/resource variation",
+        "Audit deterministic workforce/recipe mean limits and on-policy head clamp persistence; propose a new version only if a physically useful requested behavior is unrepresentable",
+        "World-level partitions, snapshot/hash/version audit, no HELDOUT neural use",
+        "Integrate GCS only after identity readiness and read-only manifest/hash audit"
+      ]
+    },
+    {
+      "stage": "bounded_optimizer_comparison",
+      "learning": true,
+      "launch": "only after frozen inputs/source/resource envelope and independent Astra/high preflight GO",
+      "proposal": {
+        "independent_initializations": 3,
+        "actor_lr_candidates": [
+          0.0003,
+          3e-05
+        ],
+        "retained_transitions_per_cell": 1024,
+        "total_retained_transitions": 6144,
+        "workers": 4,
+        "torch_threads": 1,
+        "training_horizon_years": 400,
+        "h100": "frozen diagnostic comparator; not extra cells"
+      },
+      "controls": [
+        "same masks and stock-relative actions",
+        "same KL guard/reward/critic variant/entropy/reset order/native budget",
+        "fresh independent model initializations, or separately verified independent pretrained parents; sampler seeds alone do not count",
+        "calibrate critics using TRAIN-only fitting worlds and distinct TRAIN validation worlds; freeze tail semantics",
+        "report actual accepted actor minibatches, populated-Adam reversal, head-specific gradients, concentration/clamp persistence and physical interventions"
+      ]
+    },
+    {
+      "stage": "promotion_review",
+      "reviewer": {
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high"
+      },
+      "GO": [
+        "finite likelihoods and learning updates across heads",
+        "reversible preferences with retained optimizer",
+        "real reciprocal trade opportunities survive policy/world changes",
+        "knowledge isolation, conservation, chronology and replay remain correct",
+        "each native capability has measured TRAIN and DEV coverage"
+      ],
+      "NO_GO": [
+        "model/critic freeze or nonfinite probabilities",
+        "persistent head clamps preventing required interventions",
+        "KL guard effectively suppresses learning",
+        "absent protocol opportunities misreported as policy failure"
+      ],
+      "welfare_rule": "Report population/QoL/welfare; low welfare caused by responsive poor choices does not itself fail the canary",
+      "broad_scaleout": "Only after actual independent promotion; no jobs launched by this proposal",
+      "gru_gate": "Not reached; compare only if memory remains insufficient after input/output/protocol/optimization defects are resolved"
+    }
+  ]
+}

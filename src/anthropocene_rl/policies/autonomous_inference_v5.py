@@ -3,7 +3,7 @@
 import torch
 
 from anthropocene_rl.autonomous_v5.contracts import observation
-from anthropocene_rl.autonomous_v5.policy import inputs, to_native
+from anthropocene_rl.autonomous_v5.policy import inputs_with_mode, to_native
 from anthropocene_rl.policies.autonomous_ppo_v5 import AutonomousPPOV5
 from anthropocene_rl.training.autonomous_ppo_v5 import AutonomousTrainerV5
 
@@ -24,6 +24,7 @@ class AutonomousElderPolicyV5:
         )
         self.model.load_state_dict(state["model"])
         self.model.eval()
+        self.feature_mode = state["config"].get("feature_mode", "full")
         self.generator = torch.Generator().manual_seed(seed)
 
     @torch.no_grad()
@@ -33,7 +34,9 @@ class AutonomousElderPolicyV5:
             return {}
         obs = [observation(wire_observations[i]) for i in ids]
         actions, _, _, _ = self.model(
-            inputs(obs), generator=self.generator, deterministic=deterministic
+            inputs_with_mode(obs, self.feature_mode),
+            generator=self.generator,
+            deterministic=deterministic,
         )
         return {camp: to_native(actions.wire_action(i), obs[i]) for i, camp in enumerate(ids)}
 

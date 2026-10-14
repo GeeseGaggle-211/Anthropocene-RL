@@ -1,0 +1,107 @@
+{
+  "version": "autonomous-native-postflight-v8.3",
+  "config_sha256": "955fb2102adb5c65179b9c3afe53d24422b7a2b8709023142098957586ba4abb",
+  "status": "PASS",
+  "performance": {
+    "resolves": 16,
+    "samples": [
+      {
+        "villages": 1,
+        "mode": "heuristic",
+        "medianMs": 3.913,
+        "minMs": 3.6805,
+        "maxMs": 4.2444,
+        "allocatedBytes": 737093.3333333334,
+        "observationMedianMs": 1.0183
+      },
+      {
+        "villages": 1,
+        "mode": "history6",
+        "medianMs": 3.0652,
+        "minMs": 2.8021,
+        "maxMs": 3.366,
+        "allocatedBytes": 731698.6666666666,
+        "observationMedianMs": 0.8966
+      },
+      {
+        "villages": 80,
+        "mode": "heuristic",
+        "medianMs": 261.59,
+        "minMs": 246.3209,
+        "maxMs": 265.937,
+        "allocatedBytes": 54992946.666666664,
+        "observationMedianMs": 112.2828
+      },
+      {
+        "villages": 80,
+        "mode": "history6",
+        "medianMs": 76.5319,
+        "minMs": 64.3425,
+        "maxMs": 92.9688,
+        "allocatedBytes": 53604162.666666664,
+        "observationMedianMs": 30.3811
+      }
+    ]
+  },
+  "heuristic": {
+    "version": "native6-heuristic-dev-panel",
+    "resolves": 50,
+    "wallSeconds": 1.6919723,
+    "protocol": "native heuristic for every village; diagnostic unequal-authority/peer comparator",
+    "episodes": [
+      {
+        "id": "development-872002-trade-d8",
+        "steps": 25,
+        "integratedWelfare": 160180.30489818184,
+        "annualWelfare": 320.3606097963637,
+        "averagePopulation": 337.24,
+        "averageQoL": 0.9530103812701484,
+        "finalPopulation": 352
+      },
+      {
+        "id": "development-872003-migration-d8",
+        "steps": 25,
+        "integratedWelfare": 173105.99171923674,
+        "annualWelfare": 346.2119834384735,
+        "averagePopulation": 361.32,
+        "averageQoL": 0.9592223285748767,
+        "finalPopulation": 413
+      }
+    ]
+  },
+  "plug": {
+    "result": "PASS",
+    "controlled": [
+      5,
+      6
+    ],
+    "native_steps": 8,
+    "replay_steps": 8,
+    "checkpoint_sha256": "5ad19464154ca94e794a0ebb46e35121308309f1378d79acaa504860e31ac199",
+    "checkpoint_unchanged": true,
+    "saved_midway": true,
+    "own_observations_only": true,
+    "independent_rng_streams": true,
+    "local_reward_verified": true,
+    "trace_sha256": "acc0486193481613d4e0d3bb8a425ca2e2931db26a3541d9d862bf5486d9cf40"
+  },
+  "budget": {
+    "caps": {
+      "performance": 16,
+      "heuristic": 50,
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "attempted": {
+      "performance": 16,
+      "heuristic": 50,
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "prior_resolves": 14909,
+    "total_resolves": 14991,
+    "prior_wall_seconds": 561.8545064889913,
+    "active_wall_seconds": 7.552739279999514,
+    "cumulative_wall_seconds": 569.4072460189927
+  }
+}

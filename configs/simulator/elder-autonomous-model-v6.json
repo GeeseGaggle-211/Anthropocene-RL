@@ -1,0 +1,203 @@
+{
+  "name": "elder-autonomous-model-v6",
+  "contract_version": "autonomous-direct-control-causal-8.3",
+  "simulator_repository": "GeeseGaggle-211/Anthropocene",
+  "learner_repository": "GeeseGaggle-211/Anthropocene-RL",
+  "branch": "feature/elder-autonomous-economy",
+  "validated_base_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "simulator_parent_commit": "b8894d96eda04c856760081f78ce74e21f9aead4",
+  "learner_parent_commit": "e6d2aa966d5e2db3c91b031ee0f2f23ef82edc90",
+  "simulation_source_sha256": "b650d98ada82e5a688fed6873b20e58d46e97ac50af5af6337e71c4c86e0eda8",
+  "source_hash_algorithm": "sha256 of sorted simulation *.cs basenames + NUL + raw file bytes",
+  "bridge_project": "integration/Anthropocene.HistoryBridge.csproj",
+  "bridge_assembly_sha256": "bc88a71cacde55c4716864a1fd55577c55dac9d7abf9b316d178d3e57ef3a477",
+  "build_hash": "runtime assembly ModuleVersionId; reset returns it and replay validates it",
+  "action_schema_version": 4,
+  "observation_schema_version": 6,
+  "environment_schema_version": 6,
+  "replay_schema_version": 6,
+  "save_envelope": "ANTHROPOCENE-13",
+  "native_receipt_schema_version": 2,
+  "legacy_receipts": "Save12/action3/schema1; mixed receipt semantics explicitly discriminated",
+  "learner_model_version": "autonomous-ppo-model-v6",
+  "learner_checkpoint_version": "autonomous-ppo-checkpoint-v6",
+  "policy": "anthropocene_rl.policies.autonomous_ppo_v6.AutonomousPPOV6",
+  "inference": "anthropocene_rl.policies.autonomous_inference_v6.AutonomousElderPolicyV6",
+  "gym": "anthropocene_rl.autonomous_v6.env.AutonomousElderEnv",
+  "context_tensor_width": 512,
+  "base_feature_width": 761,
+  "history_feature_width": 301,
+  "learner_feature_width": 1062,
+  "previous_action_version_coordinate": "0 absent,3 legacy,4 post-growth",
+  "professions": 13,
+  "activity_columns": 15,
+  "counterparties": 8,
+  "quote_slots": 1,
+  "quote_quantity_bounds": [
+    1e-06,
+    1000000.0
+  ],
+  "quote_policy_lots": [
+    0.05,
+    0.2,
+    0.5
+  ],
+  "quote_policy_ratios": [
+    0.5,
+    1,
+    2
+  ],
+  "control_transform": "clip((latent-.05)/.90,0,1)",
+  "control_probability": "PPO scores latent Beta samples; physical endpoint atoms never substituted into density",
+  "herd_retention": "requested fraction of actual survivors after nutrition and births",
+  "breeding": "full native [0,1] intensity subject to nutrition",
+  "staffing": "stable largest-remainder integer apportionment over actual available working residents",
+  "normalization": "Fixed sign-log inputs; preserved existing actor LayerNorm and residual LayerNorm live critic",
+  "actor_width": [
+    256,
+    256
+  ],
+  "actor_learning_rate": 0.0003,
+  "critic_learning_rate": 0.0001,
+  "physical_horizons_years": [
+    100,
+    400
+  ],
+  "native_turn_years": 20,
+  "reward_scope": "Focal opening population x end-interval QoL x elapsed years; daughter future welfare excluded",
+  "reward_scale": 120,
+  "daughter_controllers": "Separate native heuristic Elders; automatic learned daughter assignment not implemented",
+  "movement_migration_fission_trade_intrinsic": true,
+  "previous_versions_preserved": true,
+  "new_retained_native_training_transitions": 9600,
+  "experiment": {
+    "cells": 24,
+    "transitions_per_cell": 400,
+    "rollout_updates": 48,
+    "independent_initializations": 0,
+    "seeds": "11/23/61 common-parent sampling continuations",
+    "actor_active_minibatches": 163,
+    "scheduled_minibatches": 1344,
+    "attempted_native_resolves": 14991,
+    "maximum_native_resolves": 15080,
+    "cumulative_active_wall_seconds": 569.4072460189927,
+    "maximum_active_wall_seconds": 1800,
+    "wall_semantics": "sum active stage elapsed wall times, not summed CPU-core time",
+    "failed_attempts_preserved": true,
+    "training_quotes": 1367,
+    "training_settlements": 0,
+    "dev_quotes": 134,
+    "dev_settlements": 0
+  },
+  "contract_pins": [
+    {
+      "path": "docs/AUTONOMOUS_CAUSAL_GATE_CONTRACT_V7.md",
+      "sha256": "a0022dcb47a6ac82ba17de6960b7e338dbc55df0e80a418161b197c33632290a"
+    },
+    {
+      "path": "docs/AUTONOMOUS_DIRECT_CONTROL_CONTRACT_V8.md",
+      "sha256": "acdeab996702611350716b22fda6e4b8b45173607ec776c30041d1befc1b8bd4"
+    },
+    {
+      "path": "docs/AUTONOMOUS_CRITIC_INTERCEPT_ADDENDUM_V8_1.md",
+      "sha256": "94d8bef252d3c9b476f69a2c4b288aa8e599583e297261f150eb560114504e52"
+    },
+    {
+      "path": "docs/AUTONOMOUS_MATRIX_RESUME_ADDENDUM_V8_2.md",
+      "sha256": "9c6a82cf427aca31e7bc17f5787e36b784df168f67894f830d524f2e42f3e18f"
+    },
+    {
+      "path": "docs/AUTONOMOUS_POSTFLIGHT_ADDENDUM_V8_3.md",
+      "sha256": "eb09f47516f4d2db9b8769d33b06be43b99369bcf535fdd1dab15b39a683c46c"
+    }
+  ],
+  "tests": {
+    "learner": {
+      "collected": 208,
+      "passed": 203,
+      "skipped": 5,
+      "failed": 0,
+      "log": "runs/autonomous-causal-gate-v8-preflight/learner-regression-postflight.log",
+      "log_sha256": "b5613f16f3b6f7375385d238f12d9d0ad076bb6bc860c6952ffff9871f407c28"
+    },
+    "native": {
+      "old_autonomous_assertions": 471,
+      "old_five_head_assertions": 143,
+      "old_history_assertions": 77,
+      "growth_assertions": 63,
+      "old_mode_fingerprints_equal": 8,
+      "baseline": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+      "growth_births": [
+        0,
+        22,
+        49
+      ]
+    },
+    "formatting": "git diff --check PASS",
+    "reviewer": {
+      "model": "gpt-6-astra",
+      "reasoning_effort": "high",
+      "native_calls": 0,
+      "model_forwards": 0,
+      "ppo_updates": 0
+    }
+  },
+  "fresh_local_bank": {
+    "version": "autonomous-history-fresh-v5",
+    "manifest_sha256": "af25c64bd34cad149fcfa9d56b06a285ce981cb5da4c47a1e4e8ca0625a07b70",
+    "snapshots": 511,
+    "worlds": 24,
+    "train": 335,
+    "development": 92,
+    "heldout": 84,
+    "bytes_and_admission_flags_unchanged": true,
+    "bounded_action_face_override": "Selected TRAIN husbandry/fishing cohort only after native mechanical validation",
+    "heldout_neural_use": false
+  },
+  "runtime_gcs": {
+    "spec_revision": "75",
+    "observations_current": true,
+    "outbound_identities": [],
+    "target_bucket": "gs://anthropocene-rl-datasets-508912",
+    "read_access_verified": false,
+    "blocked": "Identity not attached and required storage/oauth domains absent",
+    "keys_or_interactive_login": false
+  },
+  "incomplete": [
+    "Direct cultivated-hex choices",
+    "Automatic learned daughter controller assignment",
+    "Fine-grained prices/quantities/multiple quote slots/current public offer inputs",
+    "General mean staffing concentration above Dirichlet floor/cap limit",
+    "Neural trade competence under the current sparse reciprocal peer protocol",
+    "Husbandry DEV coverage",
+    "Mature-empire and neural-throughput performance",
+    "Independent initialization robustness and retained-optimizer all-head reversal"
+  ],
+  "plug_ready": true,
+  "bounded_trainability_ready": true,
+  "scale_out_ready": false,
+  "gru_comparison_gate_reached": false,
+  "independent_reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "simulator": "GO",
+    "learned_elder_plug": "GO",
+    "bounded_trainability": "GO",
+    "economic_scale_out": "NO-GO",
+    "institutional_competence": "NOT_ESTABLISHED",
+    "gru": "NO-GO",
+    "native_calls": 0,
+    "model_forwards": 0,
+    "ppo_updates": 0,
+    "review": "evidence/autonomous-causal-v8/independent-final-review.md"
+  },
+  "results_document": "docs/AUTONOMOUS_CAUSAL_RESULTS_V8.md",
+  "evidence": "evidence/autonomous-causal-v8/",
+  "next_safe_gate": "configs/training/autonomous-scaleout-readiness-v9-plan.json",
+  "causal_assessment_google_doc": "https://docs.google.com/document/d/1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04/edit",
+  "no_main_merge": true,
+  "no_broad_training": true,
+  "no_additional_gpu_ecology": true,
+  "simulator_commit": "ede7b30806e56e87fc14302e30453d7fef07f0ba",
+  "simulator_execution_source_commit": "ede7b30806e56e87fc14302e30453d7fef07f0ba"
+}
