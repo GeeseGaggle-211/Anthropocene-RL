@@ -1,0 +1,8 @@
+{
+  "status": "PASS",
+  "focused_tests": 27,
+  "log_sha256": "a82a0b51cd86fa0131904e08c34ef556963104f0e3677f688117e093ebf2d3fe",
+  "critic_reset_populated_adam_protection": true,
+  "reference_value_bit_exact": true,
+  "retained_ppo_not_started": true
+}

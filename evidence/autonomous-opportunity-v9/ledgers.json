@@ -1,0 +1,228 @@
+[
+  {
+    "run": "autonomous-opportunity-generation-v9",
+    "status": "PASS",
+    "summary_sha256": "7f130dfd623b3e40af915b90f41f920af30fcae3a5d73481d8065b88e0f3c50e",
+    "budget": {
+      "caps": {
+        "mechanical": 3,
+        "mechanical_replay": 3,
+        "generation": 1200,
+        "generation_replay": 1200
+      },
+      "attempted": {
+        "mechanical": 3,
+        "mechanical_replay": 3,
+        "generation": 1200,
+        "generation_replay": 1200
+      },
+      "prior_resolves": 14991,
+      "total_resolves": 17397,
+      "prior_wall_seconds": 569.4072460189927,
+      "active_wall_seconds": 53.863681286995416,
+      "cumulative_wall_seconds": 623.2709278259863
+    }
+  },
+  {
+    "run": "autonomous-opportunity-admission-v9-diagnostics2",
+    "status": "PASS",
+    "summary_sha256": "38e2629b818e3f922a57ee513e8f188524e5da232ad0c0be7cd3f6fa5a6d42e1",
+    "budget": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 17397,
+      "total_resolves": 17397,
+      "prior_wall_seconds": 625.1508683619904,
+      "active_wall_seconds": 2.0935184830013895,
+      "cumulative_wall_seconds": 627.2443872259901
+    }
+  },
+  {
+    "run": "autonomous-opportunity-admission-v9-repair3-agebalanced",
+    "status": "PASS",
+    "summary_sha256": "1697cd843aa4d3a47a8c4dd9bab6593a5201cf0202d5bde72c4370ef39c2b01f",
+    "budget": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 19003,
+      "total_resolves": 19003,
+      "prior_wall_seconds": 670.1329769419972,
+      "active_wall_seconds": 3.3796926270006225,
+      "cumulative_wall_seconds": 673.5126699200046
+    }
+  },
+  {
+    "run": "autonomous-opportunity-training-v9.2",
+    "status": "NO-GO_CRITIC",
+    "summary_sha256": "18588e3e1defac675c45776a6a6d6cccad8ace2f4282b8215b907f858afb32d8",
+    "budget": {
+      "caps": {
+        "mechanical": 3,
+        "mechanical_replay": 3,
+        "boundary": 64,
+        "boundary_replay": 64,
+        "calibration": 750,
+        "calibration_replay": 750,
+        "training": 6144,
+        "evaluation": 1350,
+        "evaluation_replay": 1350
+      },
+      "attempted": {
+        "mechanical": 3,
+        "mechanical_replay": 3,
+        "boundary": 64,
+        "boundary_replay": 64,
+        "calibration": 736,
+        "calibration_replay": 736,
+        "training": 0,
+        "evaluation": 0,
+        "evaluation_replay": 0
+      },
+      "prior_resolves": 17397,
+      "total_resolves": 19003,
+      "prior_wall_seconds": 627.2443872259901,
+      "active_wall_seconds": 39.80684954000753,
+      "cumulative_wall_seconds": 667.0512370969955
+    }
+  },
+  {
+    "run": "autonomous-opportunity-coverage-v9.3",
+    "status": "NO-GO_CRITIC",
+    "summary_sha256": "7ec3cf2b8c6953fb2cc43fde003c907add0b7de2e4bb8d4c915110e244a35151",
+    "budget": {
+      "caps": {
+        "additional_fitting": 1725,
+        "additional_fitting_replay": 1725,
+        "training": 2688,
+        "evaluation": 1350,
+        "evaluation_replay": 1350
+      },
+      "attempted": {
+        "additional_fitting": 1707,
+        "additional_fitting_replay": 1707,
+        "training": 0,
+        "evaluation": 0,
+        "evaluation_replay": 0
+      },
+      "prior_resolves": 19003,
+      "total_resolves": 22417,
+      "prior_wall_seconds": 673.5126699200046,
+      "active_wall_seconds": 69.538556073996,
+      "cumulative_wall_seconds": 743.0512262840057
+    }
+  },
+  {
+    "run": "autonomous-opportunity-critic-diagnosis-v9.3",
+    "status": null,
+    "summary_sha256": "643e70c03c610983f2f1230c8426c22dcbafea282cee8b89a9d96cdc500fe340",
+    "budget": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 22417,
+      "total_resolves": 22417,
+      "prior_wall_seconds": 743.0512262840057,
+      "active_wall_seconds": 1.082397324993508,
+      "cumulative_wall_seconds": 744.1336246910068
+    }
+  },
+  {
+    "run": "autonomous-opportunity-cached-ridge-v9.4",
+    "status": "NO-GO_CRITIC",
+    "summary_sha256": "5fa5eba1a5b6745abd85914ec7a9d6cc0c8df7218779f335053f27436e077eae",
+    "budget": {
+      "caps": {
+        "training": 2688,
+        "evaluation": 1350,
+        "evaluation_replay": 1350
+      },
+      "attempted": {
+        "training": 0,
+        "evaluation": 0,
+        "evaluation_replay": 0
+      },
+      "prior_resolves": 22417,
+      "total_resolves": 22417,
+      "prior_wall_seconds": 744.1336246910068,
+      "active_wall_seconds": 1.2225788719952106,
+      "cumulative_wall_seconds": 745.3562039640092
+    }
+  },
+  {
+    "run": "autonomous-opportunity-critic-source-audit-v9.4",
+    "status": null,
+    "summary_sha256": "04f4c922036a3c1be2e79574c7610cbb1d26f00627e3ea095e5e09e110280ba6",
+    "budget": {
+      "caps": {},
+      "attempted": {},
+      "prior_resolves": 22417,
+      "total_resolves": 22417,
+      "prior_wall_seconds": 745.3562039640092,
+      "active_wall_seconds": 0.9997623419912998,
+      "cumulative_wall_seconds": 746.3559672170086
+    }
+  },
+  {
+    "run": "autonomous-opportunity-frozen-transfer-v9.5",
+    "status": "FAILED",
+    "summary_sha256": "c8986dbe6a1f6b8b129043374ab53bc971c09545081e38532855b33bcdb62e6f",
+    "budget": {
+      "caps": {
+        "training": 2688,
+        "evaluation": 1350,
+        "evaluation_replay": 1350
+      },
+      "attempted": {
+        "training": 448,
+        "evaluation": 146,
+        "evaluation_replay": 146
+      },
+      "prior_resolves": 22417,
+      "total_resolves": 23157,
+      "prior_wall_seconds": 746.3559672170086,
+      "active_wall_seconds": 27.56250333999924,
+      "cumulative_wall_seconds": 773.9184711570124
+    }
+  },
+  {
+    "run": "autonomous-opportunity-durable-canary-v9.6",
+    "status": "COMPLETE",
+    "summary_sha256": "3e41c41e207f3124591d6993748afa4033107559bba9eafaec4fe568dcd34c2a",
+    "budget": {
+      "caps": {
+        "training": 2400,
+        "evaluation": 1200,
+        "evaluation_replay": 1200
+      },
+      "attempted": {
+        "training": 2400,
+        "evaluation": 1189,
+        "evaluation_replay": 1189
+      },
+      "prior_resolves": 23157,
+      "total_resolves": 27935,
+      "prior_wall_seconds": 773.9184711570124,
+      "active_wall_seconds": 132.41299112800334,
+      "cumulative_wall_seconds": 906.3314627960208
+    }
+  },
+  {
+    "run": "autonomous-opportunity-postflight-v9.7",
+    "status": "NO-GO_REVERSAL",
+    "summary_sha256": "d5feb858bf8b8e9c117879a613eb9844c5223109b714a4df747cbe51657640d7",
+    "budget": {
+      "caps": {
+        "plug": 8,
+        "plug_replay": 8
+      },
+      "attempted": {
+        "plug": 8,
+        "plug_replay": 8
+      },
+      "prior_resolves": 27935,
+      "total_resolves": 27951,
+      "prior_wall_seconds": 906.3314627960208,
+      "active_wall_seconds": 6.560313630005112,
+      "cumulative_wall_seconds": 912.8917767360253
+    }
+  }
+]

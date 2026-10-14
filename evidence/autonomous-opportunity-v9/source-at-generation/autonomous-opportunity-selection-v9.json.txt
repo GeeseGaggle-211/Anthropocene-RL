@@ -1,0 +1,179 @@
+{
+  "version": "opportunity-v9-frozen-selection",
+  "fit_worlds": [
+    881001,
+    881002,
+    881003,
+    881004
+  ],
+  "validation_worlds": [
+    881005,
+    881006
+  ],
+  "development_worlds": [
+    881007,
+    881008
+  ],
+  "eligibility": "live focal; all dynamics; actual workforce/control masks; husbandry owned_animals>0; exactlytwoinitialsettlements",
+  "calibration": [
+    {
+      "world_seed": 881001,
+      "family": "survival",
+      "ages": [
+        0
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 881002,
+      "family": "trade",
+      "ages": [
+        2,
+        0
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 881003,
+      "family": "husbandry",
+      "ages": [
+        8,
+        2,
+        0
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 881004,
+      "family": "fishing",
+      "ages": [
+        8,
+        2,
+        0
+      ],
+      "role": "fit"
+    },
+    {
+      "world_seed": 881005,
+      "family": "trade",
+      "ages": [
+        2,
+        0
+      ],
+      "role": "validation"
+    },
+    {
+      "world_seed": 881006,
+      "family": "husbandry",
+      "ages": [
+        2,
+        0
+      ],
+      "role": "validation"
+    }
+  ],
+  "ppo": [
+    {
+      "world_seed": 881001,
+      "family": "survival",
+      "ages": [
+        0
+      ]
+    },
+    {
+      "world_seed": 881002,
+      "family": "trade",
+      "ages": [
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881003,
+      "family": "husbandry",
+      "ages": [
+        8,
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881004,
+      "family": "fishing",
+      "ages": [
+        8,
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881001,
+      "family": "fission",
+      "ages": [
+        8,
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881002,
+      "family": "migration",
+      "ages": [
+        2,
+        0
+      ]
+    }
+  ],
+  "development": [
+    {
+      "world_seed": 881007,
+      "family": "survival",
+      "ages": [
+        0
+      ]
+    },
+    {
+      "world_seed": 881008,
+      "family": "trade",
+      "ages": [
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881007,
+      "family": "migration",
+      "ages": [
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881008,
+      "family": "fission",
+      "ages": [
+        8,
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881007,
+      "family": "husbandry",
+      "ages": [
+        2,
+        0
+      ]
+    },
+    {
+      "world_seed": 881008,
+      "family": "fishing",
+      "ages": [
+        2,
+        0
+      ]
+    }
+  ],
+  "selection_rule": "first available eligible age in predeclared list; no learned/welfare selection; fail admission if any required slot missing",
+  "demonstrations": "TRAIN fitting worlds1..4 only,trade familyages0/2/8,ownedstock+knowncustomer legalcategoricaltargets; no validation/DEV/HELDOUTteacher fitting"
+}

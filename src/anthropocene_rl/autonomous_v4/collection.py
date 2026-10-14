@@ -27,6 +27,7 @@ class DeadlineTransport(AutonomousTransport):
     def _request(self, payload):
         timeout = min(self.request_timeout, self.deadline - time.monotonic())
         if timeout <= 0:
+            self.kill()
             raise TimeoutError("Native campaign deadline exceeded")
         expired = threading.Event()
 
@@ -40,10 +41,13 @@ class DeadlineTransport(AutonomousTransport):
         try:
             response = super()._request(payload)
             if expired.is_set():
+                self.kill()
                 raise TimeoutError("Native IPC deadline exceeded")
             return response
         except Exception as error:
             if expired.is_set():
+                # EOF may arrive before the timer thread has reaped the child.
+                self.kill()
                 raise TimeoutError("Native IPC deadline exceeded") from error
             raise
         finally:
@@ -52,11 +56,11 @@ class DeadlineTransport(AutonomousTransport):
     def kill(self):
         with contextlib.suppress(ProcessLookupError):
             self._process.kill()
+        self._process.wait(timeout=5)
 
     def close(self):
         # No unbounded close RPC, including after campaign deadline.
         self.kill()
-        self._process.wait(timeout=5)
         self._stderr_thread.join(timeout=1)
 
 

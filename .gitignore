@@ -75,3 +75,6 @@ datasets/autonomous-ppo-gate-v*/
 
 # Institutional-history source bank: retain compact manifests in evidence.
 datasets/autonomous-history-fresh-v*/
+
+# Native opportunity bank; compact manifests and audits are retained in evidence.
+datasets/autonomous-opportunity-v*/

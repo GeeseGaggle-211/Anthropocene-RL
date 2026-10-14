@@ -1,0 +1,25 @@
+..........F....s.......................s.........................ss..... [ 32%]
+....................s................................................... [ 64%]
+........................................................................ [ 96%]
+........                                                                 [100%]
+=================================== FAILURES ===================================
+_____________ test_native_ipc_deadline_kills_unresponsive_process ______________
+
+    def test_native_ipc_deadline_kills_unresponsive_process():
+        start = time.monotonic()
+        with DeadlineTransport(
+            [sys.executable, "-c", "import time;time.sleep(10)"],
+            deadline=start + 2,
+            request_timeout=0.1,
+        ) as transport:
+            with pytest.raises(TimeoutError):
+                transport.schema()
+>           assert transport._process.poll() is not None
+E           AssertionError: assert None is not None
+E            +  where None = poll()
+E            +    where poll = <Popen: returncode: None args: ['/workspace/Anthropocene-RL/.venv/bin/python...>.poll
+E            +      where <Popen: returncode: None args: ['/workspace/Anthropocene-RL/.venv/bin/python...> = <anthropocene_rl.autonomous_v4.collection.DeadlineTransport object at 0x7f70fcbdfe30>._process
+
+tests/test_autonomous_collapse.py:62: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_autonomous_collapse.py::test_native_ipc_deadline_kills_unresponsive_process

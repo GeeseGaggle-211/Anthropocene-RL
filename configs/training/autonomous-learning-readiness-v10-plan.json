@@ -1,0 +1,103 @@
+{
+  "version": "autonomous-learning-readiness-v10-proposal",
+  "status": "PROPOSED_NOT_EXECUTED",
+  "previous_actual_gate": "autonomous-opportunity-postflight-v9.7",
+  "objective": "Measure longer bounded low-LR economic learning and current-policy critic accuracy without treating poor welfare alone as neural collapse",
+  "reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high"
+  },
+  "previous_verdict": {
+    "simulator": "GO",
+    "model7_plug": "GO",
+    "low_lr_responsiveness": "GO",
+    "full_signed_switch": "NO-GO_REVERSAL",
+    "economic_broad_scale_out": "NO-GO"
+  },
+  "model_version": "autonomous-ppo-model-v7",
+  "native_action_version": 4,
+  "native_observation_environment_replay_version": 6,
+  "feature_width": 1062,
+  "actor_lr": 3e-05,
+  "critic_lr": 0.0001,
+  "horizon_years": 400,
+  "episode_decisions": 25,
+  "concentration_floor": 0.1,
+  "beta_floor": 0.5,
+  "uniform_mix": 0.05,
+  "workers": 4,
+  "torch_threads": 1,
+  "reward": "focal opening residents x realized end-interval QoL x elapsed years; no daughter future welfare",
+  "intrinsic": {
+    "movement": true,
+    "trade": true,
+    "migration": true,
+    "fission": true
+  },
+  "curriculum": {
+    "existing_bank": "datasets/autonomous-opportunity-v9/manifest.json",
+    "existing_bank_sha256": "77bf77137ff7234230ab1c71070372c46cf1a01d63e8d282caedab89d4c64ace",
+    "families": [
+      "survival",
+      "cultivation",
+      "trade",
+      "migration",
+      "fission",
+      "husbandry",
+      "fishing"
+    ],
+    "reset_age_balance": [
+      0,
+      2,
+      8
+    ],
+    "generate_additional_sources_autonomously": true,
+    "new_training_validation_worlds_required": true,
+    "new_development_worlds_required": true,
+    "source_selection": "physical opportunity/masks and predeclared ages, never selecting by learned welfare",
+    "old_v5_quarantine_and_heldout_unchanged": true,
+    "require_core_action_faces_on_core_runs": true,
+    "gcs": "Only after visible attached identity, allowed domains and read-only hash/partition audit"
+  },
+  "conditional_training": {
+    "seeds": [
+      101,
+      211,
+      307
+    ],
+    "starting_parents": "Exact preserved low-LR v9.6 checkpoints; three independent actors but critic307 shares101 ancestry",
+    "maximum_retained_native_transitions_per_seed": 4096,
+    "maximum_retained_native_transitions": 12288,
+    "first_review_after_retained_transitions_per_seed": 1024,
+    "prospective_envelope": "Fresh-data generation, actor-frozen current-policy calibration, training, evaluation and all replay must be separately budgeted and frozen together before launch; no borrowing/resetting v9 caps",
+    "suggested_additional_resolve_ceiling": 24000,
+    "suggested_additional_active_elapsed_seconds": 900
+  },
+  "gates_before_learning": [
+    "Freeze new source/DLL/checkpoint/scenario/partition/cap pins and obtain Astra high review",
+    "Actor-protected critic calibration on current-policy fitting TRAIN and fresh world-disjoint TRAIN validation: EV>=.60, MSE/actual return variance<=.40, abs raw mean bias<=2, nonworse original; finite nondegenerate variance",
+    "TRAIN/DEV native physical admission for actual head authority; count reciprocal known-customer opportunities separately from quotes/settlements",
+    "Keep fixed TRAIN numeric value buffers and preserve prior tail provenance; any changed normalization needs explicit source/coordinate parity checks"
+  ],
+  "required_durable_data": [
+    "All actual owner observations and masks per rollout",
+    "Latent workforce/activities/controls and categorical trade/movement requests",
+    "Old likelihoods, values, next values, physical years, terminal/truncation flags",
+    "Discounted physical rewards, actual GAE advantages and return targets",
+    "Post-update critic predictions and rescored likelihoods on those exact rows",
+    "Model/optimizer/RNG/counters/checkpoint SHA before optional diagnostics; persist after every completed rollout",
+    "Episode population/QoL/welfare, births/deaths, migration, fission transferred headcount and triggers, production/reserves/field intensity"
+  ],
+  "monitoring": [
+    "Finite log-probabilities, gradients and current-policy value residuals; label in-sample GAE diagnostics separately from independent validation",
+    "Actor-active minibatch fraction, KL guards, hidden saturation/derivatives and persistent legal-head clamps",
+    "Physical staff/recipe/capital/herd interventions remain effective under resource restrictions",
+    "Trade settled conditional on actual reciprocal opportunities and known-contact persistence",
+    "Repeat the exact originally declared full signed-switch probe only at a predeclared later retained-training checkpoint; never extend disposable dose or relax criteria until it passes"
+  ],
+  "promotion": "No automatic broad scale-out; independent actual-results review at1024 and4096 retained transitions per seed. Poor-choice welfare is allowed but must remain visible; stale critics, frozen/nonfinite heads, absent opportunities or suppressed updates block promotion",
+  "gru": "Gate not reached; no architecture change in this proposal",
+  "no_main_merge": true,
+  "no_expensive_training_launched": true,
+  "no_gpu_ecology": true
+}

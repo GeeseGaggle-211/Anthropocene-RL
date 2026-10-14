@@ -1,0 +1,173 @@
+"""No-forward admission: native reset/masks/known reciprocal contacts only."""
+
+import argparse
+import hashlib
+import json
+import time
+from pathlib import Path
+
+from anthropocene_rl.autonomous_v5.causal_budget import BudgetLedger, BudgetTransport
+from anthropocene_rl.autonomous_v6.contracts import observation, validate_schema
+from anthropocene_rl.autonomous_v6.opportunity import own_address, trade_target
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args()
+    if args.output.exists():
+        raise FileExistsError(args.output)
+    cfg = json.loads(args.config.read_text())
+    for pin in cfg["inputs"].values():
+        if sha(pin["path"]) != pin["sha256"]:
+            raise ValueError(f"Changed pinned input: {pin['path']}")
+    selection = json.loads(Path(cfg["inputs"]["selection"]["path"]).read_text())
+    bank = Path(cfg["inputs"]["bank"]["path"]).parent
+    manifest = json.loads((bank / "manifest.json").read_text())
+    entries = {e["id"]: e for e in manifest["entries"]}
+    prior = json.loads(Path(cfg["inputs"]["prior_budget"]["path"]).read_text())
+    args.output.mkdir(parents=True)
+    ledger = BudgetLedger(
+        args.output / "budget.json",
+        {},
+        prior_resolves=prior["total_resolves"],
+        prior_wall_seconds=prior["cumulative_wall_seconds"],
+        deadline=time.monotonic() + 60,
+        native_version=6,
+    )
+    cls = type("AdmissionTransport", (BudgetTransport,), {"ledger": ledger})
+    result = dict(
+        version="opportunity-admission-v9",
+        status="RUNNING",
+        selected={},
+        checks=[],
+        neural_calls=0,
+        native_resolves=0,
+        source_bank_sha256=sha(bank / "manifest.json"),
+    )
+    corpus, observations, adaptation = [], [], []
+    try:
+        with cls([cfg["dotnet"], cfg["inputs"]["bridge"]["path"]], deadline=ledger.deadline) as tr:
+            validate_schema(tr.schema())
+
+            def inspect(entry):
+                blob = (bank / entry["snapshot"]).read_bytes()
+                if hashlib.sha256(blob).hexdigest() != entry["sha256"]:
+                    raise ValueError("Snapshot digest mismatch")
+                ids = [entry["focal"]] + ([entry["peer"]] if entry["peer"] is not None else [])
+                response = tr.reset_world(blob, ids, 25)
+                own = response["observations"][str(entry["focal"])]
+                o = observation(own)
+                check = dict(
+                    id=entry["id"],
+                    partition=entry["partition"],
+                    family=entry["family"],
+                    workforce_mask=o["WorkforceMask"].tolist(),
+                    control_mask=o["ControlMask"].tolist(),
+                    reciprocal_opportunity=False,
+                    native_build_hash=response["buildHash"],
+                )
+                ordinal = -1
+                if entry["peer"] is not None:
+                    ordinal = own_address(tr, entry["focal"], entry["peer"])
+                    reverse = own_address(tr, entry["peer"], entry["focal"])
+                    p = observation(response["observations"][str(entry["peer"])])
+                    give = entry["market_focal_give"]
+                    check["reciprocal_opportunity"] = bool(
+                        ordinal >= 0
+                        and reverse >= 0
+                        and o["Stocks"][give] >= 1e-6
+                        and p["Stocks"][9 - give] >= 1e-6
+                        and o["GoodMask"][[3, 6]].all()
+                        and p["GoodMask"][[3, 6]].all()
+                    )
+                return own, check, ordinal
+
+            for role in [
+                "calibration",
+                "ppo",
+                "development",
+                *(["floor_diagnostic"] if "floor_diagnostic" in selection else []),
+            ]:
+                selected = []
+                for slot in selection[role]:
+                    accepted = None
+                    for age in slot["ages"]:
+                        partition = "development" if role == "development" else "train"
+                        id_ = f"{partition}-{slot['world_seed']}-{slot['family']}-d{age}"
+                        if id_ not in entries:
+                            continue
+                        entry = entries[id_]
+                        try:
+                            own, check, _ = inspect(entry)
+                        except RuntimeError as error:
+                            result["checks"].append(dict(id=id_, rejected=str(error)))
+                            continue
+                        valid = (
+                            (
+                                slot["family"] != "husbandry"
+                                or (entry["owned_animals"] > 0 and all(check["control_mask"][1:]))
+                            )
+                            and (slot["family"] != "fishing" or check["workforce_mask"][3])
+                            and (slot["family"] != "trade" or check["reciprocal_opportunity"])
+                        )
+                        check["accepted"] = valid
+                        result["checks"].append(check)
+                        if valid:
+                            accepted = id_
+                            observations.append(own)
+                            if role == "ppo" and entry["world_seed"] in selection["fit_worlds"]:
+                                adaptation.append(own)
+                            break
+                    if accepted is None:
+                        raise ValueError(f"Required physical admission missing: {role}/{slot}")
+                    selected.append(accepted)
+                result["selected"][role] = selected
+            for entry in sorted(entries.values(), key=lambda e: e["id"]):
+                if (
+                    entry["world_seed"] not in selection["fit_worlds"]
+                    or entry["family"] != "trade"
+                    or entry["decision_index"] not in (0, 2, 8)
+                ):
+                    continue
+                try:
+                    own, check, ordinal = inspect(entry)
+                except RuntimeError:
+                    continue
+                corpus.append(
+                    dict(
+                        id=entry["id"],
+                        observation=own,
+                        target=trade_target(observation(own), ordinal, entry["market_focal_give"]),
+                    )
+                )
+            if len(corpus) < 4 or not {3, 6}.issubset(
+                {c["target"][2] for c in corpus if c["target"][0]}
+            ):
+                raise ValueError("Native TRAIN corpus lacks both trade directions")
+        (args.output / "trade-corpus.json").write_text(json.dumps(corpus) + "\n")
+        (args.output / "observations.json").write_text(json.dumps(observations) + "\n")
+        (args.output / "adaptation-probe.json").write_text(json.dumps(adaptation) + "\n")
+        result.update(
+            status="PASS",
+            corpus_rows=len(corpus),
+            corpus_sha256=sha(args.output / "trade-corpus.json"),
+            observations_sha256=sha(args.output / "observations.json"),
+        )
+    except BaseException as error:
+        result.update(status="FAILED", error=f"{type(error).__name__}: {error}")
+        raise
+    finally:
+        ledger.save()
+        result["budget"] = json.loads(ledger.path.read_text())
+        (args.output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
+        print(json.dumps({k: v for k, v in result.items() if k != "checks"}))
+
+
+if __name__ == "__main__":
+    main()

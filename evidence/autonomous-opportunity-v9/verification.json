@@ -1,0 +1,77 @@
+{
+  "collected": 228,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 5,
+  "passed": 223,
+  "regression_log_sha256": "2eeb9e8a49916ce36ecaca0dba9c37ef545eefd2354e97828195183186cebe97",
+  "regression_xml_sha256": "c1fc6af24b9cd79209ac41bd2430fbc010ae7d1a5ab6494e089e9ccada874467",
+  "skip_reasons": [
+    {
+      "test": {
+        "classname": "tests.test_autonomous_collapse",
+        "name": "test_one_four_workers_and_nonempty_optimizer_checkpoint",
+        "time": "0.000"
+      },
+      "reason": {
+        "type": "pytest.skip",
+        "message": "native v4 integration opt-in"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.test_autonomous_economy",
+        "name": "test_native_wego_gym_and_ppo_mechanics",
+        "time": "0.000"
+      },
+      "reason": {
+        "type": "pytest.skip",
+        "message": "explicit native v3 bridge required"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.test_autonomous_ppo_v2",
+        "name": "test_v2_native_parallel_warm_start_and_populated_resume[2]",
+        "time": "0.000"
+      },
+      "reason": {
+        "type": "pytest.skip",
+        "message": "native integration opt-in"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.test_autonomous_ppo_v2",
+        "name": "test_v2_native_parallel_warm_start_and_populated_resume[3]",
+        "time": "0.000"
+      },
+      "reason": {
+        "type": "pytest.skip",
+        "message": "native integration opt-in"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.test_autonomous_v4",
+        "name": "test_native_full_action_replay_and_gym",
+        "time": "0.000"
+      },
+      "reason": {
+        "type": "pytest.skip",
+        "message": "native v4 integration opt-in"
+      }
+    }
+  ],
+  "independent_review_sha256": "ce8c6223fbf3e45c343879bc2c18752f2196581f7dabbb13f3e23ce25e69692b",
+  "ruff": "PASS",
+  "native_contract_checks": "88 config values/20 test claims/document links PASS",
+  "git_diff_check": "PASS",
+  "reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "native_calls": 0,
+    "model_forwards": 0,
+    "optimizer_updates": 0
+  }
+}

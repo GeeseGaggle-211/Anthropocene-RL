@@ -1,0 +1,5581 @@
+{
+  "version": "autonomous-opportunity-durable-canary-v9.6",
+  "status": "COMPLETE",
+  "config_sha256": "4a7effef28b2d78b7ecf56846da96d8b9e75127c16439d647997ba8f8a8318b3",
+  "calibrations": [
+    {
+      "seed": 101,
+      "passed": true,
+      "entry": {
+        "mse": 8.695406913757324,
+        "return_variance": 32.3198127746582,
+        "mse_over_return_variance": 0.26904261402700164,
+        "explained_variance": 0.7317380047908248,
+        "mean_value_bias": -0.15884175896644592,
+        "constant_mse": 34.91630554199219,
+        "fitting_mse": 0.38316091895103455
+      },
+      "final": {
+        "mse": 8.695406913757324,
+        "return_variance": 32.3198127746582,
+        "mse_over_return_variance": 0.26904261402700164,
+        "explained_variance": 0.7317380047908248,
+        "mean_value_bias": -0.15884175896644592,
+        "constant_mse": 34.91630554199219,
+        "fitting_mse": 0.38316091895103455
+      },
+      "critic_transfer": null,
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/calibrated-seed101.pt",
+      "checkpoint_sha256": "1f7d95d0d248b5723cc4bf69e5810755350c4a49fcb74600d6ea7a67a2ad8760"
+    },
+    {
+      "seed": 211,
+      "passed": true,
+      "entry": {
+        "mse": 14.694902420043945,
+        "return_variance": 51.71205139160156,
+        "mse_over_return_variance": 0.2841678491685308,
+        "explained_variance": 0.7166271306795129,
+        "mean_value_bias": -0.2027532160282135,
+        "constant_mse": 55.513099670410156,
+        "fitting_mse": 1.5555154085159302
+      },
+      "final": {
+        "mse": 14.694902420043945,
+        "return_variance": 51.71205139160156,
+        "mse_over_return_variance": 0.2841678491685308,
+        "explained_variance": 0.7166271306795129,
+        "mean_value_bias": -0.2027532160282135,
+        "constant_mse": 55.513099670410156,
+        "fitting_mse": 1.5555154085159302
+      },
+      "critic_transfer": null,
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/calibrated-seed211.pt",
+      "checkpoint_sha256": "854dc7a3fd9da6fefecb1243e6d48e4cb96b3f21b416b97d4f2735000be0ec82"
+    },
+    {
+      "seed": 307,
+      "passed": true,
+      "entry": {
+        "mse": 6.821893692016602,
+        "return_variance": 36.00400161743164,
+        "mse_over_return_variance": 0.18947598560027074,
+        "explained_variance": 0.8227330528924217,
+        "mean_value_bias": 0.6630035638809204,
+        "constant_mse": 45.298255920410156,
+        "fitting_mse": 61.81413269042969
+      },
+      "final": {
+        "mse": 6.821893692016602,
+        "return_variance": 36.00400161743164,
+        "mse_over_return_variance": 0.18947598560027074,
+        "explained_variance": 0.8227330528924217,
+        "mean_value_bias": 0.6630035638809204,
+        "constant_mse": 45.298255920410156,
+        "fitting_mse": 61.81413269042969
+      },
+      "critic_transfer": null,
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/calibrated-seed307.pt",
+      "checkpoint_sha256": "d3423fb591fb2a6be57c777e056677798d22ca15184aee7f321ba4d2f2f8708f"
+    }
+  ],
+  "baselines": [
+    {
+      "seed": 101,
+      "summary": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 133,
+            "zero": 6,
+            "one": 3,
+            "mean": 0.51584796321132
+          },
+          {
+            "eligible": 25,
+            "zero": 3,
+            "one": 1,
+            "mean": 0.40163100324334455
+          },
+          {
+            "eligible": 25,
+            "zero": 1,
+            "one": 0,
+            "mean": 0.44106782096689967
+          }
+        ],
+        "steps": 146,
+        "average_qol": 0.16218732606017291,
+        "average_population": 27.431506849315067,
+        "annual_welfare": 7.373583327752967,
+        "integrated_welfare": 21530.863317038664,
+        "final_population_mean": 1.3333333333333333,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 93,
+          "trades": 2,
+          "migrants": 105,
+          "daughters": 13,
+          "quotes": 43,
+          "opportunities": 2,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.045972678082191784,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.09601511391019453,
+          0.07855075832696992,
+          0.011639642949175178,
+          0.029954640313862437,
+          0.09987864829958219,
+          0.08266240858066394,
+          0.08724576367397381,
+          0.08638338361656363,
+          0.08328725512955619,
+          0.0934174067371182,
+          0.0759377041289999,
+          0.0877423720172863,
+          0.0872849023160537
+        ],
+        "mean_compiled_staffing": [
+          2.1301369863013697,
+          1.6095890410958904,
+          0.3493150684931507,
+          0.9794520547945206,
+          2.9315068493150687,
+          2.7945205479452055,
+          2.3767123287671232,
+          2.3835616438356166,
+          2.7054794520547945,
+          2.712328767123288,
+          1.9452054794520548,
+          1.8767123287671232,
+          2.636986301369863
+        ],
+        "total_production": [
+          7541.345357025169,
+          14475.058876342971,
+          881.8807912142514,
+          7310.923158702753,
+          399.0410242734786,
+          7499.028666516202,
+          0.0,
+          0.0,
+          15.434781349685863,
+          569.9418822003946,
+          644.8994387911971
+        ],
+        "total_extraction": [
+          23272.247119213644,
+          28054.24044336318,
+          24139.693292380358
+        ]
+      },
+      "reused_exact": true
+    },
+    {
+      "seed": 211,
+      "summary": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 124,
+            "zero": 3,
+            "one": 6,
+            "mean": 0.5100034464022669
+          },
+          {
+            "eligible": 25,
+            "zero": 1,
+            "one": 4,
+            "mean": 0.527478479866152
+          },
+          {
+            "eligible": 25,
+            "zero": 0,
+            "one": 0,
+            "mean": 0.5392851266045038
+          }
+        ],
+        "steps": 149,
+        "average_qol": 0.15101045189099482,
+        "average_population": 28.79194630872483,
+        "annual_welfare": 6.268972195706562,
+        "integrated_welfare": 18681.537143205554,
+        "final_population_mean": 1.6666666666666667,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 88,
+          "trades": 1,
+          "migrants": 182,
+          "daughters": 12,
+          "quotes": 50,
+          "opportunities": 3,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.01156091610738255,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.09384258659363422,
+          0.07206472285780142,
+          0.009641421302581782,
+          0.028557061959392123,
+          0.08860357240816082,
+          0.0782260264265221,
+          0.08294120499620795,
+          0.08906260849033865,
+          0.08895013064984117,
+          0.09906264877792154,
+          0.08779936535602177,
+          0.09151994548278655,
+          0.0897287046987898
+        ],
+        "mean_compiled_staffing": [
+          2.7248322147651005,
+          1.9798657718120805,
+          0.2953020134228188,
+          1.2818791946308725,
+          2.6241610738255035,
+          2.087248322147651,
+          2.9395973154362416,
+          2.6912751677852347,
+          2.610738255033557,
+          2.4563758389261743,
+          2.208053691275168,
+          2.664429530201342,
+          2.228187919463087
+        ],
+        "total_production": [
+          11202.817882252206,
+          16905.73505227042,
+          61.84855009305489,
+          7252.602530314318,
+          438.17462586683985,
+          7722.4014338817215,
+          0.0,
+          0.0,
+          511.05642375845673,
+          715.855839702165,
+          2412.2082418709037
+        ],
+        "total_extraction": [
+          33442.23983386716,
+          27262.46340518279,
+          27896.84639151563
+        ]
+      }
+    },
+    {
+      "seed": 307,
+      "summary": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 121,
+            "zero": 3,
+            "one": 5,
+            "mean": 0.5615498550901064
+          },
+          {
+            "eligible": 25,
+            "zero": 0,
+            "one": 2,
+            "mean": 0.4599534237177699
+          },
+          {
+            "eligible": 25,
+            "zero": 2,
+            "one": 2,
+            "mean": 0.49450160159663015
+          }
+        ],
+        "steps": 146,
+        "average_qol": 0.15385658816461104,
+        "average_population": 28.732876712328768,
+        "annual_welfare": 6.763382649589928,
+        "integrated_welfare": 19749.077336802588,
+        "final_population_mean": 1.5,
+        "terminal_episodes": 3,
+        "events": {
+          "movement": 69,
+          "trades": 0,
+          "migrants": 163,
+          "daughters": 12,
+          "quotes": 53,
+          "opportunities": 2,
+          "compatible_proposals": 0
+        },
+        "native_step_seconds_mean": 0.010854722602739727,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.0876086602784387,
+          0.0778871571799665,
+          0.01137984513766531,
+          0.02863945602294637,
+          0.09308140358067302,
+          0.09858298582723449,
+          0.09123554390716433,
+          0.0773498083401367,
+          0.08152421556444671,
+          0.08487167821690007,
+          0.09096830898073764,
+          0.0933345101236065,
+          0.08353642684008372
+        ],
+        "mean_compiled_staffing": [
+          2.4246575342465753,
+          2.164383561643836,
+          0.3561643835616438,
+          0.7876712328767124,
+          3.1027397260273974,
+          3.8904109589041096,
+          2.76027397260274,
+          2.1095890410958904,
+          1.6917808219178083,
+          2.3835616438356166,
+          2.3904109589041096,
+          2.191780821917808,
+          2.4794520547945207
+        ],
+        "total_production": [
+          17113.66217291188,
+          21419.69583207033,
+          163.89888249731567,
+          7840.142156511697,
+          534.3504905835293,
+          9475.3867021393,
+          0.0,
+          0.0,
+          272.78086113649846,
+          816.6432452939994,
+          1108.4500786869578
+        ],
+        "total_extraction": [
+          27223.424918069966,
+          21872.403851283038,
+          29511.3481172118
+        ]
+      }
+    }
+  ],
+  "cells": [
+    {
+      "id": "seed101-lr0.0003",
+      "seed": 101,
+      "actor_lr": 0.0003,
+      "status": "COMPLETE",
+      "transitions": 400,
+      "updates": [
+        {
+          "critic_residual_mse": 22.65673828125,
+          "actor_step_l2": 0.11563564836978912,
+          "critic_step_l2": 0.23950475454330444,
+          "actor_relative_step": 0.002923920894636207,
+          "critic_relative_step": 0.006101150217688134,
+          "actor_first_layer_grad": 1.1885908842086792,
+          "critic_first_layer_grad": 5.979971408843994,
+          "advantage_std": 4.757166938115049,
+          "return_std": 8.681580461337248,
+          "actor_updates": 1,
+          "minibatches": 28,
+          "maximum_kl": 0.17082138306058597,
+          "clip_fraction": 0.2602678585265364,
+          "head_gradient_max": {
+            "simplex": 33.37607489526272,
+            "movement": 3.80671295709908,
+            "enabled": 1.422848186455667,
+            "partner": 0.5101874934043735,
+            "give": 0.44192916178144515,
+            "want": 0.4468030398711562,
+            "lot": 0.3122463778126985,
+            "price": 0.3122469177469611
+          }
+        },
+        {
+          "critic_residual_mse": 46.80293273925781,
+          "actor_step_l2": 0.15835943818092346,
+          "critic_step_l2": 0.17432580888271332,
+          "actor_relative_step": 0.004004317577828764,
+          "critic_relative_step": 0.004440715366309619,
+          "actor_first_layer_grad": 1.4136402606964111,
+          "critic_first_layer_grad": 7.264714241027832,
+          "advantage_std": 6.837997345565686,
+          "return_std": 10.169784023237531,
+          "actor_updates": 2,
+          "minibatches": 24,
+          "maximum_kl": 0.05392172647845077,
+          "clip_fraction": 0.14785879648601016,
+          "head_gradient_max": {
+            "simplex": 32.35363535583019,
+            "movement": 4.110368313267827,
+            "enabled": 0.34026232920587063,
+            "partner": 0.4248233838006854,
+            "give": 0.5492648403160274,
+            "want": 0.5777044473215938,
+            "lot": 0.44210377149283886,
+            "price": 0.4421038622967899
+          }
+        }
+      ],
+      "pair_state_sha256": "4c50d9394fd666706505a44237531eea42f305eca5b2dc0687c5e05eb011eba6",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008809840306639671,
+            "mean_derivative": 0.6058580279350281,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2815215587615967,
+            "effective_rank": 22.597874067711558
+          },
+          {
+            "saturated_fraction": 0.01097074430435896,
+            "mean_derivative": 0.6112377643585205,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29904282093048096,
+            "effective_rank": 23.462313076556267
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.012799202464520931,
+            "mean_derivative": 0.616542398929596,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.40053749084472656,
+            "effective_rank": 24.233614801599263
+          },
+          {
+            "saturated_fraction": 0.009474733844399452,
+            "mean_derivative": 0.6013985872268677,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.48574331402778625,
+            "effective_rank": 25.416208618118734
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.01841028779745102,
+        "active_raw_max": 0.020031530410051346,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.941460609436035,
+            "concentration_max": 10.306863784790039,
+            "coordinate_std": 0.0901462659239769,
+            "requested_mean_max": 0.08940946310758591
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.8045172691345215,
+            "concentration_max": 7.9478840827941895,
+            "coordinate_std": 0.21313868463039398,
+            "requested_mean_max": 0.35806477069854736
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.381016969680786,
+            "concentration_max": 2.39164662361145,
+            "coordinate_std": 0.27192258834838867,
+            "requested_mean_max": 0.5008643865585327
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.999994695186615,
+            "maximum_probability": 0.16932588815689087,
+            "probability_std": 0.05105815827846527
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.30463722348213196,
+            "maximum_probability": 0.9296656847000122,
+            "probability_std": 0.27491164207458496
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.7202360033988953,
+            "maximum_probability": 0.7709221839904785,
+            "probability_std": 0.029993001371622086
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2363608181476593,
+            "maximum_probability": 0.8507755398750305,
+            "probability_std": 0.09966474026441574
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3483932316303253,
+            "maximum_probability": 0.6757897734642029,
+            "probability_std": 0.03317930921912193
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15439487993717194,
+            "maximum_probability": 0.9665753245353699,
+            "probability_std": 0.00012563196651171893
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15439386665821075,
+            "maximum_probability": 0.966575562953949,
+            "probability_std": 0.00012519826123025268
+          }
+        },
+        "value_std": 18.070341110229492,
+        "value_input_gradient": 14.73657512664795,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.3975846767425537
+      },
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr0.0003-step400.pt",
+      "checkpoint_sha256": "7ae7e2f12264c879b9639bb6c1f6a0d5ff8a86a6f0f261676fd545d838be5a89",
+      "durable_transitions": 400,
+      "training_summary": {
+        "episodes": 17,
+        "physical_control_endpoints": [
+          {
+            "eligible": 400,
+            "zero": 16,
+            "one": 13,
+            "mean": 0.5052500697877405
+          },
+          {
+            "eligible": 85,
+            "zero": 2,
+            "one": 5,
+            "mean": 0.5410890934149036
+          },
+          {
+            "eligible": 85,
+            "zero": 4,
+            "one": 3,
+            "mean": 0.49635772607868656
+          }
+        ],
+        "steps": 400,
+        "average_qol": 0.13626223913610003,
+        "average_population": 30.1475,
+        "annual_welfare": 6.802246163801339,
+        "integrated_welfare": 54417.969310410714,
+        "final_population_mean": 14.823529411764707,
+        "terminal_episodes": 4,
+        "events": {
+          "movement": 254,
+          "trades": 7,
+          "migrants": 400,
+          "daughters": 33,
+          "quotes": 124,
+          "opportunities": 9,
+          "compatible_proposals": 7
+        },
+        "native_step_seconds_mean": 0.029337741249999997,
+        "family_counts": {
+          "fishing": 3,
+          "fission": 3,
+          "husbandry": 3,
+          "migration": 2,
+          "survival": 3,
+          "trade": 3
+        },
+        "mean_requested_workforce": [
+          0.09181001521195474,
+          0.09015743491347118,
+          0.015025828457927904,
+          0.029381363829532315,
+          0.09520001615353867,
+          0.08867616977079619,
+          0.08936034319999692,
+          0.08508669879202585,
+          0.08492315259984946,
+          0.0840322794383188,
+          0.07895699538150928,
+          0.08474053432702529,
+          0.08264916792405343
+        ],
+        "mean_compiled_staffing": [
+          2.9225,
+          2.7375,
+          0.125,
+          1.2225,
+          2.365,
+          2.2725,
+          3.0375,
+          2.9375,
+          2.51,
+          2.425,
+          2.2075,
+          2.45,
+          2.935
+        ],
+        "total_production": [
+          31201.581782337897,
+          56735.43726834546,
+          3590.3150957733505,
+          29440.67343865696,
+          1169.5011920268284,
+          23392.517969133245,
+          155.4320787763467,
+          0.0,
+          266.68809929767883,
+          1893.7368607862302,
+          1003.7631770560718
+        ],
+        "total_extraction": [
+          84222.47983697653,
+          95796.19121038106,
+          77178.06758671568
+        ]
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008477393537759781,
+            "mean_derivative": 0.6069790124893188,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2847578525543213,
+            "effective_rank": 22.58411528146562
+          },
+          {
+            "saturated_fraction": 0.012965425848960876,
+            "mean_derivative": 0.6269645690917969,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3068161904811859,
+            "effective_rank": 23.544029453384603
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.013297872617840767,
+            "mean_derivative": 0.6158961653709412,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38794031739234924,
+            "effective_rank": 24.15530679896854
+          },
+          {
+            "saturated_fraction": 0.009640957228839397,
+            "mean_derivative": 0.5981143116950989,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4676084518432617,
+            "effective_rank": 25.21965624900424
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.09257611632347107,
+        "active_raw_max": 0.09154883027076721,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.865411758422852,
+            "concentration_max": 10.229572296142578,
+            "coordinate_std": 0.09048580378293991,
+            "requested_mean_max": 0.09295014292001724
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.7898716926574707,
+            "concentration_max": 7.9511871337890625,
+            "coordinate_std": 0.2135663777589798,
+            "requested_mean_max": 0.3676711320877075
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.388892412185669,
+            "concentration_max": 2.403089761734009,
+            "coordinate_std": 0.2715826630592346,
+            "requested_mean_max": 0.5060567259788513
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9994395971298218,
+            "maximum_probability": 0.1771553009748459,
+            "probability_std": 0.05167005956172943
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.3108019530773163,
+            "maximum_probability": 0.9127004742622375,
+            "probability_std": 0.13358664512634277
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.5560564994812012,
+            "maximum_probability": 0.8587448000907898,
+            "probability_std": 0.018735047429800034
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.24474075436592102,
+            "maximum_probability": 0.8415995836257935,
+            "probability_std": 0.09749806672334671
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3508891761302948,
+            "maximum_probability": 0.6687250137329102,
+            "probability_std": 0.03380435332655907
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15580129623413086,
+            "maximum_probability": 0.9661909341812134,
+            "probability_std": 0.0006035703117959201
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15579546988010406,
+            "maximum_probability": 0.9661925435066223,
+            "probability_std": 0.0006012118537910283
+          }
+        },
+        "value_std": 16.72433090209961,
+        "value_input_gradient": 13.637099266052246,
+        "receipt_sensitivity": {
+          "workforce": 1.9726747268578038e-05,
+          "activities": 4.1413368307985365e-06,
+          "controls": 1.7383103113388643e-05,
+          "movement": 5.6138498621294275e-05,
+          "enabled": 0.0044737267307937145,
+          "partner": 0.00168809131719172,
+          "give": 0.0002557511324994266,
+          "want": 0.00015171051200013608,
+          "lot": 5.607659841189161e-05,
+          "price": 5.5883403547341004e-05
+        },
+        "receipt_value_sensitivity": 2.171696186065674
+      },
+      "distribution_change": {
+        "workforce": 0.001683517242781818,
+        "activities": 0.0005173003883101046,
+        "controls": 0.0021570769604295492,
+        "movement": 0.004906440619379282,
+        "enabled": 0.03675945848226547,
+        "partner": 0.013744276948273182,
+        "give": 0.003988891374319792,
+        "want": 0.002352745970711112,
+        "lot": 0.0002696480369195342,
+        "price": 0.00026871610316447914
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.12776398762442,
+              5.834959301864728e-05
+            ],
+            "after": [
+              -19.5089656621912,
+              0.012973278760910034
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -19.15225814767447,
+              -0.012973278760910034
+            ],
+            "after": [
+              -19.638192471657582,
+              0.0013397224247455597
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 32,
+        "lr": 0.0003,
+        "retained_updates": 0,
+        "interpretation": "Original16+16 criterion was directional improvement, not a required positive signed switch"
+      },
+      "evaluation": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 136,
+            "zero": 8,
+            "one": 0,
+            "mean": 0.53776310930526
+          },
+          {
+            "eligible": 25,
+            "zero": 3,
+            "one": 1,
+            "mean": 0.4193341417444546
+          },
+          {
+            "eligible": 25,
+            "zero": 1,
+            "one": 0,
+            "mean": 0.4308568369606168
+          }
+        ],
+        "steps": 149,
+        "average_qol": 0.14989339105799132,
+        "average_population": 27.624161073825505,
+        "annual_welfare": 7.23552654845466,
+        "integrated_welfare": 21561.869114394885,
+        "final_population_mean": 1.5,
+        "terminal_episodes": 2,
+        "events": {
+          "movement": 87,
+          "trades": 2,
+          "migrants": 102,
+          "daughters": 12,
+          "quotes": 48,
+          "opportunities": 2,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.012279029530201341,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.10112470780014318,
+          0.06708983665780592,
+          0.011113625775902115,
+          0.029182348592945027,
+          0.08821925810579981,
+          0.09025757997347836,
+          0.08499825442088811,
+          0.09243857655845247,
+          0.09157098611487237,
+          0.08552464725193062,
+          0.08289553134725616,
+          0.08234126560815158,
+          0.09324338179237435
+        ],
+        "mean_compiled_staffing": [
+          2.1879194630872485,
+          1.5369127516778522,
+          0.33557046979865773,
+          1.0134228187919463,
+          2.7114093959731544,
+          2.9798657718120807,
+          2.4161073825503356,
+          2.4161073825503356,
+          2.6778523489932886,
+          2.664429530201342,
+          2.1006711409395975,
+          1.7718120805369129,
+          2.8120805369127515
+        ],
+        "total_production": [
+          8176.07330974231,
+          15266.439007816742,
+          802.5366221937967,
+          8152.388449085506,
+          373.0838520891268,
+          7479.478343665751,
+          0.0,
+          0.0,
+          27.6360222069143,
+          505.7808846521233,
+          872.7560303002525
+        ],
+        "total_extraction": [
+          22617.898886844956,
+          30592.88323673604,
+          26462.886781733057
+        ]
+      },
+      "evaluation_demographics": [
+        {
+          "id": "development-881007-survival-d0",
+          "family": "survival",
+          "steps": 24,
+          "initial_population": 100.0,
+          "final_population": 0.0,
+          "time_mean_population": 17.25,
+          "person_years": 8280.0,
+          "time_mean_qol": 0.06047534414051741,
+          "person_year_weighted_qol": 0.09742573195181854,
+          "raw_welfare": 806.6850605610575,
+          "annual_welfare": 1.68059387616887,
+          "population_normalized_welfare": 8.066850605610576,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 33,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 67,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 67,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.12344651897862471,
+              "compiled": 0.15269360455505965
+            },
+            "Farmer": {
+              "requested": 0.04338920500549464,
+              "compiled": 0.020001689272200106
+            },
+            "Craftsperson": {
+              "requested": 0.09417261340921809,
+              "compiled": 0.09366861058618024
+            }
+          },
+          "expansion_farmer_share": 0.5258372854573364,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.019101342655116007,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-trade-d2",
+          "family": "trade",
+          "steps": 25,
+          "initial_population": 238.0,
+          "final_population": 5.0,
+          "time_mean_population": 61.68,
+          "person_years": 30840.0,
+          "time_mean_qol": 0.2748672039231391,
+          "person_year_weighted_qol": 0.24408878565227476,
+          "raw_welfare": 7527.6981495161535,
+          "annual_welfare": 15.055396299032306,
+          "population_normalized_welfare": 31.628983821496444,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 80,
+            "Immigrants": 0,
+            "Emigrants": 82,
+            "FissionHeadcount": 71,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 71,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.09054780439297715,
+              "compiled": 0.0837887716781338
+            },
+            "Farmer": {
+              "requested": 0.06703900107388319,
+              "compiled": 0.06268646478132142
+            },
+            "Craftsperson": {
+              "requested": 0.06643824233828431,
+              "compiled": 0.06130042647613476
+            }
+          },
+          "expansion_farmer_share": 0.5656149232123963,
+          "food_reserve_years": 0.4656341275264452,
+          "mean_field_intensity_q": 0.05821856058424864,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-migration-d2",
+          "family": "migration",
+          "steps": 25,
+          "initial_population": 87.0,
+          "final_population": 1.0,
+          "time_mean_population": 19.88,
+          "person_years": 9940.0,
+          "time_mean_qol": 0.09320174680360242,
+          "person_year_weighted_qol": 0.24676960425041872,
+          "raw_welfare": 2452.889866249162,
+          "annual_welfare": 4.905779732498324,
+          "population_normalized_welfare": 28.19413639366853,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 45,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 41,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 41,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.08523663382861985,
+              "compiled": 0.07042654612251392
+            },
+            "Farmer": {
+              "requested": 0.07689278278246275,
+              "compiled": 0.0810577213335834
+            },
+            "Craftsperson": {
+              "requested": 0.09848050257507919,
+              "compiled": 0.11156479013182241
+            }
+          },
+          "expansion_farmer_share": 0.6179905095885714,
+          "food_reserve_years": 0.38559257154935983,
+          "mean_field_intensity_q": 0.022876499000900087,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fission-d8",
+          "family": "fission",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 0.0,
+          "time_mean_population": 14.96,
+          "person_years": 7480.0,
+          "time_mean_qol": 0.06961190676194688,
+          "person_year_weighted_qol": 0.04004988369527345,
+          "raw_welfare": 299.5731300406454,
+          "annual_welfare": 0.5991462600812908,
+          "population_normalized_welfare": 2.0379124492560914,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 62,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 85,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 85,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.11115562268763844,
+              "compiled": 0.12488761724706425
+            },
+            "Farmer": {
+              "requested": 0.09959589646773703,
+              "compiled": 0.10004605890781007
+            },
+            "Craftsperson": {
+              "requested": 0.10202320544197066,
+              "compiled": 0.07734327321424095
+            }
+          },
+          "expansion_farmer_share": 0.5481522559074561,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.07120501732438698,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-husbandry-d2",
+          "family": "husbandry",
+          "steps": 25,
+          "initial_population": 154.0,
+          "final_population": 1.0,
+          "time_mean_population": 22.88,
+          "person_years": 11440.0,
+          "time_mean_qol": 0.16629828101422386,
+          "person_year_weighted_qol": 0.4513714707426237,
+          "raw_welfare": 5163.689625295615,
+          "annual_welfare": 10.32737925059123,
+          "population_normalized_welfare": 33.530452112309185,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 27,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 122,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 122,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.06045388718486422,
+              "compiled": 0.0767385237010097
+            },
+            "Farmer": {
+              "requested": 0.0876426367269946,
+              "compiled": 0.07690007864475949
+            },
+            "Craftsperson": {
+              "requested": 0.09939111480007977,
+              "compiled": 0.16451962576430662
+            }
+          },
+          "expansion_farmer_share": 0.4282490331635195,
+          "food_reserve_years": 0.615113712943248,
+          "mean_field_intensity_q": 0.0049189134442031,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fishing-d2",
+          "family": "fishing",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 2.0,
+          "time_mean_population": 28.68,
+          "person_years": 14340.0,
+          "time_mean_qol": 0.2313291418278192,
+          "person_year_weighted_qol": 0.3703858635099199,
+          "raw_welfare": 5311.333282732252,
+          "annual_welfare": 10.622666565464504,
+          "population_normalized_welfare": 36.13151893015137,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 38,
+            "Immigrants": 0,
+            "Emigrants": 16,
+            "FissionHeadcount": 91,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 91,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.13680065217527415,
+              "compiled": 0.1510690295254054
+            },
+            "Farmer": {
+              "requested": 0.027031472624170754,
+              "compiled": 0.023303030303030305
+            },
+            "Craftsperson": {
+              "requested": 0.06904800428230337,
+              "compiled": 0.06046867335524786
+            }
+          },
+          "expansion_farmer_share": 0.26062079870962784,
+          "food_reserve_years": 0.693019735344252,
+          "mean_field_intensity_q": 0.0016357731018849034,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        }
+      ],
+      "annual_welfare_delta": -0.1380567792983074
+    },
+    {
+      "id": "seed101-lr3e-05",
+      "seed": 101,
+      "actor_lr": 3e-05,
+      "status": "COMPLETE",
+      "transitions": 400,
+      "updates": [
+        {
+          "critic_residual_mse": 22.65673828125,
+          "actor_step_l2": 0.17031514644622803,
+          "critic_step_l2": 0.23950475454330444,
+          "actor_relative_step": 0.004306526770833203,
+          "critic_relative_step": 0.006101150217688134,
+          "actor_first_layer_grad": 2.561499834060669,
+          "critic_first_layer_grad": 5.979971408843994,
+          "advantage_std": 4.757166938115049,
+          "return_std": 8.681580461337248,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.025208468079900806,
+          "clip_fraction": 0.11309523893786329,
+          "head_gradient_max": {
+            "simplex": 35.163325011730194,
+            "movement": 4.767259124666452,
+            "enabled": 1.7631617169827223,
+            "partner": 0.8672812511213124,
+            "give": 1.388637276366353,
+            "want": 1.048534706234932,
+            "lot": 0.7312093060463667,
+            "price": 0.7312288926914334
+          }
+        },
+        {
+          "critic_residual_mse": 31.139070510864258,
+          "actor_step_l2": 0.13989214599132538,
+          "critic_step_l2": 0.23618842661380768,
+          "actor_relative_step": 0.0035376491576110916,
+          "critic_relative_step": 0.006016582295706383,
+          "actor_first_layer_grad": 7.276618003845215,
+          "critic_first_layer_grad": 3.8474271297454834,
+          "advantage_std": 5.5672122837905915,
+          "return_std": 10.97601597744015,
+          "actor_updates": 24,
+          "minibatches": 24,
+          "maximum_kl": 0.015423573250671698,
+          "clip_fraction": 0.07421875093132257,
+          "head_gradient_max": {
+            "simplex": 32.370407462120056,
+            "movement": 4.429365329444408,
+            "enabled": 1.3494406742975116,
+            "partner": 1.3004325777292252,
+            "give": 2.0950559936463833,
+            "want": 1.8454670421779156,
+            "lot": 0.5607619769871235,
+            "price": 0.5607980666682124
+          }
+        },
+        {
+          "critic_residual_mse": 11.8337984085083,
+          "actor_step_l2": 0.022437961772084236,
+          "critic_step_l2": 0.046788133680820465,
+          "actor_relative_step": 0.0005674530405482812,
+          "critic_relative_step": 0.0011918160942630744,
+          "actor_first_layer_grad": 2.9414865970611572,
+          "critic_first_layer_grad": 3.4431934356689453,
+          "advantage_std": 2.948944928400209,
+          "return_std": 8.208784297515216,
+          "actor_updates": 4,
+          "minibatches": 4,
+          "maximum_kl": 0.0002554976894999783,
+          "clip_fraction": 0.0,
+          "head_gradient_max": {
+            "simplex": 23.97090746462345,
+            "movement": 3.130733422935009,
+            "enabled": 0.12682940484955907,
+            "partner": 0.09261298493947834,
+            "give": 0.22641684906557202,
+            "want": 0.3041051593609154,
+            "lot": 0.2486157570965588,
+            "price": 0.2486287986394018
+          }
+        }
+      ],
+      "pair_state_sha256": "4c50d9394fd666706505a44237531eea42f305eca5b2dc0687c5e05eb011eba6",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008809840306639671,
+            "mean_derivative": 0.6058580279350281,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2815215587615967,
+            "effective_rank": 22.597874067711558
+          },
+          {
+            "saturated_fraction": 0.01097074430435896,
+            "mean_derivative": 0.6112377643585205,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29904282093048096,
+            "effective_rank": 23.462313076556267
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.012799202464520931,
+            "mean_derivative": 0.616542398929596,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.40053749084472656,
+            "effective_rank": 24.233614801599263
+          },
+          {
+            "saturated_fraction": 0.009474733844399452,
+            "mean_derivative": 0.6013985872268677,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.48574331402778625,
+            "effective_rank": 25.416208618118734
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.01841028779745102,
+        "active_raw_max": 0.020031530410051346,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.941460609436035,
+            "concentration_max": 10.306863784790039,
+            "coordinate_std": 0.0901462659239769,
+            "requested_mean_max": 0.08940946310758591
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.8045172691345215,
+            "concentration_max": 7.9478840827941895,
+            "coordinate_std": 0.21313868463039398,
+            "requested_mean_max": 0.35806477069854736
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.381016969680786,
+            "concentration_max": 2.39164662361145,
+            "coordinate_std": 0.27192258834838867,
+            "requested_mean_max": 0.5008643865585327
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.999994695186615,
+            "maximum_probability": 0.16932588815689087,
+            "probability_std": 0.05105815827846527
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.30463722348213196,
+            "maximum_probability": 0.9296656847000122,
+            "probability_std": 0.27491164207458496
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.7202360033988953,
+            "maximum_probability": 0.7709221839904785,
+            "probability_std": 0.029993001371622086
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2363608181476593,
+            "maximum_probability": 0.8507755398750305,
+            "probability_std": 0.09966474026441574
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3483932316303253,
+            "maximum_probability": 0.6757897734642029,
+            "probability_std": 0.03317930921912193
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15439487993717194,
+            "maximum_probability": 0.9665753245353699,
+            "probability_std": 0.00012563196651171893
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15439386665821075,
+            "maximum_probability": 0.966575562953949,
+            "probability_std": 0.00012519826123025268
+          }
+        },
+        "value_std": 18.070341110229492,
+        "value_input_gradient": 14.73657512664795,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.3975846767425537
+      },
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr3e-05-step400.pt",
+      "checkpoint_sha256": "9a6f631997d255b57e451e165592b8feb82c888051b1cb1e4f79790cfb5c9989",
+      "durable_transitions": 400,
+      "training_summary": {
+        "episodes": 18,
+        "physical_control_endpoints": [
+          {
+            "eligible": 400,
+            "zero": 17,
+            "one": 13,
+            "mean": 0.5021013284845747
+          },
+          {
+            "eligible": 84,
+            "zero": 2,
+            "one": 2,
+            "mean": 0.47576960474704705
+          },
+          {
+            "eligible": 84,
+            "zero": 3,
+            "one": 3,
+            "mean": 0.5162309367313384
+          }
+        ],
+        "steps": 400,
+        "average_qol": 0.12641102751177846,
+        "average_population": 30.5975,
+        "annual_welfare": 7.5977089828407,
+        "integrated_welfare": 60781.671862725605,
+        "final_population_mean": 14.88888888888889,
+        "terminal_episodes": 5,
+        "events": {
+          "movement": 254,
+          "trades": 7,
+          "migrants": 394,
+          "daughters": 35,
+          "quotes": 110,
+          "opportunities": 9,
+          "compatible_proposals": 7
+        },
+        "native_step_seconds_mean": 0.01164480075,
+        "family_counts": {
+          "fishing": 3,
+          "fission": 3,
+          "husbandry": 3,
+          "migration": 3,
+          "survival": 3,
+          "trade": 3
+        },
+        "mean_requested_workforce": [
+          0.08889746131126441,
+          0.08744462664996634,
+          0.014694672400949571,
+          0.028508736168868603,
+          0.09141162659071936,
+          0.0897454051987187,
+          0.0911058617911764,
+          0.08705113187617103,
+          0.08854604340258226,
+          0.08607927889774651,
+          0.08222491914896012,
+          0.08193389031076151,
+          0.08235634625211519
+        ],
+        "mean_compiled_staffing": [
+          2.8675,
+          2.76,
+          0.115,
+          1.215,
+          2.3425,
+          2.3725,
+          3.09,
+          2.9925,
+          2.545,
+          2.545,
+          2.255,
+          2.5075,
+          2.99
+        ],
+        "total_production": [
+          31542.68372227494,
+          58934.47633000376,
+          3604.867919817175,
+          31416.071923178755,
+          1301.2794802111969,
+          24692.302197102024,
+          155.4320787763467,
+          0.0,
+          339.51832395739007,
+          2141.1093162814705,
+          697.4518766080424
+        ],
+        "total_extraction": [
+          85893.39427103692,
+          97981.91422166815,
+          78606.16230040626
+        ]
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.010388962924480438,
+            "mean_derivative": 0.6111788749694824,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29559868574142456,
+            "effective_rank": 22.690638589381713
+          },
+          {
+            "saturated_fraction": 0.017287233844399452,
+            "mean_derivative": 0.6422436237335205,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3279157280921936,
+            "effective_rank": 23.754375677471426
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.015043217688798904,
+            "mean_derivative": 0.6196825504302979,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.39248618483543396,
+            "effective_rank": 24.098460656895867
+          },
+          {
+            "saturated_fraction": 0.010305850766599178,
+            "mean_derivative": 0.6014256477355957,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.47892627120018005,
+            "effective_rank": 25.152425518394466
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.1055791899561882,
+        "active_raw_max": 0.07150714099407196,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.953454971313477,
+            "concentration_max": 10.344856262207031,
+            "coordinate_std": 0.09008923918008804,
+            "requested_mean_max": 0.09187992662191391
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.797837495803833,
+            "concentration_max": 7.960699081420898,
+            "coordinate_std": 0.21335291862487793,
+            "requested_mean_max": 0.36804720759391785
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3813822269439697,
+            "concentration_max": 2.3894505500793457,
+            "coordinate_std": 0.27186837792396545,
+            "requested_mean_max": 0.5076220035552979
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.999634325504303,
+            "maximum_probability": 0.17493848502635956,
+            "probability_std": 0.051347337663173676
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.30826830863952637,
+            "maximum_probability": 0.9347104430198669,
+            "probability_std": 0.29208606481552124
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.5290428996086121,
+            "maximum_probability": 0.8800652623176575,
+            "probability_std": 0.00109577807597816
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2620796859264374,
+            "maximum_probability": 0.835738480091095,
+            "probability_std": 0.09476625919342041
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.36153411865234375,
+            "maximum_probability": 0.6491953134536743,
+            "probability_std": 0.03573930636048317
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.1669677197933197,
+            "maximum_probability": 0.9629696607589722,
+            "probability_std": 0.004742886871099472
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.16692258417606354,
+            "maximum_probability": 0.9629830121994019,
+            "probability_std": 0.004728821571916342
+          }
+        },
+        "value_std": 18.298486709594727,
+        "value_input_gradient": 14.270180702209473,
+        "receipt_sensitivity": {
+          "workforce": 2.1375777578214183e-05,
+          "activities": 6.745890004822286e-06,
+          "controls": 5.2914550906280056e-05,
+          "movement": 6.596423190785572e-05,
+          "enabled": 0.0007703480077907443,
+          "partner": 0.0019874917343258858,
+          "give": 0.0006416374817490578,
+          "want": 0.0007168391020968556,
+          "lot": 0.0008978645200841129,
+          "price": 0.0008942107670009136
+        },
+        "receipt_value_sensitivity": 2.1143386363983154
+      },
+      "distribution_change": {
+        "workforce": 0.0011728402459993958,
+        "activities": 0.0005125239258632064,
+        "controls": 0.0030860842671245337,
+        "movement": 0.003426578361541033,
+        "enabled": 0.00922815129160881,
+        "partner": 0.021759893745183945,
+        "give": 0.007298874203115702,
+        "want": 0.008879227563738823,
+        "lot": 0.00253027630969882,
+        "price": 0.0025210294406861067
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.054435606829664,
+              -0.00025413409457542
+            ],
+            "after": [
+              -17.328297445288985,
+              0.0008978236583061516
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -17.29706369006173,
+              -0.0008978236583061516
+            ],
+            "after": [
+              -17.65263443038889,
+              -0.0005087979370728135
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 32,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "interpretation": "Original16+16 criterion was directional improvement, not a required positive signed switch"
+      },
+      "evaluation": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 137,
+            "zero": 5,
+            "one": 3,
+            "mean": 0.5143784242605669
+          },
+          {
+            "eligible": 25,
+            "zero": 2,
+            "one": 0,
+            "mean": 0.4084075972488528
+          },
+          {
+            "eligible": 25,
+            "zero": 1,
+            "one": 0,
+            "mean": 0.48766584881409797
+          }
+        ],
+        "steps": 150,
+        "average_qol": 0.1339180080460041,
+        "average_population": 26.68,
+        "annual_welfare": 6.725832020293545,
+        "integrated_welfare": 20177.496060880636,
+        "final_population_mean": 1.1666666666666667,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 93,
+          "trades": 2,
+          "migrants": 103,
+          "daughters": 12,
+          "quotes": 35,
+          "opportunities": 2,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.012115424,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.09606414109772568,
+          0.07738141345013848,
+          0.011189460715341066,
+          0.027336219972597445,
+          0.09242765145865542,
+          0.08666814319566571,
+          0.09067156769079321,
+          0.0936831567703745,
+          0.09152278726834363,
+          0.09324798532460762,
+          0.07402645747225303,
+          0.08410854023158067,
+          0.08167247535192379
+        ],
+        "mean_compiled_staffing": [
+          2.2533333333333334,
+          1.6666666666666667,
+          0.3333333333333333,
+          0.8666666666666667,
+          2.6266666666666665,
+          2.9133333333333336,
+          2.3666666666666667,
+          2.2733333333333334,
+          2.5866666666666664,
+          2.6933333333333334,
+          1.8533333333333333,
+          1.76,
+          2.486666666666667
+        ],
+        "total_production": [
+          7651.759095828836,
+          15080.588690926721,
+          854.5488374187482,
+          7317.246251000719,
+          393.023013106874,
+          8493.109896395365,
+          0.0,
+          0.0,
+          82.30755065538726,
+          535.8054267184114,
+          596.5293508002701
+        ],
+        "total_extraction": [
+          22580.37175653309,
+          27112.270752935394,
+          23688.486142934198
+        ]
+      },
+      "evaluation_demographics": [
+        {
+          "id": "development-881007-survival-d0",
+          "family": "survival",
+          "steps": 25,
+          "initial_population": 100.0,
+          "final_population": 1.0,
+          "time_mean_population": 16.92,
+          "person_years": 8460.0,
+          "time_mean_qol": 0.07412167861151187,
+          "person_year_weighted_qol": 0.10456522602301042,
+          "raw_welfare": 884.6218121546682,
+          "annual_welfare": 1.7692436243093363,
+          "population_normalized_welfare": 8.846218121546682,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 32,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 67,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 67,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.11048437362336216,
+              "compiled": 0.0842441236781794
+            },
+            "Farmer": {
+              "requested": 0.08492905123536634,
+              "compiled": 0.11720221587837686
+            },
+            "Craftsperson": {
+              "requested": 0.07140588744553486,
+              "compiled": 0.07934293398380086
+            }
+          },
+          "expansion_farmer_share": 0.548557893031113,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.02582172598146963,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-trade-d2",
+          "family": "trade",
+          "steps": 25,
+          "initial_population": 238.0,
+          "final_population": 2.0,
+          "time_mean_population": 55.48,
+          "person_years": 27740.0,
+          "time_mean_qol": 0.1730515478565158,
+          "person_year_weighted_qol": 0.20711808633433534,
+          "raw_welfare": 5745.455714914462,
+          "annual_welfare": 11.490911429828925,
+          "population_normalized_welfare": 24.140570230733033,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 88,
+            "Immigrants": 0,
+            "Emigrants": 78,
+            "FissionHeadcount": 70,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 70,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.06434241405722453,
+              "compiled": 0.050893182444579264
+            },
+            "Farmer": {
+              "requested": 0.07973597814949962,
+              "compiled": 0.08763987682502074
+            },
+            "Craftsperson": {
+              "requested": 0.10224467953923995,
+              "compiled": 0.12403557927889503
+            }
+          },
+          "expansion_farmer_share": 0.47802181514936914,
+          "food_reserve_years": 0.2567146347842625,
+          "mean_field_intensity_q": 0.0885509567154183,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-migration-d2",
+          "family": "migration",
+          "steps": 25,
+          "initial_population": 87.0,
+          "final_population": 1.0,
+          "time_mean_population": 19.76,
+          "person_years": 9880.0,
+          "time_mean_qol": 0.08890268873126923,
+          "person_year_weighted_qol": 0.24404227188768798,
+          "raw_welfare": 2411.137646250357,
+          "annual_welfare": 4.822275292500715,
+          "population_normalized_welfare": 27.714225818969624,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 45,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 41,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 41,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.08273714054185753,
+              "compiled": 0.06408555613106627
+            },
+            "Farmer": {
+              "requested": 0.07800106320653942,
+              "compiled": 0.08094913547499755
+            },
+            "Craftsperson": {
+              "requested": 0.09676662307782698,
+              "compiled": 0.1075873432492031
+            }
+          },
+          "expansion_farmer_share": 0.6279900321570345,
+          "food_reserve_years": 0.38420828655909245,
+          "mean_field_intensity_q": 0.02280466409095962,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fission-d8",
+          "family": "fission",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 0.0,
+          "time_mean_population": 16.56,
+          "person_years": 8280.0,
+          "time_mean_qol": 0.07909894176174474,
+          "person_year_weighted_qol": 0.070336520627427,
+          "raw_welfare": 582.3863907950955,
+          "annual_welfare": 1.164772781590191,
+          "population_normalized_welfare": 3.9618121822795613,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 61,
+            "Immigrants": 0,
+            "Emigrants": 5,
+            "FissionHeadcount": 81,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 81,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.13121703022817438,
+              "compiled": 0.10006240015056937
+            },
+            "Farmer": {
+              "requested": 0.11202135874001233,
+              "compiled": 0.1493616771822384
+            },
+            "Craftsperson": {
+              "requested": 0.12224780534086564,
+              "compiled": 0.12786812869014516
+            }
+          },
+          "expansion_farmer_share": 0.44433461468812374,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.029967441962317445,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-husbandry-d2",
+          "family": "husbandry",
+          "steps": 25,
+          "initial_population": 154.0,
+          "final_population": 1.0,
+          "time_mean_population": 22.64,
+          "person_years": 11320.0,
+          "time_mean_qol": 0.15997083943070342,
+          "person_year_weighted_qol": 0.45217114162194355,
+          "raw_welfare": 5118.577323160401,
+          "annual_welfare": 10.237154646320802,
+          "population_normalized_welfare": 33.23751508545715,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 26,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 123,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 123,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.053532110156691376,
+              "compiled": 0.0629946385381168
+            },
+            "Farmer": {
+              "requested": 0.08228411545167542,
+              "compiled": 0.07196858214249519
+            },
+            "Craftsperson": {
+              "requested": 0.09352177854854357,
+              "compiled": 0.15714856882248188
+            }
+          },
+          "expansion_farmer_share": 0.45541824639037454,
+          "food_reserve_years": 0.6047365741652996,
+          "mean_field_intensity_q": 0.0047584933443402784,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fishing-d2",
+          "family": "fishing",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 2.0,
+          "time_mean_population": 28.72,
+          "person_years": 14360.0,
+          "time_mean_qol": 0.2283623518842796,
+          "person_year_weighted_qol": 0.37850398144886155,
+          "raw_welfare": 5435.317173605652,
+          "annual_welfare": 10.870634347211304,
+          "population_normalized_welfare": 36.97494675922212,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 38,
+            "Immigrants": 0,
+            "Emigrants": 16,
+            "FissionHeadcount": 91,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 91,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.13407177797904443,
+              "compiled": 0.14149876239416267
+            },
+            "Farmer": {
+              "requested": 0.027316913917737783,
+              "compiled": 0.023303030303030305
+            },
+            "Craftsperson": {
+              "requested": 0.06837913479992165,
+              "compiled": 0.05982520082244151
+            }
+          },
+          "expansion_farmer_share": 0.26447116353189193,
+          "food_reserve_years": 0.6849438793452142,
+          "mean_field_intensity_q": 0.0015309991872471183,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        }
+      ],
+      "annual_welfare_delta": -0.6477513074594219
+    },
+    {
+      "id": "seed211-lr0.0003",
+      "seed": 211,
+      "actor_lr": 0.0003,
+      "status": "COMPLETE",
+      "transitions": 400,
+      "updates": [
+        {
+          "critic_residual_mse": 34.214298248291016,
+          "actor_step_l2": 0.18431663513183594,
+          "critic_step_l2": 0.25487494468688965,
+          "actor_relative_step": 0.0046603030433970734,
+          "critic_relative_step": 0.0064927886287953025,
+          "actor_first_layer_grad": 1.726954460144043,
+          "critic_first_layer_grad": 9.431225776672363,
+          "advantage_std": 5.84711760425786,
+          "return_std": 11.074956057446167,
+          "actor_updates": 2,
+          "minibatches": 28,
+          "maximum_kl": 0.3159082588020418,
+          "clip_fraction": 0.31183035724929403,
+          "head_gradient_max": {
+            "simplex": 28.804877623915672,
+            "movement": 3.0360708367079496,
+            "enabled": 1.1193217216059566,
+            "partner": 0.6425714599899948,
+            "give": 1.1091011120006442,
+            "want": 1.2262487774714828,
+            "lot": 0.5702187269926071,
+            "price": 0.5579280541278422
+          }
+        },
+        {
+          "critic_residual_mse": 39.04710388183594,
+          "actor_step_l2": 0.15296941995620728,
+          "critic_step_l2": 0.27668970823287964,
+          "actor_relative_step": 0.0038679909812182585,
+          "critic_relative_step": 0.007048418483427566,
+          "actor_first_layer_grad": 2.6466779708862305,
+          "critic_first_layer_grad": 6.597784519195557,
+          "advantage_std": 6.234985675570378,
+          "return_std": 16.263609517595643,
+          "actor_updates": 2,
+          "minibatches": 24,
+          "maximum_kl": 0.09485904734938892,
+          "clip_fraction": 0.2697916671944161,
+          "head_gradient_max": {
+            "simplex": 29.164454013109207,
+            "movement": 2.5236610509455204,
+            "enabled": 1.8070986717939377,
+            "partner": 0.47052709688432515,
+            "give": 1.3605753984302282,
+            "want": 0.9215507609769702,
+            "lot": 0.5112424101680517,
+            "price": 0.5386911733075976
+          }
+        },
+        {
+          "critic_residual_mse": 3.4812233448028564,
+          "actor_step_l2": 0.06664855033159256,
+          "critic_step_l2": 0.05717294663190842,
+          "actor_relative_step": 0.00168537679929938,
+          "critic_relative_step": 0.0014563766974086338,
+          "actor_first_layer_grad": 6.4277849197387695,
+          "critic_first_layer_grad": 1.8513785600662231,
+          "advantage_std": 1.825878349831105,
+          "return_std": 8.24781271731282,
+          "actor_updates": 1,
+          "minibatches": 4,
+          "maximum_kl": 0.03362531193044923,
+          "clip_fraction": 0.2500000074505806,
+          "head_gradient_max": {
+            "simplex": 26.340217649936676,
+            "movement": 1.1566247122827917,
+            "enabled": 0.2676411899738014,
+            "partner": 0.1364721647114493,
+            "give": 2.1756945066154003,
+            "want": 1.3743585217744112,
+            "lot": 0.1765633230097592,
+            "price": 0.17653980245813727
+          }
+        }
+      ],
+      "pair_state_sha256": "a63aa4e97df9cc6f4b74f64948ab655d516ee606d368ef006746cde90df21834",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.007230718154460192,
+            "mean_derivative": 0.5999955534934998,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2841857969760895,
+            "effective_rank": 22.873775211685178
+          },
+          {
+            "saturated_fraction": 0.009973403997719288,
+            "mean_derivative": 0.6166276335716248,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29724133014678955,
+            "effective_rank": 23.860185087660565
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.005984042771160603,
+            "mean_derivative": 0.5978567004203796,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38342997431755066,
+            "effective_rank": 23.968634703593377
+          },
+          {
+            "saturated_fraction": 0.008394282311201096,
+            "mean_derivative": 0.6071683764457703,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.45784005522727966,
+            "effective_rank": 25.556045348847416
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.01937117800116539,
+        "active_raw_max": 0.02155521884560585,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.949968338012695,
+            "concentration_max": 10.312520980834961,
+            "coordinate_std": 0.09010736644268036,
+            "requested_mean_max": 0.08966204524040222
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.8032965660095215,
+            "concentration_max": 7.926183223724365,
+            "coordinate_std": 0.2131534367799759,
+            "requested_mean_max": 0.35812637209892273
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3864974975585938,
+            "concentration_max": 2.3921055793762207,
+            "coordinate_std": 0.2717028856277466,
+            "requested_mean_max": 0.5005503296852112
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9999927878379822,
+            "maximum_probability": 0.16921909153461456,
+            "probability_std": 0.05098864063620567
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.32732823491096497,
+            "maximum_probability": 0.9212576746940613,
+            "probability_std": 0.20849445462226868
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.40338778495788574,
+            "maximum_probability": 0.9194166660308838,
+            "probability_std": 0.0023531890474259853
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.24094419181346893,
+            "maximum_probability": 0.8445656895637512,
+            "probability_std": 0.10015919804573059
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3553421199321747,
+            "maximum_probability": 0.6630380749702454,
+            "probability_std": 0.029819076880812645
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15434615314006805,
+            "maximum_probability": 0.9665884375572205,
+            "probability_std": 9.747579315444455e-05
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15434513986110687,
+            "maximum_probability": 0.9665886759757996,
+            "probability_std": 9.663042874308303e-05
+          }
+        },
+        "value_std": 19.889265060424805,
+        "value_input_gradient": 16.284996032714844,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.9160406589508057
+      },
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr0.0003-step400.pt",
+      "checkpoint_sha256": "e276daf8fced1ce14220ab9d2bf376976a468e468bf8fcdf223e52699a1cfd73",
+      "durable_transitions": 400,
+      "training_summary": {
+        "episodes": 18,
+        "physical_control_endpoints": [
+          {
+            "eligible": 400,
+            "zero": 9,
+            "one": 19,
+            "mean": 0.530296856588659
+          },
+          {
+            "eligible": 93,
+            "zero": 4,
+            "one": 2,
+            "mean": 0.499566318187132
+          },
+          {
+            "eligible": 93,
+            "zero": 6,
+            "one": 2,
+            "mean": 0.47346131591537644
+          }
+        ],
+        "steps": 400,
+        "average_qol": 0.14980083913497982,
+        "average_population": 34.9175,
+        "annual_welfare": 10.694557315073897,
+        "integrated_welfare": 85556.45852059117,
+        "final_population_mean": 5.833333333333333,
+        "terminal_episodes": 7,
+        "events": {
+          "movement": 215,
+          "trades": 8,
+          "migrants": 424,
+          "daughters": 30,
+          "quotes": 128,
+          "opportunities": 8,
+          "compatible_proposals": 8
+        },
+        "native_step_seconds_mean": 0.011541515,
+        "family_counts": {
+          "fishing": 3,
+          "fission": 3,
+          "husbandry": 3,
+          "migration": 3,
+          "survival": 3,
+          "trade": 3
+        },
+        "mean_requested_workforce": [
+          0.09239550185050241,
+          0.0917224831173385,
+          0.01959741550750374,
+          0.02491892510017067,
+          0.08790030639408832,
+          0.08225347036827371,
+          0.08667897296962251,
+          0.08627930161701455,
+          0.08484242041635419,
+          0.08843426928921005,
+          0.08309779620997287,
+          0.0839465738131085,
+          0.08793256334684
+        ],
+        "mean_compiled_staffing": [
+          3.175,
+          3.5475,
+          0.3375,
+          1.015,
+          2.665,
+          3.465,
+          2.59,
+          2.775,
+          2.715,
+          3.2725,
+          3.2525,
+          3.2525,
+          2.855
+        ],
+        "total_production": [
+          41792.378163017194,
+          61322.49673334617,
+          8652.155108709974,
+          33813.845704425956,
+          2327.366473080757,
+          35303.21614281924,
+          0.40747547454586575,
+          0.40747547454586575,
+          1424.1971028481125,
+          3120.153677052573,
+          6562.80738362235
+        ],
+        "total_extraction": [
+          111582.36819213869,
+          95554.91979121156,
+          110657.32360688332
+        ]
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.00822805892676115,
+            "mean_derivative": 0.6025618314743042,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30086517333984375,
+            "effective_rank": 22.965474808762124
+          },
+          {
+            "saturated_fraction": 0.015874335542321205,
+            "mean_derivative": 0.6422303915023804,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3260326683521271,
+            "effective_rank": 23.958691756261608
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.007147606462240219,
+            "mean_derivative": 0.6057521104812622,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3810504674911499,
+            "effective_rank": 23.91559516389221
+          },
+          {
+            "saturated_fraction": 0.010388962924480438,
+            "mean_derivative": 0.6059644818305969,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.45531055331230164,
+            "effective_rank": 25.375323019499294
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.14254601299762726,
+        "active_raw_max": 0.09580777585506439,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.8621826171875,
+            "concentration_max": 10.295835494995117,
+            "coordinate_std": 0.0905027836561203,
+            "requested_mean_max": 0.09178534895181656
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.7963759899139404,
+            "concentration_max": 7.902966499328613,
+            "coordinate_std": 0.21339848637580872,
+            "requested_mean_max": 0.37098264694213867
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.370244026184082,
+            "concentration_max": 2.387564182281494,
+            "coordinate_std": 0.2723500430583954,
+            "requested_mean_max": 0.5034451484680176
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9992468953132629,
+            "maximum_probability": 0.18047307431697845,
+            "probability_std": 0.05098714679479599
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.35686102509498596,
+            "maximum_probability": 0.8994088172912598,
+            "probability_std": 0.28462791442871094
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.9792718887329102,
+            "maximum_probability": 0.5843431353569031,
+            "probability_std": 0.0014761880738660693
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2684473991394043,
+            "maximum_probability": 0.8302013874053955,
+            "probability_std": 0.09416868537664413
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3723238706588745,
+            "maximum_probability": 0.6268288493156433,
+            "probability_std": 0.031082462519407272
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.1681535840034485,
+            "maximum_probability": 0.962615966796875,
+            "probability_std": 0.005150027107447386
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.1681496500968933,
+            "maximum_probability": 0.9626182913780212,
+            "probability_std": 0.005130093544721603
+          }
+        },
+        "value_std": 22.34324836730957,
+        "value_input_gradient": 16.47767448425293,
+        "receipt_sensitivity": {
+          "workforce": 2.102908729284536e-05,
+          "activities": 1.3600254533230327e-05,
+          "controls": 6.721881800331175e-05,
+          "movement": 9.817919635679573e-05,
+          "enabled": 0.005559409968554974,
+          "partner": 0.002659258898347616,
+          "give": 0.0009767903247848153,
+          "want": 0.0016667424933984876,
+          "lot": 0.0010716684628278017,
+          "price": 0.001071979058906436
+        },
+        "receipt_value_sensitivity": 4.3751349449157715
+      },
+      "distribution_change": {
+        "workforce": 0.0017494962085038424,
+        "activities": 0.0007460525957867503,
+        "controls": 0.0015575152356177568,
+        "movement": 0.004902296233922243,
+        "enabled": 0.037154458463191986,
+        "partner": 0.04287070035934448,
+        "give": 0.011123877950012684,
+        "want": 0.010302470065653324,
+        "lot": 0.0027877436950802803,
+        "price": 0.002786298980936408
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.154884826198256,
+              -4.83792282466311e-05
+            ],
+            "after": [
+              -19.487599968224792,
+              0.01450355350971222
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -19.082575812006564,
+              -0.01450355350971222
+            ],
+            "after": [
+              -19.625177677888598,
+              0.0008583493763580918
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 32,
+        "lr": 0.0003,
+        "retained_updates": 0,
+        "interpretation": "Original16+16 criterion was directional improvement, not a required positive signed switch"
+      },
+      "evaluation": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 142,
+            "zero": 7,
+            "one": 8,
+            "mean": 0.5224609453398267
+          },
+          {
+            "eligible": 32,
+            "zero": 0,
+            "one": 1,
+            "mean": 0.45407685149037363
+          },
+          {
+            "eligible": 32,
+            "zero": 0,
+            "one": 2,
+            "mean": 0.5955105369219477
+          }
+        ],
+        "steps": 150,
+        "average_qol": 0.16656045173957615,
+        "average_population": 27.933333333333334,
+        "annual_welfare": 6.092609745960856,
+        "integrated_welfare": 18277.829237882568,
+        "final_population_mean": 1.5,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 85,
+          "trades": 1,
+          "migrants": 181,
+          "daughters": 12,
+          "quotes": 43,
+          "opportunities": 3,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.010939312,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.09785367982373638,
+          0.08282498651691828,
+          0.01778945767190924,
+          0.030008097099781694,
+          0.07731948077375339,
+          0.07548790114702486,
+          0.1012332773506373,
+          0.07585396100096407,
+          0.09474878312893598,
+          0.0948450157118935,
+          0.08696732664736428,
+          0.09168789927923197,
+          0.07338013384784887
+        ],
+        "mean_compiled_staffing": [
+          2.566666666666667,
+          2.013333333333333,
+          0.30666666666666664,
+          1.2666666666666666,
+          2.54,
+          2.026666666666667,
+          3.0866666666666664,
+          2.486666666666667,
+          2.6333333333333333,
+          2.4466666666666668,
+          2.08,
+          2.513333333333333,
+          1.9666666666666666
+        ],
+        "total_production": [
+          10440.4332246125,
+          16877.07697173763,
+          146.87296034895937,
+          7684.644892359275,
+          383.9770060993147,
+          7283.279301239186,
+          0.0,
+          0.0,
+          420.2920829736422,
+          552.6479746837217,
+          1765.2429216714136
+        ],
+        "total_extraction": [
+          31774.73208725806,
+          24870.599078737476,
+          26483.06937597013
+        ]
+      },
+      "evaluation_demographics": [
+        {
+          "id": "development-881007-survival-d0",
+          "family": "survival",
+          "steps": 25,
+          "initial_population": 100.0,
+          "final_population": 0.0,
+          "time_mean_population": 15.56,
+          "person_years": 7780.0,
+          "time_mean_qol": 0.06780904301222494,
+          "person_year_weighted_qol": 0.07215544242284092,
+          "raw_welfare": 561.3693420497024,
+          "annual_welfare": 1.1227386840994047,
+          "population_normalized_welfare": 5.6136934204970235,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 31,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 69,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 69,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.10305868885873237,
+              "compiled": 0.1001652731169759
+            },
+            "Farmer": {
+              "requested": 0.0885140623671698,
+              "compiled": 0.10668280587661393
+            },
+            "Craftsperson": {
+              "requested": 0.07352086162829514,
+              "compiled": 0.0745155174031335
+            }
+          },
+          "expansion_farmer_share": 0.5169495980957366,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.0072444368870021114,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-trade-d2",
+          "family": "trade",
+          "steps": 25,
+          "initial_population": 238.0,
+          "final_population": 2.0,
+          "time_mean_population": 56.32,
+          "person_years": 28160.0,
+          "time_mean_qol": 0.16757675710602501,
+          "person_year_weighted_qol": 0.19177444682094394,
+          "raw_welfare": 5400.368422477782,
+          "annual_welfare": 10.800736844955564,
+          "population_normalized_welfare": 22.690623623856226,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 84,
+            "Immigrants": 0,
+            "Emigrants": 107,
+            "FissionHeadcount": 45,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 45,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.07387527324798096,
+              "compiled": 0.08237259708485642
+            },
+            "Farmer": {
+              "requested": 0.07352053301156125,
+              "compiled": 0.06049388728176367
+            },
+            "Craftsperson": {
+              "requested": 0.0860583810698353,
+              "compiled": 0.07079506669930057
+            }
+          },
+          "expansion_farmer_share": 0.5143623170042789,
+          "food_reserve_years": 0.3560494278945952,
+          "mean_field_intensity_q": 0.04936637769951409,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-migration-d2",
+          "family": "migration",
+          "steps": 25,
+          "initial_population": 87.0,
+          "final_population": 1.0,
+          "time_mean_population": 15.52,
+          "person_years": 7760.0,
+          "time_mean_qol": 0.15154996399067705,
+          "person_year_weighted_qol": 0.2717889076415832,
+          "raw_welfare": 2109.0819232986855,
+          "annual_welfare": 4.218163846597371,
+          "population_normalized_welfare": 24.242320957456155,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 25,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 57,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 57,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.11355640506612083,
+              "compiled": 0.12033202258519862
+            },
+            "Farmer": {
+              "requested": 0.12079931631532892,
+              "compiled": 0.16631243469174503
+            },
+            "Craftsperson": {
+              "requested": 0.07499938043972935,
+              "compiled": 0.04969355991860529
+            }
+          },
+          "expansion_farmer_share": 0.49000275075681254,
+          "food_reserve_years": 0.8683202059716512,
+          "mean_field_intensity_q": 0.03383471067689519,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fission-d8",
+          "family": "fission",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 1.0,
+          "time_mean_population": 23.08,
+          "person_years": 11540.0,
+          "time_mean_qol": 0.10503287470746991,
+          "person_year_weighted_qol": 0.039174380941477016,
+          "raw_welfare": 452.0723560646448,
+          "annual_welfare": 0.9041447121292896,
+          "population_normalized_welfare": 3.0753221500996246,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 95,
+            "Immigrants": 0,
+            "Emigrants": 37,
+            "FissionHeadcount": 14,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 14,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.07781433085492406,
+              "compiled": 0.06617195562717625
+            },
+            "Farmer": {
+              "requested": 0.08447643394300274,
+              "compiled": 0.09149509920042904
+            },
+            "Craftsperson": {
+              "requested": 0.07562712432837335,
+              "compiled": 0.05142542202066012
+            }
+          },
+          "expansion_farmer_share": 0.49253461476922306,
+          "food_reserve_years": 6.4,
+          "mean_field_intensity_q": 0.07379774045830544,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-husbandry-d2",
+          "family": "husbandry",
+          "steps": 25,
+          "initial_population": 154.0,
+          "final_population": 1.0,
+          "time_mean_population": 22.8,
+          "person_years": 11400.0,
+          "time_mean_qol": 0.1467342996858497,
+          "person_year_weighted_qol": 0.35100254632788,
+          "raw_welfare": 4001.4290281378326,
+          "annual_welfare": 8.002858056275665,
+          "population_normalized_welfare": 25.983305377518395,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 27,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 126,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 126,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.12338431032097323,
+              "compiled": 0.2072762696240957
+            },
+            "Farmer": {
+              "requested": 0.06704851468228788,
+              "compiled": 0.07888755688755689
+            },
+            "Craftsperson": {
+              "requested": 0.05677177084328233,
+              "compiled": 0.02936197136197136
+            }
+          },
+          "expansion_farmer_share": 0.5490733992889828,
+          "food_reserve_years": 0.3714850865298496,
+          "mean_field_intensity_q": 0.007689128720221346,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fishing-d2",
+          "family": "fishing",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 4.0,
+          "time_mean_population": 34.32,
+          "person_years": 17160.0,
+          "time_mean_qol": 0.3606597719352103,
+          "person_year_weighted_qol": 0.3352860236511609,
+          "raw_welfare": 5753.508165853921,
+          "annual_welfare": 11.507016331707842,
+          "population_normalized_welfare": 39.1395113323396,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 51,
+            "Immigrants": 0,
+            "Emigrants": 33,
+            "FissionHeadcount": 59,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 44,
+            "Distress": 15,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.09543307059368691,
+              "compiled": 0.09529225886957085
+            },
+            "Farmer": {
+              "requested": 0.06259105878215909,
+              "compiled": 0.05844505494505494
+            },
+            "Craftsperson": {
+              "requested": 0.09693936633300501,
+              "compiled": 0.09556393354089207
+            }
+          },
+          "expansion_farmer_share": 0.40465548961518194,
+          "food_reserve_years": 1.2240538109948107,
+          "mean_field_intensity_q": 0.004713067188161543,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        }
+      ],
+      "annual_welfare_delta": -0.1763624497457057
+    },
+    {
+      "id": "seed211-lr3e-05",
+      "seed": 211,
+      "actor_lr": 3e-05,
+      "status": "COMPLETE",
+      "transitions": 400,
+      "updates": [
+        {
+          "critic_residual_mse": 34.214298248291016,
+          "actor_step_l2": 0.16165262460708618,
+          "critic_step_l2": 0.25487494468688965,
+          "actor_relative_step": 0.004087261130232117,
+          "critic_relative_step": 0.0064927886287953025,
+          "actor_first_layer_grad": 2.7352325916290283,
+          "critic_first_layer_grad": 9.431225776672363,
+          "advantage_std": 5.84711760425786,
+          "return_std": 11.074956057446167,
+          "actor_updates": 24,
+          "minibatches": 28,
+          "maximum_kl": 0.03005429827413975,
+          "clip_fraction": 0.1242410708218813,
+          "head_gradient_max": {
+            "simplex": 36.556764394044876,
+            "movement": 4.308239370584488,
+            "enabled": 1.6151185492053628,
+            "partner": 0.7331918613053858,
+            "give": 1.8267360236495733,
+            "want": 1.6355589013546705,
+            "lot": 0.7529722917824984,
+            "price": 0.7461826303042471
+          }
+        },
+        {
+          "critic_residual_mse": 39.66545867919922,
+          "actor_step_l2": 0.11921781301498413,
+          "critic_step_l2": 0.29522016644477844,
+          "actor_relative_step": 0.0030145697363853194,
+          "critic_relative_step": 0.007520465040566583,
+          "actor_first_layer_grad": 2.8238255977630615,
+          "critic_first_layer_grad": 5.7437238693237305,
+          "advantage_std": 6.2966807519569725,
+          "return_std": 16.348671124686593,
+          "actor_updates": 17,
+          "minibatches": 24,
+          "maximum_kl": 0.035521338115445694,
+          "clip_fraction": 0.17734375006208816,
+          "head_gradient_max": {
+            "simplex": 34.60514983534813,
+            "movement": 3.7132224179804325,
+            "enabled": 1.6590859135612845,
+            "partner": 0.633496799506247,
+            "give": 1.4499063743278384,
+            "want": 1.2401628950610757,
+            "lot": 0.9727443158626556,
+            "price": 0.9191038459539413
+          }
+        },
+        {
+          "critic_residual_mse": 2.135084390640259,
+          "actor_step_l2": 0.027572957798838615,
+          "critic_step_l2": 0.056990958750247955,
+          "actor_relative_step": 0.0006972428797004736,
+          "critic_relative_step": 0.0014517348215906405,
+          "actor_first_layer_grad": 22.75343894958496,
+          "critic_first_layer_grad": 1.3039716482162476,
+          "advantage_std": 1.4609667471956331,
+          "return_std": 8.290490038343425,
+          "actor_updates": 4,
+          "minibatches": 4,
+          "maximum_kl": 0.025994804641365832,
+          "clip_fraction": 0.1666666716337204,
+          "head_gradient_max": {
+            "simplex": 25.8289053440094,
+            "movement": 2.8331124614924192,
+            "enabled": 0.18354609329253435,
+            "partner": 1.1726600751280785,
+            "give": 1.4792472599074244,
+            "want": 0.869784860406071,
+            "lot": 0.2578888339921832,
+            "price": 0.2578882889356464
+          }
+        }
+      ],
+      "pair_state_sha256": "a63aa4e97df9cc6f4b74f64948ab655d516ee606d368ef006746cde90df21834",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.007230718154460192,
+            "mean_derivative": 0.5999955534934998,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2841857969760895,
+            "effective_rank": 22.873775211685178
+          },
+          {
+            "saturated_fraction": 0.009973403997719288,
+            "mean_derivative": 0.6166276335716248,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29724133014678955,
+            "effective_rank": 23.860185087660565
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.005984042771160603,
+            "mean_derivative": 0.5978567004203796,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.38342997431755066,
+            "effective_rank": 23.968634703593377
+          },
+          {
+            "saturated_fraction": 0.008394282311201096,
+            "mean_derivative": 0.6071683764457703,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.45784005522727966,
+            "effective_rank": 25.556045348847416
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.01937117800116539,
+        "active_raw_max": 0.02155521884560585,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.949968338012695,
+            "concentration_max": 10.312520980834961,
+            "coordinate_std": 0.09010736644268036,
+            "requested_mean_max": 0.08966204524040222
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.8032965660095215,
+            "concentration_max": 7.926183223724365,
+            "coordinate_std": 0.2131534367799759,
+            "requested_mean_max": 0.35812637209892273
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3864974975585938,
+            "concentration_max": 2.3921055793762207,
+            "coordinate_std": 0.2717028856277466,
+            "requested_mean_max": 0.5005503296852112
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9999927878379822,
+            "maximum_probability": 0.16921909153461456,
+            "probability_std": 0.05098864063620567
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.32732823491096497,
+            "maximum_probability": 0.9212576746940613,
+            "probability_std": 0.20849445462226868
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.40338778495788574,
+            "maximum_probability": 0.9194166660308838,
+            "probability_std": 0.0023531890474259853
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.24094419181346893,
+            "maximum_probability": 0.8445656895637512,
+            "probability_std": 0.10015919804573059
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3553421199321747,
+            "maximum_probability": 0.6630380749702454,
+            "probability_std": 0.029819076880812645
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15434615314006805,
+            "maximum_probability": 0.9665884375572205,
+            "probability_std": 9.747579315444455e-05
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15434513986110687,
+            "maximum_probability": 0.9665886759757996,
+            "probability_std": 9.663042874308303e-05
+          }
+        },
+        "value_std": 19.889265060424805,
+        "value_input_gradient": 16.284996032714844,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.9160406589508057
+      },
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr3e-05-step400.pt",
+      "checkpoint_sha256": "bf66c92b32e1044a1de96fd36153804db20c7ea57d4b6ea8a29a284df475f17b",
+      "durable_transitions": 400,
+      "training_summary": {
+        "episodes": 18,
+        "physical_control_endpoints": [
+          {
+            "eligible": 400,
+            "zero": 9,
+            "one": 20,
+            "mean": 0.5230984708376635
+          },
+          {
+            "eligible": 92,
+            "zero": 4,
+            "one": 2,
+            "mean": 0.5007957031455162
+          },
+          {
+            "eligible": 92,
+            "zero": 6,
+            "one": 2,
+            "mean": 0.476408640293864
+          }
+        ],
+        "steps": 400,
+        "average_qol": 0.13926515114548937,
+        "average_population": 34.7925,
+        "annual_welfare": 10.532322339571023,
+        "integrated_welfare": 84258.57871656818,
+        "final_population_mean": 5.611111111111111,
+        "terminal_episodes": 7,
+        "events": {
+          "movement": 215,
+          "trades": 8,
+          "migrants": 435,
+          "daughters": 30,
+          "quotes": 133,
+          "opportunities": 8,
+          "compatible_proposals": 8
+        },
+        "native_step_seconds_mean": 0.010765759250000001,
+        "family_counts": {
+          "fishing": 3,
+          "fission": 3,
+          "husbandry": 3,
+          "migration": 3,
+          "survival": 3,
+          "trade": 3
+        },
+        "mean_requested_workforce": [
+          0.08886368104392478,
+          0.09101130728655234,
+          0.019347606252112192,
+          0.02303457874170973,
+          0.08356612708534705,
+          0.08518568727101156,
+          0.08470654258028794,
+          0.08596161953445249,
+          0.09063783226126493,
+          0.08920398916061836,
+          0.083520190481129,
+          0.08542670077009498,
+          0.08953413753149447
+        ],
+        "mean_compiled_staffing": [
+          3.105,
+          3.5625,
+          0.3375,
+          0.8975,
+          2.6475,
+          3.5275,
+          2.55,
+          2.775,
+          2.7975,
+          3.195,
+          3.2125,
+          3.2675,
+          2.9175
+        ],
+        "total_production": [
+          41996.458253761426,
+          60930.00971961846,
+          8612.91096132979,
+          35024.36116871606,
+          2232.3534458566437,
+          36888.70593718803,
+          0.40747547454586575,
+          0.40747547454586575,
+          1423.8620912525073,
+          3106.159949411117,
+          6511.527583240068
+        ],
+        "total_extraction": [
+          111859.45601671391,
+          98049.01722902342,
+          109192.56972847693
+        ]
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008311170153319836,
+            "mean_derivative": 0.6021308898925781,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3021339178085327,
+            "effective_rank": 22.954532719489066
+          },
+          {
+            "saturated_fraction": 0.015375664457678795,
+            "mean_derivative": 0.64201420545578,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3298732340335846,
+            "effective_rank": 24.023994270016996
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.007230718154460192,
+            "mean_derivative": 0.6055482029914856,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3821471333503723,
+            "effective_rank": 23.928959685216114
+          },
+          {
+            "saturated_fraction": 0.010139627382159233,
+            "mean_derivative": 0.605340838432312,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.45812609791755676,
+            "effective_rank": 25.37217346612198
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.0643572211265564,
+        "active_raw_max": 0.08167263865470886,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.916230201721191,
+            "concentration_max": 10.29781723022461,
+            "coordinate_std": 0.09025638550519943,
+            "requested_mean_max": 0.09178313612937927
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.812135934829712,
+            "concentration_max": 7.947047233581543,
+            "coordinate_std": 0.21298421919345856,
+            "requested_mean_max": 0.3650607764720917
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.387586832046509,
+            "concentration_max": 2.3991923332214355,
+            "coordinate_std": 0.2716362476348877,
+            "requested_mean_max": 0.5063927173614502
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9996151328086853,
+            "maximum_probability": 0.1765972524881363,
+            "probability_std": 0.05107829347252846
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.3502647578716278,
+            "maximum_probability": 0.909578263759613,
+            "probability_std": 0.285886287689209
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.679233729839325,
+            "maximum_probability": 0.8203300833702087,
+            "probability_std": 0.0012383885914459825
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2629004418849945,
+            "maximum_probability": 0.8424861431121826,
+            "probability_std": 0.09285204112529755
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.36535483598709106,
+            "maximum_probability": 0.6480776071548462,
+            "probability_std": 0.030954288318753242
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.16628122329711914,
+            "maximum_probability": 0.963167130947113,
+            "probability_std": 0.004667031113058329
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.16624093055725098,
+            "maximum_probability": 0.9631805419921875,
+            "probability_std": 0.004628059454262257
+          }
+        },
+        "value_std": 22.72563362121582,
+        "value_input_gradient": 16.64179039001465,
+        "receipt_sensitivity": {
+          "workforce": 1.7431602827855386e-05,
+          "activities": 6.296148058027029e-06,
+          "controls": 4.746262857224792e-05,
+          "movement": 6.83173057041131e-05,
+          "enabled": 0.004684949293732643,
+          "partner": 0.0012562763877213001,
+          "give": 0.0009383219876326621,
+          "want": 0.0009768041782081127,
+          "lot": 0.0008770223357714713,
+          "price": 0.0008739126496948302
+        },
+        "receipt_value_sensitivity": 4.482555389404297
+      },
+      "distribution_change": {
+        "workforce": 0.0011419374495744705,
+        "activities": 0.0003388671320863068,
+        "controls": 0.002818511798977852,
+        "movement": 0.0035665640607476234,
+        "enabled": 0.03542018309235573,
+        "partner": 0.01792212203145027,
+        "give": 0.016444677487015724,
+        "want": 0.0043534087017178535,
+        "lot": 0.0024009691551327705,
+        "price": 0.002391766756772995
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.09961505346194,
+              0.00028031208785250783
+            ],
+            "after": [
+              -17.35959605430807,
+              0.001634639105759561
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -17.303271234679606,
+              -0.001634639105759561
+            ],
+            "after": [
+              -17.645239900572243,
+              -0.0011790062999352813
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 32,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "interpretation": "Original16+16 criterion was directional improvement, not a required positive signed switch"
+      },
+      "evaluation": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 124,
+            "zero": 4,
+            "one": 4,
+            "mean": 0.5104548936382597
+          },
+          {
+            "eligible": 24,
+            "zero": 2,
+            "one": 1,
+            "mean": 0.5348612365102041
+          },
+          {
+            "eligible": 24,
+            "zero": 0,
+            "one": 0,
+            "mean": 0.47816919572341665
+          }
+        ],
+        "steps": 149,
+        "average_qol": 0.12339209382384132,
+        "average_population": 27.78523489932886,
+        "annual_welfare": 5.934059126865551,
+        "integrated_welfare": 17683.496198059343,
+        "final_population_mean": 0.8333333333333334,
+        "terminal_episodes": 3,
+        "events": {
+          "movement": 79,
+          "trades": 1,
+          "migrants": 176,
+          "daughters": 12,
+          "quotes": 41,
+          "opportunities": 3,
+          "compatible_proposals": 1
+        },
+        "native_step_seconds_mean": 0.010656591275167784,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.08911448319979262,
+          0.06737838983252172,
+          0.016535605948776455,
+          0.031157496366061674,
+          0.08881380451726781,
+          0.0787236781882568,
+          0.09217242054023202,
+          0.08326433805906609,
+          0.09487211395357062,
+          0.09390855093880311,
+          0.09063956361960254,
+          0.08938991976338624,
+          0.08402963507266244
+        ],
+        "mean_compiled_staffing": [
+          2.402684563758389,
+          1.8859060402684564,
+          0.30201342281879195,
+          1.2281879194630871,
+          2.5033557046979866,
+          2.053691275167785,
+          2.9194630872483223,
+          2.5033557046979866,
+          2.6577181208053693,
+          2.2751677852348995,
+          2.302013422818792,
+          2.5369127516778525,
+          2.214765100671141
+        ],
+        "total_production": [
+          10085.807965969065,
+          17314.84374852362,
+          173.27028190061048,
+          6979.708307557834,
+          344.8447170963017,
+          8388.291662625943,
+          0.0,
+          0.0,
+          278.072270074025,
+          543.5920570532227,
+          2243.106521455163
+        ],
+        "total_extraction": [
+          31648.245190239773,
+          25707.74974686286,
+          28914.47847828822
+        ]
+      },
+      "evaluation_demographics": [
+        {
+          "id": "development-881007-survival-d0",
+          "family": "survival",
+          "steps": 25,
+          "initial_population": 100.0,
+          "final_population": 0.0,
+          "time_mean_population": 15.6,
+          "person_years": 7800.0,
+          "time_mean_qol": 0.06978952830567747,
+          "person_year_weighted_qol": 0.073185442678296,
+          "raw_welfare": 570.8464528907089,
+          "annual_welfare": 1.1416929057814178,
+          "population_normalized_welfare": 5.708464528907089,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 31,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 69,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 69,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.10370133069430625,
+              "compiled": 0.1005652731169759
+            },
+            "Farmer": {
+              "requested": 0.08618129561245863,
+              "compiled": 0.11168280587661393
+            },
+            "Craftsperson": {
+              "requested": 0.07087338465365012,
+              "compiled": 0.0741155174031335
+            }
+          },
+          "expansion_farmer_share": 0.5097890229631252,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.007044354714034272,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-trade-d2",
+          "family": "trade",
+          "steps": 25,
+          "initial_population": 238.0,
+          "final_population": 1.0,
+          "time_mean_population": 56.16,
+          "person_years": 28080.0,
+          "time_mean_qol": 0.15424394117396234,
+          "person_year_weighted_qol": 0.18683954821972718,
+          "raw_welfare": 5246.454514009939,
+          "annual_welfare": 10.492909028019877,
+          "population_normalized_welfare": 22.043926529453525,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 85,
+            "Immigrants": 0,
+            "Emigrants": 107,
+            "FissionHeadcount": 45,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 45,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.07759539819980642,
+              "compiled": 0.06803156921925389
+            },
+            "Farmer": {
+              "requested": 0.08993593694420379,
+              "compiled": 0.09276836900983186
+            },
+            "Craftsperson": {
+              "requested": 0.10209994925020255,
+              "compiled": 0.0924178435665657
+            }
+          },
+          "expansion_farmer_share": 0.46615736462162166,
+          "food_reserve_years": 0.27971207479523713,
+          "mean_field_intensity_q": 0.05042159169849012,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-migration-d2",
+          "family": "migration",
+          "steps": 25,
+          "initial_population": 87.0,
+          "final_population": 1.0,
+          "time_mean_population": 15.16,
+          "person_years": 7580.0,
+          "time_mean_qol": 0.1806178341442288,
+          "person_year_weighted_qol": 0.34881887249809024,
+          "raw_welfare": 2644.047053535524,
+          "annual_welfare": 5.288094107071048,
+          "population_normalized_welfare": 30.391345442937055,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 23,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 59,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 59,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.1073409781727525,
+              "compiled": 0.11646922718930833
+            },
+            "Farmer": {
+              "requested": 0.11856930144131027,
+              "compiled": 0.17741887726877584
+            },
+            "Craftsperson": {
+              "requested": 0.06751803086283217,
+              "compiled": 0.04362432789207637
+            }
+          },
+          "expansion_farmer_share": 0.4866911272648352,
+          "food_reserve_years": 0.8395917748881646,
+          "mean_field_intensity_q": 0.05002744150400552,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fission-d8",
+          "family": "fission",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 0.0,
+          "time_mean_population": 22.8,
+          "person_years": 11400.0,
+          "time_mean_qol": 0.029063937830574767,
+          "person_year_weighted_qol": 0.027507924642631,
+          "raw_welfare": 313.5903409259934,
+          "annual_welfare": 0.6271806818519868,
+          "population_normalized_welfare": 2.133267625346894,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 96,
+            "Immigrants": 0,
+            "Emigrants": 32,
+            "FissionHeadcount": 19,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 19,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.09303839789722486,
+              "compiled": 0.11256795968636815
+            },
+            "Farmer": {
+              "requested": 0.05245002307940362,
+              "compiled": 0.030837157205674898
+            },
+            "Craftsperson": {
+              "requested": 0.09264619585812957,
+              "compiled": 0.07814347913597937
+            }
+          },
+          "expansion_farmer_share": 0.5786514828438225,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.0645898947795555,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-husbandry-d2",
+          "family": "husbandry",
+          "steps": 24,
+          "initial_population": 154.0,
+          "final_population": 0.0,
+          "time_mean_population": 23.5,
+          "person_years": 11280.0,
+          "time_mean_qol": 0.08799091417213105,
+          "person_year_weighted_qol": 0.3445285785990732,
+          "raw_welfare": 3886.282366597546,
+          "annual_welfare": 8.096421597078221,
+          "population_normalized_welfare": 25.235599783100948,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 28,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 126,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 126,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.07840168931684742,
+              "compiled": 0.07723671699854565
+            },
+            "Farmer": {
+              "requested": 0.056706923254638775,
+              "compiled": 0.04693670300287947
+            },
+            "Craftsperson": {
+              "requested": 0.09537880167441477,
+              "compiled": 0.1682233207968502
+            }
+          },
+          "expansion_farmer_share": 0.5110075778670453,
+          "food_reserve_years": 0.38693019756877445,
+          "mean_field_intensity_q": 0.004423814934047104,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fishing-d2",
+          "family": "fishing",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 3.0,
+          "time_mean_population": 33.32,
+          "person_years": 16660.0,
+          "time_mean_qol": 0.21723036013040511,
+          "person_year_weighted_qol": 0.30145711105039813,
+          "raw_welfare": 5022.275470099633,
+          "annual_welfare": 10.044550940199265,
+          "population_normalized_welfare": 34.16513925237845,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 52,
+            "Immigrants": 0,
+            "Emigrants": 33,
+            "FissionHeadcount": 59,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 44,
+            "Distress": 15,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.07418059316250036,
+              "compiled": 0.08008384164447702
+            },
+            "Farmer": {
+              "requested": 0.0,
+              "compiled": 0.0
+            },
+            "Craftsperson": {
+              "requested": 0.10462906469066327,
+              "compiled": 0.1068472917146612
+            }
+          },
+          "expansion_farmer_share": 0.0,
+          "food_reserve_years": 0.7054768305643448,
+          "mean_field_intensity_q": 0.0,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        }
+      ],
+      "annual_welfare_delta": -0.33491306884101046
+    },
+    {
+      "id": "seed307-lr0.0003",
+      "seed": 307,
+      "actor_lr": 0.0003,
+      "status": "COMPLETE",
+      "transitions": 400,
+      "updates": [
+        {
+          "critic_residual_mse": 17.773258209228516,
+          "actor_step_l2": 0.11812451481819153,
+          "critic_step_l2": 0.2438230961561203,
+          "actor_relative_step": 0.00298651066200614,
+          "critic_relative_step": 0.006212964594392516,
+          "actor_first_layer_grad": 2.94699764251709,
+          "critic_first_layer_grad": 1.7680240869522095,
+          "advantage_std": 4.149370937689815,
+          "return_std": 5.3960809525375595,
+          "actor_updates": 1,
+          "minibatches": 28,
+          "maximum_kl": 0.1878843607678506,
+          "clip_fraction": 0.2415497454681567,
+          "head_gradient_max": {
+            "simplex": 28.125691831111908,
+            "movement": 2.8726795241236687,
+            "enabled": 0.2564430038910359,
+            "partner": 0.9350675749592483,
+            "give": 1.8679249845445156,
+            "want": 1.792732193134725,
+            "lot": 0.3595064152032137,
+            "price": 0.3593794899061322
+          }
+        },
+        {
+          "critic_residual_mse": 15.594971656799316,
+          "actor_step_l2": 0.16626740992069244,
+          "critic_step_l2": 0.1886393129825592,
+          "actor_relative_step": 0.004203832513202199,
+          "critic_relative_step": 0.004806749778012793,
+          "actor_first_layer_grad": 1.3548065423965454,
+          "critic_first_layer_grad": 2.37740421295166,
+          "advantage_std": 3.916231624789926,
+          "return_std": 6.113574583115695,
+          "actor_updates": 2,
+          "minibatches": 24,
+          "maximum_kl": 0.12894468835865802,
+          "clip_fraction": 0.2890625,
+          "head_gradient_max": {
+            "simplex": 30.275229528546333,
+            "movement": 3.2421191409230232,
+            "enabled": 0.20160243989084847,
+            "partner": 0.35338042373768985,
+            "give": 1.2165094586089253,
+            "want": 1.0722598861902952,
+            "lot": 0.5770515450276434,
+            "price": 0.5798755600117147
+          }
+        },
+        {
+          "critic_residual_mse": 7.994919776916504,
+          "actor_step_l2": 0.14062798023223877,
+          "critic_step_l2": 0.03955213725566864,
+          "actor_relative_step": 0.003555790383152794,
+          "critic_relative_step": 0.0010078247079615033,
+          "actor_first_layer_grad": 4.8553853034973145,
+          "critic_first_layer_grad": 2.157815933227539,
+          "advantage_std": 1.2090838274705136,
+          "return_std": 6.648469774552384,
+          "actor_updates": 2,
+          "minibatches": 4,
+          "maximum_kl": 0.0818844282979855,
+          "clip_fraction": 0.375,
+          "head_gradient_max": {
+            "simplex": 27.06612801551819,
+            "movement": 3.6524981893599033,
+            "enabled": 1.2198875099420547,
+            "partner": 0.08997550990898162,
+            "give": 0.23811131017282605,
+            "want": 0.2993063044268638,
+            "lot": 0.2431689202785492,
+            "price": 0.24318462400697172
+          }
+        }
+      ],
+      "pair_state_sha256": "575ce9c40c2f36f383facb81fc3d4358309a3fc7283af2aebe4066ab3f60273b",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008726729080080986,
+            "mean_derivative": 0.5951440930366516,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2711572051048279,
+            "effective_rank": 23.060450064709453
+          },
+          {
+            "saturated_fraction": 0.01130319107323885,
+            "mean_derivative": 0.6157743334770203,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28570395708084106,
+            "effective_rank": 23.91441530098517
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.012799202464520931,
+            "mean_derivative": 0.616542398929596,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.40053749084472656,
+            "effective_rank": 24.233614801599263
+          },
+          {
+            "saturated_fraction": 0.009474733844399452,
+            "mean_derivative": 0.6013985872268677,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.48574331402778625,
+            "effective_rank": 25.416208618118734
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.021128874272108078,
+        "active_raw_max": 0.015104008838534355,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.951420783996582,
+            "concentration_max": 10.300716400146484,
+            "coordinate_std": 0.09010033309459686,
+            "requested_mean_max": 0.08946014940738678
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.796673059463501,
+            "concentration_max": 7.932712554931641,
+            "coordinate_std": 0.2133553922176361,
+            "requested_mean_max": 0.3587718904018402
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3842453956604004,
+            "concentration_max": 2.3902556896209717,
+            "coordinate_std": 0.2717922031879425,
+            "requested_mean_max": 0.5014898180961609
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9999881386756897,
+            "maximum_probability": 0.16978248953819275,
+            "probability_std": 0.051139749586582184
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.307390421628952,
+            "maximum_probability": 0.9240846037864685,
+            "probability_std": 0.23684518039226532
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.8437053561210632,
+            "maximum_probability": 0.6920947432518005,
+            "probability_std": 0.03531808406114578
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.23004774749279022,
+            "maximum_probability": 0.8619567155838013,
+            "probability_std": 0.09756677597761154
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3518500328063965,
+            "maximum_probability": 0.6579727530479431,
+            "probability_std": 0.035457685589790344
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15422987937927246,
+            "maximum_probability": 0.9666200876235962,
+            "probability_std": 5.314270674716681e-05
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.1542305201292038,
+            "maximum_probability": 0.9666198492050171,
+            "probability_std": 5.344742749002762e-05
+          }
+        },
+        "value_std": 18.07033920288086,
+        "value_input_gradient": 14.736572265625,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.3975839614868164
+      },
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr0.0003-step400.pt",
+      "checkpoint_sha256": "925ca229dca1091c1f0dd80e08984ef198d3fbf5118e0bfc909d6f3da17c4657",
+      "durable_transitions": 400,
+      "training_summary": {
+        "episodes": 18,
+        "physical_control_endpoints": [
+          {
+            "eligible": 400,
+            "zero": 16,
+            "one": 13,
+            "mean": 0.5271564498815423
+          },
+          {
+            "eligible": 68,
+            "zero": 1,
+            "one": 1,
+            "mean": 0.5528870087986475
+          },
+          {
+            "eligible": 68,
+            "zero": 3,
+            "one": 1,
+            "mean": 0.45492514727842753
+          }
+        ],
+        "steps": 400,
+        "average_qol": 0.11151541830940655,
+        "average_population": 31.6725,
+        "annual_welfare": 5.393523663434336,
+        "integrated_welfare": 43148.18930747469,
+        "final_population_mean": 9.722222222222221,
+        "terminal_episodes": 6,
+        "events": {
+          "movement": 227,
+          "trades": 7,
+          "migrants": 497,
+          "daughters": 35,
+          "quotes": 140,
+          "opportunities": 11,
+          "compatible_proposals": 8
+        },
+        "native_step_seconds_mean": 0.011290222999999999,
+        "family_counts": {
+          "fishing": 3,
+          "fission": 3,
+          "husbandry": 3,
+          "migration": 3,
+          "survival": 3,
+          "trade": 3
+        },
+        "mean_requested_workforce": [
+          0.09650672210769493,
+          0.08620702838472326,
+          0.012699644716282184,
+          0.02383817504556715,
+          0.09279343078364923,
+          0.08651790335925093,
+          0.09134671822829205,
+          0.08114152964487702,
+          0.09370378160842358,
+          0.08577986432998258,
+          0.07889902542961479,
+          0.08543543704954137,
+          0.08513073931210123
+        ],
+        "mean_compiled_staffing": [
+          3.615,
+          2.8175,
+          0.155,
+          1.035,
+          2.89,
+          2.7,
+          2.2175,
+          2.97,
+          2.925,
+          2.6225,
+          2.655,
+          2.4625,
+          2.6075
+        ],
+        "total_production": [
+          40710.858298706444,
+          54600.054966185315,
+          9117.950059846238,
+          30212.67900131087,
+          897.2810841268534,
+          26195.498649135276,
+          0.0,
+          0.0,
+          264.0174835264693,
+          1407.7747284436098,
+          1224.0463919699293
+        ],
+        "total_extraction": [
+          86517.56630320958,
+          86256.43210099089,
+          92161.16134385738
+        ]
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009142287075519562,
+            "mean_derivative": 0.5955615639686584,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28264057636260986,
+            "effective_rank": 23.07362647828168
+          },
+          {
+            "saturated_fraction": 0.017536569386720657,
+            "mean_derivative": 0.6521547436714172,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30949854850769043,
+            "effective_rank": 23.875657245395292
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.011136967688798904,
+            "mean_derivative": 0.6113741993904114,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3831605911254883,
+            "effective_rank": 24.23973601699268
+          },
+          {
+            "saturated_fraction": 0.008477393537759781,
+            "mean_derivative": 0.6006011366844177,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.4487442672252655,
+            "effective_rank": 25.37247726884891
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.13148295879364014,
+        "active_raw_max": 0.15605628490447998,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.882709503173828,
+            "concentration_max": 10.252591133117676,
+            "coordinate_std": 0.0903911218047142,
+            "requested_mean_max": 0.09735530614852905
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.7776615619659424,
+            "concentration_max": 7.899655342102051,
+            "coordinate_std": 0.21385633945465088,
+            "requested_mean_max": 0.3706497550010681
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3726799488067627,
+            "concentration_max": 2.3973546028137207,
+            "coordinate_std": 0.27224287390708923,
+            "requested_mean_max": 0.5060598850250244
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9994634389877319,
+            "maximum_probability": 0.17522379755973816,
+            "probability_std": 0.05049092322587967
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.3278498649597168,
+            "maximum_probability": 0.9270718693733215,
+            "probability_std": 0.3152191936969757
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.7253506779670715,
+            "maximum_probability": 0.7330620884895325,
+            "probability_std": 0.06803999096155167
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.256132036447525,
+            "maximum_probability": 0.8569282293319702,
+            "probability_std": 0.1026248037815094
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3559582531452179,
+            "maximum_probability": 0.6587518453598022,
+            "probability_std": 0.034496571868658066
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.16021591424942017,
+            "maximum_probability": 0.9649655222892761,
+            "probability_std": 0.0017570991767570376
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.160213902592659,
+            "maximum_probability": 0.9649658799171448,
+            "probability_std": 0.0017612703377380967
+          }
+        },
+        "value_std": 13.664318084716797,
+        "value_input_gradient": 12.54896068572998,
+        "receipt_sensitivity": {
+          "workforce": 4.051889118272811e-05,
+          "activities": 8.494061148667242e-06,
+          "controls": 3.4133488952647895e-05,
+          "movement": 7.96805543359369e-05,
+          "enabled": 0.006794640328735113,
+          "partner": 0.005277738440781832,
+          "give": 0.0028408595826476812,
+          "want": 0.0026686168275773525,
+          "lot": 0.00039821569225750864,
+          "price": 0.00039783320971764624
+        },
+        "receipt_value_sensitivity": 1.7800992727279663
+      },
+      "distribution_change": {
+        "workforce": 0.0022934379521757364,
+        "activities": 0.0006265994161367416,
+        "controls": 0.0020634823013097048,
+        "movement": 0.005100087728351355,
+        "enabled": 0.044449105858802795,
+        "partner": 0.07053609937429428,
+        "give": 0.030188200995326042,
+        "want": 0.039851944893598557,
+        "lot": 0.0011611066292971373,
+        "price": 0.0011606698390096426
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.236781234523882,
+              0.0004871163400821388
+            ],
+            "after": [
+              -19.54680170198544,
+              0.013988187536597252
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -19.16013169515913,
+              -0.013988187536597252
+            ],
+            "after": [
+              -19.61877861741459,
+              -0.00034608691930770874
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 32,
+        "lr": 0.0003,
+        "retained_updates": 0,
+        "interpretation": "Original16+16 criterion was directional improvement, not a required positive signed switch"
+      },
+      "evaluation": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 124,
+            "zero": 4,
+            "one": 4,
+            "mean": 0.5245167185723333
+          },
+          {
+            "eligible": 25,
+            "zero": 0,
+            "one": 2,
+            "mean": 0.4657168839574992
+          },
+          {
+            "eligible": 25,
+            "zero": 3,
+            "one": 3,
+            "mean": 0.4913318647720243
+          }
+        ],
+        "steps": 149,
+        "average_qol": 0.13806626263818259,
+        "average_population": 29.06040268456376,
+        "annual_welfare": 6.139564135687582,
+        "integrated_welfare": 18295.901124348995,
+        "final_population_mean": 1.3333333333333333,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 73,
+          "trades": 0,
+          "migrants": 165,
+          "daughters": 10,
+          "quotes": 41,
+          "opportunities": 2,
+          "compatible_proposals": 0
+        },
+        "native_step_seconds_mean": 0.011338372483221476,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.0990984418629263,
+          0.06752080086921906,
+          0.011504686639202472,
+          0.02461943953069189,
+          0.08746796315734648,
+          0.09704179279111506,
+          0.0904049412100207,
+          0.0719963272142325,
+          0.09314516760532225,
+          0.07742330536497571,
+          0.09466853576950435,
+          0.09440812920045895,
+          0.0907004687849844
+        ],
+        "mean_compiled_staffing": [
+          2.5704697986577183,
+          2.046979865771812,
+          0.348993288590604,
+          0.6241610738255033,
+          2.959731543624161,
+          3.6778523489932886,
+          2.8993288590604025,
+          2.12751677852349,
+          2.1946308724832213,
+          1.9463087248322148,
+          2.7114093959731544,
+          1.9932885906040267,
+          2.959731543624161
+        ],
+        "total_production": [
+          14855.408107393341,
+          21659.25296608083,
+          86.83238496206644,
+          8389.897141872694,
+          322.5014282627773,
+          6035.717883115142,
+          0.0,
+          0.0,
+          254.84190869684068,
+          450.29231217647623,
+          1577.7344892002366
+        ],
+        "total_extraction": [
+          25769.66951107602,
+          30157.933145381277,
+          33612.67052305077
+        ]
+      },
+      "evaluation_demographics": [
+        {
+          "id": "development-881007-survival-d0",
+          "family": "survival",
+          "steps": 24,
+          "initial_population": 100.0,
+          "final_population": 0.0,
+          "time_mean_population": 16.958333333333332,
+          "person_years": 8140.0,
+          "time_mean_qol": 0.03835683761442508,
+          "person_year_weighted_qol": 0.07029601214395519,
+          "raw_welfare": 572.2095388517952,
+          "annual_welfare": 1.19210320594124,
+          "population_normalized_welfare": 5.7220953885179515,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 35,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 61,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 61,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.0989473420968612,
+              "compiled": 0.07489139515455305
+            },
+            "Farmer": {
+              "requested": 0.08019588912980231,
+              "compiled": 0.08397875816993465
+            },
+            "Craftsperson": {
+              "requested": 0.08250771846868658,
+              "compiled": 0.07086737984667552
+            }
+          },
+          "expansion_farmer_share": 0.5553560267865011,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.014383144509402953,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-trade-d2",
+          "family": "trade",
+          "steps": 25,
+          "initial_population": 238.0,
+          "final_population": 2.0,
+          "time_mean_population": 58.28,
+          "person_years": 29140.0,
+          "time_mean_qol": 0.17340842430775583,
+          "person_year_weighted_qol": 0.15650297261116647,
+          "raw_welfare": 4560.496621889391,
+          "annual_welfare": 9.12099324377878,
+          "population_normalized_welfare": 19.161750512140298,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 125,
+            "Immigrants": 0,
+            "Emigrants": 92,
+            "FissionHeadcount": 19,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 19,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.09008858032608591,
+              "compiled": 0.10094973593203235
+            },
+            "Farmer": {
+              "requested": 0.06608939677956208,
+              "compiled": 0.04667268701105635
+            },
+            "Craftsperson": {
+              "requested": 0.08345995966852154,
+              "compiled": 0.07958485669377015
+            }
+          },
+          "expansion_farmer_share": 0.517884136885437,
+          "food_reserve_years": 1.351521549005582,
+          "mean_field_intensity_q": 0.11256353351645533,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-migration-d2",
+          "family": "migration",
+          "steps": 25,
+          "initial_population": 87.0,
+          "final_population": 1.0,
+          "time_mean_population": 19.72,
+          "person_years": 9860.0,
+          "time_mean_qol": 0.12327803780750578,
+          "person_year_weighted_qol": 0.19912086639632287,
+          "raw_welfare": 1963.3317426677436,
+          "annual_welfare": 3.9266634853354874,
+          "population_normalized_welfare": 22.567031524916594,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 44,
+            "Immigrants": 0,
+            "Emigrants": 5,
+            "FissionHeadcount": 37,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 37,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.07613801598220478,
+              "compiled": 0.08355864593160418
+            },
+            "Farmer": {
+              "requested": 0.06696961140032494,
+              "compiled": 0.09810643680779796
+            },
+            "Craftsperson": {
+              "requested": 0.08928721485869316,
+              "compiled": 0.09533090279687376
+            }
+          },
+          "expansion_farmer_share": 0.430608045028646,
+          "food_reserve_years": 0.7824391506131506,
+          "mean_field_intensity_q": 0.01738469441726666,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fission-d8",
+          "family": "fission",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 1.0,
+          "time_mean_population": 23.6,
+          "person_years": 11800.0,
+          "time_mean_qol": 0.11896016909000001,
+          "person_year_weighted_qol": 0.0630786440047113,
+          "raw_welfare": 744.3279992555933,
+          "annual_welfare": 1.4886559985111867,
+          "population_normalized_welfare": 5.063455777248934,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 95,
+            "Immigrants": 0,
+            "Emigrants": 35,
+            "FissionHeadcount": 16,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 16,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.11030901005083488,
+              "compiled": 0.14673138909307434
+            },
+            "Farmer": {
+              "requested": 0.10008813252371976,
+              "compiled": 0.09659200204389431
+            },
+            "Craftsperson": {
+              "requested": 0.1028472301522565,
+              "compiled": 0.1232992861565484
+            }
+          },
+          "expansion_farmer_share": 0.5153036090525936,
+          "food_reserve_years": 0.09246672746300376,
+          "mean_field_intensity_q": 0.08345549650697427,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-husbandry-d2",
+          "family": "husbandry",
+          "steps": 25,
+          "initial_population": 154.0,
+          "final_population": 1.0,
+          "time_mean_population": 21.76,
+          "person_years": 10880.0,
+          "time_mean_qol": 0.13323708549092053,
+          "person_year_weighted_qol": 0.38053375860614436,
+          "raw_welfare": 4140.20729363485,
+          "annual_welfare": 8.280414587269702,
+          "population_normalized_welfare": 26.88446294568085,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 22,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 131,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 131,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.09334950213274365,
+              "compiled": 0.08882362082362083
+            },
+            "Farmer": {
+              "requested": 0.0922887789123286,
+              "compiled": 0.10383749583749584
+            },
+            "Craftsperson": {
+              "requested": 0.06621885651429615,
+              "compiled": 0.08574092574092575
+            }
+          },
+          "expansion_farmer_share": 0.6046653474370555,
+          "food_reserve_years": 0.25267730276847233,
+          "mean_field_intensity_q": 0.007969372731888968,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fishing-d2",
+          "family": "fishing",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 3.0,
+          "time_mean_population": 33.56,
+          "person_years": 16780.0,
+          "time_mean_qol": 0.2371686445175381,
+          "person_year_weighted_qol": 0.3763604247943756,
+          "raw_welfare": 6315.327928049623,
+          "annual_welfare": 12.630655856099246,
+          "population_normalized_welfare": 42.96141447652805,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 43,
+            "Immigrants": 0,
+            "Emigrants": 29,
+            "FissionHeadcount": 72,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 72,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.12575215659818448,
+              "compiled": 0.120247641836163
+            },
+            "Farmer": {
+              "requested": 0.0,
+              "compiled": 0.0
+            },
+            "Craftsperson": {
+              "requested": 0.10028838949407852,
+              "compiled": 0.09450616135411875
+            }
+          },
+          "expansion_farmer_share": 0.0,
+          "food_reserve_years": 0.7946213542897593,
+          "mean_field_intensity_q": 0.0,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        }
+      ],
+      "annual_welfare_delta": -0.6238185139023456
+    },
+    {
+      "id": "seed307-lr3e-05",
+      "seed": 307,
+      "actor_lr": 3e-05,
+      "status": "COMPLETE",
+      "transitions": 400,
+      "updates": [
+        {
+          "critic_residual_mse": 17.773258209228516,
+          "actor_step_l2": 0.17225345969200134,
+          "critic_step_l2": 0.2438230961561203,
+          "actor_relative_step": 0.004355038365485689,
+          "critic_relative_step": 0.006212964594392516,
+          "actor_first_layer_grad": 3.4456541538238525,
+          "critic_first_layer_grad": 1.7680240869522095,
+          "advantage_std": 4.149370937689815,
+          "return_std": 5.3960809525375595,
+          "actor_updates": 28,
+          "minibatches": 28,
+          "maximum_kl": 0.017825006348623225,
+          "clip_fraction": 0.06919642883752074,
+          "head_gradient_max": {
+            "simplex": 34.98591801524162,
+            "movement": 4.346186477690935,
+            "enabled": 1.121570450719446,
+            "partner": 1.1781600508838892,
+            "give": 2.3330971151590347,
+            "want": 1.792732193134725,
+            "lot": 0.5113399461843073,
+            "price": 0.5113392234779894
+          }
+        },
+        {
+          "critic_residual_mse": 16.13526153564453,
+          "actor_step_l2": 0.10422545671463013,
+          "critic_step_l2": 0.1854659765958786,
+          "actor_relative_step": 0.002635374151743179,
+          "critic_relative_step": 0.004725889464586783,
+          "actor_first_layer_grad": 4.039213180541992,
+          "critic_first_layer_grad": 4.571396827697754,
+          "advantage_std": 3.9870630950133887,
+          "return_std": 6.246745838415168,
+          "actor_updates": 17,
+          "minibatches": 24,
+          "maximum_kl": 0.04074096782844224,
+          "clip_fraction": 0.09366319514811039,
+          "head_gradient_max": {
+            "simplex": 31.542987287044525,
+            "movement": 3.639197200536728,
+            "enabled": 0.5258009061217308,
+            "partner": 1.0251293377950788,
+            "give": 1.9484909726306796,
+            "want": 1.2934656953439116,
+            "lot": 0.74633595533669,
+            "price": 0.6888888217508793
+          }
+        },
+        {
+          "critic_residual_mse": 7.31149959564209,
+          "actor_step_l2": 0.027321450412273407,
+          "critic_step_l2": 0.03866800665855408,
+          "actor_relative_step": 0.0006908633026735989,
+          "critic_relative_step": 0.0009852954838341565,
+          "actor_first_layer_grad": 3.8988277912139893,
+          "critic_first_layer_grad": 1.8806873559951782,
+          "advantage_std": 1.5580961875231574,
+          "return_std": 6.349357138887128,
+          "actor_updates": 4,
+          "minibatches": 4,
+          "maximum_kl": 0.005154099121002109,
+          "clip_fraction": 0.0,
+          "head_gradient_max": {
+            "simplex": 26.707840010523796,
+            "movement": 3.5435416884720325,
+            "enabled": 0.4724526957143098,
+            "partner": 0.07523661851882935,
+            "give": 0.2847006192896515,
+            "want": 0.28164684120565653,
+            "lot": 0.231724857352674,
+            "price": 0.23171744379214942
+          }
+        }
+      ],
+      "pair_state_sha256": "575ce9c40c2f36f383facb81fc3d4358309a3fc7283af2aebe4066ab3f60273b",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008726729080080986,
+            "mean_derivative": 0.5951440930366516,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2711572051048279,
+            "effective_rank": 23.060450064709453
+          },
+          {
+            "saturated_fraction": 0.01130319107323885,
+            "mean_derivative": 0.6157743334770203,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28570395708084106,
+            "effective_rank": 23.91441530098517
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.012799202464520931,
+            "mean_derivative": 0.616542398929596,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.40053749084472656,
+            "effective_rank": 24.233614801599263
+          },
+          {
+            "saturated_fraction": 0.009474733844399452,
+            "mean_derivative": 0.6013985872268677,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.48574331402778625,
+            "effective_rank": 25.416208618118734
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.021128874272108078,
+        "active_raw_max": 0.015104008838534355,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.951420783996582,
+            "concentration_max": 10.300716400146484,
+            "coordinate_std": 0.09010033309459686,
+            "requested_mean_max": 0.08946014940738678
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.796673059463501,
+            "concentration_max": 7.932712554931641,
+            "coordinate_std": 0.2133553922176361,
+            "requested_mean_max": 0.3587718904018402
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3842453956604004,
+            "concentration_max": 2.3902556896209717,
+            "coordinate_std": 0.2717922031879425,
+            "requested_mean_max": 0.5014898180961609
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9999881386756897,
+            "maximum_probability": 0.16978248953819275,
+            "probability_std": 0.051139749586582184
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.307390421628952,
+            "maximum_probability": 0.9240846037864685,
+            "probability_std": 0.23684518039226532
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.8437053561210632,
+            "maximum_probability": 0.6920947432518005,
+            "probability_std": 0.03531808406114578
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.23004774749279022,
+            "maximum_probability": 0.8619567155838013,
+            "probability_std": 0.09756677597761154
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3518500328063965,
+            "maximum_probability": 0.6579727530479431,
+            "probability_std": 0.035457685589790344
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15422987937927246,
+            "maximum_probability": 0.9666200876235962,
+            "probability_std": 5.314270674716681e-05
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.1542305201292038,
+            "maximum_probability": 0.9666198492050171,
+            "probability_std": 5.344742749002762e-05
+          }
+        },
+        "value_std": 18.07033920288086,
+        "value_input_gradient": 14.736572265625,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.3975839614868164
+      },
+      "checkpoint": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr3e-05-step400.pt",
+      "checkpoint_sha256": "0bd279773f4d915f5ba37bfac534fb1cbdfc322d3e83a11a692109d3d65bc58f",
+      "durable_transitions": 400,
+      "training_summary": {
+        "episodes": 18,
+        "physical_control_endpoints": [
+          {
+            "eligible": 400,
+            "zero": 14,
+            "one": 14,
+            "mean": 0.526537537291438
+          },
+          {
+            "eligible": 67,
+            "zero": 1,
+            "one": 1,
+            "mean": 0.5566043963191588
+          },
+          {
+            "eligible": 67,
+            "zero": 3,
+            "one": 1,
+            "mean": 0.4560168741386913
+          }
+        ],
+        "steps": 400,
+        "average_qol": 0.1100903111406611,
+        "average_population": 31.755,
+        "annual_welfare": 5.431121035130128,
+        "integrated_welfare": 43448.96828104102,
+        "final_population_mean": 9.5,
+        "terminal_episodes": 6,
+        "events": {
+          "movement": 228,
+          "trades": 7,
+          "migrants": 496,
+          "daughters": 35,
+          "quotes": 139,
+          "opportunities": 11,
+          "compatible_proposals": 8
+        },
+        "native_step_seconds_mean": 0.01129684475,
+        "family_counts": {
+          "fishing": 3,
+          "fission": 3,
+          "husbandry": 3,
+          "migration": 3,
+          "survival": 3,
+          "trade": 3
+        },
+        "mean_requested_workforce": [
+          0.09790893238890735,
+          0.08649549887625785,
+          0.012491997707563634,
+          0.02385896211128017,
+          0.09230425464337266,
+          0.08758113118926937,
+          0.08781955967529533,
+          0.08007981517528087,
+          0.09276448698828306,
+          0.08746993315546499,
+          0.07988420550129413,
+          0.08813589206838005,
+          0.08320533051935046
+        ],
+        "mean_compiled_staffing": [
+          3.62,
+          2.86,
+          0.1525,
+          1.0475,
+          2.8825,
+          2.7325,
+          2.1975,
+          2.975,
+          2.935,
+          2.6175,
+          2.6725,
+          2.5125,
+          2.55
+        ],
+        "total_production": [
+          40766.48342114735,
+          54361.38025633156,
+          9578.840936821876,
+          31429.960561038737,
+          938.4863182060583,
+          27197.032664761708,
+          0.0,
+          0.0,
+          267.49969198864505,
+          1431.487739939582,
+          1235.9134604778976
+        ],
+        "total_extraction": [
+          88028.03249040383,
+          84468.22338949359,
+          92763.37565029974
+        ]
+      },
+      "health_after": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.009557846002280712,
+            "mean_derivative": 0.5993362069129944,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2832958400249481,
+            "effective_rank": 23.111807286656372
+          },
+          {
+            "saturated_fraction": 0.019614361226558685,
+            "mean_derivative": 0.6524979472160339,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3123886287212372,
+            "effective_rank": 24.009185875613426
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.011220079846680164,
+            "mean_derivative": 0.6116135716438293,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3832132816314697,
+            "effective_rank": 24.25060265865096
+          },
+          {
+            "saturated_fraction": 0.00822805892676115,
+            "mean_derivative": 0.6006221771240234,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.44838976860046387,
+            "effective_rank": 25.382578488611376
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.076874740421772,
+        "active_raw_max": 0.06499136239290237,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.954096794128418,
+            "concentration_max": 10.308452606201172,
+            "coordinate_std": 0.09008456021547318,
+            "requested_mean_max": 0.0915922001004219
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.7862510681152344,
+            "concentration_max": 7.9139604568481445,
+            "coordinate_std": 0.21359218657016754,
+            "requested_mean_max": 0.3637740910053253
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.3853955268859863,
+            "concentration_max": 2.395218849182129,
+            "coordinate_std": 0.2717336118221283,
+            "requested_mean_max": 0.5039772391319275
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.9995247721672058,
+            "maximum_probability": 0.17933565378189087,
+            "probability_std": 0.05157364159822464
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.3118533194065094,
+            "maximum_probability": 0.9324516654014587,
+            "probability_std": 0.29504862427711487
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.6878964304924011,
+            "maximum_probability": 0.7832000255584717,
+            "probability_std": 0.056075531989336014
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2483646124601364,
+            "maximum_probability": 0.8520073294639587,
+            "probability_std": 0.09634258598089218
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.35962411761283875,
+            "maximum_probability": 0.6459343433380127,
+            "probability_std": 0.03627641499042511
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.1588982492685318,
+            "maximum_probability": 0.9653375744819641,
+            "probability_std": 0.001266642939299345
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15888436138629913,
+            "maximum_probability": 0.9653412103652954,
+            "probability_std": 0.0012675599427893758
+          }
+        },
+        "value_std": 13.459832191467285,
+        "value_input_gradient": 12.568854331970215,
+        "receipt_sensitivity": {
+          "workforce": 1.6167698049684986e-05,
+          "activities": 4.3301879486534745e-06,
+          "controls": 3.838042539427988e-05,
+          "movement": 8.336229075212032e-05,
+          "enabled": 0.002057450357824564,
+          "partner": 0.0007462345529347658,
+          "give": 0.0010484048398211598,
+          "want": 0.0009195995517075062,
+          "lot": 0.0002876937505789101,
+          "price": 0.00028647275757975876
+        },
+        "receipt_value_sensitivity": 1.7239227294921875
+      },
+      "distribution_change": {
+        "workforce": 0.0010645019356161356,
+        "activities": 0.00029950187308713794,
+        "controls": 0.002094219671562314,
+        "movement": 0.004154587164521217,
+        "enabled": 0.024269510060548782,
+        "partner": 0.006417037919163704,
+        "give": 0.0056870621629059315,
+        "want": 0.008720631711184978,
+        "lot": 0.0009000178542919457,
+        "price": 0.000897241523489356
+      },
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.055506407540555,
+              0.0003158990293741226
+            ],
+            "after": [
+              -17.32302935764261,
+              0.0014312990242615342
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -17.27347227837287,
+              -0.0014312990242615342
+            ],
+            "after": [
+              -17.607577151324385,
+              -0.001084816874936223
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 32,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "interpretation": "Original16+16 criterion was directional improvement, not a required positive signed switch"
+      },
+      "evaluation": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 122,
+            "zero": 5,
+            "one": 4,
+            "mean": 0.5315629307913724
+          },
+          {
+            "eligible": 25,
+            "zero": 0,
+            "one": 2,
+            "mean": 0.4629902315329381
+          },
+          {
+            "eligible": 25,
+            "zero": 1,
+            "one": 0,
+            "mean": 0.3462571106388449
+          }
+        ],
+        "steps": 147,
+        "average_qol": 0.12913974796239439,
+        "average_population": 28.401360544217688,
+        "annual_welfare": 6.224533913704429,
+        "integrated_welfare": 18300.12970629102,
+        "final_population_mean": 1.3333333333333333,
+        "terminal_episodes": 3,
+        "events": {
+          "movement": 73,
+          "trades": 0,
+          "migrants": 159,
+          "daughters": 11,
+          "quotes": 40,
+          "opportunities": 2,
+          "compatible_proposals": 0
+        },
+        "native_step_seconds_mean": 0.01084014081632653,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.10294806094266343,
+          0.06876079112127896,
+          0.015390682917253326,
+          0.026723670726669747,
+          0.08890187323447578,
+          0.10296956823124909,
+          0.0850684420941237,
+          0.07611868765612319,
+          0.08368979706115348,
+          0.07363178593646064,
+          0.09128061420895199,
+          0.0938149186725443,
+          0.09070110719705221
+        ],
+        "mean_compiled_staffing": [
+          2.4489795918367347,
+          1.9795918367346939,
+          0.4013605442176871,
+          0.5714285714285714,
+          2.9523809523809526,
+          3.945578231292517,
+          2.7823129251700682,
+          2.197278911564626,
+          1.8911564625850341,
+          1.8503401360544218,
+          2.564625850340136,
+          2.0136054421768708,
+          2.802721088435374
+        ],
+        "total_production": [
+          15655.882962512163,
+          20956.25398316412,
+          165.19714520154383,
+          9761.183231718622,
+          408.708925521784,
+          7929.562396273403,
+          0.0,
+          0.0,
+          287.3838140473905,
+          496.6071296693161,
+          1119.923677132616
+        ],
+        "total_extraction": [
+          25438.820312399366,
+          26167.16084105713,
+          31480.154246551985
+        ]
+      },
+      "evaluation_demographics": [
+        {
+          "id": "development-881007-survival-d0",
+          "family": "survival",
+          "steps": 24,
+          "initial_population": 100.0,
+          "final_population": 0.0,
+          "time_mean_population": 16.916666666666668,
+          "person_years": 8120.0,
+          "time_mean_qol": 0.039540698427425795,
+          "person_year_weighted_qol": 0.08449972751171347,
+          "raw_welfare": 686.1377873951134,
+          "annual_welfare": 1.4294537237398195,
+          "population_normalized_welfare": 6.861377873951134,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 35,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 61,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 61,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.09404365593849968,
+              "compiled": 0.056714311821219714
+            },
+            "Farmer": {
+              "requested": 0.07954917788225559,
+              "compiled": 0.08356209150326797
+            },
+            "Craftsperson": {
+              "requested": 0.08116677144980196,
+              "compiled": 0.07086737984667552
+            }
+          },
+          "expansion_farmer_share": 0.5471593267951235,
+          "food_reserve_years": 0.0,
+          "mean_field_intensity_q": 0.014240565150421899,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-trade-d2",
+          "family": "trade",
+          "steps": 25,
+          "initial_population": 238.0,
+          "final_population": 2.0,
+          "time_mean_population": 58.4,
+          "person_years": 29200.0,
+          "time_mean_qol": 0.17624254907877096,
+          "person_year_weighted_qol": 0.16330489201805487,
+          "raw_welfare": 4768.502846927202,
+          "annual_welfare": 9.537005693854404,
+          "population_normalized_welfare": 20.035726247593285,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 125,
+            "Immigrants": 0,
+            "Emigrants": 92,
+            "FissionHeadcount": 19,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 19,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.08433418010962439,
+              "compiled": 0.09654338675877845
+            },
+            "Farmer": {
+              "requested": 0.06573338829387734,
+              "compiled": 0.04650122189085944
+            },
+            "Craftsperson": {
+              "requested": 0.08231018400040509,
+              "compiled": 0.0797583434177156
+            }
+          },
+          "expansion_farmer_share": 0.5087763577525832,
+          "food_reserve_years": 1.3646173038279958,
+          "mean_field_intensity_q": 0.11269207902804258,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-migration-d2",
+          "family": "migration",
+          "steps": 23,
+          "initial_population": 87.0,
+          "final_population": 0.0,
+          "time_mean_population": 16.17391304347826,
+          "person_years": 7440.0,
+          "time_mean_qol": 0.0789677732616693,
+          "person_year_weighted_qol": 0.2630490253498647,
+          "raw_welfare": 1957.0847486029934,
+          "annual_welfare": 4.25453206218042,
+          "population_normalized_welfare": 22.495226995436706,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 24,
+            "Immigrants": 0,
+            "Emigrants": 4,
+            "FissionHeadcount": 59,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 59,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.10285861277123572,
+              "compiled": 0.10324124509912713
+            },
+            "Farmer": {
+              "requested": 0.0950237099895926,
+              "compiled": 0.08483032017582136
+            },
+            "Craftsperson": {
+              "requested": 0.10464611726009018,
+              "compiled": 0.15081543386019197
+            }
+          },
+          "expansion_farmer_share": 0.6229520975612379,
+          "food_reserve_years": 0.3765779175715945,
+          "mean_field_intensity_q": 0.10158544575325464,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fission-d8",
+          "family": "fission",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 1.0,
+          "time_mean_population": 23.52,
+          "person_years": 11760.0,
+          "time_mean_qol": 0.08839355103709204,
+          "person_year_weighted_qol": 0.05953116274101458,
+          "raw_welfare": 700.0864738343315,
+          "annual_welfare": 1.400172947668663,
+          "population_normalized_welfare": 4.762493019281167,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 95,
+            "Immigrants": 0,
+            "Emigrants": 35,
+            "FissionHeadcount": 16,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 16,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.10455227144990659,
+              "compiled": 0.12273525778511507
+            },
+            "Farmer": {
+              "requested": 0.09952344799744198,
+              "compiled": 0.0768923023441946
+            },
+            "Craftsperson": {
+              "requested": 0.10077777278887821,
+              "compiled": 0.1219713527185232
+            }
+          },
+          "expansion_farmer_share": 0.5079549928751895,
+          "food_reserve_years": 0.09909552410675757,
+          "mean_field_intensity_q": 0.08301557791185163,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881007-husbandry-d2",
+          "family": "husbandry",
+          "steps": 25,
+          "initial_population": 154.0,
+          "final_population": 0.0,
+          "time_mean_population": 21.76,
+          "person_years": 10880.0,
+          "time_mean_qol": 0.12935937001782946,
+          "person_year_weighted_qol": 0.3776661752811841,
+          "raw_welfare": 4109.007987059284,
+          "annual_welfare": 8.218015974118567,
+          "population_normalized_welfare": 26.681870045839503,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 23,
+            "Immigrants": 0,
+            "Emigrants": 0,
+            "FissionHeadcount": 131,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 131,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.10811549332714068,
+              "compiled": 0.13574370074370073
+            },
+            "Farmer": {
+              "requested": 0.0752675915444103,
+              "compiled": 0.07546664446664447
+            },
+            "Craftsperson": {
+              "requested": 0.05783823557207132,
+              "compiled": 0.032381618381618384
+            }
+          },
+          "expansion_farmer_share": 0.47890686815446715,
+          "food_reserve_years": 0.25273362931002374,
+          "mean_field_intensity_q": 0.008191434933936061,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        },
+        {
+          "id": "development-881008-fishing-d2",
+          "family": "fishing",
+          "steps": 25,
+          "initial_population": 147.0,
+          "final_population": 5.0,
+          "time_mean_population": 32.2,
+          "person_years": 16100.0,
+          "time_mean_qol": 0.254736825994122,
+          "person_year_weighted_qol": 0.3775968858678322,
+          "raw_welfare": 6079.309862472098,
+          "annual_welfare": 12.158619724944195,
+          "population_normalized_welfare": 41.3558494045721,
+          "outflows": {
+            "ResidentGrowth": 0,
+            "StarvationDeaths": 42,
+            "Immigrants": 0,
+            "Emigrants": 24,
+            "FissionHeadcount": 76,
+            "OtherResidentChange": 0
+          },
+          "unexplained_resident_change": 0,
+          "all_resident_changes_explained": true,
+          "fission_headcount_by_trigger": {
+            "Crowding": 0,
+            "Distress": 76,
+            "LegacyQoL": 0,
+            "ExitOpportunity": 0
+          },
+          "population_accounting_residual": 0.0,
+          "allocation": {
+            "Gatherer": {
+              "requested": 0.12342082000569264,
+              "compiled": 0.11827402931044269
+            },
+            "Farmer": {
+              "requested": 0.0,
+              "compiled": 0.0
+            },
+            "Craftsperson": {
+              "requested": 0.10762229378627039,
+              "compiled": 0.11322844722024993
+            }
+          },
+          "expansion_farmer_share": 0.0,
+          "food_reserve_years": 0.9118364247494067,
+          "mean_field_intensity_q": 0.0,
+          "person_year_convention": "opening focal residents x interval years; no daughter future welfare"
+        }
+      ],
+      "annual_welfare_delta": -0.538848735885499
+    }
+  ],
+  "probe_check": {
+    "rows": 20,
+    "feature": 312,
+    "feature_std": 3.7634716033935547,
+    "roles": [
+      0,
+      1
+    ]
+  },
+  "budget": {
+    "caps": {
+      "training": 2400,
+      "evaluation": 1200,
+      "evaluation_replay": 1200
+    },
+    "attempted": {
+      "training": 2400,
+      "evaluation": 1189,
+      "evaluation_replay": 1189
+    },
+    "prior_resolves": 23157,
+    "total_resolves": 27935,
+    "prior_wall_seconds": 773.9184711570124,
+    "active_wall_seconds": 132.41299112800334,
+    "cumulative_wall_seconds": 906.3314627960208
+  }
+}

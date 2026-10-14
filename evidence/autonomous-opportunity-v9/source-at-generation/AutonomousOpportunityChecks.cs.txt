@@ -1,0 +1,58 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text.Json;
+using Anthropocene.Simulation;
+
+internal static class AutonomousOpportunityChecks
+{
+    public static void Run()
+    {
+        int checks = 0, steps = 0, replay = 0; var timer = Stopwatch.StartNew();
+        void Check(bool ok, string message) { checks++; if (!ok) throw new Exception(message); }
+        var addresses = new List<int>();
+        for (int variant = 0; variant < 3; variant++)
+        {
+            var w = AutonomousElderChecks.Fixture(true); var a = w.Camps[0]; var b = w.Camps[1];
+            // A closer real remembered settlement makes the designated customer
+            // different from the peer's first public contact.
+            int tile = w.Map.Neighbors(b.Tile).First(i => w.Tiles[i].TraversableLand && i != a.Tile);
+            var other = new Camp { Id = w.NextId++, Player = 2, Tile = tile, Population = 30 };
+            w.Camps.Add(other); w.PlayerCount = w.Config.Players = 3; Ownership.Bind(w);
+            ContactKnowledge.MemoryOf(w, b.People).Upsert(other.Id, other.Player, other.Tile, w.Turn, ContactSource.Sighting);
+            var env = new AutonomousElderHistoryEnvironment(growthAuthority: true);
+            var ids = new[] { a.Id, b.Id }; var obs = env.Reset(SaveCodec.Save(w), ids, 1);
+            int ai = env.KnownCounterpartyOrdinal(a.Id, b.Id), bi = env.KnownCounterpartyOrdinal(b.Id, a.Id);
+            Check(ai >= 0 && bi > 0 && obs[a.Id].CounterpartyMask[ai] && obs[b.Id].CounterpartyMask[bi], "known designated address follows reordered contacts");
+            Check(env.KnownCounterpartyOrdinal(b.Id, -123456) == -1, "unknown target is absent, never substituted");
+            bool rejected = false; try { env.KnownCounterpartyOrdinal(other.Id, a.Id); } catch (ArgumentException) { rejected = true; }
+            Check(rejected, "uncontrolled observer is rejected");
+            var hidden = SaveCodec.Load(env.CaptureSnapshot()); hidden.Camps.Single(c => c.Id == a.Id).Inventory.Pots += 999999;
+            var copy = new AutonomousElderHistoryEnvironment(growthAuthority: true); copy.Reset(SaveCodec.Save(hidden), ids, 1);
+            Check(copy.KnownCounterpartyOrdinal(b.Id, a.Id) == bi, "foreign stock cannot affect own address");
+            addresses.Add(bi);
+            if (variant == 2) a.Inventory.Wood = 3;
+            // Reinitialize from the modified fixture; no hidden-state repair.
+            obs = env.Reset(SaveCodec.Save(w), ids, 1);
+            var actions = obs.ToDictionary(p => p.Key, p => {
+                var action = AutonomousElderCompiler.Uniform(p.Value);
+                Array.Clear(action.Workforce, 0, 13); action.Workforce[1] = 1;
+                action.Quote = new ElderStockQuote { Counterparty = p.Key == a.Id ? ai : bi,
+                    Give = p.Key == a.Id ? TradeGood.Wood : TradeGood.Clay,
+                    Want = p.Key == a.Id ? TradeGood.Clay : TradeGood.Wood,
+                    GiveQuantity = p.Key == a.Id ? 10 : 20,
+                    WantQuantity = p.Key == a.Id ? 20 : variant == 1 ? 100 : 10 };
+                return action;
+            });
+            steps++; var result = env.Step(actions);
+            Check(result.Telemetry.SettledTrades[a.Id] == (variant == 1 ? 0 : 1), "addressed compatible/incompatible match");
+            var state = SaveCodec.Load(env.CaptureSnapshot()); var ar = state.AutonomousReceipts[a.Id]; var br = state.AutonomousReceipts[b.Id];
+            Check(ar.SettledGive == br.SettledWant && ar.SettledWant == br.SettledGive, "settled gross legs conserve");
+            Check(Math.Abs(ar.SettledGive - (variant == 2 ? 3 : variant == 1 ? 0 : 10)) < 1e-9, "stock-only fill remains authoritative");
+            replay += env.Replay.Steps.Count; AutonomousElderHistoryEnvironment.VerifyReplay(env.Replay); checks++;
+        }
+        Console.WriteLine(JsonSerializer.Serialize(new { result = "PASS", assertions = checks,
+            validationResolves = steps, replayResolves = replay, addresses, wallSeconds = timer.Elapsed.TotalSeconds }));
+    }
+}

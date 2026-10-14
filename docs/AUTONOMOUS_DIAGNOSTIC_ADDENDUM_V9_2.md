@@ -1,0 +1,84 @@
+# Critic, demographic and action-boundary steering v9.2
+
+This prospective addendum applies the user's uploaded v5 diagnostic steering to
+the already approved native6/action4 physical model and the separate v9 bank.
+Old v5/v6 checkpoints, the hash-verified 511-state v5 bank, its230 quarantine
+flags and84 HELDOUT snapshots remain unchanged. Core-only runs retain their
+require_core_action_faces=True guard. V9 uses separately mechanically admitted
+native4 snapshots; that is not unquarantining the old bank. No native physical
+or reward change, GRU/Transformer, GPU ecology, main merge or broad training.
+
+Explicit learner model7/checkpoint7 adds configurable workforce/activity
+concentration_floor (default.5, allowable.05 through.5; primary.1), with unchanged
+latent Beta controls at.5. Low-alpha Beta samples can round their stored first
+coordinate to1 and lose the positive complement; reducing that floor needs a
+separate full-pair likelihood contract. Model7/native6 features remain1062,
+including301 permitted history columns. Existing actor and residual live critic
+LayerNorm remain. Legacy default action/value/logp/RNG operations are tested
+bit-exact. Floors are stored in config/checkpoint/inference provenance.
+
+Value scaling is an explicit new model7 numerical representation, not functional
+parity with the old critic. First collect frozen pre-normalization native targets
+and tail values. Then fit a single global mean/std on fitting-TRAIN targets only,
+set TRAINscale=max(TRAINstd,1), value=TRAINmean+TRAINscale*residual_LN_value, and freeze both buffers and the
+collected targets. Critic calibration and PPO use squared residual/TRAINscale^2;
+values, rewards, GAE and validation errors remain in reward_scale=120 physical
+return units. No hidden family labels or DEV statistics. Report pre-normalization,
+after coordinate initialization and fitted errors, fixed offset/scale, zero/double
+frozen-tail sensitivity and truncation tail weights. Frozen anchor tensors are
+unchanged, though the affine model7 value function has different semantics.
+
+Strict readiness, fitting early-stop and final gate all require finite
+nondegenerate world-disjoint TRAIN validation returns, EV>=.60,
+MSE/Var(return)<=.40, abs(mean raw-unit value bias)<=2, and no worse than the
+original critic. Use actual validation variance without denominator floors;
+report TRAIN-constant MSE separately. Maximum256 epochs atcritic_lr.0001;
+TRAIN-only intercept fits before/after gradient fitting convert raw residuals
+by fixed value_scale, reporting both requested and measured applied deltas. Protect actor/heads/frozen anchors, populated actor Adam,
+RNGs/counters/config and value buffers. Four fit episodes and six family-balanced
+validation episodes per independent seed101/211/307,25turns,H400, maximum750
+native+750 replay. H100 remains an explicit diagnostic comparator using cached
+physical rewards. The earlier v8 history/episode8/25/H100400 matrix is preserved;
+it is not repeated or relabelled independent initialization evidence here.
+
+Native owner-only closed-turn sidecars report resident growth/starvation deaths,
+immigration/emigration and daughter headcount by every native trigger (Crowding,
+Distress, LegacyQoL, ExitOpportunity), plus explicit other resident change.
+For this no-dispatch controlled cohort require OtherResidentChange=0 on every
+closed turn; reconciliation using a nonzero residual is not explanatory evidence.
+No linked-hunter/daughter population is silently added to resident reward.
+Person-years=sum(opening focal residents*intervalyears), QoL is both time-mean
+and person-year-weighted, raw welfare=sum(opening residents*realizedQoL*years),
+and population-normalized welfare divides by initial residents. This is the
+simulator interval convention, not continuous integration. Record requested vs.
+compiled Gatherer/Farmer/Craftsperson shares, expansion share, food reserve years
+and mean physical field intensity in the local legal footprint. Read-only
+sidecars never enter MLP/value inputs, save state or physical decisions.
+
+Split fitting-TRAIN-only adaptation probes from mixed read-only health probes.
+All three world sets must be pairwise disjoint. Before PPO, run a short fixed-v8
+actor intervention on two TRAIN starts (Survival and cultivation-capable Fission),
+two floors(.5/.1) and stochastic vs.mean/argmax deployment,8decisions each:
+64native+64replay maximum. Deterministic diagnostic uses categorical mixture0;
+this does not alter retained policy training or checkpoints. This is a mechanism
+check, not the uploaded42-state25-turn DEV deployment study. V9 retained PPO
+uses model7 floor.1 and fixed mixture.05; configurable mixture schedules change
+only at rollout boundaries and are stored/restored exactly.
+
+Reserve3+3 native mechanical calls to verify owner diagnostics/conservation and
+save/reload alongside the known-address quote proof. Remaining planned calls
+from the admitted17397-resolve ledger:750+750 calibration,6144 retained PPO,
+1350+1350 DEV/replay,64+64 boundary/replay,3+3 proof =10478, cumulative27875.
+The unchanged cumulative ceiling27991 leaves116 for logged failed calls; active
+elapsed ceiling remains2369.4072460189927 seconds (v8+v9). At most4nativeworkers
+and1Torchthread. Original generation sources/binaries/configs are archived or
+preserved with their exact original hashes. Every neural warmup/calibration/PPO/adaptation minibatch checks the shared
+deadline. Native-proof timeouts retain partial stdout/stderr and reconcile actual
+3/3 calls with reserved counts. No historical envelope reset.
+
+Freeze exact admission/proof/training pins and obtain Astra/high independent
+GO before each stage. Focused tests and compact evidence must precede multi-seed
+training. A strict critic failure blocks PPO; preserve it and review a prospective
+cached-target repair before any retry. Poor responsive economic choices alone
+do not fail the canary, but saturation, suppressive KL, absent executable trade,
+critic miscalibration or unreconciled chronology prohibit broad scale-out.

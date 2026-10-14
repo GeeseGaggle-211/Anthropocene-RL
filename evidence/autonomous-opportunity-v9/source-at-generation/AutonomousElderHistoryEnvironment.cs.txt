@@ -1,0 +1,142 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Anthropocene.Simulation
+{
+    public sealed class AutonomousElderHistoryObservation : AutonomousElderObservation
+    {
+        public double[] History;
+    }
+
+    public sealed class AutonomousElderHistoryStep
+    {
+        public Dictionary<int, AutonomousElderHistoryObservation> Observations;
+        // Closed receipts include terminated villages even when their observations disappear.
+        public Dictionary<int, double[]> CompletedHistory;
+        public Dictionary<int, double> Rewards;
+        public Dictionary<int, int[]> Staffing;
+        public AutonomousElderTelemetry Telemetry;
+        public double ElapsedYears;
+        public bool Terminated, Truncated;
+        public string Fingerprint;
+    }
+
+    public sealed class AutonomousElderHistoryReplayStep
+    {
+        public Dictionary<int, AutonomousElderAction> Actions;
+        public Dictionary<int, List<Order>> Background;
+        public Dictionary<int, int[]> Staffing;
+        public Dictionary<int, double[]> CompletedHistory;
+        public Dictionary<int, double> Rewards;
+        public double ElapsedYears;
+        public string Fingerprint;
+    }
+    public sealed class AutonomousElderHistoryReplay
+    {
+        public int SchemaVersion = 5, ActionVersion = 3, ObservationVersion = 5, EnvironmentVersion = 5;
+        public int HistoryWidth = 300;
+        public string BuildHash, ConfigurationHash, InitialFingerprint;
+        public byte[] Snapshot;
+        public int[] Controlled;
+        public int DecisionLimit;
+        public List<AutonomousElderHistoryReplayStep> Steps = new List<AutonomousElderHistoryReplayStep>();
+    }
+
+    public sealed class AutonomousElderHistoryEnvironment
+    {
+        private readonly AutonomousElderEnvironment inner;
+        private readonly int version;
+        public AutonomousElderHistoryReplay Replay { get; private set; }
+        public AutonomousElderHistoryEnvironment(PhaseExecution execution = null, bool growthAuthority = false)
+        { version = growthAuthority ? 6 : 5;
+            inner = new AutonomousElderEnvironment(execution, AutonomousElderHistory.Initialize, growthAuthority ? 4 : 3); }
+        public byte[] CaptureSnapshot() => inner.CaptureSnapshot();
+
+        public int KnownCounterpartyOrdinal(int observer, int target)
+            => inner.KnownCounterpartyOrdinal(observer, target);
+
+        public Dictionary<int, AutonomousElderHistoryObservation> Reset(byte[] snapshot, int[] controlled, int decisionLimit = 32)
+        {
+            var observations = inner.Reset(snapshot, controlled, decisionLimit);
+            var original = inner.Replay;
+            Replay = new AutonomousElderHistoryReplay { Snapshot = (byte[])original.Snapshot.Clone(),
+                SchemaVersion = version, ActionVersion = version == 6 ? 4 : 3,
+                ObservationVersion = version, EnvironmentVersion = version, HistoryWidth = version == 6 ? 301 : 300,
+                Controlled = (int[])original.Controlled.Clone(), DecisionLimit = original.DecisionLimit,
+                BuildHash = original.BuildHash, ConfigurationHash = original.ConfigurationHash,
+                InitialFingerprint = original.InitialFingerprint };
+            return Project(observations);
+        }
+
+        private Dictionary<int, AutonomousElderHistoryObservation> Project(Dictionary<int, AutonomousElderObservation> observations)
+            => observations.ToDictionary(p => p.Key, p => Observe(inner.State, p.Key, p.Value));
+
+        public static AutonomousElderHistoryObservation Observe(WorldState world, int camp, AutonomousElderObservation source = null)
+        {
+            var c = world.Camps.Single(c => c.Id == camp);
+            if (world.AutonomousReceipts == null || !world.AutonomousReceipts.TryGetValue(camp, out var receipt) ||
+                c.ElderMemory?.Initialized != true)
+                throw new InvalidOperationException("Initialize autonomous institutional history before observing it.");
+            var o = source ?? AutonomousElderCompiler.Observe(world, c);
+            bool growth = o.SchemaVersion == 6;
+            var h = AutonomousElderHistory.Encode(world, receipt);
+            if (growth) h = h.Concat(new[] { receipt.HasDecision ? (double)receipt.Requested.SchemaVersion : 0 }).ToArray();
+            var x = new AutonomousElderHistoryObservation { SchemaVersion = growth ? 6 : 5,
+                Context = (double[])o.Context.Clone(), History = h,
+                WorkforceMask = (bool[])o.WorkforceMask.Clone(), ActivityMask = o.ActivityMask.Select(row => (bool[])row.Clone()).ToArray(),
+                ControlMask = (bool[])o.ControlMask.Clone(), MovementMask = (bool[])o.MovementMask.Clone(),
+                CounterpartyMask = (bool[])o.CounterpartyMask.Clone(), GoodMask = (bool[])o.GoodMask.Clone(), Stocks = (double[])o.Stocks.Clone(),
+                SiteTiles = (int[])o.SiteTiles.Clone(), CounterpartyIds = (int[])o.CounterpartyIds.Clone(),
+                CounterpartyTiles = (int[])o.CounterpartyTiles.Clone() };
+            Array.Clear(x.Context, 40, 16); // obsolete five-head receipts
+            Array.Clear(x.Context, 114, 3); // obsolete generic development-budget trace
+            return x;
+        }
+
+        public AutonomousElderHistoryStep Step(IReadOnlyDictionary<int, AutonomousElderAction> submitted) => StepCore(submitted, null);
+        private AutonomousElderHistoryStep StepCore(IReadOnlyDictionary<int, AutonomousElderAction> submitted, Dictionary<int, List<Order>> background)
+        {
+            var result = inner.StepWithBackground(submitted, background);
+            var old = inner.Replay.Steps.Last();
+            var history = old.Actions.Keys.OrderBy(id => id).ToDictionary(id => id, id =>
+            { var r = inner.State.AutonomousReceipts[id]; var h = AutonomousElderHistory.Encode(inner.State, r);
+                return version == 6 ? h.Concat(new[] { r.HasDecision ? (double)r.Requested.SchemaVersion : 0 }).ToArray() : h; });
+            Replay.Steps.Add(new AutonomousElderHistoryReplayStep {
+                Actions = old.Actions.ToDictionary(p => p.Key, p => p.Value.Copy()),
+                Background = old.Background.ToDictionary(p => p.Key, p => p.Value.Select(o => o.Copy()).ToList()),
+                Staffing = old.Staffing.ToDictionary(p => p.Key, p => (int[])p.Value.Clone()),
+                CompletedHistory = history.ToDictionary(p => p.Key, p => (double[])p.Value.Clone()),
+                Rewards = result.Rewards.ToDictionary(p => p.Key, p => p.Value),
+                ElapsedYears = result.ElapsedYears, Fingerprint = result.Fingerprint });
+            return new AutonomousElderHistoryStep { Observations = Project(result.Observations), CompletedHistory = history,
+                Rewards = result.Rewards, Staffing = result.Staffing, Telemetry = result.Telemetry,
+                ElapsedYears = result.ElapsedYears, Terminated = result.Terminated, Truncated = result.Truncated,
+                Fingerprint = result.Fingerprint };
+        }
+
+        public static void VerifyReplay(AutonomousElderHistoryReplay replay, PhaseExecution execution = null)
+        {
+            if (replay == null || (replay.SchemaVersion != 5 && replay.SchemaVersion != 6) ||
+                replay.ActionVersion != (replay.SchemaVersion == 6 ? 4 : 3) || replay.ObservationVersion != replay.SchemaVersion ||
+                replay.EnvironmentVersion != replay.SchemaVersion || replay.HistoryWidth != (replay.SchemaVersion == 6 ? 301 : 300) || replay.BuildHash != NativeElderEnvironment.BuildHash)
+                throw new InvalidOperationException("Autonomous history replay version/build mismatch.");
+            var env = new AutonomousElderHistoryEnvironment(execution, replay.SchemaVersion == 6);
+            env.Reset(replay.Snapshot, replay.Controlled, replay.DecisionLimit);
+            if (env.Replay.InitialFingerprint != replay.InitialFingerprint || env.Replay.ConfigurationHash != replay.ConfigurationHash)
+                throw new InvalidOperationException("Autonomous history replay snapshot/configuration mismatch.");
+            foreach (var expected in replay.Steps)
+            {
+                var r = env.StepCore(expected.Actions, expected.Background);
+                bool SameKeys<T, U>(Dictionary<int, T> a, Dictionary<int, U> b) => a != null && b != null &&
+                    a.Keys.OrderBy(k => k).SequenceEqual(b.Keys.OrderBy(k => k));
+                if (r.Fingerprint != expected.Fingerprint || r.ElapsedYears != expected.ElapsedYears ||
+                    !SameKeys(r.Staffing, expected.Staffing) || r.Staffing.Any(p => !p.Value.SequenceEqual(expected.Staffing[p.Key])) ||
+                    !SameKeys(r.CompletedHistory, expected.CompletedHistory) || r.CompletedHistory.Any(p =>
+                        !p.Value.SequenceEqual(expected.CompletedHistory[p.Key])) ||
+                    !SameKeys(r.Rewards, expected.Rewards) || r.Rewards.Any(p => p.Value != expected.Rewards[p.Key]))
+                    throw new InvalidOperationException("Autonomous history replay action/receipt/reward divergence.");
+            }
+        }
+    }
+}

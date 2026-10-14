@@ -1,0 +1,577 @@
+{
+  "version": "autonomous-opportunity-postflight-v9.7",
+  "status": "NO-GO_REVERSAL",
+  "config_sha256": "00bf76989935202cce479db5f551d776412216d88e1fc8b551e44660f6e05e06",
+  "cells": [
+    {
+      "seed": 101,
+      "checkpoint_sha256": "9a6f631997d255b57e451e165592b8feb82c888051b1cb1e4f79790cfb5c9989",
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.054435606829664,
+              -0.00025413409457542
+            ],
+            "after": [
+              -18.463957672300246,
+              0.006930886302143335
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.24431015302278,
+              -0.006930886302143335
+            ],
+            "after": [
+              -19.439648306509515,
+              0.0005272723501548171
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_preference_switch": true
+      },
+      "cached_train_health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.007201597560197115,
+            "mean_derivative": 0.6116566061973572,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28121837973594666,
+            "effective_rank": 96.63968168902352
+          },
+          {
+            "saturated_fraction": 0.016012687236070633,
+            "mean_derivative": 0.6311666369438171,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3091239631175995,
+            "effective_rank": 109.18187750510866
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.006255873944610357,
+            "mean_derivative": 0.5921715497970581,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.33474087715148926,
+            "effective_rank": 104.63696032620993
+          },
+          {
+            "saturated_fraction": 0.0033364661503583193,
+            "mean_derivative": 0.5876176357269287,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.33830922842025757,
+            "effective_rank": 118.85004365664862
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.10050567984580994,
+        "active_raw_max": 0.0911802276968956,
+        "simplex": {
+          "workforce": {
+            "eligible": 665,
+            "concentration_mean": 9.082831382751465,
+            "concentration_max": 10.364031791687012,
+            "coordinate_std": 0.08892228454351425,
+            "requested_mean_max": 0.09074826538562775
+          },
+          "activities": {
+            "eligible": 3058,
+            "concentration_mean": 2.8228375911712646,
+            "concentration_max": 7.990748882293701,
+            "coordinate_std": 0.21116110682487488,
+            "requested_mean_max": 0.36850816011428833
+          },
+          "controls": {
+            "eligible": 954,
+            "concentration_mean": 2.381232500076294,
+            "concentration_max": 2.4018173217773438,
+            "coordinate_std": 0.2718524634838104,
+            "requested_mean_max": 0.5094749927520752
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 615,
+            "normalized_entropy": 0.999703049659729,
+            "maximum_probability": 0.18343476951122284,
+            "probability_std": 0.0600372850894928
+          },
+          "enabled": {
+            "eligible": 285,
+            "normalized_entropy": 0.7512021660804749,
+            "maximum_probability": 0.7306236028671265,
+            "probability_std": 0.22450268268585205
+          },
+          "partner": {
+            "eligible": 154,
+            "normalized_entropy": 0.7998231053352356,
+            "maximum_probability": 0.7011513710021973,
+            "probability_std": 0.0683818832039833
+          },
+          "give": {
+            "eligible": 665,
+            "normalized_entropy": 0.47731879353523254,
+            "maximum_probability": 0.7171121835708618,
+            "probability_std": 0.1422254592180252
+          },
+          "want": {
+            "eligible": 665,
+            "normalized_entropy": 0.34106001257896423,
+            "maximum_probability": 0.73773592710495,
+            "probability_std": 0.029724949970841408
+          },
+          "lot": {
+            "eligible": 665,
+            "normalized_entropy": 0.20114518702030182,
+            "maximum_probability": 0.9529491662979126,
+            "probability_std": 0.00772060127928853
+          },
+          "price": {
+            "eligible": 665,
+            "normalized_entropy": 0.2009277641773224,
+            "maximum_probability": 0.9530182480812073,
+            "probability_std": 0.0076646036468446255
+          }
+        },
+        "value_std": 8.471031188964844,
+        "value_input_gradient": 8.07292652130127,
+        "receipt_sensitivity": {
+          "workforce": 3.387939796084538e-05,
+          "activities": 1.1595433534239419e-05,
+          "controls": 0.00010878096509259194,
+          "movement": 9.856790711637586e-05,
+          "enabled": 0.011276230216026306,
+          "partner": 0.0013930383138358593,
+          "give": 0.0007412317208945751,
+          "want": 0.0011357673211023211,
+          "lot": 0.0033776252530515194,
+          "price": 0.0033587319776415825
+        },
+        "receipt_value_sensitivity": 2.6153359413146973
+      },
+      "cached_target_drift": {
+        "mse": 9.084681510925293,
+        "return_variance": 32.3198127746582,
+        "mse_over_return_variance": 0.2810870710875078,
+        "explained_variance": 0.7222415135182347,
+        "mean_value_bias": 0.32799360156059265,
+        "constant_mse": 34.91630554199219,
+        "fitting_mse": 6.09626579284668
+      },
+      "cached_target_label": "Frozen pre-PPO actor targets; not post-PPO on-policy readiness",
+      "fitting_rows": 665,
+      "retained_model_optimizer_rng_counters_unchanged": true,
+      "protected_state_sha256": "106e0f1b3f20396857fb17bd2f02ba8aa646051f09ab1b50f95682753b15e15d"
+    },
+    {
+      "seed": 211,
+      "checkpoint_sha256": "bf66c92b32e1044a1de96fd36153804db20c7ea57d4b6ea8a29a284df475f17b",
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.09961505346194,
+              0.00028031208785250783
+            ],
+            "after": [
+              -18.471293971952065,
+              0.008151737041771412
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.21401861518847,
+              -0.008151737041771412
+            ],
+            "after": [
+              -19.429602546023155,
+              -1.5003233784227632e-05
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_preference_switch": false
+      },
+      "cached_train_health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.010880853049457073,
+            "mean_derivative": 0.6083686947822571,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29591700434684753,
+            "effective_rank": 103.01948352848247
+          },
+          {
+            "saturated_fraction": 0.011447318829596043,
+            "mean_derivative": 0.62066251039505,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3178028464317322,
+            "effective_rank": 116.34698487365453
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.0038885478861629963,
+            "mean_derivative": 0.5849403142929077,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.35027581453323364,
+            "effective_rank": 109.84236233918519
+          },
+          {
+            "saturated_fraction": 0.005877077113837004,
+            "mean_derivative": 0.5940890312194824,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.36682623624801636,
+            "effective_rank": 125.54475140748384
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.0739935040473938,
+        "active_raw_max": 0.08738347887992859,
+        "simplex": {
+          "workforce": {
+            "eligible": 662,
+            "concentration_mean": 9.08476448059082,
+            "concentration_max": 10.313051223754883,
+            "coordinate_std": 0.08873823285102844,
+            "requested_mean_max": 0.09020266681909561
+          },
+          "activities": {
+            "eligible": 3054,
+            "concentration_mean": 2.8457863330841064,
+            "concentration_max": 7.947047233581543,
+            "coordinate_std": 0.2101944237947464,
+            "requested_mean_max": 0.365153968334198
+          },
+          "controls": {
+            "eligible": 968,
+            "concentration_mean": 2.383500576019287,
+            "concentration_max": 2.3988966941833496,
+            "coordinate_std": 0.27180394530296326,
+            "requested_mean_max": 0.505436360836029
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 612,
+            "normalized_entropy": 0.9995693564414978,
+            "maximum_probability": 0.1845945417881012,
+            "probability_std": 0.05761498212814331
+          },
+          "enabled": {
+            "eligible": 278,
+            "normalized_entropy": 0.6848659515380859,
+            "maximum_probability": 0.7746551036834717,
+            "probability_std": 0.233491450548172
+          },
+          "partner": {
+            "eligible": 165,
+            "normalized_entropy": 0.8376610279083252,
+            "maximum_probability": 0.6507980823516846,
+            "probability_std": 0.07475493848323822
+          },
+          "give": {
+            "eligible": 662,
+            "normalized_entropy": 0.5290753841400146,
+            "maximum_probability": 0.6798049807548523,
+            "probability_std": 0.1355363130569458
+          },
+          "want": {
+            "eligible": 662,
+            "normalized_entropy": 0.3889220058917999,
+            "maximum_probability": 0.668147087097168,
+            "probability_std": 0.025515811517834663
+          },
+          "lot": {
+            "eligible": 662,
+            "normalized_entropy": 0.22804762423038483,
+            "maximum_probability": 0.9443913698196411,
+            "probability_std": 0.011794636957347393
+          },
+          "price": {
+            "eligible": 662,
+            "normalized_entropy": 0.22805443406105042,
+            "maximum_probability": 0.9443878531455994,
+            "probability_std": 0.011804968118667603
+          }
+        },
+        "value_std": 11.368603706359863,
+        "value_input_gradient": 10.396159172058105,
+        "receipt_sensitivity": {
+          "workforce": 2.9601678761537187e-05,
+          "activities": 1.0807189937622752e-05,
+          "controls": 8.061317930696532e-05,
+          "movement": 0.00010761408339021727,
+          "enabled": 0.024082599207758904,
+          "partner": 0.0011624210746958852,
+          "give": 0.0024868804030120373,
+          "want": 0.0016022620256990194,
+          "lot": 0.005268974229693413,
+          "price": 0.005269576795399189
+        },
+        "receipt_value_sensitivity": 2.408778429031372
+      },
+      "cached_target_drift": {
+        "mse": 12.628357887268066,
+        "return_variance": 51.71205139160156,
+        "mse_over_return_variance": 0.24420531669952295,
+        "explained_variance": 0.7823078246362276,
+        "mean_value_bias": -1.1709181070327759,
+        "constant_mse": 55.513099670410156,
+        "fitting_mse": 13.827491760253906
+      },
+      "cached_target_label": "Frozen pre-PPO actor targets; not post-PPO on-policy readiness",
+      "fitting_rows": 662,
+      "retained_model_optimizer_rng_counters_unchanged": true,
+      "protected_state_sha256": "42e684ee9326f8169d691484e1aaa20667630ad0036e5b17ff9fbefd87f46070"
+    },
+    {
+      "seed": 307,
+      "checkpoint_sha256": "0bd279773f4d915f5ba37bfac534fb1cbdfc322d3e83a11a692109d3d65bc58f",
+      "reversal": {
+        "passed": true,
+        "phases": [
+          {
+            "direction": 1,
+            "before": [
+              -17.055506407540555,
+              0.0003158990293741226
+            ],
+            "after": [
+              -18.418847955948667,
+              0.007464367896318436
+            ],
+            "passed": true
+          },
+          {
+            "direction": -1,
+            "before": [
+              -18.18185903596676,
+              -0.007464367896318436
+            ],
+            "after": [
+              -19.41771601344636,
+              -0.00011507794260978699
+            ],
+            "passed": true
+          }
+        ],
+        "feature": 312,
+        "roles": [
+          0,
+          1
+        ],
+        "inherited_populated_adam": true,
+        "steps": 128,
+        "lr": 3e-05,
+        "retained_updates": 0,
+        "full_preference_switch": false
+      },
+      "cached_train_health": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.007332990411669016,
+            "mean_derivative": 0.5991131663322449,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.28529325127601624,
+            "effective_rank": 100.53105036724907
+          },
+          {
+            "saturated_fraction": 0.013935020193457603,
+            "mean_derivative": 0.6293362379074097,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.30387794971466064,
+            "effective_rank": 112.40200051205845
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.004198634065687656,
+            "mean_derivative": 0.5900236368179321,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.3294406831264496,
+            "effective_rank": 107.09737283338384
+          },
+          {
+            "saturated_fraction": 0.0031752900686115026,
+            "mean_derivative": 0.5900556445121765,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.32216256856918335,
+            "effective_rank": 120.30624603571577
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.08909109234809875,
+        "active_raw_max": 0.0762825608253479,
+        "simplex": {
+          "workforce": {
+            "eligible": 668,
+            "concentration_mean": 9.163779258728027,
+            "concentration_max": 10.330205917358398,
+            "coordinate_std": 0.08820310980081558,
+            "requested_mean_max": 0.08968535810709
+          },
+          "activities": {
+            "eligible": 3111,
+            "concentration_mean": 2.8268251419067383,
+            "concentration_max": 7.924017906188965,
+            "coordinate_std": 0.21039067208766937,
+            "requested_mean_max": 0.3644329309463501
+          },
+          "controls": {
+            "eligible": 1007,
+            "concentration_mean": 2.388624906539917,
+            "concentration_max": 2.40152645111084,
+            "coordinate_std": 0.2715938091278076,
+            "requested_mean_max": 0.5042597651481628
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 618,
+            "normalized_entropy": 0.9995880722999573,
+            "maximum_probability": 0.1902698427438736,
+            "probability_std": 0.062492575496435165
+          },
+          "enabled": {
+            "eligible": 279,
+            "normalized_entropy": 0.6216480135917664,
+            "maximum_probability": 0.8070560693740845,
+            "probability_std": 0.15421581268310547
+          },
+          "partner": {
+            "eligible": 161,
+            "normalized_entropy": 0.7659636735916138,
+            "maximum_probability": 0.7151708006858826,
+            "probability_std": 0.08190327137708664
+          },
+          "give": {
+            "eligible": 668,
+            "normalized_entropy": 0.522504448890686,
+            "maximum_probability": 0.6816908121109009,
+            "probability_std": 0.13671964406967163
+          },
+          "want": {
+            "eligible": 668,
+            "normalized_entropy": 0.37439337372779846,
+            "maximum_probability": 0.6776530742645264,
+            "probability_std": 0.029886042699217796
+          },
+          "lot": {
+            "eligible": 668,
+            "normalized_entropy": 0.20827236771583557,
+            "maximum_probability": 0.950836181640625,
+            "probability_std": 0.007549647241830826
+          },
+          "price": {
+            "eligible": 668,
+            "normalized_entropy": 0.20803499221801758,
+            "maximum_probability": 0.9509087204933167,
+            "probability_std": 0.00753049785271287
+          }
+        },
+        "value_std": 6.365189552307129,
+        "value_input_gradient": 7.261176586151123,
+        "receipt_sensitivity": {
+          "workforce": 2.8883303457405418e-05,
+          "activities": 9.733827027957886e-06,
+          "controls": 6.581076740985736e-05,
+          "movement": 0.0001469346898375079,
+          "enabled": 0.025468332692980766,
+          "partner": 0.0012315008789300919,
+          "give": 0.001078627072274685,
+          "want": 0.0013063427759334445,
+          "lot": 0.003407471114769578,
+          "price": 0.0033858439419418573
+        },
+        "receipt_value_sensitivity": 2.9322798252105713
+      },
+      "cached_target_drift": {
+        "mse": 8.859275817871094,
+        "return_variance": 36.00400161743164,
+        "mse_over_return_variance": 0.24606364348072357,
+        "explained_variance": 0.8146297617361216,
+        "mean_value_bias": -1.4782440662384033,
+        "constant_mse": 45.298255920410156,
+        "fitting_mse": 97.97612762451172
+      },
+      "cached_target_label": "Frozen pre-PPO actor targets; not post-PPO on-policy readiness",
+      "fitting_rows": 668,
+      "retained_model_optimizer_rng_counters_unchanged": true,
+      "protected_state_sha256": "9d49cacc432a10711940a8288544859dc5154854c0af980685bccee5ce859067"
+    }
+  ],
+  "probe_check": {
+    "rows": 20,
+    "feature": 312,
+    "feature_std": 3.7634716033935547,
+    "roles": [
+      0,
+      1
+    ]
+  },
+  "budget": {
+    "caps": {
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "attempted": {
+      "plug": 8,
+      "plug_replay": 8
+    },
+    "prior_resolves": 27935,
+    "total_resolves": 27951,
+    "prior_wall_seconds": 906.3314627960208,
+    "active_wall_seconds": 6.560313630005112,
+    "cumulative_wall_seconds": 912.8917767360253
+  },
+  "plug": {
+    "status": "PASS",
+    "controlled": [
+      5,
+      6
+    ],
+    "native_steps": 8,
+    "replay_steps": 8,
+    "checkpoints": {
+      "5": "9a6f631997d255b57e451e165592b8feb82c888051b1cb1e4f79790cfb5c9989",
+      "6": "bf66c92b32e1044a1de96fd36153804db20c7ea57d4b6ea8a29a284df475f17b"
+    },
+    "independent_models_and_rng": true,
+    "owner_observations_only": true,
+    "common_wego_boundary": true,
+    "exact_save_resume_and_replay": true,
+    "local_reward_identity": true,
+    "retained_checkpoints_unchanged": true,
+    "trace_sha256": "375765776004c5cd080d8251da9904914db37594528e43d60ca4a10963556eb5"
+  },
+  "full_reversal_pass": false
+}

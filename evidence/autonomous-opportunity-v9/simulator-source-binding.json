@@ -1,0 +1,12 @@
+{
+  "simulator_repository": "GeeseGaggle-211/Anthropocene",
+  "branch": "feature/elder-autonomous-economy",
+  "simulator_commit": "e23225770a075aa4ea240b8f3dcbbd2f93111988",
+  "simulation_source_sha256": "611c5c8a3cef0706c06190a6c2c38b024e6c2b9b5651705cccb13c4e2bbd83a7",
+  "native_manifest_path": "Tools/ElderRL/autonomous-model-v7-manifest.json",
+  "native_manifest_sha256": "fee0cb6d98950321fb61d852aac8903ec88a00802bae378b4dfa354d86185cf1",
+  "learner_manifest_path": "configs/simulator/elder-autonomous-model-v7.json",
+  "manifest_byte_parity": true,
+  "review_sha256": "ce8c6223fbf3e45c343879bc2c18752f2196581f7dabbb13f3e23ce25e69692b",
+  "binding_note": "Git source binding is written after native commit; source hash and DLL binding were prospectively verified before execution"
+}

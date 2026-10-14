@@ -1,0 +1,421 @@
+{
+  "version": "autonomous-opportunity-frozen-critic-transfer-v9.5",
+  "status": "FAILED",
+  "config_sha256": "a34f209d0cb0019b8d09024b92239aa9ef5e3c36b2536cc063183150ec96d412",
+  "calibrations": [
+    {
+      "seed": 101,
+      "passed": true,
+      "entry": {
+        "mse": 8.695406913757324,
+        "return_variance": 32.3198127746582,
+        "mse_over_return_variance": 0.26904261402700164,
+        "explained_variance": 0.7317380047908248,
+        "mean_value_bias": -0.15884175896644592,
+        "constant_mse": 34.91630554199219,
+        "fitting_mse": 0.38316091895103455
+      },
+      "final": {
+        "mse": 8.695406913757324,
+        "return_variance": 32.3198127746582,
+        "mse_over_return_variance": 0.26904261402700164,
+        "explained_variance": 0.7317380047908248,
+        "mean_value_bias": -0.15884175896644592,
+        "constant_mse": 34.91630554199219,
+        "fitting_mse": 0.38316091895103455
+      },
+      "critic_transfer": null,
+      "checkpoint": "runs/autonomous-opportunity-frozen-transfer-v9.5/calibrated-seed101.pt",
+      "checkpoint_sha256": "660df17b6b26d4674ddbe29222a0091ef15ebfa166a28f1bbeb53af7a747c620"
+    },
+    {
+      "seed": 211,
+      "passed": true,
+      "entry": {
+        "mse": 14.694902420043945,
+        "return_variance": 51.71205139160156,
+        "mse_over_return_variance": 0.2841678491685308,
+        "explained_variance": 0.7166271306795129,
+        "mean_value_bias": -0.2027532160282135,
+        "constant_mse": 55.513099670410156,
+        "fitting_mse": 1.5555154085159302
+      },
+      "final": {
+        "mse": 14.694902420043945,
+        "return_variance": 51.71205139160156,
+        "mse_over_return_variance": 0.2841678491685308,
+        "explained_variance": 0.7166271306795129,
+        "mean_value_bias": -0.2027532160282135,
+        "constant_mse": 55.513099670410156,
+        "fitting_mse": 1.5555154085159302
+      },
+      "critic_transfer": null,
+      "checkpoint": "runs/autonomous-opportunity-frozen-transfer-v9.5/calibrated-seed211.pt",
+      "checkpoint_sha256": "d88556bd0cbec51ea6d91812e984d3e8ef69253062f6aa5586a4b7aa1f775211"
+    },
+    {
+      "seed": 307,
+      "passed": true,
+      "entry": {
+        "mse": 52.08199691772461,
+        "return_variance": 36.00400161743164,
+        "mse_over_return_variance": 1.4465613425733397,
+        "explained_variance": -0.3723012559660266,
+        "mean_value_bias": 1.6351350545883179,
+        "constant_mse": 45.298255920410156,
+        "fitting_mse": 0.20885463058948517
+      },
+      "final": {
+        "mse": 6.821893692016602,
+        "return_variance": 36.00400161743164,
+        "mse_over_return_variance": 0.18947598560027074,
+        "explained_variance": 0.8227330528924217,
+        "mean_value_bias": 0.6630035638809204,
+        "constant_mse": 45.298255920410156,
+        "fitting_mse": 61.81413269042969
+      },
+      "critic_transfer": {
+        "value_max_abs_errors": [
+          2.288818359375e-05,
+          1.0967254638671875e-05
+        ],
+        "raw_value_parity_tolerance": 0.0001,
+        "output_scale_ratio": 0.7126951217651367,
+        "live_bias_shift": -0.09211152046918869,
+        "anchors_replaced_and_refrozen": true,
+        "critic_adam_reset": true,
+        "actor_adam_reset": false,
+        "protected_actor_before": "b83ef15e4c344ac8714e41c9c3688a1ddd5095109f928a757bfc091447c4c7fb",
+        "protected_actor_after": "b83ef15e4c344ac8714e41c9c3688a1ddd5095109f928a757bfc091447c4c7fb",
+        "independent_critic_initialization": false
+      },
+      "checkpoint": "runs/autonomous-opportunity-frozen-transfer-v9.5/calibrated-seed307.pt",
+      "checkpoint_sha256": "a01af90a6584ff1464254e8e1116bd832e3071e87137a1acf50bd4a4793783ca"
+    }
+  ],
+  "baselines": [
+    {
+      "seed": 101,
+      "summary": {
+        "episodes": 6,
+        "physical_control_endpoints": [
+          {
+            "eligible": 133,
+            "zero": 6,
+            "one": 3,
+            "mean": 0.51584796321132
+          },
+          {
+            "eligible": 25,
+            "zero": 3,
+            "one": 1,
+            "mean": 0.40163100324334455
+          },
+          {
+            "eligible": 25,
+            "zero": 1,
+            "one": 0,
+            "mean": 0.44106782096689967
+          }
+        ],
+        "steps": 146,
+        "average_qol": 0.16218732606017291,
+        "average_population": 27.431506849315067,
+        "annual_welfare": 7.373583327752967,
+        "integrated_welfare": 21530.863317038664,
+        "final_population_mean": 1.3333333333333333,
+        "terminal_episodes": 1,
+        "events": {
+          "movement": 93,
+          "trades": 2,
+          "migrants": 105,
+          "daughters": 13,
+          "quotes": 43,
+          "opportunities": 2,
+          "compatible_proposals": 2
+        },
+        "native_step_seconds_mean": 0.045972678082191784,
+        "family_counts": {
+          "fishing": 1,
+          "fission": 1,
+          "husbandry": 1,
+          "migration": 1,
+          "survival": 1,
+          "trade": 1
+        },
+        "mean_requested_workforce": [
+          0.09601511391019453,
+          0.07855075832696992,
+          0.011639642949175178,
+          0.029954640313862437,
+          0.09987864829958219,
+          0.08266240858066394,
+          0.08724576367397381,
+          0.08638338361656363,
+          0.08328725512955619,
+          0.0934174067371182,
+          0.0759377041289999,
+          0.0877423720172863,
+          0.0872849023160537
+        ],
+        "mean_compiled_staffing": [
+          2.1301369863013697,
+          1.6095890410958904,
+          0.3493150684931507,
+          0.9794520547945206,
+          2.9315068493150687,
+          2.7945205479452055,
+          2.3767123287671232,
+          2.3835616438356166,
+          2.7054794520547945,
+          2.712328767123288,
+          1.9452054794520548,
+          1.8767123287671232,
+          2.636986301369863
+        ],
+        "total_production": [
+          7541.345357025169,
+          14475.058876342971,
+          881.8807912142514,
+          7310.923158702753,
+          399.0410242734786,
+          7499.028666516202,
+          0.0,
+          0.0,
+          15.434781349685863,
+          569.9418822003946,
+          644.8994387911971
+        ],
+        "total_extraction": [
+          23272.247119213644,
+          28054.24044336318,
+          24139.693292380358
+        ]
+      }
+    }
+  ],
+  "cells": [
+    {
+      "id": "seed101-lr0.0003",
+      "seed": 101,
+      "actor_lr": 0.0003,
+      "status": "RUNNING",
+      "transitions": 448,
+      "updates": [
+        {
+          "critic_residual_mse": 22.65673828125,
+          "actor_step_l2": 0.11563564836978912,
+          "critic_step_l2": 0.23950475454330444,
+          "actor_relative_step": 0.002923920894636207,
+          "critic_relative_step": 0.006101150217688134,
+          "actor_first_layer_grad": 1.1885908842086792,
+          "critic_first_layer_grad": 5.979971408843994,
+          "advantage_std": 4.757166938115049,
+          "return_std": 8.681580461337248,
+          "actor_updates": 1,
+          "minibatches": 28,
+          "maximum_kl": 0.17082138306058597,
+          "clip_fraction": 0.2602678585265364,
+          "head_gradient_max": {
+            "simplex": 33.37607489526272,
+            "movement": 3.80671295709908,
+            "enabled": 1.422848186455667,
+            "partner": 0.5101874934043735,
+            "give": 0.44192916178144515,
+            "want": 0.4468030398711562,
+            "lot": 0.3122463778126985,
+            "price": 0.3122469177469611
+          }
+        },
+        {
+          "critic_residual_mse": 47.705101013183594,
+          "actor_step_l2": 0.08702702820301056,
+          "critic_step_l2": 0.273456871509552,
+          "actor_relative_step": 0.0022005878701172,
+          "critic_relative_step": 0.006965945771990855,
+          "actor_first_layer_grad": 2.3114893436431885,
+          "critic_first_layer_grad": 6.226551055908203,
+          "advantage_std": 6.899761171902872,
+          "return_std": 10.00652061265888,
+          "actor_updates": 1,
+          "minibatches": 28,
+          "maximum_kl": 0.051512900298019235,
+          "clip_fraction": 0.20089285714285715,
+          "head_gradient_max": {
+            "simplex": 27.121851474046707,
+            "movement": 1.9459689687937498,
+            "enabled": 0.08928553530859062,
+            "partner": 0.9327538078650832,
+            "give": 1.5113221313804388,
+            "want": 0.866829234175384,
+            "lot": 0.48632930777966976,
+            "price": 0.48749117366969585
+          }
+        },
+        {
+          "critic_residual_mse": 1.3953756093978882,
+          "actor_step_l2": 0.07201077789068222,
+          "critic_step_l2": 0.038772277534008026,
+          "actor_relative_step": 0.0018209393005911988,
+          "critic_relative_step": 0.0009876420290154684,
+          "actor_first_layer_grad": 3.6523120403289795,
+          "critic_first_layer_grad": 3.529195785522461,
+          "advantage_std": 0.04217279574034516,
+          "return_std": 2.237873190435192,
+          "actor_updates": 1,
+          "minibatches": 4,
+          "maximum_kl": 0.05053560232484977,
+          "clip_fraction": 0.375,
+          "head_gradient_max": {
+            "simplex": 27.817594155669212,
+            "movement": 3.923448245972395,
+            "enabled": 0.5225123972631991,
+            "partner": 0.0,
+            "give": 0.060029761836631224,
+            "want": 1.503312068991363,
+            "lot": 0.1115411821519956,
+            "price": 0.11154621676541865
+          }
+        }
+      ],
+      "pair_state_sha256": "4c50d9394fd666706505a44237531eea42f305eca5b2dc0687c5e05eb011eba6",
+      "health_before": {
+        "actor_layers": [
+          {
+            "saturated_fraction": 0.008809840306639671,
+            "mean_derivative": 0.6058580279350281,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.2815215587615967,
+            "effective_rank": 22.597874067711558
+          },
+          {
+            "saturated_fraction": 0.01097074430435896,
+            "mean_derivative": 0.6112377643585205,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.29904282093048096,
+            "effective_rank": 23.462313076556267
+          }
+        ],
+        "critic_layers": [
+          {
+            "saturated_fraction": 0.012799202464520931,
+            "mean_derivative": 0.616542398929596,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.40053749084472656,
+            "effective_rank": 24.233614801599263
+          },
+          {
+            "saturated_fraction": 0.009474733844399452,
+            "mean_derivative": 0.6013985872268677,
+            "fixed_saturated_units": 0.0,
+            "observation_std": 0.48574331402778625,
+            "effective_rank": 25.416208618118734
+          }
+        ],
+        "active_clamp_fraction": 0.0,
+        "active_raw_min": -0.01841028779745102,
+        "active_raw_max": 0.020031530410051346,
+        "simplex": {
+          "workforce": {
+            "eligible": 47,
+            "concentration_mean": 8.941460609436035,
+            "concentration_max": 10.306863784790039,
+            "coordinate_std": 0.0901462659239769,
+            "requested_mean_max": 0.08940946310758591
+          },
+          "activities": {
+            "eligible": 203,
+            "concentration_mean": 2.8045172691345215,
+            "concentration_max": 7.9478840827941895,
+            "coordinate_std": 0.21313868463039398,
+            "requested_mean_max": 0.35806477069854736
+          },
+          "controls": {
+            "eligible": 58,
+            "concentration_mean": 2.381016969680786,
+            "concentration_max": 2.39164662361145,
+            "coordinate_std": 0.27192258834838867,
+            "requested_mean_max": 0.5008643865585327
+          }
+        },
+        "categorical": {
+          "movement": {
+            "eligible": 43,
+            "normalized_entropy": 0.999994695186615,
+            "maximum_probability": 0.16932588815689087,
+            "probability_std": 0.05105815827846527
+          },
+          "enabled": {
+            "eligible": 23,
+            "normalized_entropy": 0.30463722348213196,
+            "maximum_probability": 0.9296656847000122,
+            "probability_std": 0.27491164207458496
+          },
+          "partner": {
+            "eligible": 3,
+            "normalized_entropy": 0.7202360033988953,
+            "maximum_probability": 0.7709221839904785,
+            "probability_std": 0.029993001371622086
+          },
+          "give": {
+            "eligible": 47,
+            "normalized_entropy": 0.2363608181476593,
+            "maximum_probability": 0.8507755398750305,
+            "probability_std": 0.09966474026441574
+          },
+          "want": {
+            "eligible": 47,
+            "normalized_entropy": 0.3483932316303253,
+            "maximum_probability": 0.6757897734642029,
+            "probability_std": 0.03317930921912193
+          },
+          "lot": {
+            "eligible": 47,
+            "normalized_entropy": 0.15439487993717194,
+            "maximum_probability": 0.9665753245353699,
+            "probability_std": 0.00012563196651171893
+          },
+          "price": {
+            "eligible": 47,
+            "normalized_entropy": 0.15439386665821075,
+            "maximum_probability": 0.966575562953949,
+            "probability_std": 0.00012519826123025268
+          }
+        },
+        "value_std": 18.070341110229492,
+        "value_input_gradient": 14.73657512664795,
+        "receipt_sensitivity": {
+          "workforce": 0.0,
+          "activities": 0.0,
+          "controls": 0.0,
+          "movement": 0.0,
+          "enabled": 0.0,
+          "partner": 0.0,
+          "give": 0.0,
+          "want": 0.0,
+          "lot": 0.0,
+          "price": 0.0
+        },
+        "receipt_value_sensitivity": 2.3975846767425537
+      }
+    }
+  ],
+  "budget": {
+    "caps": {
+      "training": 2688,
+      "evaluation": 1350,
+      "evaluation_replay": 1350
+    },
+    "attempted": {
+      "training": 448,
+      "evaluation": 146,
+      "evaluation_replay": 146
+    },
+    "prior_resolves": 22417,
+    "total_resolves": 23157,
+    "prior_wall_seconds": 746.3559672170086,
+    "active_wall_seconds": 27.56250333999924,
+    "cumulative_wall_seconds": 773.9184711570124
+  },
+  "error": "ValueError: Recovery probe needs >=16 rows on one nondegenerate legal face"
+}

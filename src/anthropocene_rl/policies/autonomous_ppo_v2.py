@@ -109,7 +109,7 @@ class AutonomousPPOV2(AutonomousPPO):
 
     def forward(self, obs, action=None, *, generator=None, deterministic=False):
         h = self.actor(obs["x"])
-        alpha = torch.nn.functional.softplus(self.heads["simplex"](h).clamp(-12, 12)) + 0.5
+        alpha = self.concentrations(self.heads["simplex"](h))
         masks = obs["ControlMask"]
         wf = MaskedDirichlet(alpha[:, :13], obs["WorkforceMask"])
         ac = MaskedDirichlet(alpha[:, 13:208].reshape(-1, 13, 15), obs["ActivityMask"])
@@ -174,3 +174,7 @@ class AutonomousPPOV2(AutonomousPPO):
             entropy,
             self.value(obs),
         )
+
+    def concentrations(self, raw):
+        # The omitted-setting legacy path keeps the exact original operations.
+        return torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5

@@ -1,0 +1,417 @@
+[
+  {
+    "path": "runs/autonomous-opportunity-admission-v9/budget.json",
+    "sha256": "2e7337ec23932a92a1c574a5f2d162bcbb5e8456cb65102618dfa0af0fcbc9a4",
+    "bytes": 226
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9/observations.json",
+    "sha256": "24c68d26c80386b955c1a9b26fb25de72dff6f7ffe0857975a834359bdddb28c",
+    "bytes": 99017
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9/summary.json",
+    "sha256": "0a3f52c7f56209bc4a498e967f4396f98a6f765904b9533e78c4a2ca01bd0c61",
+    "bytes": 10943
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9/trade-corpus.json",
+    "sha256": "3759ec0c7fb002854f8ab9abdfeb0d4fad7c90b7d9378236ec727857daeb0c6a",
+    "bytes": 65392
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-attempt1/summary.json",
+    "sha256": "8d28f64e79f8c8fbe6494307bb29a6e023f93be489d055b63a7179d9fcc5c308",
+    "bytes": 619
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/adaptation-probe.json",
+    "sha256": "cb9ba3b62a15785b9c51930e44498baf37931ee9f915e1ba434abad1aab490a4",
+    "bytes": 33489
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/budget.json",
+    "sha256": "ea152d197c8d91084d54a18d7eaea10d6b60e6f75d06675b1d2a2a313d5bb599",
+    "bytes": 226
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/observations.json",
+    "sha256": "2dd3944dbf6b4b33f124cb6884ef8e1d46d72144470d563e082001e11b9d1e2d",
+    "bytes": 129855
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/summary.json",
+    "sha256": "38e2629b818e3f922a57ee513e8f188524e5da232ad0c0be7cd3f6fa5a6d42e1",
+    "bytes": 14342
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/trade-corpus.json",
+    "sha256": "3759ec0c7fb002854f8ab9abdfeb0d4fad7c90b7d9378236ec727857daeb0c6a",
+    "bytes": 65392
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3/adaptation-probe.json",
+    "sha256": "cb9ba3b62a15785b9c51930e44498baf37931ee9f915e1ba434abad1aab490a4",
+    "bytes": 33489
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3/budget.json",
+    "sha256": "6cdc206094954c2a843f48da9b57431260a06d3127bf4a1d9fd6cced1e7af7f8",
+    "bytes": 226
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3/observations.json",
+    "sha256": "3fa64be07832f0e3b7fc950d561ce13e3f9426ba48859e437bad12a8b363c22a",
+    "bytes": 238342
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3/summary.json",
+    "sha256": "73bda5b0bbe145bbe4da35b7b6d533f74522c3988747d0fe5eac96771acb8bd5",
+    "bytes": 27264
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3/trade-corpus.json",
+    "sha256": "3759ec0c7fb002854f8ab9abdfeb0d4fad7c90b7d9378236ec727857daeb0c6a",
+    "bytes": 65392
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3-agebalanced/adaptation-probe.json",
+    "sha256": "cb9ba3b62a15785b9c51930e44498baf37931ee9f915e1ba434abad1aab490a4",
+    "bytes": 33489
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3-agebalanced/budget.json",
+    "sha256": "314d13bbc3e5de6c87b8bc2ed88c39f7f0c3ebfc91d0b992d87cd7341128f305",
+    "bytes": 226
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3-agebalanced/observations.json",
+    "sha256": "5b43215cd0ad50cee285ee3443e6f7d4fc9e44f4c2030e0745b3965ccd1d065d",
+    "bytes": 249416
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3-agebalanced/summary.json",
+    "sha256": "1697cd843aa4d3a47a8c4dd9bab6593a5201cf0202d5bde72c4370ef39c2b01f",
+    "bytes": 28298
+  },
+  {
+    "path": "runs/autonomous-opportunity-admission-v9-repair3-agebalanced/trade-corpus.json",
+    "sha256": "3759ec0c7fb002854f8ab9abdfeb0d4fad7c90b7d9378236ec727857daeb0c6a",
+    "bytes": 65392
+  },
+  {
+    "path": "runs/autonomous-opportunity-cached-ridge-v9.4/budget.json",
+    "sha256": "b6d483ae955215365995c182c3bda8a3e20515dbda0791e0317ada917c79d8af",
+    "bytes": 375
+  },
+  {
+    "path": "runs/autonomous-opportunity-cached-ridge-v9.4/calibrated-seed101.pt",
+    "sha256": "356beacbc8e7609010c72330bf22fa2d09bb1f9e09f7d255ae5cc69c033afd8a",
+    "bytes": 8454205
+  },
+  {
+    "path": "runs/autonomous-opportunity-cached-ridge-v9.4/calibrated-seed211.pt",
+    "sha256": "13282b038cc4193fe71d3ddb62ffd7c4b792b828122d75ec7a67129895f9e1d9",
+    "bytes": 8454205
+  },
+  {
+    "path": "runs/autonomous-opportunity-cached-ridge-v9.4/calibrated-seed307.pt",
+    "sha256": "121ed16c86186e353864d7d11fdbb514b3b7a6efe40880060f8f32f6f724c114",
+    "bytes": 5731445
+  },
+  {
+    "path": "runs/autonomous-opportunity-cached-ridge-v9.4/summary.json",
+    "sha256": "5fa5eba1a5b6745abd85914ec7a9d6cc0c8df7218779f335053f27436e077eae",
+    "bytes": 10014
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/budget.json",
+    "sha256": "b929981ec245211dbb403bd01676cdd7a1ba40925d8477c335f7bd1f0d86fc3b",
+    "bytes": 514
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/calibrated-seed101.pt",
+    "sha256": "910373568e1078b44f6509c91e50f653070721364f0ecfe6814f7a6d8a446284",
+    "bytes": 8454013
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/calibrated-seed211.pt",
+    "sha256": "9af92daf7bcc796bb28f1252e64447bad6d3c272ce5f3a179415864b34a2ed9d",
+    "bytes": 8454013
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/calibrated-seed307.pt",
+    "sha256": "fa43153c6509af34f79051a1a23cfd9613aae206b12b76232b564b3f2a77be3e",
+    "bytes": 8454013
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/expanded-targets-seed101.pt",
+    "sha256": "b64a7c48157a4fe62890bab7975fb16d141d81af2e6636d4b748546e40c35cb7",
+    "bytes": 4471365
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/expanded-targets-seed211.pt",
+    "sha256": "ffa4796c4bf2df7cba9ae08ee01aac7814c9f14b0349e915215302ef578c9501",
+    "bytes": 4466757
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/expanded-targets-seed307.pt",
+    "sha256": "466100ec93c37cef1111662cf339da94eb4b130fe10ad910cf0236ec63996c71",
+    "bytes": 4497029
+  },
+  {
+    "path": "runs/autonomous-opportunity-coverage-v9.3/summary.json",
+    "sha256": "7ec3cf2b8c6953fb2cc43fde003c907add0b7de2e4bb8d4c915110e244a35151",
+    "bytes": 23130
+  },
+  {
+    "path": "runs/autonomous-opportunity-critic-diagnosis-v9.3/budget.json",
+    "sha256": "82cbd1c1bbe6fa4b815166b83972b77d23fc4f23a69cf8c8f8f22b29edbcf86c",
+    "bytes": 225
+  },
+  {
+    "path": "runs/autonomous-opportunity-critic-diagnosis-v9.3/summary.json",
+    "sha256": "643e70c03c610983f2f1230c8426c22dcbafea282cee8b89a9d96cdc500fe340",
+    "bytes": 44146
+  },
+  {
+    "path": "runs/autonomous-opportunity-critic-source-audit-v9.4/budget.json",
+    "sha256": "5f127eeccb87ff80912cae374b48b809e8ae02b35bcd72475a14a4aa7a401a7f",
+    "bytes": 226
+  },
+  {
+    "path": "runs/autonomous-opportunity-critic-source-audit-v9.4/summary.json",
+    "sha256": "04f4c922036a3c1be2e79574c7610cbb1d26f00627e3ea095e5e09e110280ba6",
+    "bytes": 811
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/budget.json",
+    "sha256": "31375a1acee31ab173cb85a4b696095b024452f42a8759395f593651fa85c222",
+    "bytes": 384
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/calibrated-seed101.pt",
+    "sha256": "1f7d95d0d248b5723cc4bf69e5810755350c4a49fcb74600d6ea7a67a2ad8760",
+    "bytes": 8454269
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/calibrated-seed211.pt",
+    "sha256": "854dc7a3fd9da6fefecb1243e6d48e4cb96b3f21b416b97d4f2735000be0ec82",
+    "bytes": 8454269
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/calibrated-seed307.pt",
+    "sha256": "d3423fb591fb2a6be57c777e056677798d22ca15184aee7f321ba4d2f2f8708f",
+    "bytes": 5731445
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr0.0003-step222.pt",
+    "sha256": "af8c91446b00c675f86cf0ce3cc43c7632073025926d0ec7915325262626cecd",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr0.0003-step400.pt",
+    "sha256": "7ae7e2f12264c879b9639bb6c1f6a0d5ff8a86a6f0f261676fd545d838be5a89",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr0.0003-training-traces.json",
+    "sha256": "d6f902cce5f1b9c159c669966be28100b477e76f06056d5caa1e95f9c77a9088",
+    "bytes": 605034
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr3e-05-step222.pt",
+    "sha256": "b0d13a704d3ceae6ef1eac924c5bb128a2688695fc1c85d2d8e877177b327256",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr3e-05-step396.pt",
+    "sha256": "ca7d81ac8b23e006683bc427647144dad18abaffa584d86056cec98f3ff08731",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr3e-05-step400.pt",
+    "sha256": "9a6f631997d255b57e451e165592b8feb82c888051b1cb1e4f79790cfb5c9989",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed101-lr3e-05-training-traces.json",
+    "sha256": "1a03a0251b91d42f41e79ddf8e53dda60088efc23a3ea5fb77400c019c730c21",
+    "bytes": 604994
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr0.0003-step217.pt",
+    "sha256": "e2768fa0fb55962fec46b5c972052c3cebf64bb326035e0ee552aa9b62f4581b",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr0.0003-step397.pt",
+    "sha256": "8fa7f5552dbb7627d09b1a90812ce646b3c7adaf073efdd94d73faa36d530886",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr0.0003-step400.pt",
+    "sha256": "e276daf8fced1ce14220ab9d2bf376976a468e468bf8fcdf223e52699a1cfd73",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr0.0003-training-traces.json",
+    "sha256": "3fe566537bc75912d77bd01957bfb9f13d0dd6fdd5ea81205fe53593047e2022",
+    "bytes": 610802
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr3e-05-step217.pt",
+    "sha256": "75d392b982038219952b0eafa252a48e569686e6a4537fa85ab4057b934ad6be",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr3e-05-step397.pt",
+    "sha256": "b92678dd2db3e1360d3bb1f2a1c0c784c22431b55eba2cfc36c9d6646e8ef6db",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr3e-05-step400.pt",
+    "sha256": "bf66c92b32e1044a1de96fd36153804db20c7ea57d4b6ea8a29a284df475f17b",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed211-lr3e-05-training-traces.json",
+    "sha256": "b45689c5851abd94648ca14d306fb61779c9bb3790c5bff5d6363feb0ac756cb",
+    "bytes": 609748
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr0.0003-step220.pt",
+    "sha256": "3643638105b170e3ead8e63464b4e850c144aeb68418b8cb149ac28fd10d0835",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr0.0003-step396.pt",
+    "sha256": "df7fb3488e1768e83278bf5cbf95ec887c94f8be565f83729f9985072e80e979",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr0.0003-step400.pt",
+    "sha256": "925ca229dca1091c1f0dd80e08984ef198d3fbf5118e0bfc909d6f3da17c4657",
+    "bytes": 11722143
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr0.0003-training-traces.json",
+    "sha256": "0830a8d393a81c2f66a134698c3c1ec6e704ef78c862e03663ce5de443e73be6",
+    "bytes": 605559
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr3e-05-step220.pt",
+    "sha256": "bb9249b3fe913fe314f08a799ca1f4dbe4862767f112d99809d6c3611b63f840",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr3e-05-step395.pt",
+    "sha256": "36734b98bdebc3a621a852326add83bf0a5a6c1976a59be4a8e5695d16119b22",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr3e-05-step400.pt",
+    "sha256": "0bd279773f4d915f5ba37bfac534fb1cbdfc322d3e83a11a692109d3d65bc58f",
+    "bytes": 11721971
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/seed307-lr3e-05-training-traces.json",
+    "sha256": "aa644d340e5c1c3ba26952bad31a48ee228dc0a778ba86bd8dafaf45498da5f9",
+    "bytes": 605959
+  },
+  {
+    "path": "runs/autonomous-opportunity-durable-canary-v9.6/summary.json",
+    "sha256": "3e41c41e207f3124591d6993748afa4033107559bba9eafaec4fe568dcd34c2a",
+    "bytes": 4265957
+  },
+  {
+    "path": "runs/autonomous-opportunity-frozen-transfer-v9.5/budget.json",
+    "sha256": "9496d69a8f3ea0d9fd2163367f8691f37eccc42b70972967dbcb023f8e19c598",
+    "bytes": 380
+  },
+  {
+    "path": "runs/autonomous-opportunity-frozen-transfer-v9.5/calibrated-seed101.pt",
+    "sha256": "660df17b6b26d4674ddbe29222a0091ef15ebfa166a28f1bbeb53af7a747c620",
+    "bytes": 8454269
+  },
+  {
+    "path": "runs/autonomous-opportunity-frozen-transfer-v9.5/calibrated-seed211.pt",
+    "sha256": "d88556bd0cbec51ea6d91812e984d3e8ef69253062f6aa5586a4b7aa1f775211",
+    "bytes": 8454269
+  },
+  {
+    "path": "runs/autonomous-opportunity-frozen-transfer-v9.5/calibrated-seed307.pt",
+    "sha256": "a01af90a6584ff1464254e8e1116bd832e3071e87137a1acf50bd4a4793783ca",
+    "bytes": 5731445
+  },
+  {
+    "path": "runs/autonomous-opportunity-frozen-transfer-v9.5/summary.json",
+    "sha256": "c8986dbe6a1f6b8b129043374ab53bc971c09545081e38532855b33bcdb62e6f",
+    "bytes": 468449
+  },
+  {
+    "path": "runs/autonomous-opportunity-generation-v9/budget.json",
+    "sha256": "b7ec3ec3de4af85d427af19ba3f0af4ee0f1781cd67a8c887d234a75f775dc46",
+    "bytes": 438
+  },
+  {
+    "path": "runs/autonomous-opportunity-generation-v9/summary.json",
+    "sha256": "7f130dfd623b3e40af915b90f41f920af30fcae3a5d73481d8065b88e0f3c50e",
+    "bytes": 15731
+  },
+  {
+    "path": "runs/autonomous-opportunity-postflight-v9.7/budget.json",
+    "sha256": "ca7b3a051c9e215b767d076ad21ddd85f774d75fcb71f80a08164f38aecd01c6",
+    "bytes": 303
+  },
+  {
+    "path": "runs/autonomous-opportunity-postflight-v9.7/summary.json",
+    "sha256": "d5feb858bf8b8e9c117879a613eb9844c5223109b714a4df747cbe51657640d7",
+    "bytes": 19686
+  },
+  {
+    "path": "runs/autonomous-opportunity-postflight-v9.7/two-elder-traces.json",
+    "sha256": "375765776004c5cd080d8251da9904914db37594528e43d60ca4a10963556eb5",
+    "bytes": 480829
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/budget.json",
+    "sha256": "3265b952b7c1c9bcefbd4504b4308b75617f7222e8abc2d54126c7b497288b87",
+    "bytes": 676
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/calibrated-seed101.pt",
+    "sha256": "8de9c0c010d19e29374de76a67c2f00a8f028fe40bb12fdb5a17a029aaf0719c",
+    "bytes": 8453565
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/calibrated-seed211.pt",
+    "sha256": "b1c5d7f875737d9a37eff8908b9c3fce69c0b182d04eb289dca0ee0da3c4fa8f",
+    "bytes": 8453565
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/calibrated-seed307.pt",
+    "sha256": "96e72727ad7716161731a30e07b40890b484cf783332cbd68bbd81dc78213218",
+    "bytes": 8453565
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/native-targets-seed101.pt",
+    "sha256": "4461ffd7670e8bb6d8a5f046ee65400cccec74f3c3404d0dca30100bbe9be1db",
+    "bytes": 1438517
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/native-targets-seed211.pt",
+    "sha256": "31b2433a0ed74dcd184c3a6feda4a9b24eb41657bec42479bbd41289adc79bb3",
+    "bytes": 1438709
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/native-targets-seed307.pt",
+    "sha256": "54026003957ead71235a874a48c79eb667d921a54de0ac3ad81a686ce0bfc28b",
+    "bytes": 1462837
+  },
+  {
+    "path": "runs/autonomous-opportunity-training-v9.2/summary.json",
+    "sha256": "18588e3e1defac675c45776a6a6d6cccad8ace2f4282b8215b907f858afb32d8",
+    "bytes": 256937
+  }
+]

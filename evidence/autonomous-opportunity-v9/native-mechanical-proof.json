@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "assertions": 42,
+  "validationResolves": 3,
+  "replayResolves": 3,
+  "addresses": [
+    1,
+    1,
+    1
+  ],
+  "wallSeconds": 0.8196915
+}

@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "focused_tests": 29,
+  "log_sha256": "b71db6006ecc410f6085db2500759568a2da5d0cdf2fd3f7165307654085abe2",
+  "value_equation": true,
+  "fold_statistics_only": true,
+  "stable_ties": true,
+  "actor_adam_protection": true
+}

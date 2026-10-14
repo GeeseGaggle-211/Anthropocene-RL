@@ -80,6 +80,7 @@ class AutonomousTrainerV3:
             for ix in torch.randperm(len(rows), generator=self.shuffle).split(
                 self.config["minibatch"]
             ):
+                self.check_update_deadline()
                 _, lp, entropy, value = self.model(
                     {k: v[ix] for k, v in obs.items()}, actions.index(ix)
                 )
@@ -95,7 +96,7 @@ class AutonomousTrainerV3:
                 )
                 regularizer = self.model.regularization({k: v[ix] for k, v in obs.items()}).mean()
                 actor_loss = actor_loss + self.config["legal_reverse_kl_coef"] * regularizer
-                critic_loss = 0.5 * (value - returns[ix]).square().mean()
+                critic_loss = self.critic_loss(value, returns[ix])
                 loss = critic_loss + (actor_loss * 0 if actor_stopped else actor_loss)
                 if not torch.isfinite(loss):
                     raise ValueError("Nonfinite PPO loss")
@@ -131,6 +132,12 @@ class AutonomousTrainerV3:
         self.updates += 1
         self.transitions += len(rows)
         return metrics
+
+    def critic_loss(self, value, target):
+        return 0.5 * (value - target).square().mean()
+
+    def check_update_deadline(self):
+        pass
 
     def warm_start(self, path, *, expected_sha256):
         """Behavior-changing conversion; preserve old Adam state by name, not position."""

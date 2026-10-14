@@ -11,7 +11,12 @@ from anthropocene_rl.autonomous_v4.diagnostics import health, probe_face
 @torch.no_grad()
 def signature(model, obs):
     h = model.actor(obs["x"])
-    alpha = torch.nn.functional.softplus(model.heads["simplex"](h).clamp(-12, 12)) + 0.5
+    raw = model.heads["simplex"](h)
+    alpha = (
+        model.concentrations(raw)
+        if hasattr(model, "concentrations")
+        else torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+    )
     result = {}
     for key, a, mask in [
         ("workforce", alpha[:, :13], obs["WorkforceMask"]),
@@ -62,7 +67,11 @@ def reversal_probe(model, obs, *, steps=16, lr=0.001):
 
         def measure(mask=mask, target=target, direction=direction):
             raw = clone.heads["simplex"](clone.actor(subset["x"]))[:, :13]
-            alpha = torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+            alpha = (
+                model.concentrations(raw)
+                if hasattr(model, "concentrations")
+                else torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+            )
             loss = -MaskedDirichlet(alpha, mask).log_prob(target).mean()
             mean = alpha * mask
             mean = mean / mean.sum(-1, keepdim=True)

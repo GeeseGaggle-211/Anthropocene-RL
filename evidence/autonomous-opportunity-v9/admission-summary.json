@@ -1,0 +1,1452 @@
+{
+  "version": "opportunity-admission-v9",
+  "status": "PASS",
+  "selected": {
+    "calibration": [
+      "train-881001-survival-d0",
+      "train-881002-trade-d2",
+      "train-881004-husbandry-d8",
+      "train-881003-fishing-d8",
+      "train-881005-trade-d2",
+      "train-881006-husbandry-d2",
+      "train-881006-survival-d0",
+      "train-881005-migration-d2",
+      "train-881006-fission-d8",
+      "train-881005-fishing-d2"
+    ],
+    "ppo": [
+      "train-881001-survival-d0",
+      "train-881002-trade-d2",
+      "train-881004-husbandry-d8",
+      "train-881003-fishing-d8",
+      "train-881001-fission-d8",
+      "train-881002-migration-d2"
+    ],
+    "development": [
+      "development-881007-survival-d0",
+      "development-881008-trade-d2",
+      "development-881007-migration-d2",
+      "development-881008-fission-d8",
+      "development-881007-husbandry-d2",
+      "development-881008-fishing-d2"
+    ],
+    "floor_diagnostic": [
+      "train-881001-survival-d0",
+      "train-881002-fission-d8"
+    ],
+    "additional_fitting": [
+      "train-881001-survival-d0",
+      "train-881001-trade-d2",
+      "train-881001-migration-d8",
+      "train-881001-fission-d0",
+      "train-881001-husbandry-d2",
+      "train-881001-fishing-d8",
+      "train-881002-survival-d2",
+      "train-881002-trade-d0",
+      "train-881002-migration-d0",
+      "train-881002-fission-d2",
+      "train-881002-husbandry-d8",
+      "train-881002-fishing-d0",
+      "train-881003-survival-d8",
+      "train-881003-trade-d0",
+      "train-881003-migration-d2",
+      "train-881003-fission-d8",
+      "train-881003-husbandry-d0",
+      "train-881003-fishing-d2",
+      "train-881004-survival-d0",
+      "train-881004-trade-d0",
+      "train-881004-migration-d8",
+      "train-881004-fission-d0",
+      "train-881004-husbandry-d2"
+    ]
+  },
+  "checks": [
+    {
+      "id": "train-881001-survival-d0",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-trade-d2",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-husbandry-d8",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-fishing-d8",
+      "partition": "train",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881005-trade-d2",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881006-husbandry-d2",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881006-survival-d0",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881005-migration-d2",
+      "partition": "train",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881006-fission-d8",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881005-fishing-d2",
+      "partition": "train",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-survival-d0",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-trade-d2",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-husbandry-d8",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-fishing-d8",
+      "partition": "train",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-fission-d8",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-migration-d2",
+      "partition": "train",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "development-881007-survival-d0",
+      "partition": "development",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "development-881008-trade-d2",
+      "partition": "development",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "development-881007-migration-d2",
+      "partition": "development",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "development-881008-fission-d8",
+      "partition": "development",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "development-881007-husbandry-d2",
+      "partition": "development",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "development-881008-fishing-d2",
+      "partition": "development",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-survival-d0",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-fission-d8",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-survival-d0",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-trade-d2",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-migration-d8",
+      "partition": "train",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-fission-d0",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-husbandry-d2",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881001-fishing-d8",
+      "partition": "train",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-survival-d2",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-trade-d8",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": false
+    },
+    {
+      "id": "train-881002-trade-d0",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-migration-d0",
+      "partition": "train",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-fission-d2",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-husbandry-d8",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881002-fishing-d0",
+      "partition": "train",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-survival-d8",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-trade-d0",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-migration-d2",
+      "partition": "train",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-fission-d8",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-husbandry-d0",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        false,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881003-fishing-d2",
+      "partition": "train",
+      "family": "fishing",
+      "workforce_mask": [
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        false,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-survival-d0",
+      "partition": "train",
+      "family": "survival",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-trade-d2",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": false
+    },
+    {
+      "id": "train-881004-trade-d0",
+      "partition": "train",
+      "family": "trade",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": true,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-migration-d8",
+      "partition": "train",
+      "family": "migration",
+      "workforce_mask": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-fission-d0",
+      "partition": "train",
+      "family": "fission",
+      "workforce_mask": [
+        true,
+        true,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        false,
+        false
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    },
+    {
+      "id": "train-881004-husbandry-d2",
+      "partition": "train",
+      "family": "husbandry",
+      "workforce_mask": [
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "control_mask": [
+        true,
+        true,
+        true
+      ],
+      "reciprocal_opportunity": false,
+      "native_build_hash": "5eec50239cf14c3dbe48e633e6ab8db8",
+      "accepted": true
+    }
+  ],
+  "neural_calls": 0,
+  "native_resolves": 0,
+  "source_bank_sha256": "77bf77137ff7234230ab1c71070372c46cf1a01d63e8d282caedab89d4c64ace",
+  "corpus_rows": 12,
+  "corpus_sha256": "3759ec0c7fb002854f8ab9abdfeb0d4fad7c90b7d9378236ec727857daeb0c6a",
+  "observations_sha256": "5b43215cd0ad50cee285ee3443e6f7d4fc9e44f4c2030e0745b3965ccd1d065d",
+  "budget": {
+    "caps": {},
+    "attempted": {},
+    "prior_resolves": 19003,
+    "total_resolves": 19003,
+    "prior_wall_seconds": 670.1329769419972,
+    "active_wall_seconds": 3.3796926270006225,
+    "cumulative_wall_seconds": 673.5126699200046
+  }
+}

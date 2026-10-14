@@ -40,10 +40,18 @@ namespace Anthropocene.RLBridge
                     buildHash = candidate.Replay.BuildHash, configurationHash = candidate.Replay.ConfigurationHash };
             }
             if (active == null) throw new InvalidOperationException("Versioned autonomous reset required.");
+            if (op == "autonomous5_quote_address")
+                return new { ok = true, metadataVersion = "own-known-address-v1",
+                    ordinal = active.KnownCounterpartyOrdinal(root.GetProperty("observer").GetInt32(),
+                        root.GetProperty("target").GetInt32()) };
             if (op == "autonomous5_step")
             {
                 var actions = root.GetProperty("actions").Deserialize<Dictionary<int, AutonomousElderAction>>(json);
                 var timer = Stopwatch.StartNew(); var result = active.Step(actions); timer.Stop();
+                if (growth && root.TryGetProperty("outcomeDiagnostics", out var flag) && flag.GetBoolean())
+                    return new { ok = true, result, nativeStepSeconds = timer.Elapsed.TotalSeconds,
+                        outcomeDiagnostics = System.Linq.Enumerable.ToDictionary(actions.Keys, id => id,
+                            id => active.ClosedOutcomeDiagnostics(id)) };
                 return new { ok = true, result, nativeStepSeconds = timer.Elapsed.TotalSeconds };
             }
             if (op == "autonomous5_verify_replay")

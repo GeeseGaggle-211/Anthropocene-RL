@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "focused_tests": 26,
+  "log_path": "/workspace/scratch/elder-opportunity-steering-focused-launch.log",
+  "log_sha256": "64576d99c4cef913eb9b9bd4e5a096807fe2289f77eb08a67c7de2e43fc6349d",
+  "actor_frozen_adam_rng": true,
+  "legacy_bit_exact": true,
+  "strict_raw_unit_readiness": true,
+  "history_isolation": true,
+  "demographic_accounting": true,
+  "checkpoint_numeric_provenance": true,
+  "low_floor_ppo_restart_exact": true,
+  "deadline_restores_actor_flags": true,
+  "neural_multiseed_training_started": false,
+  "native_physics_reward_changes": false
+}

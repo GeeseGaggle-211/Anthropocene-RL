@@ -57,7 +57,11 @@ def _categorical(logits, mask, uniform_mix=0.0):
 def health(model, obs):
     h = model.actor(obs["x"])
     raw = model.heads["simplex"](h)
-    alpha = torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+    alpha = (
+        model.concentrations(raw)
+        if hasattr(model, "concentrations")
+        else torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+    )
     active = torch.cat(
         [
             obs["WorkforceMask"],
@@ -172,7 +176,11 @@ def recovery_probe(model, obs, *, steps=16, lr=0.001, critic_lr=None):
 
     def actor_state():
         raw = actor.heads["simplex"](actor.actor(obs["x"]))[:, :13]
-        alpha = torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+        alpha = (
+            actor.concentrations(raw)
+            if hasattr(actor, "concentrations")
+            else torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+        )
         loss = -MaskedDirichlet(alpha, obs["WorkforceMask"]).log_prob(target).mean()
         mean = alpha * obs["WorkforceMask"]
         mean = mean / mean.sum(-1, keepdim=True)
@@ -337,8 +345,12 @@ def conditional_simplex_probes(model, obs, *, steps=16, lr=0.001):
         def measure(
             clone=clone, x=x, span=span, m=m, target=target, choices=choices, labels=labels
         ):
-            raw = clone.heads["simplex"](clone.actor(x))[:, span]
-            alpha = torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+            raw = clone.heads["simplex"](clone.actor(x))
+            alpha = (
+                clone.concentrations(raw)
+                if hasattr(clone, "concentrations")
+                else torch.nn.functional.softplus(raw.clamp(-12, 12)) + 0.5
+            )[:, span]
             loss = -MaskedDirichlet(alpha, m).log_prob(target).mean()
             mean = alpha * m
             mean = mean / mean.sum(-1, keepdim=True)

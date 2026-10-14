@@ -1,0 +1,28 @@
+{
+  "spec_revision": "79",
+  "observed_spec_revision": "79",
+  "observations_current": true,
+  "outbound_identities": [],
+  "required_hosts": [
+    {
+      "host": "storage.googleapis.com",
+      "allowed": false
+    },
+    {
+      "host": "oauth2.googleapis.com",
+      "allowed": false
+    },
+    {
+      "host": "sts.googleapis.com",
+      "allowed": false
+    },
+    {
+      "host": "iamcredentials.googleapis.com",
+      "allowed": false
+    }
+  ],
+  "read_access_verified": false,
+  "keys_or_interactive_login": false,
+  "target_bucket": "gs://anthropocene-rl-datasets-508912",
+  "blocked": "The codex-gcs-reader outbound identity is not attached to this running runtime."
+}

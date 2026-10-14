@@ -1,0 +1,38 @@
+{
+  "version": "opportunity-v9-coverage-agebalanced-admission3",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "inputs": {
+    "selection": {
+      "path": "configs/curriculum/autonomous-opportunity-selection-v9-repair3-agebalanced.json",
+      "sha256": "bda56b64937ae4357e757a7411bff2a329724d367f47f05988e58ff9dce83353"
+    },
+    "bank": {
+      "path": "datasets/autonomous-opportunity-v9/manifest.json",
+      "sha256": "77bf77137ff7234230ab1c71070372c46cf1a01d63e8d282caedab89d4c64ace"
+    },
+    "bridge": {
+      "path": "integration/history-v9-steering/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "b580b75b7f1d4f5e124b514e83347e51a8c3b5b2317c78b83ccbfb1a87707fad"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-opportunity-admission-v9-repair3/budget.json",
+      "sha256": "6cdc206094954c2a843f48da9b57431260a06d3127bf4a1d9fd6cced1e7af7f8"
+    },
+    "runner": {
+      "path": "scripts/audit_autonomous_opportunity_v9.py",
+      "sha256": "ef7f551d67bfdd6b922303a7030d22998aa208df7d21ecd8488b2f3569c79703"
+    },
+    "market": {
+      "path": "src/anthropocene_rl/autonomous_v6/opportunity.py",
+      "sha256": "af22d7647e9185566983111d3a8460075cb0b215c860b56191cc48b94efe8a65"
+    },
+    "diagnostic_contract": {
+      "path": "docs/AUTONOMOUS_COVERAGE_REPAIR_ADDENDUM_V9_3.md",
+      "sha256": "21243cad2a436e00071cb4ce7edc98e6f78ac251337e577802ed21e1beb55ae1"
+    },
+    "age_contract": {
+      "path": "docs/AUTONOMOUS_AGE_BALANCE_ADDENDUM_V9_3_1.md",
+      "sha256": "1dee8ecff1187a941edc6a39a2b5520774d2c775801776a3200a5e3778722aab"
+    }
+  }
+}

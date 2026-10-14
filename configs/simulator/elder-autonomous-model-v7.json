@@ -1,0 +1,318 @@
+{
+  "name": "elder-autonomous-model-v7",
+  "contract_version": "autonomous-opportunity-critic-gate-v9.7",
+  "simulator_repository": "GeeseGaggle-211/Anthropocene",
+  "learner_repository": "GeeseGaggle-211/Anthropocene-RL",
+  "branch": "feature/elder-autonomous-economy",
+  "validated_base_commit": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+  "simulator_parent_commit": "ede7b30806e56e87fc14302e30453d7fef07f0ba",
+  "learner_parent_commit": "cd30f9944dd24c396a23594e4277fc3d5702041e",
+  "simulation_source_sha256": "611c5c8a3cef0706c06190a6c2c38b024e6c2b9b5651705cccb13c4e2bbd83a7",
+  "source_hash_algorithm": "sha256 of sorted simulation *.cs basenames + NUL + raw file bytes",
+  "bridge_project": "integration/Anthropocene.HistoryBridge.csproj",
+  "bridge_assembly_sha256": "b580b75b7f1d4f5e124b514e83347e51a8c3b5b2317c78b83ccbfb1a87707fad",
+  "build_hash": "runtime assembly ModuleVersionId; reset returns it and replay validates it",
+  "action_schema_version": 4,
+  "observation_schema_version": 6,
+  "environment_schema_version": 6,
+  "replay_schema_version": 6,
+  "save_envelope": "ANTHROPOCENE-13",
+  "native_receipt_schema_version": 2,
+  "legacy_receipts": "Save12/action3/schema1; mixed receipt semantics explicitly discriminated",
+  "learner_model_version": "autonomous-ppo-model-v7",
+  "learner_checkpoint_version": "autonomous-ppo-checkpoint-v7",
+  "policy": "anthropocene_rl.policies.autonomous_ppo_v7.AutonomousPPOV7",
+  "inference": "anthropocene_rl.policies.autonomous_inference_v7.AutonomousElderPolicyV7",
+  "gym": "anthropocene_rl.autonomous_v6.env.AutonomousElderEnv",
+  "context_tensor_width": 512,
+  "base_feature_width": 761,
+  "history_feature_width": 301,
+  "learner_feature_width": 1062,
+  "previous_action_version_coordinate": "0 absent,3 legacy,4 post-growth",
+  "professions": 13,
+  "activity_columns": 15,
+  "counterparties": 8,
+  "quote_slots": 1,
+  "quote_quantity_bounds": [
+    1e-06,
+    1000000.0
+  ],
+  "quote_policy_lots": [
+    0.05,
+    0.2,
+    0.5
+  ],
+  "quote_policy_ratios": [
+    0.5,
+    1,
+    2
+  ],
+  "control_transform": "clip((latent-.05)/.90,0,1)",
+  "control_probability": "PPO scores latent Beta samples; physical endpoint atoms never substituted into density",
+  "herd_retention": "requested fraction of actual survivors after nutrition and births",
+  "breeding": "full native [0,1] intensity subject to nutrition",
+  "staffing": "stable largest-remainder integer apportionment over actual available working residents",
+  "normalization": "Fixed sign-log inputs; existing actor LayerNorm and residual LayerNorm live critic; fixed TRAIN-only live value offset/scale with raw reward/value/GAE units preserved",
+  "actor_width": [
+    256,
+    256
+  ],
+  "actor_learning_rate": 3e-05,
+  "critic_learning_rate": 0.0001,
+  "physical_horizons_years": [
+    100,
+    400
+  ],
+  "native_turn_years": 20,
+  "reward_scope": "Focal opening population x end-interval QoL x elapsed years; daughter future welfare excluded",
+  "reward_scale": 120,
+  "daughter_controllers": "Separate native heuristic Elders; automatic learned daughter assignment not implemented",
+  "movement_migration_fission_trade_intrinsic": true,
+  "previous_versions_preserved": true,
+  "plug_ready": true,
+  "bounded_trainability_ready": true,
+  "scale_out_ready": false,
+  "gru_comparison_gate_reached": false,
+  "results_document": "docs/AUTONOMOUS_OPPORTUNITY_RESULTS_V9.md",
+  "evidence": "evidence/autonomous-opportunity-v9/",
+  "next_safe_gate": "configs/training/autonomous-learning-readiness-v10-plan.json",
+  "causal_assessment_google_doc": "https://docs.google.com/document/d/1tgk3YC4R-10axzjRA9tQuRURjsnsbqD9m5OZMOV9W04/edit",
+  "no_main_merge": true,
+  "no_broad_training": true,
+  "no_additional_gpu_ecology": true,
+  "bridge_preserved_path": "integration/history-v9-steering/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+  "value_scale_rule": "max(TRAIN fitting-target std,1), fixed during PPO",
+  "simplex_concentration_floor": {
+    "legacy_default": 0.5,
+    "declared_v9": 0.1
+  },
+  "beta_concentration_floor": 0.5,
+  "categorical_uniform_mix": 0.05,
+  "known_contact_metadata_version": "own-known-address-v1",
+  "outcome_diagnostics_version": 1,
+  "outcome_diagnostics_scope": "optional owner-only closed-turn reporting; never actor/value input, physical state or reward",
+  "new_retained_native_training_transitions": 2400,
+  "failed_unsaved_native_training_transitions": 448,
+  "failed_unsaved_ppo_update_calls": 3,
+  "experiment": {
+    "cells": 6,
+    "transitions_per_cell": 400,
+    "retained_ppo_update_calls": 17,
+    "independent_actor_initializations": 3,
+    "independent_critic_initializations_at_ready_parent": 2,
+    "critic307_parent": "canonical successful TRAIN-fitted critic101 with explicit affine coordinate parity",
+    "critic_validation": "world-disjoint from fitting/PPO, but reused across multiple repair attempts; not independent holdout",
+    "training_quotes": 774,
+    "training_settlements": 44,
+    "training_opportunities": 56,
+    "dev_settlements": 6,
+    "dev_opportunities": 14,
+    "all_six_dev_welfare_below_matched_baseline": true,
+    "actor_active_minibatches": {
+      "high_lr": {
+        "active": 13,
+        "scheduled": 164
+      },
+      "low_lr": {
+        "active": 150,
+        "scheduled": 168
+      }
+    },
+    "attempted_native_resolves": 27951,
+    "maximum_native_resolves": 27991,
+    "cumulative_active_wall_seconds": 912.8917767360253,
+    "maximum_active_wall_seconds": 2369.4072460189927,
+    "wall_semantics": "sum active experimental stage elapsed wall times, not CPU-core sums; separately logged regression/build work",
+    "failed_attempts_preserved": true,
+    "full_signed_reversal_status": "NO-GO_REVERSAL",
+    "full_signed_reversal_passes": 1,
+    "full_signed_reversal_attempts": 3,
+    "full_signed_reversal_steps_per_phase": 64,
+    "retained_probe_updates": 0,
+    "learned_elder_plug_steps": 8,
+    "learned_elder_replay_steps": 8
+  },
+  "tests": {
+    "collected": 228,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 5,
+    "passed": 223,
+    "regression_log_sha256": "2eeb9e8a49916ce36ecaca0dba9c37ef545eefd2354e97828195183186cebe97",
+    "regression_xml_sha256": "c1fc6af24b9cd79209ac41bd2430fbc010ae7d1a5ab6494e089e9ccada874467",
+    "skip_reasons": [
+      {
+        "test": {
+          "classname": "tests.test_autonomous_collapse",
+          "name": "test_one_four_workers_and_nonempty_optimizer_checkpoint",
+          "time": "0.000"
+        },
+        "reason": {
+          "type": "pytest.skip",
+          "message": "native v4 integration opt-in"
+        }
+      },
+      {
+        "test": {
+          "classname": "tests.test_autonomous_economy",
+          "name": "test_native_wego_gym_and_ppo_mechanics",
+          "time": "0.000"
+        },
+        "reason": {
+          "type": "pytest.skip",
+          "message": "explicit native v3 bridge required"
+        }
+      },
+      {
+        "test": {
+          "classname": "tests.test_autonomous_ppo_v2",
+          "name": "test_v2_native_parallel_warm_start_and_populated_resume[2]",
+          "time": "0.000"
+        },
+        "reason": {
+          "type": "pytest.skip",
+          "message": "native integration opt-in"
+        }
+      },
+      {
+        "test": {
+          "classname": "tests.test_autonomous_ppo_v2",
+          "name": "test_v2_native_parallel_warm_start_and_populated_resume[3]",
+          "time": "0.000"
+        },
+        "reason": {
+          "type": "pytest.skip",
+          "message": "native integration opt-in"
+        }
+      },
+      {
+        "test": {
+          "classname": "tests.test_autonomous_v4",
+          "name": "test_native_full_action_replay_and_gym",
+          "time": "0.000"
+        },
+        "reason": {
+          "type": "pytest.skip",
+          "message": "native v4 integration opt-in"
+        }
+      }
+    ],
+    "native_new_mechanical_proof": {
+      "assertions": 42,
+      "validation_resolves": 3,
+      "replay_resolves": 3
+    },
+    "native_regressions_preserved_v8": {
+      "old_autonomous_assertions": 471,
+      "old_five_head_assertions": 143,
+      "old_history_assertions": 77,
+      "growth_assertions": 63,
+      "old_mode_fingerprints_equal": 8,
+      "baseline": "5559961164d6f9da8e6d20c1dc563ecec3eb04b7",
+      "growth_births": [
+        0,
+        22,
+        49
+      ]
+    },
+    "learner_rollout_audit": "Tested preparation for next gate; no retroactive v9 rollout-data claim"
+  },
+  "preserved_local_bank": {
+    "version": "autonomous-history-fresh-v5",
+    "manifest_sha256": "af25c64bd34cad149fcfa9d56b06a285ce981cb5da4c47a1e4e8ca0625a07b70",
+    "snapshots": 511,
+    "worlds": 24,
+    "train": 335,
+    "development": 92,
+    "heldout": 84,
+    "bytes_and_admission_flags_unchanged": true,
+    "bounded_action_face_override": "Selected TRAIN husbandry/fishing cohort only after native mechanical validation",
+    "heldout_neural_use": false
+  },
+  "fresh_local_bank": {
+    "version": "autonomous-opportunity-v9",
+    "manifest_sha256": "77bf77137ff7234230ab1c71070372c46cf1a01d63e8d282caedab89d4c64ace",
+    "snapshots": 188,
+    "worlds": 8,
+    "train": 140,
+    "development": 48,
+    "heldout": 0,
+    "physical_gap": "world881004/fishing",
+    "generation_native_steps": 1175,
+    "generation_replay_steps": 1175
+  },
+  "runtime_gcs": {
+    "spec_revision": "79",
+    "observed_spec_revision": "79",
+    "observations_current": true,
+    "outbound_identities": [],
+    "required_hosts": [
+      {
+        "host": "storage.googleapis.com",
+        "allowed": false
+      },
+      {
+        "host": "oauth2.googleapis.com",
+        "allowed": false
+      },
+      {
+        "host": "sts.googleapis.com",
+        "allowed": false
+      },
+      {
+        "host": "iamcredentials.googleapis.com",
+        "allowed": false
+      }
+    ],
+    "read_access_verified": false,
+    "keys_or_interactive_login": false,
+    "target_bucket": "gs://anthropocene-rl-datasets-508912",
+    "blocked": "The codex-gcs-reader outbound identity is not attached to this running runtime."
+  },
+  "incomplete": [
+    "Direct cultivated-hex choices",
+    "Automatic learned daughter controller assignment",
+    "Fine-grained quantities/prices/multiple slots/current public-offer inputs",
+    "Independent retained-PPO trade or welfare improvement",
+    "Proven useful institutional history",
+    "All-three completed fixed signed preference switching",
+    "Fresh post-PPO world-disjoint critic readiness; cached old targets are only drift diagnostics",
+    "42-core-DEV by25-turn sampled/mean evaluation and three-independent-initialization history/horizon ablation",
+    "Mature-empire and complete native-plus-neural training throughput",
+    "Three independent ready-parent critic initializations"
+  ],
+  "independent_reviewer": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "simulator": "GO",
+    "learned_elder_plug": "GO",
+    "low_lr_optimizer_responsiveness": "GO",
+    "full_signed_switch": "NO-GO_REVERSAL",
+    "economic_scale_out": "NO-GO",
+    "high_lr": "NO-GO",
+    "gru": "NO-GO",
+    "architecture_repair": "NOT_SUPPORTED_BY_CURRENT_EVIDENCE",
+    "native_calls": 0,
+    "model_forwards": 0,
+    "ppo_updates": 0,
+    "review": "evidence/autonomous-opportunity-v9/independent-final-review.md"
+  },
+  "contract_pins": [
+    {
+      "label": "postflight_contract",
+      "path": "docs/AUTONOMOUS_POSTFLIGHT_ADDENDUM_V9_7.md",
+      "sha256": "21faf2a823ff5f32720b07722d936b0bd9cf1f59c96a6b713b9d6524fb521516"
+    },
+    {
+      "label": "postflight_plan",
+      "path": "configs/training/autonomous-opportunity-postflight-v9.7-plan.json",
+      "sha256": "00bf76989935202cce479db5f551d776412216d88e1fc8b551e44660f6e05e06"
+    },
+    {
+      "label": "canary_plan",
+      "path": "configs/training/autonomous-opportunity-durable-canary-v9.6-plan.json",
+      "sha256": "4a7effef28b2d78b7ecf56846da96d8b9e75127c16439d647997ba8f8a8318b3"
+    }
+  ],
+  "source_binding": "Simulation source digest and bridge DLL bind exact execution; final Git commit SHAs are reported independently to avoid self-referential manifests"
+}

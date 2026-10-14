@@ -1,0 +1,862 @@
+{
+  "version": "autonomous-opportunity-training-v9.2",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "seeds": [
+    101,
+    211,
+    307
+  ],
+  "actor_lrs": [
+    0.0003,
+    3e-05
+  ],
+  "transitions_per_cell": 1024,
+  "caps": {
+    "mechanical": 3,
+    "mechanical_replay": 3,
+    "boundary": 64,
+    "boundary_replay": 64,
+    "calibration": 750,
+    "calibration_replay": 750,
+    "training": 6144,
+    "evaluation": 1350,
+    "evaluation_replay": 1350
+  },
+  "ppo_config": {
+    "version": "autonomous-opportunity-ppo-v9.2",
+    "episode_limit": 25,
+    "episodes_per_rollout": 11,
+    "epochs": 4,
+    "minibatch": 32,
+    "actor_lr": 0.0003,
+    "critic_lr": 0.0001,
+    "clip": 0.2,
+    "target_kl": 0.03,
+    "entropy_coef": 0.001,
+    "horizon_years": 400,
+    "lambda_ref": 0.95,
+    "reward_scale": 120,
+    "model_version": "autonomous-ppo-model-v7",
+    "uniform_mix": 0.05,
+    "legal_reverse_kl_coef": 0.05,
+    "critic_variant": "residual_layernorm",
+    "observation_version": 6,
+    "feature_mode": "full",
+    "require_core_action_faces": false,
+    "concentration_floor": 0.1,
+    "value_normalization": "fixed-train-affine",
+    "uniform_mix_schedule": [],
+    "outcome_diagnostics": true,
+    "require_reconciled_resident_flows": true
+  },
+  "inputs": {
+    "bank": {
+      "path": "datasets/autonomous-opportunity-v9/manifest.json",
+      "sha256": "77bf77137ff7234230ab1c71070372c46cf1a01d63e8d282caedab89d4c64ace"
+    },
+    "admission": {
+      "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/summary.json",
+      "sha256": "38e2629b818e3f922a57ee513e8f188524e5da232ad0c0be7cd3f6fa5a6d42e1"
+    },
+    "selection": {
+      "path": "configs/curriculum/autonomous-opportunity-selection-v9-diagnostics2.json",
+      "sha256": "672bd2dad2a2f584cafb436d1bf29e1dbd62740117e0e5c37866f12103450319"
+    },
+    "corpus": {
+      "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/trade-corpus.json",
+      "sha256": "3759ec0c7fb002854f8ab9abdfeb0d4fad7c90b7d9378236ec727857daeb0c6a"
+    },
+    "probe": {
+      "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/observations.json",
+      "sha256": "2dd3944dbf6b4b33f124cb6884ef8e1d46d72144470d563e082001e11b9d1e2d"
+    },
+    "adaptation_probe": {
+      "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/adaptation-probe.json",
+      "sha256": "cb9ba3b62a15785b9c51930e44498baf37931ee9f915e1ba434abad1aab490a4"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-opportunity-admission-v9-diagnostics2/budget.json",
+      "sha256": "ea152d197c8d91084d54a18d7eaea10d6b60e6f75d06675b1d2a2a313d5bb599"
+    },
+    "bridge": {
+      "path": "integration/history-v9-steering/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "b580b75b7f1d4f5e124b514e83347e51a8c3b5b2317c78b83ccbfb1a87707fad"
+    },
+    "native_tool": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/opportunity-v9-steering/bin/Release/net8.0/Anthropocene.Headless.dll",
+      "sha256": "f3d453b6f7df64ecabc830d0b106af2fe94476bc3a7ff4cbfa9a11e0e69b480c"
+    },
+    "boundary_anchor": {
+      "path": "runs/autonomous-causal-matrix-resume-v8/h400-full-limit25-seed61-step-400.pt",
+      "sha256": "5ad19464154ca94e794a0ebb46e35121308309f1378d79acaa504860e31ac199"
+    },
+    "contract": {
+      "path": "docs/AUTONOMOUS_DIAGNOSTIC_ADDENDUM_V9_2.md",
+      "sha256": "4aeef413192396dc4bdcabba0fe22b2702413432f75c5cb0100127b6f16943f0"
+    },
+    "warmup_contract": {
+      "path": "docs/AUTONOMOUS_TRADE_WARMUP_ADDENDUM_V9_1.md",
+      "sha256": "4ef5859595d4bb6bbf04d62f60a68a9835bda66a90865d74235543d1fb4cff9c"
+    },
+    "original_contract": {
+      "path": "docs/AUTONOMOUS_OPPORTUNITY_GATE_CONTRACT_V9.md",
+      "sha256": "2d57024c21100e0755b1262c272ea580d86a01fbd77b57e49e388237296a42ea"
+    },
+    "focused_evidence": {
+      "path": "evidence/autonomous-opportunity-v9/focused-preflight.json",
+      "sha256": "e9f070a71ad22ee983bcda34cf8fdb42fd42421ecedd6a17b86eda96b26cda39"
+    },
+    "learner_source_000": {
+      "path": "src/anthropocene_rl/__init__.py",
+      "sha256": "c02f1a728fcd405f12c7c734208e55f884070c402d27ad3371349d76bf0e1986"
+    },
+    "learner_source_001": {
+      "path": "src/anthropocene_rl/autonomous/__init__.py",
+      "sha256": "e3fd37a0080d862977316cfeb4672af831389f71aeebef5808fceddcf51b502a"
+    },
+    "learner_source_002": {
+      "path": "src/anthropocene_rl/autonomous/contracts.py",
+      "sha256": "58fde95a6c1e42d4de8829e9aed64269a9a03e3e4ea2778e25949f7e94035906"
+    },
+    "learner_source_003": {
+      "path": "src/anthropocene_rl/autonomous/env.py",
+      "sha256": "978ef68de51dc75468871c82926f5bed6224ea8824aa0f8ebc3a66c5c252842c"
+    },
+    "learner_source_004": {
+      "path": "src/anthropocene_rl/autonomous/policy.py",
+      "sha256": "f13dc86ca44bf04c2fbc9ebf394f89e05e527f5bd485ec0f907f2eacb0f452b1"
+    },
+    "learner_source_005": {
+      "path": "src/anthropocene_rl/autonomous_v4/__init__.py",
+      "sha256": "f70d50e0364e336797354ed64cd0ab3d9ce08954667eca19601fc20e296b8f84"
+    },
+    "learner_source_006": {
+      "path": "src/anthropocene_rl/autonomous_v4/collection.py",
+      "sha256": "2699f864d51867ac36b34d2d948a2e49d6cd783237644f132a910a1d12b36987"
+    },
+    "learner_source_007": {
+      "path": "src/anthropocene_rl/autonomous_v4/continuation.py",
+      "sha256": "6912e9db17a56bcae125710f2d24ea83033a7f86ce1e289869aeaf6865b56f31"
+    },
+    "learner_source_008": {
+      "path": "src/anthropocene_rl/autonomous_v4/contracts.py",
+      "sha256": "4cee11f4982ef2b635df186bc8e77643ff872b23e07718e541e86f60973089c1"
+    },
+    "learner_source_009": {
+      "path": "src/anthropocene_rl/autonomous_v4/diagnostics.py",
+      "sha256": "d8b08710e0ea6e4a5aa32771eb4a70428cea42c9c4a75e0650a1dff48cadc9ac"
+    },
+    "learner_source_010": {
+      "path": "src/anthropocene_rl/autonomous_v4/env.py",
+      "sha256": "7e4ac81c6e188149c454928160090e11b9cf947550214d6bc165f70a4146c8d0"
+    },
+    "learner_source_011": {
+      "path": "src/anthropocene_rl/autonomous_v4/inference.py",
+      "sha256": "b20fbbb86ed867069344397d062c6df197d00bac860d25e0df7fd055e5ddab70"
+    },
+    "learner_source_012": {
+      "path": "src/anthropocene_rl/autonomous_v4/policy.py",
+      "sha256": "621dbaf6be8bbdc61f6ff49203655c4a1c96bbd229924e02108ff1cbb2562202"
+    },
+    "learner_source_013": {
+      "path": "src/anthropocene_rl/autonomous_v4/provenance.py",
+      "sha256": "b9d57842f22c22458125380d64b4a5be3fa91c50d0c8a20b1a9acf807530c8cc"
+    },
+    "learner_source_014": {
+      "path": "src/anthropocene_rl/autonomous_v4/training.py",
+      "sha256": "701b0e40be39f2299bc036e2ab597e3a25f547e69cf88eb48863d40832994df3"
+    },
+    "learner_source_015": {
+      "path": "src/anthropocene_rl/autonomous_v5/__init__.py",
+      "sha256": "d7446a674f00726e706f49854ef072f94c71c26cc2ebfb9b398df7260ad4112e"
+    },
+    "learner_source_016": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal.py",
+      "sha256": "3b8959f953fd750b1263ebcaaf181d2bbb7e516d2fb7f27aed9d2e15ec80a4ce"
+    },
+    "learner_source_017": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal_budget.py",
+      "sha256": "0426cfc756b74dd463b2f2d52c71530d231867b9c8718e7588461a4cd834085a"
+    },
+    "learner_source_018": {
+      "path": "src/anthropocene_rl/autonomous_v5/causal_diagnostics.py",
+      "sha256": "ba4279939238cd44d338d4256989cc79ffc01365264cdbafb3fde2dac6bb0905"
+    },
+    "learner_source_019": {
+      "path": "src/anthropocene_rl/autonomous_v5/collection.py",
+      "sha256": "589888c1642b84bf6acdbc4e21bcd59cac49d9bacbd181a8c222e633d51f2aa0"
+    },
+    "learner_source_020": {
+      "path": "src/anthropocene_rl/autonomous_v5/contracts.py",
+      "sha256": "e73716d16a42de2801c0982b1510a8e03e49037dd7d10b21a8611d40df55d08f"
+    },
+    "learner_source_021": {
+      "path": "src/anthropocene_rl/autonomous_v5/curriculum.py",
+      "sha256": "665c8b95d1dadb1ba73af0f6ec83c686f9851799661679a567c8c8fd1fbcf14f"
+    },
+    "learner_source_022": {
+      "path": "src/anthropocene_rl/autonomous_v5/env.py",
+      "sha256": "bf875fe3161ce6d79c8783da3d4e9aa9922026b8ef40e221984f5144c069c327"
+    },
+    "learner_source_023": {
+      "path": "src/anthropocene_rl/autonomous_v5/head_influence.py",
+      "sha256": "689fc38bb3ea04d96c8eb4e824b2ab45b8370821a1d3113ac497c26c46948132"
+    },
+    "learner_source_024": {
+      "path": "src/anthropocene_rl/autonomous_v5/policy.py",
+      "sha256": "1a65f909269c0454fe5efb18951ea51bec5b3b17d46310a81fb249206a5a88fa"
+    },
+    "learner_source_025": {
+      "path": "src/anthropocene_rl/autonomous_v6/__init__.py",
+      "sha256": "8f3101d5b4a3b8fdbf294d736c9f5b8e965a34585094f494d62ac73b0c273013"
+    },
+    "learner_source_026": {
+      "path": "src/anthropocene_rl/autonomous_v6/calibration.py",
+      "sha256": "08128e85c806224e939fa90b21c76b4329058c382d78c7d6e28a95ec74183266"
+    },
+    "learner_source_027": {
+      "path": "src/anthropocene_rl/autonomous_v6/contracts.py",
+      "sha256": "cef5738fbee2f41dd4c80b752ced6532b5ec9fbc075000ec65eed069b4a1411d"
+    },
+    "learner_source_028": {
+      "path": "src/anthropocene_rl/autonomous_v6/demographics.py",
+      "sha256": "1511a9811501edf07b283da9752fa2d45ae62de46a4378cfdd9e943c9d3d97b9"
+    },
+    "learner_source_029": {
+      "path": "src/anthropocene_rl/autonomous_v6/env.py",
+      "sha256": "5d92a0d112e00406b9d01847e6c25dbb12efc7af1031377761d927f73451949b"
+    },
+    "learner_source_030": {
+      "path": "src/anthropocene_rl/autonomous_v6/opportunity.py",
+      "sha256": "af22d7647e9185566983111d3a8460075cb0b215c860b56191cc48b94efe8a65"
+    },
+    "learner_source_031": {
+      "path": "src/anthropocene_rl/autonomous_v6/policy.py",
+      "sha256": "08021f181dd512756071f43fe336d170854b3e97f31559a59fe023bf20cbb941"
+    },
+    "learner_source_032": {
+      "path": "src/anthropocene_rl/autonomous_v6/readiness.py",
+      "sha256": "036b5b9340a22cb58af1f9fcd01127a012194d0cb1db00b9330efc0321eb451d"
+    },
+    "learner_source_033": {
+      "path": "src/anthropocene_rl/cli.py",
+      "sha256": "a9142a962ad272b4abeb9736079d7f69f3b70dfde7168b2ab041c6c9905c4d50"
+    },
+    "learner_source_034": {
+      "path": "src/anthropocene_rl/config.py",
+      "sha256": "277697de05645938a144913c5226c6dfef5a02a17226c13feb2d81735e565bd9"
+    },
+    "learner_source_035": {
+      "path": "src/anthropocene_rl/contracts.py",
+      "sha256": "823ec61980079c51148a9c34b477fad83b98f9b597562809d36a3cbdfa01288f"
+    },
+    "learner_source_036": {
+      "path": "src/anthropocene_rl/datasets/__init__.py",
+      "sha256": "009d32cac27250d8736c41d9e6841fe4d16dfdc429ddf1c56be1fafdeaf13acb"
+    },
+    "learner_source_037": {
+      "path": "src/anthropocene_rl/datasets/audit.py",
+      "sha256": "f6beebaebf0d1cfa6464382acd8d42566775569e37ccbf1cba765f25e54f949e"
+    },
+    "learner_source_038": {
+      "path": "src/anthropocene_rl/datasets/blobs.py",
+      "sha256": "20b6a2bbe6b417605d099ba7cb0683a73b258846957329a943b74c926ecd4677"
+    },
+    "learner_source_039": {
+      "path": "src/anthropocene_rl/datasets/broad_domain_plan.py",
+      "sha256": "e2ce92004a4a4d9b9edd3bf18bbed129876c8cccd6c2c7c272e7f77dc6d48557"
+    },
+    "learner_source_040": {
+      "path": "src/anthropocene_rl/datasets/coverage.py",
+      "sha256": "b9790ceec0b93391c57807647d0e86b8575c1d4a1aef62d1f24c7282c1f95cf6"
+    },
+    "learner_source_041": {
+      "path": "src/anthropocene_rl/datasets/dataset_manifest.py",
+      "sha256": "03924c30eb9ae9749b0a869f8a946c60e14c4c0e991e7cdf9fe1325d1e3b249b"
+    },
+    "learner_source_042": {
+      "path": "src/anthropocene_rl/datasets/generate.py",
+      "sha256": "cf09f372abbe353dbbd2722246ca3b7dfece188c33478f64d9762ff7b56c9eb2"
+    },
+    "learner_source_043": {
+      "path": "src/anthropocene_rl/datasets/generation_config.py",
+      "sha256": "c94024004d46e01966bbb595779252e71b06be155017c3ef2035b096fbb055c1"
+    },
+    "learner_source_044": {
+      "path": "src/anthropocene_rl/datasets/google_drive.py",
+      "sha256": "5d064067625bb0703237d92f872dd4e06980e165d8b5af589c1d79291c1cb6b6"
+    },
+    "learner_source_045": {
+      "path": "src/anthropocene_rl/datasets/models.py",
+      "sha256": "a59700fad6527ef4f277846d616ff218320fe3bcc608655b7295db6fa26a17f3"
+    },
+    "learner_source_046": {
+      "path": "src/anthropocene_rl/datasets/normalization_audit.py",
+      "sha256": "c172d69825a9136af5624890e4ff820f9650cd95b47f17fffb48adb63379aead"
+    },
+    "learner_source_047": {
+      "path": "src/anthropocene_rl/datasets/object_store.py",
+      "sha256": "6ac338c05079a709825829baebefdc72736a823b415c943fb86fdc574acfa2ff"
+    },
+    "learner_source_048": {
+      "path": "src/anthropocene_rl/datasets/partition.py",
+      "sha256": "909cc5330266942737810f6e46de38438ea4e1754737e10bc42f0d7cdab4c594"
+    },
+    "learner_source_049": {
+      "path": "src/anthropocene_rl/datasets/pilot_plan.py",
+      "sha256": "81688dc62cebbff8b926d201bd9c1a58952b5cf04fdf39e5131365b2687aa21c"
+    },
+    "learner_source_050": {
+      "path": "src/anthropocene_rl/datasets/run_artifacts.py",
+      "sha256": "42fd55e53f294d0429c63521b2cbbb64ead02cc6a068cc58f5d44f04b2ef7469"
+    },
+    "learner_source_051": {
+      "path": "src/anthropocene_rl/datasets/shards.py",
+      "sha256": "d91571b7c336e0ed09c0fce1db3513dc4ad99ae6c5b072f8c0d7b3bbab7876d9"
+    },
+    "learner_source_052": {
+      "path": "src/anthropocene_rl/datasets/storage.py",
+      "sha256": "47a8161deeffdde04be28ac5cc229b916322cfa37746528c4eff3fcc8472bc59"
+    },
+    "learner_source_053": {
+      "path": "src/anthropocene_rl/env/__init__.py",
+      "sha256": "519d2dd9c87bf8fb2e5a43d9c39393c0c54127b9a7aec521d746229bbdc344de"
+    },
+    "learner_source_054": {
+      "path": "src/anthropocene_rl/env/gym_env.py",
+      "sha256": "fdeb23926c041302dabe68b5058615a486808b575f963c06ab7e5ebf76789da5"
+    },
+    "learner_source_055": {
+      "path": "src/anthropocene_rl/env/transport.py",
+      "sha256": "4d700fa0577df3bb0bd99aee37e7705fa627d4c70cd7edf26bb49d3a1b51fb89"
+    },
+    "learner_source_056": {
+      "path": "src/anthropocene_rl/evaluation/__init__.py",
+      "sha256": "9117a387c7765c411fed4bcda1ac20bbb325c6a010f882c8c42b1905b06b7030"
+    },
+    "learner_source_057": {
+      "path": "src/anthropocene_rl/evaluation/protocol.py",
+      "sha256": "9d02250cd8255964327a41c7579a88b7fc5d70529f38d785523d5c298b176d26"
+    },
+    "learner_source_058": {
+      "path": "src/anthropocene_rl/export/__init__.py",
+      "sha256": "b8c1059f2c0d13fb3ed6f510793bc85edf71d2df7736b34227fc3ea5817e3aa7"
+    },
+    "learner_source_059": {
+      "path": "src/anthropocene_rl/export/onnx.py",
+      "sha256": "f71fc226a748afdca09c415a79970258b8067c2aa771612e421a53251ed94ec9"
+    },
+    "learner_source_060": {
+      "path": "src/anthropocene_rl/observations/__init__.py",
+      "sha256": "d8c8faf4eb14704009fffb3dd8d91b2c1d932911ff5ea6da621f0d966ef2024d"
+    },
+    "learner_source_061": {
+      "path": "src/anthropocene_rl/observations/features.py",
+      "sha256": "1e6400ec460d9e5304f681e52952b84053c9a35d02807054e65f35ad9a15e769"
+    },
+    "learner_source_062": {
+      "path": "src/anthropocene_rl/observations/normalization.py",
+      "sha256": "dffa068c14a17d075a7858339a122656eb6f1b997551b1c394400ef1394c46ea"
+    },
+    "learner_source_063": {
+      "path": "src/anthropocene_rl/observations/schema.py",
+      "sha256": "5bc4b5ffea91a6898454aedf4f47a4f4877b7b61a40dbba828d52ba1fcaeedc2"
+    },
+    "learner_source_064": {
+      "path": "src/anthropocene_rl/policies/__init__.py",
+      "sha256": "5e6806852dc766747ed5ebe4fcefef06fc4cefb0a10d3f53b539e4daef259e00"
+    },
+    "learner_source_065": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v2.py",
+      "sha256": "ce0abf012b3b0cc251bd2bed4486f8008258463036d43216b0a480cb4cfe6dc0"
+    },
+    "learner_source_066": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v3.py",
+      "sha256": "9741a9197f3985e89e0ea73db39eb8438731a1e7b0bf4ba51ae161ff187f00ac"
+    },
+    "learner_source_067": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v4.py",
+      "sha256": "25333eb3a7d348077c002f7dac5ecfd185213cd95dc0c89180f5c1e17d6c70c8"
+    },
+    "learner_source_068": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v5.py",
+      "sha256": "cbdcff02ca5ea4e03d9c604f598d2cbd6ae128b5fd9e4f33401942a38f329b8c"
+    },
+    "learner_source_069": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v6.py",
+      "sha256": "a39bb5764a471b2031d2a959864f89163dca4c54e73bed68cd7a0eca28b91deb"
+    },
+    "learner_source_070": {
+      "path": "src/anthropocene_rl/policies/autonomous_inference_v7.py",
+      "sha256": "eed1ce7d45e43bb35126c3f3b4918f40adc5adc33eb7a90074b69ebe45e0523b"
+    },
+    "learner_source_071": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v2.py",
+      "sha256": "900d59965c5b7e3b7341457fb89f2a6138b943fe29fed1d427dcd0a2290533e3"
+    },
+    "learner_source_072": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v3.py",
+      "sha256": "75780cefea3c4ae8496ee5961153af3f6b0e706aad3dc91ab52ac3c21482f40a"
+    },
+    "learner_source_073": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v4.py",
+      "sha256": "39063d24641175c7f8af6e43b7aaca01ab6d1f866e95f2663ffb039344db2220"
+    },
+    "learner_source_074": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v5.py",
+      "sha256": "72ce7fa031a83c92837af557f8553ecece7534e8b552aa12bc6ddd16a43ab0a6"
+    },
+    "learner_source_075": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v6.py",
+      "sha256": "e06f640b9dfa9dee89fe3f951cfdab0274720d55b195cfa28385010eddbcbc64"
+    },
+    "learner_source_076": {
+      "path": "src/anthropocene_rl/policies/autonomous_ppo_v7.py",
+      "sha256": "0b96775a78a0322a18176a2d1d44f0b64339c64abe648dfaf3b949ecd4199d92"
+    },
+    "learner_source_077": {
+      "path": "src/anthropocene_rl/policies/distributions.py",
+      "sha256": "0bfa7a23e6a62e1d61bd75373d3d644854d39b3ba4b906be46c699fbbbcce41a"
+    },
+    "learner_source_078": {
+      "path": "src/anthropocene_rl/policies/elder_mlp.py",
+      "sha256": "c7088865580858f29308ca1a964e9662bf93cad8cd865cc809ddcd121d7ad9c0"
+    },
+    "learner_source_079": {
+      "path": "src/anthropocene_rl/training/__init__.py",
+      "sha256": "a927590b32f1672a13ebeaedef9f2a59c70f05194e41de71b720a229645d8a1f"
+    },
+    "learner_source_080": {
+      "path": "src/anthropocene_rl/training/action_credit_audit.py",
+      "sha256": "57464894fbdf85698c664a3b56c9a44051bb683f7e5ddf4d36cc6c30f0d7f800"
+    },
+    "learner_source_081": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v2.py",
+      "sha256": "f079b315528c6294359ffd6d12c799a907c2534ee037441dfbe9b77d77e8c5e1"
+    },
+    "learner_source_082": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v3.py",
+      "sha256": "e70918e99c1b9cc76852aa99b425bbc144919fca9b0ce1292021e443ebe63047"
+    },
+    "learner_source_083": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v4.py",
+      "sha256": "ebb8257bb23780ac87c6628207e636eb7bf1484226915ad3398cb38ac7046aeb"
+    },
+    "learner_source_084": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v5.py",
+      "sha256": "fff7f8d188b79af8d6abfaf32d909323bae9ff420760813a4b1d79d0ec64cea0"
+    },
+    "learner_source_085": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v6.py",
+      "sha256": "b2987404f0eab40fe53a389adad91080e53b21b2dc1704bb850daa898cd2bc6f"
+    },
+    "learner_source_086": {
+      "path": "src/anthropocene_rl/training/autonomous_ppo_v7.py",
+      "sha256": "ecb2b16f133b3fce255f35c66663be3b9dcbd6b7a613761bbfd6e4ff5d398d0e"
+    },
+    "learner_source_087": {
+      "path": "src/anthropocene_rl/training/five_step_credit_audit.py",
+      "sha256": "b4b0a79f38c7650e2ac690dfae369e27cd432e2fb444bde388fa07ba8ad12e89"
+    },
+    "learner_source_088": {
+      "path": "src/anthropocene_rl/training/headroom_audit.py",
+      "sha256": "0661984bb4be553200c9122870725d5faf72d7c669e2102acae33f7acd9f5585"
+    },
+    "learner_source_089": {
+      "path": "src/anthropocene_rl/training/overfit.py",
+      "sha256": "e78fab9717180440a463103c4504deed031d14506fbafb35d94b3dceb74c26cc"
+    },
+    "learner_source_090": {
+      "path": "src/anthropocene_rl/training/pilot.py",
+      "sha256": "05ab44b74644addf26fe51971fcf9b9f43a8f524d68c988a588f84a8bbfb1c23"
+    },
+    "learner_source_091": {
+      "path": "src/anthropocene_rl/training/ppo.py",
+      "sha256": "9cf0ec76a62b996d8c0ed5c17a9463f9dd90526c666a04092b5193544ead1e7e"
+    },
+    "learner_source_092": {
+      "path": "src/anthropocene_rl/training/returns.py",
+      "sha256": "81d3367ce2719b303f4830c34aad2975c4b4e85287f0cf7c04b39d6d8db16878"
+    },
+    "learner_source_093": {
+      "path": "src/anthropocene_rl/training/smoke.py",
+      "sha256": "9ec9b3bf65680d8103dfb6abf6a63b94b7210249f95e78c9a217ff3c64efc917"
+    },
+    "driver_source_00": {
+      "path": "scripts/train_autonomous_opportunity_v9.py",
+      "sha256": "85718647fdd72c962c8c280d5a4e0b0204de2e5eace71c78789af7a229185d9f"
+    },
+    "driver_source_01": {
+      "path": "scripts/run_autonomous_causal_gate_v7.py",
+      "sha256": "fe04623a5dd8639d82b688324dbcfaba83023077b0dc823b6a906e0c9ad00a25"
+    },
+    "driver_source_02": {
+      "path": "scripts/run_autonomous_continuation_v4.py",
+      "sha256": "9d3a339fd82c29455170d08b602450c62cd4134623bdae571584f4604fd90714"
+    },
+    "test_source_00": {
+      "path": "tests/test_autonomous_readiness_v7.py",
+      "sha256": "33cf026993b30385494984e6fa022a13864d467c8da419c3a233371fb698b8a8"
+    },
+    "test_source_01": {
+      "path": "tests/test_autonomous_opportunity_v9.py",
+      "sha256": "1508b99c3a11d10b86bf0da7eb89f9cecd7bd8b3ea9f579eddcb275696fa691f"
+    },
+    "native_source_000": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ActionContract.cs",
+      "sha256": "b82a02b29f7d8aec615d87fef5581b99c570c05315a26c87e3197d2268615a9b"
+    },
+    "native_source_001": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Agents.cs",
+      "sha256": "ae4d35697e7a48b5820fcd98caf26d5273fe9fb9f0b8898a07f15eb7137adb2f"
+    },
+    "native_source_002": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AquaticEcology.cs",
+      "sha256": "f0ddb92fc20dfda8ecc51734f54bd15c0175d1bb3e88c7255c50f9057ed10b5b"
+    },
+    "native_source_003": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElder.cs",
+      "sha256": "ef4c2c2d88c07975651dc2f1626b966520e341e0c155c09bf91c50650be92f96"
+    },
+    "native_source_004": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderEnvironment.cs",
+      "sha256": "3dea5908d2120d79498038e0a1e568d0d2086e3aa8e2d198b28ca7d09da54b63"
+    },
+    "native_source_005": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderHistory.cs",
+      "sha256": "07509ae345c73b388947eb3fc1e105c83c1ec4fc32dd8b1d5b50c11e2fcdb4d1"
+    },
+    "native_source_006": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderHistoryEnvironment.cs",
+      "sha256": "35ff41f41d26410845d9a1c048fead0880a47b7d771b96ee2fa04aba7b4946b1"
+    },
+    "native_source_007": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderOutcomeDiagnostics.cs",
+      "sha256": "bdc8901bab0b5a1c3404a5c0335ebfb497568bb0dc277604a864c6d6532ff8ee"
+    },
+    "native_source_008": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderTrade.cs",
+      "sha256": "abcca83dc3b0e42c28674f8e4536d6b8ce3602d1d7763462b572d3e8b66d4740"
+    },
+    "native_source_009": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ClimateGeneration.cs",
+      "sha256": "bba9f7ddf693e12a4462971bc1d618cecd866a205670a6fd388de1fe4bdc95cf"
+    },
+    "native_source_010": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ContactKnowledge.cs",
+      "sha256": "5d41da6dd1e3c9962790d3c9eb6a2114fb766d766f7887330a8be28a64f4fe0a"
+    },
+    "native_source_011": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/CultivationEconomy.cs",
+      "sha256": "5a480c8fab69f05b41275a8cca2c639649f7b6c9790bffd623639fe8380f48dc"
+    },
+    "native_source_012": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/DemandControl.cs",
+      "sha256": "8376108931f73614a21609fb37a9191290bb1876a72653b30d0d58528ba6d109"
+    },
+    "native_source_013": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/DrainageGeneration.cs",
+      "sha256": "5de2fc11a2991d311cb5adc109258f375736173d50d24521000afd2608ea80c1"
+    },
+    "native_source_014": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/EcologicalPressure.cs",
+      "sha256": "1dd8bce83a3d23bf3c07c7364913385960b98404195a7689b37f91cd047b2485"
+    },
+    "native_source_015": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/EcologyMath.cs",
+      "sha256": "77f184be1bad995b5da41b9b582e62cc1f8d7929e65d7cc0a67ee751a3060f68"
+    },
+    "native_source_016": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/EconomicIntents.cs",
+      "sha256": "dd7dbab7937fb8d53895ec9eb0b0461a3de5be971273fd8d8bdf5d7501ac0600"
+    },
+    "native_source_017": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/EconomicPlanner.cs",
+      "sha256": "1f44aad79891c5611912e51d2ee20dc8a663be2121b34ef4e12a63625a1da3a1"
+    },
+    "native_source_018": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderDirectiveCompiler.cs",
+      "sha256": "9e376a4871fc18dc5b67a53a78ba4552710299caa380d18c081b2523e5828a9d"
+    },
+    "native_source_019": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderEnvironment.cs",
+      "sha256": "4d3138b1754be9ba886bffa3b1f290ae682cd6f0a1b2e31e9dcb2b4240d75389"
+    },
+    "native_source_020": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderInstitutionMemory.cs",
+      "sha256": "6c7ac0fc20e31265233b9b2b7821f4c008db5be41cc0191770ea355e8205a85a"
+    },
+    "native_source_021": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderObservationBuilder.cs",
+      "sha256": "ba8caa1b071e33467fb2ce1f214f7ea269b318c21598f7de56e9392fcef5cfe8"
+    },
+    "native_source_022": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderObservationSchema.cs",
+      "sha256": "853a9f8019b0f713522bf316ebd4281dd4c70b0fa907d4494cea7f86da40fe6e"
+    },
+    "native_source_023": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderRLContracts.cs",
+      "sha256": "3066dd894de001afcb3328d995bafd781cc05e85bb86707264112305fe063821"
+    },
+    "native_source_024": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderRewardContract.cs",
+      "sha256": "6c459c8e85e1fb07a1c383de0c035e0e53ab8663c56ea44ecd698b316bc061a8"
+    },
+    "native_source_025": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElderTrainingCriticSidecarBuilder.cs",
+      "sha256": "fe3e80c2191be410b05baf09480349973d04473c2d31b9cdfac35660aa9b0a2e"
+    },
+    "native_source_026": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ElevationLevels.cs",
+      "sha256": "b6797752c77560deccb111c075619623a2dc950083fde472754f24bc7a404ac9"
+    },
+    "native_source_027": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Environment.cs",
+      "sha256": "0ff8713f257e23e89401857ebea6a24f67ca2992a927f4f3550ac74d2221e3f0"
+    },
+    "native_source_028": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/FishingEconomy.cs",
+      "sha256": "98ed8a064e4d13a419961fa8e7e062370d7b98db359cb46e7baeb59f806a8d40"
+    },
+    "native_source_029": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Fission.cs",
+      "sha256": "5f95dc4366c2d0b16abc25c9b168a500ffce1b2601078ff8d345b6c82e726ae9"
+    },
+    "native_source_030": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/FixedHousingIndex.cs",
+      "sha256": "2629f5218d2650aa6b2e37e2e390f9a644e1e9ed8f1f5081229bdbfc90b61d6c"
+    },
+    "native_source_031": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/FoodEcology.cs",
+      "sha256": "00c94991a3d50ad017881aa80d8407cf93ff6557ab1a6c60724fc58b6df5d699"
+    },
+    "native_source_032": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/FoodHorizonForecast.cs",
+      "sha256": "213c41f267d8d561d9be100fe0ea87863780ee70565db4a7926efa7e3defeda1"
+    },
+    "native_source_033": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/FoodIncomeLedger.cs",
+      "sha256": "c59e8667788b669f379cce94824a4ed1929ad402e991e5ea4f4de0bbcf890d8c"
+    },
+    "native_source_034": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/FreshwaterAccess.cs",
+      "sha256": "e1e9464a59f2ebd491dcf65b08277d36e90391a2fe9966403692d8ee29adff4d"
+    },
+    "native_source_035": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GenerationEconomy.cs",
+      "sha256": "2289394eca8a3f174b4aa8360f1cb63c61e508d87319dce013b71c6340d52134"
+    },
+    "native_source_036": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GenerationalEconomy.cs",
+      "sha256": "9987a87a7583eb8d2dcf859c25684bdf2ca344a3b7a248ca4bdd1c1452181ed4"
+    },
+    "native_source_037": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalAudit.cs",
+      "sha256": "f173b0ffa50ee7dc2b45669c2a7d59748803bbe742db8c114baceeb48376c001"
+    },
+    "native_source_038": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalDeposits.cs",
+      "sha256": "4992292a8ab49ef1fe60e2338c647c5105d01fabbf022e06cc8361199f74df79"
+    },
+    "native_source_039": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalFootprints.cs",
+      "sha256": "2ba347fbb6c867679315a04760829b0b5371ac206e92ba46b5bbbaae8fbb199f"
+    },
+    "native_source_040": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalGeneration.cs",
+      "sha256": "958f7f63fe27ee1b25fcbc457b21610e5e20a488febcbdb32289bc9d017b11fb"
+    },
+    "native_source_041": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalPlacers.cs",
+      "sha256": "ef13b6439fa74751c31c29e54d23f908c2c7716771e313d8c40556198435d8ac"
+    },
+    "native_source_042": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalProfiles.cs",
+      "sha256": "f1f9ca612c06c2a64755e5b707f4c70728e24a442110403703cc9c113e1e2459"
+    },
+    "native_source_043": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalResourcePools.cs",
+      "sha256": "766ca9fb3ec1a803a4a46d7549b52e0fc85dbf42d51dd1b7fab201175232a6d8"
+    },
+    "native_source_044": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalSurface.cs",
+      "sha256": "fb6286f1092e725f7759013774d6da08b7a394b0f255da83ef40e0caf61fecf7"
+    },
+    "native_source_045": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GeologicalTuning.cs",
+      "sha256": "5da34f6e59234dce08eeedc1e46c0dd160985f03b89a80e1af0af4b00cecb57e"
+    },
+    "native_source_046": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/GoodsStorage.cs",
+      "sha256": "659729210668fcc5abb201439ff0f304d0178f451ee0ed09a67b90ce9753555d"
+    },
+    "native_source_047": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/HerdCountKnowledge.cs",
+      "sha256": "ab1537551013dee67e9f8c79d04418706489e89ade0eeeea1a19d16a06533c4d"
+    },
+    "native_source_048": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/HerdLabour.cs",
+      "sha256": "5be75a4ada49a5f35651516e31ae62d5913df0dc776a67afdc3eba40ea6b9509"
+    },
+    "native_source_049": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/HexMap.cs",
+      "sha256": "01a91c0f990b936c8d4f6c8b4c8e34f408f1730a987e9339db77e7e95688d2ce"
+    },
+    "native_source_050": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/HoverDetails.cs",
+      "sha256": "ab1ac3fd1e87e341678fe003a33860a2bf09b50c8bb6a7080d0b3af0f68bb0fb"
+    },
+    "native_source_051": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/HusbandryAcquisition.cs",
+      "sha256": "cdd02c66a20fa8917446aca0923f8680063354342aa140b3b0cfdc277108d361"
+    },
+    "native_source_052": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Hydrology.cs",
+      "sha256": "428a3cc18ce61cd9b6265c99ac710580d95e61523714f1b8efbe83d0d96b4e69"
+    },
+    "native_source_053": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Immigration.cs",
+      "sha256": "6c36e2c4a7cf87079b870c356fb7938d534319d2bc7af3058fe40b807a3ef23a"
+    },
+    "native_source_054": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/LazyEcology.cs",
+      "sha256": "c2f7753c368b24da207a7ebf83b06192add5dea180fcfc7358c9ec2588e5caf9"
+    },
+    "native_source_055": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Logistics.cs",
+      "sha256": "549d40e9f79cb88daf6877a217c470ba78833f7e128a68c08725c5c19ce25882"
+    },
+    "native_source_056": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/MaterialAccessIndex.cs",
+      "sha256": "79ceb641b0309093b47b8b59d0c8cb56943b6e2540cc77780fa413b49eabe433"
+    },
+    "native_source_057": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/MaterialEconomy.cs",
+      "sha256": "6c2f51dcb0d4b8efd2e3013447eb698b28e8d3cb95f146ba925a638b3b3c5238"
+    },
+    "native_source_058": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Model.cs",
+      "sha256": "6dd7aa90522b421574e99e929b4aaaa677044533a7ef01b4a500b9d82f06c79b"
+    },
+    "native_source_059": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/NeolithicConfig.cs",
+      "sha256": "78828c8d7a19411513cb39daa8526edd9c3b921ed000d9329877e83b47306cc5"
+    },
+    "native_source_060": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/NeolithicProduction.cs",
+      "sha256": "8882ff715f12d001cc9ca3e0b293f47bb0067f91cf8ecc10511247eec7aaa7d9"
+    },
+    "native_source_061": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/OasesAndHerds.cs",
+      "sha256": "c6d528f97526ac81ae8f080a61b72b2c9588150aa2f5230bb6eb218388edb025"
+    },
+    "native_source_062": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ObservationContract.cs",
+      "sha256": "36717b8f4b1f152d060e4ec1ba5c442f8844c41c6531e0e76edde44aff853589"
+    },
+    "native_source_063": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/PhaseExecution.cs",
+      "sha256": "f8c14a3876e7249d5e12875f3981cfc3faf4208408b60fc16fdec38461ae732b"
+    },
+    "native_source_064": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/PhaseProfile.cs",
+      "sha256": "eb5c2b4d320925948aa490cb6307b401b069f50ec17d239201343b0639d64ae8"
+    },
+    "native_source_065": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/PlanningIndex.cs",
+      "sha256": "cf8ee5aac3e918c108b17e81a107bdb9a2b7199ba21d9b6e67c8a9b0daf0893b"
+    },
+    "native_source_066": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/PlaytestScenarios.cs",
+      "sha256": "a53d578a567a71875b7b61497c07a458255926fce176bcf23cd924e71bdc4b31"
+    },
+    "native_source_067": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ProductionDemand.cs",
+      "sha256": "e0382fac4c324d6712f94e0478a1527bbf724d001b8421cd54ae49c827ac6fef"
+    },
+    "native_source_068": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/QoLMortality.cs",
+      "sha256": "3944a1ac26f982d8ae73684af3b3659b1a20ee58ed34088c0a27e1b6a27a0d37"
+    },
+    "native_source_069": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ResourceCatalog.cs",
+      "sha256": "e1ea20d187be2143599e31ffc622bad4f5aa3ae0ecbeaed851b5ded625c221d6"
+    },
+    "native_source_070": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ResourceCodec.cs",
+      "sha256": "9ea8bb7a99c205ac2e63635e17b65c6b694c2a2dba31c8e5ca274e8207e20b2a"
+    },
+    "native_source_071": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/ResourceModel.cs",
+      "sha256": "2d2c01b382f008da29ee742c2a059cd5ba16928fc6b8abebe4a307549bda69ed"
+    },
+    "native_source_072": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/SaveCodec.cs",
+      "sha256": "f280bd8e3112c56c61418b873041273efb990d12ba20dfb0467d90cc244862fc"
+    },
+    "native_source_073": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/SettlementEconomy.cs",
+      "sha256": "b55f110300d78ad98267c95c53615ccf9afbdb5a1bba483d004309645f08b156"
+    },
+    "native_source_074": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/SettlementProductionFrontier.cs",
+      "sha256": "1941702a7370260cc5f0cb64c0db00e24df14e1d07a43f5c8e9605f0e353e393"
+    },
+    "native_source_075": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/SharedAllocation.cs",
+      "sha256": "4dab58178d597bb3d8075e7e3d33571d45f0dae7aaeec4c72491687d851f2a2b"
+    },
+    "native_source_076": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Societies.cs",
+      "sha256": "2237aa0cc7dc81b298d966fe87a00b98625c92abf28776301c29e722c67822c6"
+    },
+    "native_source_077": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/SpecialistProductivity.cs",
+      "sha256": "cfa505c8741be5ac5f0044076c58784cb0105215216b3637662cc4da780904f2"
+    },
+    "native_source_078": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Species.cs",
+      "sha256": "afc06f710492abb3fe017420173c91e1772a68470348867cd4bb1a2d59541355"
+    },
+    "native_source_079": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TerrainGeneration.cs",
+      "sha256": "4fda1d4c97d24a5b3ad0d76dd2e188f84e67fe606c4a3f29a8cf4863bb8329dd"
+    },
+    "native_source_080": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Trade.cs",
+      "sha256": "b8261bd5176bf15969eb50ad0cc311d7dd6d2ba648b485eac9f2b9c92179790e"
+    },
+    "native_source_081": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TurnHorizon.cs",
+      "sha256": "e7345c627966f195354956429fd982831828dfde03e46aa3e577860100ef65d2"
+    },
+    "native_source_082": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TurnHorizonResources.cs",
+      "sha256": "cffd7f6c43f5ce1ef593bc2d40d211d8fbb956a0fc81a5c78e3c2b3f21c037da"
+    },
+    "native_source_083": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TurnPlanning.cs",
+      "sha256": "2894711cb57bbff9364a6e4d1bf5eafcd1bedecb2ea6a71bc026e36470b13834"
+    },
+    "native_source_084": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/TurnResolver.cs",
+      "sha256": "2beb982c565866ffcd8116edb512478a0c3df7a7590a82161a216b7686ee404a"
+    },
+    "native_source_085": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/Workforce.cs",
+      "sha256": "8bc758a4ca3a85d8d7db9eb645fa3a20996c28424bb74cc00aec5275eba05a23"
+    },
+    "native_source_086": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/WorldGenerator.cs",
+      "sha256": "aa7428aec454abb6d11b47e15c925af47a6546485c143890f00b7d1a259abc4c"
+    },
+    "bridge_proof_source_00": {
+      "path": "integration/AutonomousHistoryBridge.cs",
+      "sha256": "4c83cbce38ff03e6b272cdc59b9a1d62c3e0634319ad7f6195bdd2bf33cb32ff"
+    },
+    "bridge_proof_source_01": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/AutonomousOpportunityChecks.cs",
+      "sha256": "5b4e57c5f23edb968179a662d61524930ae51e90952bee6b809256e7109c75df"
+    }
+  }
+}

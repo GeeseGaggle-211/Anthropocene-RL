@@ -1,0 +1,68 @@
+{
+  "version": "fitting-probe-v9.6",
+  "ids": [
+    "train-881001-survival-d0",
+    "train-881002-trade-d2",
+    "train-881004-husbandry-d8",
+    "train-881003-fishing-d8",
+    "train-881001-fission-d8",
+    "train-881002-migration-d2",
+    "train-881001-trade-d2",
+    "train-881001-migration-d8",
+    "train-881001-fission-d0",
+    "train-881001-husbandry-d2",
+    "train-881001-fishing-d8",
+    "train-881002-survival-d2",
+    "train-881002-trade-d0",
+    "train-881002-migration-d0",
+    "train-881002-fission-d2",
+    "train-881002-husbandry-d8",
+    "train-881002-fishing-d0",
+    "train-881003-survival-d8",
+    "train-881003-trade-d0",
+    "train-881003-migration-d2",
+    "train-881003-fission-d8",
+    "train-881003-husbandry-d0",
+    "train-881003-fishing-d2",
+    "train-881004-survival-d0",
+    "train-881004-trade-d0",
+    "train-881004-migration-d8",
+    "train-881004-fission-d0",
+    "train-881004-husbandry-d2",
+    "train-881001-trade-d0",
+    "train-881001-trade-d8",
+    "train-881002-trade-d8",
+    "train-881003-trade-d2",
+    "train-881003-trade-d8",
+    "train-881004-trade-d2",
+    "train-881004-trade-d8"
+  ],
+  "rows": 35,
+  "distinct_observation_rows": true,
+  "fitting_worlds": [
+    881001,
+    881002,
+    881003,
+    881004
+  ],
+  "face_counts": [
+    21,
+    4,
+    5,
+    2,
+    1,
+    2
+  ],
+  "probe_sha256": "79fc5f482c918246391c245975416aacb508087f8bc7df5bb1b54f587978271c",
+  "original_native_admission_sha256": "1697cd843aa4d3a47a8c4dd9bab6593a5201cf0202d5bde72c4370ef39c2b01f",
+  "distinct_actor_inputs": true,
+  "probe_face_check": {
+    "rows": 20,
+    "feature": 312,
+    "feature_std": 3.7634716033935547,
+    "roles": [
+      0,
+      1
+    ]
+  }
+}

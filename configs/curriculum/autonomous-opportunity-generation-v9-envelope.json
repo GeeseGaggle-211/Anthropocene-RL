@@ -1,0 +1,67 @@
+{
+  "version": "autonomous-opportunity-generation-v9-gate",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "caps": {
+    "mechanical": 3,
+    "mechanical_replay": 3,
+    "generation": 1200,
+    "generation_replay": 1200
+  },
+  "maximum_additional_resolves": 13000,
+  "maximum_additional_wall_seconds": 1800,
+  "stage_max_wall_seconds": 600,
+  "inputs": {
+    "plan": {
+      "path": "configs/curriculum/autonomous-opportunity-generation-v9.json",
+      "sha256": "9efa8ac8bfc30606163be491330a41d1fc84a93f8f1e9fe76e2d3bad19cf6acf"
+    },
+    "selection": {
+      "path": "configs/curriculum/autonomous-opportunity-selection-v9.json",
+      "sha256": "00d3217b219b7653c275636e333e8f2d909c68ab40761656d75d20161c4625b8"
+    },
+    "generator": {
+      "path": "integration/opportunity-v9/bin/Release/net8.0/AutonomousOpportunityCurriculum.dll",
+      "sha256": "d30322e1cbaee8cc7ff16ba9bb3105a33fbfd44441ec00938c5c9a5f2ff71a15"
+    },
+    "native_tool": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/opportunity-v9/bin/Release/net8.0/Anthropocene.Headless.dll",
+      "sha256": "9adcdeb9754bddd63729bb9750d3546933fd174947a8bbc6e52798b46edc7492"
+    },
+    "bridge": {
+      "path": "integration/history-v9/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "2284940aa147a8cd219f026ebb1f159320832da9d36da0548b15359f9034ff9b"
+    },
+    "factory": {
+      "path": "integration/SnapshotScenarioFactory.cs",
+      "sha256": "22b6be07d176b34585c7142770e1436040305885859c527ad2c781b9593543e3"
+    },
+    "generation_source": {
+      "path": "integration/AutonomousOpportunityCurriculum.cs",
+      "sha256": "46aba56452ed5e23a06f5f635d4139bb78f52b087ac4102b4acf1cb71fc7572b"
+    },
+    "runner": {
+      "path": "scripts/generate_autonomous_opportunity_v9.py",
+      "sha256": "1e6f9de74868ebe67bd8234584b6d7da287f18a963582bd87ecf3b5fd3c8cd21"
+    },
+    "contract": {
+      "path": "docs/AUTONOMOUS_OPPORTUNITY_GATE_CONTRACT_V9.md",
+      "sha256": "2d57024c21100e0755b1262c272ea580d86a01fbd77b57e49e388237296a42ea"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-native-postflight-v8/budget.json",
+      "sha256": "6c1fdf435ef154859662746a5a245bc676aec1c1fb1c3d44b00ff53a91ec8239"
+    },
+    "native_metadata": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderEnvironment.cs",
+      "sha256": "3dea5908d2120d79498038e0a1e568d0d2086e3aa8e2d198b28ca7d09da54b63"
+    },
+    "native_metadata_wrapper": {
+      "path": "/workspace/Anthropocene-elder/Assets/_Anthropocene/Simulation/AutonomousElderHistoryEnvironment.cs",
+      "sha256": "f7c717fd4992c148a35cfe1bbc55df331ff74da525e2f0a3086d3e83a40ada97"
+    },
+    "native_proof": {
+      "path": "/workspace/Anthropocene-elder/Tools/Headless/AutonomousOpportunityChecks.cs",
+      "sha256": "b923ef5b2cc1333864cb6a71119a589f482f1b9b34cce5a8376f1c73c541ee2f"
+    }
+  }
+}

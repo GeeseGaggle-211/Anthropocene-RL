@@ -1,0 +1,19 @@
+{
+  "caps": {
+    "performance": 16,
+    "heuristic": 50,
+    "plug": 8,
+    "plug_replay": 8
+  },
+  "attempted": {
+    "performance": 16,
+    "heuristic": 50,
+    "plug": 8,
+    "plug_replay": 8
+  },
+  "prior_resolves": 14909,
+  "total_resolves": 14991,
+  "prior_wall_seconds": 561.8545064889913,
+  "active_wall_seconds": 7.552739279999514,
+  "cumulative_wall_seconds": 569.4072460189927
+}

@@ -1,0 +1,30 @@
+{
+  "version": "opportunity-v9-admission",
+  "dotnet": "/workspace/Anthropocene/.tools/dotnet/dotnet",
+  "inputs": {
+    "selection": {
+      "path": "configs/curriculum/autonomous-opportunity-selection-v9-repair1.json",
+      "sha256": "771b3cbaba6249a403bceef0769f70212698197e1397c11af5b00d9fa0062823"
+    },
+    "bank": {
+      "path": "datasets/autonomous-opportunity-v9/manifest.json",
+      "sha256": "77bf77137ff7234230ab1c71070372c46cf1a01d63e8d282caedab89d4c64ace"
+    },
+    "bridge": {
+      "path": "integration/history-v9/bin/Release/net8.0/Anthropocene.HistoryBridge.dll",
+      "sha256": "2284940aa147a8cd219f026ebb1f159320832da9d36da0548b15359f9034ff9b"
+    },
+    "prior_budget": {
+      "path": "runs/autonomous-opportunity-generation-v9/budget.json",
+      "sha256": "b7ec3ec3de4af85d427af19ba3f0af4ee0f1781cd67a8c887d234a75f775dc46"
+    },
+    "runner": {
+      "path": "scripts/audit_autonomous_opportunity_v9.py",
+      "sha256": "d8406415687ca332a75da57bc0c362310ec6d7b7583b17101c74ec38b6633127"
+    },
+    "market": {
+      "path": "src/anthropocene_rl/autonomous_v6/opportunity.py",
+      "sha256": "7769c8fa5377f904ba41df2c2ffee43012a58cfeb756edcc9dc208df0d029f1a"
+    }
+  }
+}

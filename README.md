@@ -8,6 +8,17 @@ Curriculum and Scalable Agent Architecture** is normative. This repository is a
 client of the authoritative C# simulation and never reimplements its economics,
 ecology, trade, migration, fission or demography.
 
+The current experimental autonomous Elder path is
+[model7/native6](configs/simulator/elder-autonomous-model-v7.json), with action4,
+1062 features, masked workforce/recipe distributions and conditional stock-relative
+trade. The [v9 results](docs/AUTONOMOUS_OPPORTUNITY_RESULTS_V9.md) and
+[Astra/high review](evidence/autonomous-opportunity-v9/independent-final-review.md)
+report2400 durable canary transitions, passed two-Elder save/replay, responsive
+low-LR updates and the failed strict signed-reversal gate. Broad economic
+scale-out remains NO-GO. The [next bounded plan](configs/training/autonomous-learning-readiness-v10-plan.json)
+is proposed, not executed. All older contracts, datasets and checkpoints remain
+available; the sections below describe their historical bring-up stages.
+
 ## Frozen Elder v2 handoff
 
 The first PPO bring-up pins:

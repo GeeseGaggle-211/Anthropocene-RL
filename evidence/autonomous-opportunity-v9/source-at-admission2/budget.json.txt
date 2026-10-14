@@ -1,0 +1,9 @@
+{
+  "caps": {},
+  "attempted": {},
+  "prior_resolves": 17397,
+  "total_resolves": 17397,
+  "prior_wall_seconds": 623.2709278259863,
+  "active_wall_seconds": 1.8799397249968024,
+  "cumulative_wall_seconds": 625.1508683619904
+}

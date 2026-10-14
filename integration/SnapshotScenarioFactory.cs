@@ -70,7 +70,8 @@ namespace Anthropocene.SnapshotBank
                 EconomicAllocationStrategy.DemandControl;
             if (plan.BankKind == "cultivation-pilot" ||
                 plan.BankKind == "elder-broad-domain" ||
-                plan.BankKind == "elder-broad-domain-diagnostic")
+                plan.BankKind == "elder-broad-domain-diagnostic" ||
+                plan.BankKind == "autonomous-opportunity-v9")
             {
                 config.TradeEnabled = true;
                 config.ImmigrationEnabled = true;

@@ -71,7 +71,18 @@ def n_step_targets(rewards, elapsed, terminal, tail, horizon, reward_scale):
     )
 
 
-def episode(model, transport, bank, entry, generator, config, *, collect=True, verify=False):
+def episode(
+    model,
+    transport,
+    bank,
+    entry,
+    generator,
+    config,
+    *,
+    collect=True,
+    verify=False,
+    peer_policy=None,
+):
     decode, tensor_inputs, convert = observation, inputs_with_mode, to_native
     if config.get("observation_version") == 6:
         from anthropocene_rl.autonomous_v6.contracts import observation as decode
@@ -99,17 +110,62 @@ def episode(model, transport, bank, entry, generator, config, *, collect=True, v
     rows = []
     trace = []
     events = dict(movement=0, trades=0, migrants=0, daughters=0, quotes=0)
+    if peer_policy is not None:
+        events.update(opportunities=0, compatible_proposals=0)
     for _ in range(config["episode_limit"]):
         before = current[focal]
         x = encode(before)
         with torch.no_grad():
-            action, lp, _, value = model(x, generator=generator)
+            action, lp, _, value = model(
+                x, generator=generator, deterministic=config.get("deterministic_evaluation", False)
+            )
         native = convert(action.wire_action(), before)
         submitted = {focal: native}
+        opportunity = compatible = False
         for peer in ids[1:]:
             if peer in current:
-                submitted[peer] = market_peer(current[peer])
-        response = transport.step_world(submitted)
+                p = (
+                    market_peer(current[peer])
+                    if peer_policy is None
+                    else peer_policy(current[peer], peer, focal, transport, entry)
+                )
+                submitted[peer] = p
+                if peer_policy is not None and p.get("quote") is not None:
+                    from anthropocene_rl.autonomous_v6.opportunity import own_address
+
+                    ordinal = own_address(transport, focal, peer)
+                    pq = p["quote"]
+                    opportunity = (
+                        ordinal >= 0
+                        and before["CounterpartyMask"][ordinal]
+                        and before["GoodMask"][pq["Want"]]
+                        and before["Stocks"][pq["Want"]] >= 1e-6
+                        and before["GoodMask"][pq["Give"]]
+                    )
+                    q = native.get("quote")
+                    compatible = bool(
+                        opportunity
+                        and q is not None
+                        and q["Counterparty"] == ordinal
+                        and q["Give"] == pq["Want"]
+                        and q["Want"] == pq["Give"]
+                        and q["GiveQuantity"] * pq["GiveQuantity"]
+                        >= q["WantQuantity"] * pq["WantQuantity"]
+                    )
+        if config.get("outcome_diagnostics", False):
+            from anthropocene_rl.autonomous_v6.contracts import action_wire
+
+            if config.get("observation_version") != 6:
+                raise ValueError("Outcome diagnostics require the native6 contract")
+            response = transport._request(
+                dict(
+                    op="autonomous6_step",
+                    actions={str(k): action_wire(v) for k, v in submitted.items()},
+                    outcomeDiagnostics=True,
+                )
+            )
+        else:
+            response = transport.step_world(submitted)
         result = response["result"]
         current = {int(k): decode(v) for k, v in result["Observations"].items()}
         terminal = focal not in current
@@ -138,6 +194,9 @@ def episode(model, transport, bank, entry, generator, config, *, collect=True, v
         events["migrants"] += int(h[SLICES["immigrated"]][0] + h[SLICES["emigrated"]][0])
         events["daughters"] += int(h[SLICES["daughters"]][0])
         events["quotes"] += int(native.get("quote") is not None)
+        if peer_policy is not None:
+            events["opportunities"] += int(opportunity)
+            events["compatible_proposals"] += int(compatible)
         trace.append(
             dict(
                 reward=raw_reward,
@@ -162,6 +221,10 @@ def episode(model, transport, bank, entry, generator, config, *, collect=True, v
                 native_step_seconds=response["nativeStepSeconds"],
             )
         )
+        if peer_policy is not None:
+            trace[-1].update(market_opportunity=bool(opportunity), compatible_proposal=compatible)
+        if config.get("outcome_diagnostics", False):
+            trace[-1]["demographics"] = response["outcomeDiagnostics"][str(focal)]
         if terminal or truncated:
             break
     if verify:
@@ -201,6 +264,15 @@ def episode(model, transport, bank, entry, generator, config, *, collect=True, v
         tail_value=following,
         final_obs=None if terminal else encode(current[focal]),
     )
+    if config.get("outcome_diagnostics", False):
+        from anthropocene_rl.autonomous_v6.demographics import summarize
+
+        summary["demographic_decomposition"] = summarize(trace)
+        if (
+            config.get("require_reconciled_resident_flows", False)
+            and not summary["demographic_decomposition"]["all_resident_changes_explained"]
+        ):
+            raise ValueError("Unexplained resident changes in the controlled no-dispatch cohort")
     return rows, summary
 
 

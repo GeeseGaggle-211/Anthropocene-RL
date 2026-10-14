@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "focused_tests": 32,
+  "log_sha256": "5cba8a0d336f6301764b9e7cb54d2168880bd1238a4afa7c45b0666fad715409",
+  "native_fitting_probe_guard": true,
+  "durable_rollout_restore_after_diagnostic_exception": true
+}
