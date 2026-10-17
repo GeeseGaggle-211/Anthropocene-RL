@@ -27,6 +27,8 @@ OUTCOME_KEYS = [
 def load_world(directory: Path) -> dict[str, np.ndarray]:
     meta = json.loads((directory / "meta.json").read_text())
     arrays = {key: np.load(directory / f"{key}.npy") for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS}
+    if (directory / "privileged.npy").exists():
+        arrays["privileged"] = np.load(directory / "privileged.npy")
     arrays["world"] = np.full(len(arrays["camp"]), int(meta["seed"]), dtype=np.int32)
     return arrays
 

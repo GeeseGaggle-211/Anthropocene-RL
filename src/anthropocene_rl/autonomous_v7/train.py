@@ -108,10 +108,16 @@ def predict(critic: Critic, batch: dict[str, np.ndarray], normalizer: Normalizer
 
 
 def train_critic(critic: Critic, train: dict[str, np.ndarray], dev: dict[str, np.ndarray], normalizer: Normalizer,
-                 rounds: int, epochs: int, batch_size: int, lr: float, log: list) -> dict[str, float]:
+                 rounds: int, epochs: int, batch_size: int, lr: float, log: list, warm: bool = False) -> dict[str, float]:
     optimizer = torch.optim.Adam(critic.parameters(), lr=lr)
+    steps_per_epoch = math.ceil(len(train["camp"]) / batch_size)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, rounds * epochs * steps_per_epoch), eta_min=lr * 0.05)
     reward_train, reward_dev = data.lineage_rewards(train), data.lineage_rewards(dev)
     value_train = value_dev = None
+    if warm:
+        # A resumed critic bootstraps its first targets from its own predictions rather than restarting from MC.
+        value_train = predict(critic, train, normalizer) * np.maximum(1.0, train["prior_population"])
+        value_dev = predict(critic, dev, normalizer) * np.maximum(1.0, dev["prior_population"])
     metrics: dict[str, float] = {}
     for round_ in range(rounds):
         u_train = data.scale_free(data.lambda_returns(train, reward_train, value_train), train)
@@ -127,7 +133,7 @@ def train_critic(critic: Critic, train: dict[str, np.ndarray], dev: dict[str, np
                 loss = -(critic.two_hot(target[index]) * torch.log_softmax(logits, dim=-1)).sum(dim=-1).mean()
                 optimizer.zero_grad(); loss.backward()
                 nn.utils.clip_grad_norm_(critic.parameters(), 1.0)
-                optimizer.step()
+                optimizer.step(); scheduler.step()
         p_train, p_dev = predict(critic, train, normalizer), predict(critic, dev, normalizer)
         value_train = p_train * np.maximum(1.0, train["prior_population"])
         value_dev = p_dev * np.maximum(1.0, dev["prior_population"])
@@ -153,6 +159,8 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--threads", type=int, default=6)
+    parser.add_argument("--resume", type=Path, default=None, help="continue from a checkpoint (actor and critic)")
+    parser.add_argument("--critic-lr", type=float, default=None)
     args = parser.parse_args()
     torch.manual_seed(args.seed); np.random.seed(args.seed); torch.set_num_threads(args.threads)
     clock = time.time()
@@ -161,13 +169,19 @@ def main() -> int:
     print(json.dumps({"train": data.summary(train), "dev": data.summary(dev)}), flush=True)
     normalizer = Normalizer.fit(train)
     core_width = train["core"].shape[1]
-    actor, critic = Actor(core_width), Critic(core_width)
+    privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
+    actor, critic = Actor(core_width), Critic(core_width, privileged_width=privileged_width)
     log: list = []
+    if args.resume is not None:
+        state = torch.load(args.resume, map_location="cpu", weights_only=False)
+        actor.load_state_dict(state["actor"]); critic.load_state_dict(state["critic"])
+        normalizer = Normalizer.from_state(state["normalizer"]); log = list(state.get("log", []))
     train_actor(actor, train, dev, normalizer, args.bc_epochs, args.batch, args.lr, log)
-    final = train_critic(critic, train, dev, normalizer, args.critic_rounds, args.critic_epochs, args.batch, args.lr, log)
+    final = train_critic(critic, train, dev, normalizer, args.critic_rounds, args.critic_epochs, args.batch,
+                         args.critic_lr or args.lr, log, warm=args.resume is not None)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
-                "core_width": core_width, "contract": contracts.NATIVE_CONTRACT, "seed": args.seed, "log": log,
+                "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "seed": args.seed, "log": log,
                 "critic_dev": final}, args.out)
     print(json.dumps({"saved": str(args.out), "seconds": time.time() - clock, "critic_dev": final}), flush=True)
     return 0

@@ -116,7 +116,7 @@ namespace Anthropocene.RLBridge
                 camp = v.Camp, society = v.Society, parentSociety = v.ParentSociety, player = v.Player,
                 priorPopulation = v.PriorPopulation, population = v.Population, qol = v.QoL, nutrition = v.Nutrition,
                 clothing = v.Clothing, housing = v.Housing, years = v.Years, welfare = v.Welfare,
-                terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length,
+                terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length, privileged = v.Privileged,
                 observation = v.Observation == null ? null : new
                 {
                     core = v.Observation.Core, corePresent = v.Observation.CorePresent,

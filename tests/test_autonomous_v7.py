@@ -99,3 +99,17 @@ def test_schema_verification_rejects_layout_drift() -> None:
     schema["sets"][0]["width"] = 13
     with pytest.raises(ValueError):
         contracts.verify_schema(schema)
+
+
+def test_privileged_inputs_never_reach_the_actor() -> None:
+    b = batch()
+    b["privileged"] = np.random.default_rng(3).normal(size=(6, 10)).astype(np.float32)
+    normalizer = Normalizer.fit(b)
+    torch.manual_seed(1)
+    actor, critic = Actor(b["core"].shape[1]), Critic(b["core"].shape[1], privileged_width=10)
+    t = to_tensors(b, normalizer)
+    a1, c1 = actor(t), critic(t)
+    t["privileged"] = t["privileged"] + 5.0
+    a2, c2 = actor(t), critic(t)
+    assert all(torch.equal(a1[k], a2[k]) for k in a1)
+    assert not torch.allclose(c1, c2)

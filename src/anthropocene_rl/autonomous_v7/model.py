@@ -35,6 +35,8 @@ class Normalizer:
     core_std: np.ndarray
     set_mean: dict[str, np.ndarray] = field(default_factory=dict)
     set_std: dict[str, np.ndarray] = field(default_factory=dict)
+    privileged_mean: np.ndarray | None = None
+    privileged_std: np.ndarray | None = None
 
     @staticmethod
     def fit(batch: dict[str, np.ndarray]) -> "Normalizer":
@@ -52,6 +54,8 @@ class Normalizer:
             x = batch[name].reshape(-1, width)
             present = np.repeat(batch[name + "_present"].reshape(-1, 1), width, axis=1)
             normalizer.set_mean[name], normalizer.set_std[name] = moments(x, present)
+        if "privileged" in batch:
+            normalizer.privileged_mean, normalizer.privileged_std = moments(batch["privileged"], np.ones_like(batch["privileged"], bool))
         return normalizer
 
     def state_dict(self) -> dict[str, list[float]]:
@@ -59,6 +63,8 @@ class Normalizer:
         for name in self.set_mean:
             out[name + "_mean"] = self.set_mean[name].tolist()
             out[name + "_std"] = self.set_std[name].tolist()
+        if self.privileged_mean is not None:
+            out["privileged_mean"] = self.privileged_mean.tolist(); out["privileged_std"] = self.privileged_std.tolist()
         return out
 
     @staticmethod
@@ -67,6 +73,9 @@ class Normalizer:
         for name, _, _ in contracts.SETS:
             n.set_mean[name] = np.asarray(state[name + "_mean"], np.float32)
             n.set_std[name] = np.asarray(state[name + "_std"], np.float32)
+        if "privileged_mean" in state:
+            n.privileged_mean = np.asarray(state["privileged_mean"], np.float32)
+            n.privileged_std = np.asarray(state["privileged_std"], np.float32)
         return n
 
 
@@ -85,6 +94,9 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
         out[name + "_present"] = torch.as_tensor(mask, dtype=torch.bool, device=device)
     for key in ("movement_mask", "clothing_route_mask", "shelter_route_mask"):
         out[key] = torch.as_tensor(batch[key], dtype=torch.bool, device=device)
+    if "privileged" in batch and normalizer.privileged_mean is not None:
+        out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std),
+                                            dtype=torch.float32, device=device)
     return out
 
 
@@ -110,10 +122,11 @@ class SetEncoder(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, core_width: int, width: int = 256, set_hidden: int = 64) -> None:
+    def __init__(self, core_width: int, width: int = 256, set_hidden: int = 64, privileged_width: int = 0) -> None:
         super().__init__()
         self.sets = nn.ModuleDict({name: SetEncoder(w, set_hidden) for name, _, w in contracts.SETS})
-        self.core = nn.Sequential(nn.Linear(core_width * 2, width), nn.SiLU(), nn.LayerNorm(width))
+        self.core = nn.Sequential(nn.Linear(core_width * 2 + privileged_width, width), nn.SiLU(), nn.LayerNorm(width))
+        self.privileged_width = privileged_width
         pooled = len(contracts.SETS) * (3 * set_hidden + 1)
         self.trunk = nn.Sequential(
             nn.Linear(width + pooled, width), nn.SiLU(), nn.LayerNorm(width),
@@ -127,7 +140,8 @@ class Encoder(nn.Module):
             p, r = self.sets[name](t[name], t[name + "_present"])
             pooled.append(p)
             rows[name] = r
-        h = self.trunk(torch.cat([self.core(t["core"])] + pooled, dim=1))
+        core = t["core"] if self.privileged_width == 0 else torch.cat([t["core"], t["privileged"]], dim=1)
+        h = self.trunk(torch.cat([self.core(core)] + pooled, dim=1))
         return h, rows
 
 
@@ -165,9 +179,10 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     """Predicts u = return per opening resident as a two-hot distribution over symlog-spaced bins."""
 
-    def __init__(self, core_width: int, width: int = 256) -> None:
+    def __init__(self, core_width: int, width: int = 256, privileged_width: int = 0) -> None:
         super().__init__()
-        self.encoder = Encoder(core_width, width)
+        # Privileged inputs reach only the critic's own encoder, never the actor graph.
+        self.encoder = Encoder(core_width, width, privileged_width=privileged_width)
         self.head = nn.Linear(width, BINS)
         self.register_buffer("bins", torch.linspace(BIN_LOW, BIN_HIGH, BINS))
 
