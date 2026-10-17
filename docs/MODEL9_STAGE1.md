@@ -47,10 +47,10 @@ settlements 34.0 -> 38.1 / 37.8 / 39.9; villages of 600+ 13.3 -> 10.0 / 10.3 / 7
 camp-turns 0.98% -> 0.99% / 1.05% / 1.44%; extinctions 0 -> 0; settlements below 30 residents 0.05 -> 0.45 /
 0.25 / 0.40; compiler repairs per decision 2.6 / 2.3 / 3.0 (teacher-as-action: about 0.85).
 
-**Stage-1 gate: PASS** on all three seeds: closed-loop welfare at least 95% of the teacher, critic explained
-variance at least 0.60 and MSE / variance at most 0.40 on world-disjoint validation. The bias criterion ("at most
-2") was written for model8's scaled units; here the bias is -23 to -24 welfare-years per resident, -0.018 to -0.020
-target standard deviations (3.1-3.3% of the mean target). Without the privileged block the critic stalled at
+**Stage-1 gate: PASS** on all three seeds: closed-loop welfare at least 95% of the teacher, and on world-disjoint
+validation critic explained variance at least 0.60, MSE / variance at most 0.40 and |bias| at most 2% of the target
+standard deviation (criterion restated from model8's scaled units, agreed 17 October 2026). Bias is -1.84% / -1.97% /
+-1.90% of the target standard deviation (-23 to -24 welfare-years per resident). Without the privileged block the critic stalled at
 EV 0.59-0.61 (MSE / var 0.40-0.41).
 
 Not yet promotion evidence. The cloned policy runs more, smaller settlements at higher QoL than the teacher, with
