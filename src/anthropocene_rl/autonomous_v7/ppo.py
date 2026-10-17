@@ -77,6 +77,15 @@ def _mix_parts(out: dict[str, torch.Tensor], mask: torch.Tensor) -> tuple[torch.
     return mu, free, ref
 
 
+def explore(out: dict[str, torch.Tensor], floor: float) -> dict[str, torch.Tensor]:
+    """Behaviour cloning drives the logistic-normal scales toward the clamp (the teacher is near-deterministic).
+    PPO samples, recomputes and anchors with the same floored scales, so ratios stay bounded."""
+    out = dict(out)
+    for key in ("strategic_log_std", "service_log_std", "mix_log_std"):
+        out[key] = out[key].clamp(min=floor)
+    return out
+
+
 def mix_from_ratios(z: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     logits = torch.where(mask, z, torch.full_like(z, MASKED))
     return torch.softmax(logits, dim=1) * mask.float()
@@ -178,7 +187,7 @@ def _cost(v: dict[str, Any], founded_turn: int, turn: int) -> float:
 
 
 def collect(actor: Actor, normalizer: Normalizer, seeds: list[int], turns: int, stage: Stage,
-            generator: torch.Generator, workers: int = 6) -> Rollout:
+            generator: torch.Generator, workers: int = 6, floor: float = -2.0) -> Rollout:
     """Run every seed's world for ``turns`` steps with the sampled shared policy (worlds step in lockstep)."""
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
@@ -194,7 +203,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list[int], turns: int, 
                 batch = village_batch([v for _, v in live])
                 t = to_tensors(batch, normalizer)
                 with torch.no_grad():
-                    out = actor(t)
+                    out = explore(actor(t), floor)
                     draw = sample(out, t, stage, generator)
                     lp, _ = log_prob(out, t, draw, stage)
                 actions = to_bridge_actions(draw, t)
@@ -305,13 +314,14 @@ class Hyper:
     clip: float = 0.2
     epochs: int = 4
     batch: int = 1024
-    lr: float = 1e-4
+    lr: float = 1e-5               # measured: approximate KL 0.004-0.015 per update on the stage-1 checkpoint
     critic_lr: float = 1e-4
     entropy: float = 1e-3
     teacher_kl: float = 0.05
     cost_budget: float = 0.01      # tolerated share of guarded settlement-turns below 30
     lagrange_lr: float = 0.5
     target_kl: float = 0.03        # early stop on approximate KL to the behaviour policy
+    log_std_floor: float = -2.0    # exploration floor on logit-space scales (std 0.135)
 
 
 def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
@@ -329,7 +339,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             index = rng.permutation(n)[: hyper.batch] if n > hyper.batch else np.arange(n)
             sub = {k: v[index] for k, v in batch.items()}
             t = to_tensors(sub, normalizer)
-            out = actor(t)
+            out = explore(actor(t), hyper.log_std_floor)
             d = {k: v[torch.as_tensor(index)] for k, v in draws.items()}
             lp, ent = log_prob(out, t, d, stage)
             old = torch.as_tensor(old_logp[index], dtype=torch.float32)
@@ -337,7 +347,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             adv = torch.as_tensor(combined[index], dtype=torch.float32)
             policy = -torch.min(ratio * adv, ratio.clamp(1 - hyper.clip, 1 + hyper.clip) * adv).mean()
             with torch.no_grad():
-                anchor = teacher(t)
+                anchor = explore(teacher(t), hyper.log_std_floor)
             kl = teacher_kl(out, anchor).mean()
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
             actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
@@ -360,7 +370,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
 def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
               seeds: list[int], turns: int, stage: Stage, hyper: Hyper, optimizers: tuple, lagrange: float,
               generator: torch.Generator, rng: np.random.Generator) -> tuple[float, dict[str, float]]:
-    roll = collect(actor, normalizer, seeds, turns, stage, generator)
+    roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor)
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
     value = values(critic, batch, normalizer)
@@ -393,6 +403,8 @@ def main() -> int:
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--iterations", type=int, default=1)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--log-std-floor", type=float, default=None)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     torch.manual_seed(args.seed); torch.set_num_threads(4)
@@ -404,6 +416,10 @@ def main() -> int:
     critic.load_state_dict(state["critic"])
     cost_critic = CostCritic(core_width)
     hyper = Hyper()
+    if args.lr is not None:
+        hyper.lr = args.lr
+    if args.log_std_floor is not None:
+        hyper.log_std_floor = args.log_std_floor
     optimizers = (torch.optim.Adam(actor.parameters(), lr=hyper.lr), torch.optim.Adam(critic.parameters(), lr=hyper.critic_lr),
                   torch.optim.Adam(cost_critic.parameters(), lr=hyper.critic_lr))
     a, b = (int(x) for x in args.seeds.split("-"))

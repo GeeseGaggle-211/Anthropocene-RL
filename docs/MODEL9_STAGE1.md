@@ -1,5 +1,36 @@
 # model9 stage 1: behaviour cloning and critic pretraining (M6)
 
+## Contract 8 retrain (17 October 2026)
+
+Contract 8 (simulator df19c33, pin `configs/simulator/elder-model9-native8.json`) adds the three-way economy mix and
+fishing site rows. The data was regenerated on the same banks: TRAIN 339,819 and DEVELOPMENT 34,111
+village-decisions, the same counts as contract 7, because the heuristic is unchanged. Shards are in
+`gs://anthropocene-rl-datasets-508912/model9/teacher-v3/` and checkpoints in `.../checkpoints/contract8/`. Teacher
+throughput is now 137 native decisions per second per process; the exact immigration change gave the 27% gain.
+
+| Seed | Welfare ratio (total) | Median | Min | Critic EV | MSE / var | Bias / sigma |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.984 | 0.962 | 0.738 | 0.662 | 0.338 | -1.87% |
+| 1 | 0.964 | 0.942 | 0.750 | 0.662 | 0.338 | -1.95% |
+| 2 | 0.964 | 0.945 | 0.788 | 0.662 | 0.338 | -1.93% |
+
+**Gate: PASS** on all three seeds (welfare at least 95% of the teacher; EV at least 0.60, MSE / variance at most
+0.40, |bias| at most 2% of sigma).
+
+Panel per world, teacher -> policy (seeds 0/1/2):
+- population 16,898 -> 14,338 / 14,422 / 13,718;
+- settlements 34.1 -> 35.6 / 37.6 / 37.5;
+- villages of 600+ 13.3 -> 8.6 / 7.4 / 6.5;
+- QoL 0.807 -> 0.863 / 0.861 / 0.875;
+- settlements below 30 residents 0.05 -> 0.20 / 0.45 / 0.40;
+- no extinctions.
+
+Welfare ratios are 2-10 points below the contract-7 runs, with the same pattern: fewer large villages and higher
+QoL. The economy-mix head clones the teacher's split closely (dev cross-entropy 0.06-0.08). Because the teacher never
+develops fishing, the cloned mix's fishing share starts near zero.
+
+## Contract 7 (superseded)
+
 Native contract 7 (`configs/simulator/elder-model9-native7.json`, simulator `feature/elder-model9-native`
 b0a72a6), learner `anthropocene_rl.autonomous_v7`. Stage 1 of the learned-Elder curriculum: clone the repaired
 heuristic (DemandControl settlement planner, kernel-scored Elder split, surplus-funded births) and pretrain the
