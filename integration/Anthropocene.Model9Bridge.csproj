@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><LangVersion>9</LangVersion>
+    <Nullable>disable</Nullable><Optimize>true</Optimize>
+    <AssemblyName>Anthropocene.Model9Bridge</AssemblyName>
+    <AnthropoceneSimRoot Condition="'$(AnthropoceneSimRoot)' == ''">$(MSBuildProjectDirectory)/../../Anthropocene-elder</AnthropoceneSimRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(AnthropoceneSimRoot)/Assets/_Anthropocene/Simulation/*.cs" />
+    <Compile Include="Model9BridgeProgram.cs" />
+  </ItemGroup>
+</Project>
