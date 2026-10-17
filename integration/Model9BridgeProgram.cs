@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using Anthropocene.Simulation;
 
-// JSON-lines bridge for native Elder contract 7 (model9). One environment per process; the learner never
+// JSON-lines bridge for native Elder contract 8 (model9). One environment per process; the learner never
 // reimplements physics. Ops: schema, reset {seed, players, movement} | {snapshot}, step {actions}, verify_replay,
 // capture, close. Missing actions run the native heuristic for that village.
 namespace Anthropocene.RLBridge
@@ -56,6 +56,7 @@ namespace Anthropocene.RLBridge
                         sets = ElderModel9Contract.Sets.Select(s => new { name = s.Name, rows = s.Rows, width = s.Width }).ToArray(),
                         services = ElderModel9Contract.GoodsServices,
                         strategic = ElderModel9Contract.StrategicControls,
+                        economyMix = ElderModel9Contract.EconomyMix,
                         movementSlots = ElderModel9Contract.MovementSlots,
                         nativeMovement = ElderModel9Contract.NativeMovement,
                         buildHash = ElderModel9Environment.BuildHash
@@ -98,8 +99,11 @@ namespace Anthropocene.RLBridge
         {
             var d = new ElderDirective { SchemaVersion = ElderModel9Contract.ActionSchemaVersion };
             double[] strategic = e.TryGetProperty("strategic", out var st) ? st.Deserialize<double[]>(Json) : null;
-            if (strategic != null && strategic.Length == 4)
-            { d.RetainedFieldOperation = strategic[0]; d.RetainedHerdFraction = strategic[1]; d.DevelopmentBudget = strategic[2]; d.FieldDevelopmentShare = strategic[3]; }
+            if (strategic != null && (strategic.Length == 4 || strategic.Length == 5))
+            {
+                d.RetainedFieldOperation = strategic[0]; d.RetainedHerdFraction = strategic[1]; d.DevelopmentBudget = strategic[2]; d.FieldDevelopmentShare = strategic[3];
+                if (strategic.Length == 5) d.FishingDevelopmentShare = strategic[4];
+            }
             if (e.TryGetProperty("service", out var sv) && sv.ValueKind == JsonValueKind.Array) d.ServiceLevels = sv.Deserialize<double[]>(Json);
             d.ClothingRoute = e.TryGetProperty("clothingRoute", out var cr) ? cr.GetInt32() : -1;
             d.ShelterRoute = e.TryGetProperty("shelterRoute", out var sr) ? sr.GetInt32() : -1;
@@ -122,13 +126,14 @@ namespace Anthropocene.RLBridge
                     core = v.Observation.Core, corePresent = v.Observation.CorePresent,
                     sets = v.Observation.Sets, rowPresent = v.Observation.RowPresent,
                     movementMask = v.Observation.MovementMask,
-                    clothingRouteMask = v.Observation.ClothingRouteMask, shelterRouteMask = v.Observation.ShelterRouteMask
+                    clothingRouteMask = v.Observation.ClothingRouteMask, shelterRouteMask = v.Observation.ShelterRouteMask,
+                    economyMixMask = v.Observation.EconomyMixMask
                 },
                 teacher = v.Teacher == null ? null : new
                 {
                     strategic = new[] { v.Teacher.Action.RetainedFieldOperation, v.Teacher.Action.RetainedHerdFraction,
-                        v.Teacher.Action.DevelopmentBudget, v.Teacher.Action.FieldDevelopmentShare },
-                    strategicMask = new[] { v.Teacher.StrategicFieldMask, v.Teacher.StrategicHerdMask, v.Teacher.DevelopmentMask, v.Teacher.DevelopmentShareMask },
+                        v.Teacher.Action.DevelopmentBudget, v.Teacher.Action.FieldDevelopmentShare, v.Teacher.Action.FishingDevelopmentShare },
+                    strategicMask = new[] { v.Teacher.StrategicFieldMask, v.Teacher.StrategicHerdMask, v.Teacher.DevelopmentMask, v.Teacher.DevelopmentShareMask, v.Teacher.FishingShareMask },
                     service = v.Teacher.Action.ServiceLevels, serviceMask = v.Teacher.ServiceMask,
                     clothingRoute = v.Teacher.Action.ClothingRoute, clothingRouteLabel = v.Teacher.ClothingRouteMask,
                     shelterRoute = v.Teacher.Action.ShelterRoute, shelterRouteLabel = v.Teacher.ShelterRouteMask,

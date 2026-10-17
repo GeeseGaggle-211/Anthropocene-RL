@@ -11,7 +11,7 @@ import numpy as np
 
 from . import contracts
 
-OBSERVATION_KEYS = ["core", "core_present", "movement_mask", "clothing_route_mask", "shelter_route_mask"] + [
+OBSERVATION_KEYS = ["core", "core_present", "movement_mask", "clothing_route_mask", "shelter_route_mask", "economy_mix_mask"] + [
     key for name, _, _ in contracts.SETS for key in (name, name + "_present")
 ]
 LABEL_KEYS = [

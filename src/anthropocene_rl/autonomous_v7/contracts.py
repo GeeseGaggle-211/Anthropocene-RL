@@ -1,4 +1,4 @@
-"""Native Elder contract 7 (model9): the learner-side registry.
+"""Native Elder contract 8 (model9): the learner-side registry.
 
 The native side is authoritative (``ElderModel9Contract`` in the simulator). ``verify_schema`` checks a bridge's
 schema response against this registry so a learner never trains against a mismatched layout.
@@ -9,13 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-NATIVE_CONTRACT = 7
-ACTION_SCHEMA = 7
-OBSERVATION_SCHEMA = 7
-ENVIRONMENT_SCHEMA = 7
+NATIVE_CONTRACT = 8
+ACTION_SCHEMA = 8
+OBSERVATION_SCHEMA = 8
+ENVIRONMENT_SCHEMA = 8
 
 SETS: tuple[tuple[str, int, int], ...] = (
-    ("sites", 7, 12),
+    ("sites", 7, 14),
     ("fishing", 3, 11),
     ("herds", 8, 8),
     ("commodities", 11, 8),
@@ -27,7 +27,12 @@ STRATEGIC: tuple[str, ...] = (
     "retained-herd-fraction",
     "development-budget",
     "field-development-share",
+    "fishing-development-share",
 )
+# The first three strategic controls are unit-interval levels; the last two are the economy mix, which the actor
+# emits as one masked softmax over (cultivation, herding, fishing) = ((1 - f) s, (1 - f)(1 - s), f).
+UNIT_STRATEGIC = 3
+ECONOMY_MIX: tuple[str, ...] = ("cultivation", "herding", "fishing")
 MOVEMENT_SLOTS = 8  # stay + seven site rows
 NATIVE_MOVEMENT = -2
 FISSION_POLICIES = 3  # Neutral, Discourage, Encourage

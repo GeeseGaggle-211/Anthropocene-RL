@@ -20,7 +20,7 @@ import torch
 from torch import nn
 
 from . import contracts, data
-from .model import Actor, Critic, Normalizer, logistic_normal_nll, to_tensors
+from .model import Actor, Critic, Normalizer, logistic_normal_nll, mix_soft_cross_entropy, mix_target, to_tensors
 
 
 def subset(batch: dict[str, np.ndarray], index: np.ndarray) -> dict[str, np.ndarray]:
@@ -30,8 +30,13 @@ def subset(batch: dict[str, np.ndarray], index: np.ndarray) -> dict[str, np.ndar
 def bc_loss(actor: Actor, t: dict[str, torch.Tensor], labels: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, float]]:
     out = actor(t)
     parts: dict[str, torch.Tensor] = {}
-    sm = labels["strategic_mask"].float()
-    parts["strategic"] = (logistic_normal_nll(out["strategic_mean"], out["strategic_log_std"], labels["strategic"]) * sm).sum() / sm.sum().clamp(min=1)
+    u = contracts.UNIT_STRATEGIC
+    sm = labels["strategic_mask"][:, :u].float()
+    parts["strategic"] = (logistic_normal_nll(out["strategic_mean"], out["strategic_log_std"], labels["strategic"][:, :u]) * sm).sum() / sm.sum().clamp(min=1)
+    # Economy mix: the teacher's split is a label wherever its field or fishing share is (development > 0).
+    mix_loss, carried = mix_soft_cross_entropy(out["mix_logits"], mix_target(labels["strategic"]), t["economy_mix_mask"])
+    mm = (labels["strategic_mask"][:, u:].any(dim=1) & carried).float()
+    parts["mix"] = (mix_loss * mm).sum() / mm.sum().clamp(min=1)
     vm = labels["service_mask"].float()
     parts["service"] = (logistic_normal_nll(out["service_mean"], out["service_log_std"], labels["service_levels"]) * vm).sum() / vm.sum().clamp(min=1)
     ce = nn.functional.cross_entropy

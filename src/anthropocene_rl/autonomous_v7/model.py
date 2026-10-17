@@ -94,6 +94,10 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
         out[name + "_present"] = torch.as_tensor(mask, dtype=torch.bool, device=device)
     for key in ("movement_mask", "clothing_route_mask", "shelter_route_mask"):
         out[key] = torch.as_tensor(batch[key], dtype=torch.bool, device=device)
+    mix_mask = batch.get("economy_mix_mask")
+    if mix_mask is None:
+        mix_mask = np.ones((len(batch["core"]), len(contracts.ECONOMY_MIX)), bool)
+    out["economy_mix_mask"] = torch.as_tensor(mix_mask, dtype=torch.bool, device=device)
     if "privileged" in batch and normalizer.privileged_mean is not None:
         out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std),
                                             dtype=torch.float32, device=device)
@@ -146,13 +150,15 @@ class Encoder(nn.Module):
 
 
 class Actor(nn.Module):
-    """Logistic-normal service levels and strategic controls, masked categorical routes and fission policy, and a
-    pointer over site rows for movement (stay is slot 0)."""
+    """Logistic-normal service levels and unit strategic controls, a masked softmax economy mix over cultivation,
+    herding and fishing, masked categorical routes and fission policy, and a pointer over site rows for movement
+    (stay is slot 0)."""
 
     def __init__(self, core_width: int, width: int = 256) -> None:
         super().__init__()
         self.encoder = Encoder(core_width, width)
-        self.strategic = nn.Linear(width, 2 * len(contracts.STRATEGIC))
+        self.strategic = nn.Linear(width, 2 * contracts.UNIT_STRATEGIC)
+        self.mix = nn.Linear(width, 2 * len(contracts.ECONOMY_MIX))
         self.service = nn.Linear(width, 2 * len(contracts.SERVICES))
         self.clothing = nn.Linear(width, 2)
         self.shelter = nn.Linear(width, 2)
@@ -162,12 +168,15 @@ class Actor(nn.Module):
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
-        strategic = self.strategic(h).view(-1, len(contracts.STRATEGIC), 2)
+        strategic = self.strategic(h).view(-1, contracts.UNIT_STRATEGIC, 2)
+        mix = self.mix(h).view(-1, len(contracts.ECONOMY_MIX), 2)
         service = self.service(h).view(-1, len(contracts.SERVICES), 2)
         site_scores = torch.einsum("bh,brh->br", self.site_query(h), rows["sites"]) / np.sqrt(self.encoder.set_hidden)
         movement = torch.cat([self.stay(h), site_scores], dim=1).masked_fill(~t["movement_mask"], MASKED)
         return {
             "strategic_mean": strategic[..., 0], "strategic_log_std": strategic[..., 1].clamp(-5, 1),
+            "mix_logits": mix[..., 0].masked_fill(~t["economy_mix_mask"], MASKED),
+            "mix_log_std": mix[..., 1].clamp(-5, 1),
             "service_mean": service[..., 0], "service_log_std": service[..., 1].clamp(-5, 1),
             "clothing": self.clothing(h).masked_fill(~t["clothing_route_mask"], MASKED),
             "shelter": self.shelter(h).masked_fill(~t["shelter_route_mask"], MASKED),
@@ -216,6 +225,47 @@ def logistic_normal_nll(mean: torch.Tensor, log_std: torch.Tensor, label: torch.
     return 0.5 * ((z - mean) / log_std.exp()) ** 2 + log_std
 
 
+def mix_target(strategic: torch.Tensor) -> torch.Tensor:
+    """Economy mix from the field share s and fishing share f (strategic columns 3 and 4)."""
+    s, f = strategic[:, 3], strategic[:, 4]
+    return torch.stack([(1 - f) * s, (1 - f) * (1 - s), f], dim=1)
+
+
+def mix_shares(mix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Inverse of ``mix_target``: field share among fields and herds, and the fishing share."""
+    rest = mix[:, 0] + mix[:, 1]
+    s = np.where(rest > 1e-9, mix[:, 0] / np.maximum(rest, 1e-12), 0.5)
+    return s, mix[:, 2]
+
+
+def mix_soft_cross_entropy(logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Cross-entropy of the masked softmax against a simplex target restricted to the available coordinates.
+    Returns per-row losses and the rows where the target carries mass on an available coordinate."""
+    target = target * mask.float()
+    mass = target.sum(dim=1)
+    target = target / mass.clamp(min=1e-12).unsqueeze(1)
+    loss = -(target * torch.log_softmax(logits, dim=1)).sum(dim=1)
+    return loss, mass > 1e-9
+
+
+def mix_log_prob(logits: torch.Tensor, log_std: torch.Tensor, mix: torch.Tensor, mask: torch.Tensor,
+                 eps: float = 1e-3) -> torch.Tensor:
+    """Logistic-normal density of a sampled mix (for PPO): additive log-ratios against the last available
+    coordinate are Gaussian with mean logits_i - logits_ref and std exp(log_std_i). Boundary points are pulled
+    eps into the simplex; rows with one available coordinate have log-probability zero."""
+    m = mask.float()
+    p = (mix.clamp(min=eps) * m)
+    p = p / p.sum(dim=1, keepdim=True).clamp(min=1e-12)
+    ref = (torch.arange(mask.shape[1], device=mask.device) * m).argmax(dim=1, keepdim=True)
+    z = torch.log(p.clamp(min=1e-12)) - torch.log(p.gather(1, ref).clamp(min=1e-12))
+    mu = logits - logits.gather(1, ref)
+    others = m.clone(); others.scatter_(1, ref, 0.0)
+    std = log_std.exp()
+    gauss = -0.5 * ((z - mu) / std) ** 2 - log_std - 0.5 * float(np.log(2 * np.pi))
+    jacobian = -torch.log(p.clamp(min=1e-12))  # change of variables from log-ratios to the simplex
+    return ((gauss + jacobian) * others).sum(dim=1) + (jacobian * (m - others)).sum(dim=1) * (others.sum(dim=1) > 0).float()
+
+
 def act_deterministic(out: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
     """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends)."""
     def level(mean: torch.Tensor) -> np.ndarray:
@@ -224,8 +274,13 @@ def act_deterministic(out: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
         p[p > 0.99] = 1.0
         return p
 
+    mix = torch.softmax(out["mix_logits"], dim=1).detach().cpu().numpy()
+    mix[mix < 0.01] = 0.0
+    mix = mix / np.maximum(mix.sum(axis=1, keepdims=True), 1e-12)
+    s, f = mix_shares(mix)
     return {
-        "strategic": level(out["strategic_mean"]),
+        "strategic": np.concatenate([level(out["strategic_mean"]), s[:, None], f[:, None]], axis=1),
+        "mix": mix,
         "service": level(out["service_mean"]),
         "clothing": out["clothing"].argmax(dim=1).cpu().numpy(),
         "shelter": out["shelter"].argmax(dim=1).cpu().numpy(),

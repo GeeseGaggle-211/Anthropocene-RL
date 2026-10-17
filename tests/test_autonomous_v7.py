@@ -7,7 +7,8 @@ import pytest
 import torch
 
 from anthropocene_rl.autonomous_v7 import contracts, data
-from anthropocene_rl.autonomous_v7.model import Actor, Critic, Normalizer, SetEncoder, to_tensors
+from anthropocene_rl.autonomous_v7.model import (Actor, Critic, Normalizer, SetEncoder, act_deterministic, mix_log_prob,
+                                                 mix_shares, mix_soft_cross_entropy, mix_target, to_tensors)
 
 
 def batch(n: int = 6, seed: int = 0) -> dict[str, np.ndarray]:
@@ -19,6 +20,7 @@ def batch(n: int = 6, seed: int = 0) -> dict[str, np.ndarray]:
         "movement_mask": np.ones((n, contracts.MOVEMENT_SLOTS), bool),
         "clothing_route_mask": np.ones((n, 2), bool),
         "shelter_route_mask": np.ones((n, 2), bool),
+        "economy_mix_mask": np.ones((n, 3), bool),
     }
     for name, rows, width in contracts.SETS:
         b[name] = rng.normal(size=(n, rows, width)).astype(np.float32)
@@ -90,13 +92,13 @@ def test_lambda_returns_discount_by_physical_years() -> None:
 
 
 def test_schema_verification_rejects_layout_drift() -> None:
-    schema = {"nativeContract": 7, "actionSchema": 7, "observationSchema": 7, "environmentSchema": 7,
+    schema = {"nativeContract": 8, "actionSchema": 8, "observationSchema": 8, "environmentSchema": 8,
               "movementSlots": 8, "nativeMovement": -2,
               "sets": [{"name": n, "rows": r, "width": w} for n, r, w in contracts.SETS],
               "services": list(contracts.SERVICES), "strategic": list(contracts.STRATEGIC),
               "coreFeatures": ["a", "b"], "coreWidth": 2, "buildHash": "x"}
     assert contracts.verify_schema(schema).core_width == 2
-    schema["sets"][0]["width"] = 13
+    schema["sets"][0]["width"] = 12
     with pytest.raises(ValueError):
         contracts.verify_schema(schema)
 
@@ -113,3 +115,44 @@ def test_privileged_inputs_never_reach_the_actor() -> None:
     a2, c2 = actor(t), critic(t)
     assert all(torch.equal(a1[k], a2[k]) for k in a1)
     assert not torch.allclose(c1, c2)
+
+
+def test_economy_mix_round_trips_the_field_and_fishing_shares() -> None:
+    strategic = torch.tensor([[1.0, 1.0, 0.2, 0.7, 0.0], [1.0, 1.0, 0.2, 0.25, 0.4]])
+    mix = mix_target(strategic)
+    assert torch.allclose(mix.sum(dim=1), torch.ones(2))
+    s, f = mix_shares(mix.numpy())
+    assert np.allclose(s, [0.7, 0.25]) and np.allclose(f, [0.0, 0.4])
+
+
+def test_economy_mix_respects_the_mask_and_learns_soft_targets() -> None:
+    b = batch()
+    b["economy_mix_mask"][:, 2] = False  # no resident fishing
+    normalizer = Normalizer.fit(b)
+    actor = Actor(b["core"].shape[1])
+    t = to_tensors(b, normalizer)
+    mode = act_deterministic(actor(t))
+    assert np.all(mode["mix"][:, 2] == 0.0) and np.allclose(mode["mix"].sum(axis=1), 1.0)
+    assert mode["strategic"].shape == (6, len(contracts.STRATEGIC)) and np.all(mode["strategic"][:, 4] == 0.0)
+    # A target with all its mass on an unavailable coordinate carries no label.
+    logits = torch.tensor([[0.0, 0.0, -30.0], [0.0, 0.0, -30.0]])  # the actor masks unavailable coordinates
+    target = torch.tensor([[0.0, 0.0, 1.0], [0.5, 0.5, 0.0]])
+    mask = torch.tensor([[True, True, False], [True, True, False]])
+    loss, carried = mix_soft_cross_entropy(logits, target, mask)
+    assert carried.tolist() == [False, True] and loss[1] == pytest.approx(np.log(2.0), rel=1e-5)
+
+
+def test_mix_log_prob_is_a_density_on_the_simplex() -> None:
+    torch.manual_seed(0)
+    logits = torch.tensor([[0.3, -0.2, 0.1]]); log_std = torch.full((1, 3), -0.5)
+    mask = torch.ones(1, 3, dtype=torch.bool)
+    # Monte Carlo: sampling log-ratios and mapping them to the simplex reproduces the density's normalisation.
+    grid = torch.linspace(0.005, 0.995, 200)
+    a, b2 = torch.meshgrid(grid, grid, indexing="ij")
+    keep = (a + b2) < 0.995
+    pts = torch.stack([a[keep], b2[keep], 1 - a[keep] - b2[keep]], dim=1)
+    lp = mix_log_prob(logits.expand(len(pts), 3), log_std.expand(len(pts), 3), pts, mask.expand(len(pts), 3), eps=1e-6)
+    cell = float((grid[1] - grid[0]) ** 2)
+    assert float(lp.exp().sum()) * cell == pytest.approx(1.0, abs=0.08)
+    one = torch.tensor([[True, False, False]])
+    assert float(mix_log_prob(logits, log_std, torch.tensor([[1.0, 0.0, 0.0]]), one)) == pytest.approx(0.0)
