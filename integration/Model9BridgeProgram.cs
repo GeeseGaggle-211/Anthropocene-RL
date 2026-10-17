@@ -63,12 +63,14 @@ namespace Anthropocene.RLBridge
                     };
                 case "reset":
                 {
+                    // withheld: SimulationConfig.TrainingWithheldTechnologies for capability fixtures (0 = the game).
+                    int withheld = root.TryGetProperty("withheld", out var wh) ? wh.GetInt32() : 0;
                     byte[] snapshot = root.TryGetProperty("snapshot", out var s) && s.ValueKind == JsonValueKind.String
                         ? Convert.FromBase64String(s.GetString())
                         : ElderModel9Environment.GenerateOpening(root.GetProperty("seed").GetInt32(),
-                            root.TryGetProperty("players", out var p) ? p.GetInt32() : 8, out _);
+                            root.TryGetProperty("players", out var p) ? p.GetInt32() : 8, out _, 40, withheld);
                     bool movement = root.TryGetProperty("movement", out var m) && m.GetBoolean();
-                    environment = new ElderModel9Environment();
+                    environment = new ElderModel9Environment { WithheldTechnologies = withheld };
                     var step = environment.Reset(snapshot, movement);
                     return new { ok = true, op, step = Encode(step), fingerprint = environment.Replay.InitialFingerprint,
                         configurationHash = environment.Replay.ConfigurationHash, buildHash = environment.Replay.BuildHash };

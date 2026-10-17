@@ -47,14 +47,14 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
     return actions
 
 
-def rollout(seed: int, turns: int, checkpoint: str | None) -> dict[str, Any]:
+def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0) -> dict[str, Any]:
     torch.set_num_threads(1)
     actor = normalizer = None
     if checkpoint is not None:
         actor, normalizer = load(Path(checkpoint))
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     with Model9Bridge() as bridge:
-        step = bridge.reset(seed)
+        step = bridge.reset(seed, withheld=withheld)
         for _ in range(turns):
             actions = policy_actions(actor, normalizer, step["villages"]) if actor is not None else {}
             decisions += len(actions)
@@ -72,7 +72,7 @@ def rollout(seed: int, turns: int, checkpoint: str | None) -> dict[str, Any]:
     population = sum(v["population"] for v in final)
     weight = max(1, population)
     return {
-        "seed": seed, "policy": checkpoint is not None, "welfare": welfare, "population": population,
+        "seed": seed, "withheld": withheld, "policy": checkpoint is not None, "welfare": welfare, "population": population,
         "settlements": len(final), "villages_600": sum(1 for v in final if v["population"] >= 600),
         "nutrition": sum(v["nutrition"] * v["population"] for v in final) / weight,
         "clothing": sum(v["clothing"] * v["population"] for v in final) / weight,

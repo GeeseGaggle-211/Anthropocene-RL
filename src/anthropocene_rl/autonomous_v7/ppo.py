@@ -47,14 +47,15 @@ class Stage:
     movement: bool          # the policy chooses movement (else native)
     routes: bool            # the policy chooses clothing/shelter routes (else native)
     description: str
+    anchor_strategic: bool = True   # teacher KL on retained field/herd and development levels (service levels always)
 
 
 STAGES = {
     "capability": Stage("capability", movement=False, routes=False,
                         description="stage 2: single-capability worlds; economy levels and mix, native routes and movement"),
-    "mixed": Stage("mixed", movement=False, routes=True,
+    "mixed": Stage("mixed", movement=False, routes=True, anchor_strategic=False,
                    description="stage 3: mixed-use worlds; routes and posture, no teacher anchor on either"),
-    "movement": Stage("movement", movement=True, routes=True,
+    "movement": Stage("movement", movement=True, routes=True, anchor_strategic=False,
                       description="stage 4: the policy moves settlements over value-ordered sites"),
 }
 
@@ -134,13 +135,17 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     return lp, entropy
 
 
-def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor]) -> torch.Tensor:
-    """KL(policy || teacher) on the anchored heads only: unit strategic controls and service levels."""
+def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], strategic: bool = True) -> torch.Tensor:
+    """KL(policy || teacher) on the anchored heads: service levels, and (stage 2 only) the unit strategic controls.
+    The economy mix and routes are never anchored; from stage 3 the retained field/herd levels are free too, so
+    pastoral and mixed postures can depart from the field-leaning teacher."""
     def gauss_kl(m1, s1, m2, s2):
         return (s2 - s1) + (torch.exp(2 * s1) + (m1 - m2) ** 2) / (2 * torch.exp(2 * s2)) - 0.5
 
-    kl = gauss_kl(out["strategic_mean"], out["strategic_log_std"], teacher["strategic_mean"], teacher["strategic_log_std"]).sum(dim=1)
-    return kl + gauss_kl(out["service_mean"], out["service_log_std"], teacher["service_mean"], teacher["service_log_std"]).sum(dim=1)
+    kl = gauss_kl(out["service_mean"], out["service_log_std"], teacher["service_mean"], teacher["service_log_std"]).sum(dim=1)
+    if strategic:
+        kl = kl + gauss_kl(out["strategic_mean"], out["strategic_log_std"], teacher["strategic_mean"], teacher["strategic_log_std"]).sum(dim=1)
+    return kl
 
 
 def to_bridge_actions(draw: dict[str, torch.Tensor], t: dict[str, torch.Tensor]) -> list[dict[str, Any]]:
@@ -186,14 +191,18 @@ def _cost(v: dict[str, Any], founded_turn: int, turn: int) -> float:
     return float(not v["terminated"] and v["population"] < SMALL_SETTLEMENT and not young)
 
 
-def collect(actor: Actor, normalizer: Normalizer, seeds: list[int], turns: int, stage: Stage,
+def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage: Stage,
             generator: torch.Generator, workers: int = 6, floor: float = -2.0) -> Rollout:
-    """Run every seed's world for ``turns`` steps with the sampled shared policy (worlds step in lockstep)."""
+    """Run every world for ``turns`` steps with the sampled shared policy (worlds step in lockstep). A world is a
+    seed or a (seed, withheld-technology mask) pair."""
+    worlds = [(s, 0) if isinstance(s, int) else (int(s[0]), int(s[1])) for s in seeds]
+    seeds = [s for s, _ in worlds]
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            steps = list(pool.map(lambda pair: pair[0].reset(pair[1], movement=stage.movement), zip(bridges, seeds)))
+            steps = list(pool.map(lambda pair: pair[0].reset(pair[1][0], movement=stage.movement, withheld=pair[1][1]),
+                                  zip(bridges, worlds)))
             founded = [{v["camp"]: s["turn"] for v in s["villages"]} for s in steps]
             for _ in range(turns):
                 live = [(w, v) for w, s in enumerate(steps) for v in s["villages"]
@@ -348,7 +357,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             policy = -torch.min(ratio * adv, ratio.clamp(1 - hyper.clip, 1 + hyper.clip) * adv).mean()
             with torch.no_grad():
                 anchor = explore(teacher(t), hyper.log_std_floor)
-            kl = teacher_kl(out, anchor).mean()
+            kl = teacher_kl(out, anchor, stage.anchor_strategic).mean()
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
             actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
             logits = critic(t)
@@ -394,14 +403,53 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     return lagrange, stats
 
 
+def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator):
+    """Curriculum worlds as (seed, withheld-technology mask). Stage 2 draws the three single-capability fixtures
+    equally; stages 3-4 draw half ordinary TRAIN worlds and half grassland-rich openings (where herding competes
+    with farming), so pastoral postures are exercised without changing the game."""
+    masks = list(contracts.CAPABILITY_MASKS.values())
+
+    def draw(n: int) -> list[tuple[int, int]]:
+        worlds = []
+        for i in range(n):
+            if stage.name == "capability":
+                worlds.append((int(rng.choice(train)), int(masks[i % len(masks)])))
+            elif i % 2 == 1 and len(grassland) > 0:
+                worlds.append((int(rng.choice(grassland)), 0))
+            else:
+                worlds.append((int(rng.choice(train)), 0))
+        return worlds
+    return draw
+
+
+def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6) -> dict[str, float]:
+    """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds."""
+    from concurrent.futures import ProcessPoolExecutor
+    from .evaluate import rollout
+    with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
+        rows = list(pool.map(rollout, [w for w, _ in worlds], [turns] * len(worlds),
+                             [None if checkpoint is None else str(checkpoint)] * len(worlds), [m for _, m in worlds]))
+    population = sum(r["population"] for r in rows)
+    return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
+            "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
+            "below_30": float(np.mean([r["below_30"] for r in rows])), "extinctions": float(sum(r["extinctions"] for r in rows)),
+            "settlements": float(np.mean([r["settlements"] for r in rows])),
+            "interventions_per_decision": float(np.mean([r["interventions_per_decision"] for r in rows]))}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--init", type=Path, required=True, help="stage-1 checkpoint (actor, critic, normalizer)")
+    parser.add_argument("--init", type=Path, required=True, help="stage-1 or earlier-stage checkpoint")
+    parser.add_argument("--teacher", type=Path, default=None, help="anchor actor (default: the stage-1 actor in --init)")
     parser.add_argument("--stage", choices=sorted(STAGES), default="capability")
-    parser.add_argument("--seeds", default="1000-1599")
+    parser.add_argument("--seeds", default="1000-1599", help="TRAIN seed range")
+    parser.add_argument("--grassland-seeds", type=Path, default=None, help="comma-separated grassland-rich seeds")
     parser.add_argument("--worlds", type=int, default=12, help="worlds per iteration")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--iterations", type=int, default=1)
+    parser.add_argument("--eval-every", type=int, default=0)
+    parser.add_argument("--eval-seeds", default="2000-2005", help="DEVELOPMENT seeds for periodic evaluation")
+    parser.add_argument("--eval-turns", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--log-std-floor", type=float, default=None)
@@ -412,9 +460,12 @@ def main() -> int:
     core_width = int(state["core_width"]); privileged = int(state.get("privileged_width", 0))
     normalizer = Normalizer.from_state(state["normalizer"])
     actor, teacher, critic = Actor(core_width), Actor(core_width), Critic(core_width, privileged_width=privileged)
-    actor.load_state_dict(state["actor"]); teacher.load_state_dict(state["actor"]); teacher.eval()
-    critic.load_state_dict(state["critic"])
+    actor.load_state_dict(state["actor"]); critic.load_state_dict(state["critic"])
+    anchor = torch.load(args.teacher, map_location="cpu", weights_only=False) if args.teacher else state
+    teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
     cost_critic = CostCritic(core_width)
+    if "cost_critic" in state:
+        cost_critic.load_state_dict(state["cost_critic"])
     hyper = Hyper()
     if args.lr is not None:
         hyper.lr = args.lr
@@ -423,22 +474,50 @@ def main() -> int:
     optimizers = (torch.optim.Adam(actor.parameters(), lr=hyper.lr), torch.optim.Adam(critic.parameters(), lr=hyper.critic_lr),
                   torch.optim.Adam(cost_critic.parameters(), lr=hyper.critic_lr))
     a, b = (int(x) for x in args.seeds.split("-"))
-    pool = np.arange(a, b + 1)
+    train = np.arange(a, b + 1)
+    grassland = np.array([int(x) for x in args.grassland_seeds.read_text().split(",") if x.strip()]) \
+        if args.grassland_seeds else np.array([], dtype=int)
     rng = np.random.default_rng(args.seed); generator = torch.Generator().manual_seed(args.seed)
-    stage = STAGES[args.stage]; lagrange = 0.0
+    stage = STAGES[args.stage]; lagrange = float(state.get("lagrange", 0.0))
+    draw = world_sampler(stage, train, grassland, rng)
+    ea, eb = (int(x) for x in args.eval_seeds.split("-"))
+    eval_worlds = [(s, 0) for s in range(ea, eb + 1)]
+    if stage.name == "capability":
+        eval_worlds += [(s, m) for s in range(ea, min(eb, ea + 1) + 1) for m in contracts.CAPABILITY_MASKS.values()]
     args.out.mkdir(parents=True, exist_ok=True)
-    log = []
+    trajectory = args.out / "trajectory.jsonl"
+    log: list = []
+    baseline = None
+    best = -np.inf
+
+    def save(path: Path) -> None:
+        torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
+                    "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
+                    "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
+                    "lagrange": lagrange, "log": log}, path)
+
+    if args.eval_every > 0:
+        baseline = evaluate_closed_loop(args.init, eval_worlds, args.eval_turns)
+        with trajectory.open("a") as f:
+            f.write(json.dumps({"baseline": baseline, "eval_worlds": eval_worlds}) + "\n")
+        print(json.dumps({"baseline": baseline}), flush=True)
     for it in range(args.iterations):
         clock = time.time()
-        seeds = [int(s) for s in rng.choice(pool, size=min(args.worlds, len(pool)), replace=False)]
-        lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, seeds, args.turns, stage, hyper,
+        worlds = draw(args.worlds)
+        lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
                                     optimizers, lagrange, generator, rng)
-        stats.update({"iteration": it, "seconds": time.time() - clock})
-        log.append(stats); print(json.dumps(stats), flush=True)
-        torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
-                    "normalizer": state["normalizer"], "core_width": core_width, "privileged_width": privileged,
-                    "contract": contracts.NATIVE_CONTRACT, "stage": stage.name, "lagrange": lagrange, "log": log},
-                   args.out / "latest.pt")
+        stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
+        save(args.out / "latest.pt")
+        if args.eval_every > 0 and (it + 1) % args.eval_every == 0:
+            ev = evaluate_closed_loop(args.out / "latest.pt", eval_worlds, args.eval_turns)
+            ev["welfare_ratio_vs_init"] = ev["welfare"] / max(1e-9, baseline["welfare"])
+            stats["eval"] = ev
+            if ev["welfare"] > best and ev["extinctions"] <= baseline["extinctions"]:
+                best = ev["welfare"]; save(args.out / "best.pt")
+        log.append(stats)
+        with trajectory.open("a") as f:
+            f.write(json.dumps(stats) + "\n")
+        print(json.dumps({k: v for k, v in stats.items() if k != "worlds"}), flush=True)
     return 0
 
 

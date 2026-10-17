@@ -34,6 +34,10 @@ STRATEGIC: tuple[str, ...] = (
 UNIT_STRATEGIC = 3
 ECONOMY_MIX: tuple[str, ...] = ("cultivation", "herding", "fishing")
 MOVEMENT_SLOTS = 8  # stay + seven site rows
+# Technology bits (Anthropocene.Simulation.Technology) for SimulationConfig.TrainingWithheldTechnologies.
+HUSBANDRY, CULTIVATION, WATERCRAFT = 1 << 1, 1 << 2, 1 << 3
+# Capability fixtures: the mask withholds every technology but the named one.
+CAPABILITY_MASKS = {"herding": CULTIVATION | WATERCRAFT, "farming": HUSBANDRY | WATERCRAFT, "fishing": HUSBANDRY | CULTIVATION}
 NATIVE_MOVEMENT = -2
 FISSION_POLICIES = 3  # Neutral, Discourage, Encourage
 
