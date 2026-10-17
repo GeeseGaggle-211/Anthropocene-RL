@@ -405,8 +405,8 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
 
 def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator):
     """Curriculum worlds as (seed, withheld-technology mask). Stage 2 draws the three single-capability fixtures
-    equally; stages 3-4 draw half ordinary TRAIN worlds and half grassland-rich openings (where herding competes
-    with farming), so pastoral postures are exercised without changing the game."""
+    equally; stages 3-4 draw half ordinary TRAIN worlds, a quarter grassland-rich openings (where herding competes
+    with farming) and a quarter rehearsed capability fixtures."""
     masks = list(contracts.CAPABILITY_MASKS.values())
 
     def draw(n: int) -> list[tuple[int, int]]:
@@ -414,8 +414,12 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
         for i in range(n):
             if stage.name == "capability":
                 worlds.append((int(rng.choice(train)), int(masks[i % len(masks)])))
-            elif i % 2 == 1 and len(grassland) > 0:
+            elif i % 4 == 1 and len(grassland) > 0:
                 worlds.append((int(rng.choice(grassland)), 0))
+            elif i % 4 == 3:
+                # Rehearsal: a quarter of stage 3-4 worlds are the stage-2 capability fixtures, so single-capability
+                # skills (the fishing regression seen after stage 2) are not forgotten.
+                worlds.append((int(rng.choice(train)), int(masks[(i // 4) % len(masks)])))
             else:
                 worlds.append((int(rng.choice(train)), 0))
         return worlds
@@ -453,6 +457,8 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--log-std-floor", type=float, default=None)
+    parser.add_argument("--lagrange-lr", type=float, default=None)
+    parser.add_argument("--cost-budget", type=float, default=None)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     torch.manual_seed(args.seed); torch.set_num_threads(4)
@@ -469,6 +475,10 @@ def main() -> int:
     hyper = Hyper()
     if args.lr is not None:
         hyper.lr = args.lr
+    if args.lagrange_lr is not None:
+        hyper.lagrange_lr = args.lagrange_lr
+    if args.cost_budget is not None:
+        hyper.cost_budget = args.cost_budget
     if args.log_std_floor is not None:
         hyper.log_std_floor = args.log_std_floor
     optimizers = (torch.optim.Adam(actor.parameters(), lr=hyper.lr), torch.optim.Adam(critic.parameters(), lr=hyper.critic_lr),

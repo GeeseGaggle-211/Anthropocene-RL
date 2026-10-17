@@ -1,6 +1,26 @@
 # model9 stage 1: behaviour cloning and critic pretraining (M6)
 
-## Contract 8 retrain (17 October 2026)
+## Contract 8 on the fixed heuristic (herd fixes, 17 October 2026)
+
+The heuristic now has three herd fixes (simulator e7c4b61, main d4f949a):
+- residual-water routing for managed herds;
+- the seed-herd floor;
+- a growth ceiling no lower than the retained herd.
+
+The model9 data was regenerated: TRAIN 350,097 and DEVELOPMENT 34,984 decisions, in
+`gs://anthropocene-rl-datasets-508912/model9/teacher-v4/`. Checkpoints are in `.../checkpoints/contract8-herdfix/`.
+
+| Seed | Welfare ratio (total) | Median | Min | Critic EV | MSE / var | Bias / sigma |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 1.025 | 1.050 | 0.797 | 0.714 | 0.287 | -1.92% |
+| 1 | 1.029 | 0.978 | 0.774 | 0.706 | 0.295 | -2.07% |
+| 2 | 0.985 | 0.980 | 0.713 | 0.716 | 0.284 | -1.81% |
+
+Welfare passes on all three seeds, and the critic explained variance rose from 0.66 to above 0.70. The bias is
+consistently about -2% of sigma, a slight systematic undervaluation; seed 1 misses the 2% criterion by 0.07 points.
+A warm critic-only refinement made it worse (-2.28%), so the original checkpoint stands. M7 starts from seed 0.
+
+## Contract 8 retrain (17 October 2026, before the herd fixes; superseded)
 
 Contract 8 (simulator df19c33, pin `configs/simulator/elder-model9-native8.json`) adds the three-way economy mix and
 fishing site rows. The data was regenerated on the same banks: TRAIN 339,819 and DEVELOPMENT 34,111
