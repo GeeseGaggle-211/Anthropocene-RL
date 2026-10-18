@@ -114,6 +114,42 @@ The choice space is therefore solvable and rewards good choices. The remaining g
 The critic's values correlate 0.82 with realized returns on default worlds, against 0.20-0.65 on the fixtures,
 where stage 2 still improved. So critic fit does not explain the default-world loss either.
 
+### Seed noise and the stage-3 answer (18-19 October 2026)
+
+**Stage-2 seed noise.** Three PPO seeds of the stage-2 recipe from stage-1 seed 2 (gate, against the init):
+
+| Regime | Seed 0 | Seed 1 | Seed 2 | Mean | Sigma |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default (20) | 1.036 | 1.037 | 1.005 | 1.026 | 0.018 |
+| Herding-only | 0.996 | 0.988 | 1.004 | 0.996 | 0.008 |
+| Farming-only | 1.076 | 0.961 | 0.987 | 1.008 | 0.060 |
+| Fishing-only | 1.045 | 1.051 | 1.017 | 1.038 | 0.018 |
+| Grassland | 1.018 | 0.965 | 1.009 | 0.997 | 0.028 |
+| Gate | pass | fail (farming, grassland) | pass | 2 of 3 | |
+
+**Free against native routes, two pairs.** Each pair starts from the same stage-2 checkpoint (seeds 0 and 2), with
+expert adapters and the same world draws:
+
+| Regime | Pair 1 free | Pair 1 native | Pair 2 free | Pair 2 native | Mean free - native |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default | 0.995 | 1.032 | 1.018 | 1.037 | -2.8% |
+| Herding-only | 1.021 | 0.979 | 0.996 | 0.983 | +2.8% |
+| Farming-only | 1.045 | 1.053 | 1.101 | 1.059 | +1.7% |
+| Fishing-only | 1.080 | 0.985 | 1.072 | 1.068 | +5.0% |
+| Grassland | 0.974 | 0.987 | 0.983 | 1.010 | -2.0% |
+
+**Conclusions.**
+- **Free route learning costs default and grassland worlds 2-3%, in both pairs.** That is about 1.5 standard errors
+  given the measured seed spread: real but modest, smaller than the single-run -4%.
+- **Free routes help the single-economy fixtures,** where one textile and shelter route is natural.
+- **The mechanism is not route churn.** The free-route policy picks the heuristic's route 98% of the time and
+  switches less often. It ends with fewer and smaller settlements: 10% fewer village-turns on default worlds, at
+  slightly higher QoL.
+- **Stage 3 with native routes adds value.** From stage-2 seed 2 (default 1.005) it reaches 1.037, and both pair-2
+  runs pass every gate.
+- **Recommendation:** keep routes native, or anchored, in mixed and default worlds. Route learning belongs with
+  capital commitments (`ElderCapitalCommitmentsDesign.md`), where a route is a held decision.
+
 Checkpoints are in `gs://anthropocene-rl-datasets-508912/model9/ppo-pilot/`; evidence is in `evidence/model9-pilot/`.
 
 ## Summary (pre-pilot M7)
