@@ -32,14 +32,18 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
 
 
 def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]],
-                   movement: bool = False) -> dict[int, dict[str, Any]]:
-    """Deterministic actions; movement stays native unless ``movement`` (curriculum stage 4)."""
+                   movement: bool = False, mixes: dict[int, np.ndarray] | None = None) -> dict[int, dict[str, Any]]:
+    """Deterministic actions; movement stays native unless ``movement`` (curriculum stage 4). ``mixes`` receives each
+    village's economy mix."""
     live = [v for v in villages if v.get("observation") is not None and not v.get("terminated")]
     if not live:
         return {}
     with torch.no_grad():
         mode = act_deterministic(actor(to_tensors(observation_batch(live), normalizer)))
     actions = {}
+    if mixes is not None:
+        for i, v in enumerate(live):
+            mixes[int(v["camp"])] = np.asarray(mode["mix"][i], dtype=np.float64)
     for i, v in enumerate(live):
         actions[int(v["camp"])] = {
             "strategic": mode["strategic"][i].tolist(), "service": mode["service"][i].tolist(),
@@ -55,10 +59,16 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     if checkpoint is not None:
         actor, normalizer = load(Path(checkpoint))
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
+    previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(turns):
-            actions = policy_actions(actor, normalizer, step["villages"], movement) if actor is not None else {}
+            mixes: dict[int, np.ndarray] = {}
+            actions = policy_actions(actor, normalizer, step["villages"], movement, mixes) if actor is not None else {}
+            for camp, mix in mixes.items():
+                if camp in previous:
+                    changes.append(0.5 * float(np.abs(mix - previous[camp]).sum()))
+                previous[camp] = mix
             decisions += len(actions)
             step = bridge.step(actions)
             for v in step["villages"]:
@@ -84,6 +94,9 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         "extinctions": sum(1 for v in step["villages"] if v["terminated"]),
         "below_30": sum(1 for v in final if v["population"] < 30),
         "interventions_per_decision": interventions / max(1, decisions), "replay_steps": replay,
+        # Turn-to-turn total-variation change of each village's economy mix, and the share of abrupt switches.
+        "mix_change": float(np.mean(changes)) if changes else 0.0,
+        "mix_switches": float(np.mean([c > 0.5 for c in changes])) if changes else 0.0,
     }
 
 

@@ -177,7 +177,7 @@ class Rollout:
     obs: list[dict[str, np.ndarray]] = field(default_factory=list)
     draws: list[dict[str, torch.Tensor]] = field(default_factory=list)
     logp: list[np.ndarray] = field(default_factory=list)
-    outcome: dict[str, list] = field(default_factory=lambda: {k: [] for k in data.OUTCOME_KEYS + ["world", "cost", "bootstrap_index"]})
+    outcome: dict[str, list] = field(default_factory=lambda: {k: [] for k in data.OUTCOME_KEYS + ["world", "seed", "mask", "cost", "bootstrap_index"]})
     bootstrap_obs: list[dict[str, np.ndarray]] = field(default_factory=list)
 
 
@@ -237,7 +237,10 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                             continue
                         kept.append(k)
                         o = roll.outcome
-                        o["world"].append(seeds[w]); o["camp"].append(v["camp"]); o["turn"].append(turn_before[w])
+                        # "world" is this iteration's world index: a seed drawn twice (say as a default world and a
+                        # fixture) must not merge sequences.
+                        o["world"].append(w); o["seed"].append(seeds[w]); o["mask"].append(worlds[w][1])
+                        o["camp"].append(v["camp"]); o["turn"].append(turn_before[w])
                         o["society"].append(v["society"]); o["parent_society"].append(v["parentSociety"])
                         o["prior_population"].append(v["priorPopulation"]); o["population"].append(v["population"])
                         o["qol"].append(v["qol"]); o["nutrition"].append(v["nutrition"]); o["years"].append(v["years"])
@@ -253,7 +256,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                     if v.get("observation") is not None and not v.get("terminated")]
             if tail:
                 roll.bootstrap_obs.append(village_batch([v for _, v in tail]))
-                index = {(seeds[w], int(v["camp"])): i for i, (w, v) in enumerate(tail)}
+                index = {(w, int(v["camp"])): i for i, (w, v) in enumerate(tail)}
                 o = roll.outcome
                 last: dict[tuple[int, int], int] = {}
                 for row, key in enumerate(zip(o["world"], o["camp"])):
@@ -334,16 +337,21 @@ class Hyper:
     lagrange_lr: float = 0.5
     target_kl: float = 0.03        # early stop on approximate KL to the behaviour policy
     log_std_floor: float = -2.0    # exploration floor on logit-space scales (std 0.135)
+    balance_regimes: bool = True   # standardize advantages per world regime and give each regime equal weight
+    regime_weight_cap: float = 4.0 # per-decision regime weights are clipped to [1 / cap, cap]
+    mix_change_cost: float = 0.02  # reward cost per unit of turn-to-turn total-variation change in the economy mix,
+                                   # as a share of the village's welfare that turn (a slight switching penalty)
 
 
 def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
            batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor], old_logp: np.ndarray,
            advantage: np.ndarray, target_u: np.ndarray, cost_adv: np.ndarray, cost_target: np.ndarray,
-           lagrange: float, stage: Stage, hyper: Hyper, optimizers: tuple, rng: np.random.Generator) -> dict[str, float]:
+           lagrange: float, stage: Stage, hyper: Hyper, optimizers: tuple, rng: np.random.Generator,
+           regimes: np.ndarray | None = None) -> dict[str, float]:
     actor_opt, critic_opt, cost_opt = optimizers
     n = len(advantage)
     combined = advantage / max(1e-8, advantage.std()) - lagrange * cost_adv / max(1e-8, cost_adv.std() + 1e-8)
-    combined = (combined - combined.mean()) / max(1e-8, combined.std())
+    combined, weight = balance(combined, regimes if hyper.balance_regimes else None, hyper.regime_weight_cap)
     stats: dict[str, float] = {}
     for epoch in range(hyper.epochs):
         approx = []
@@ -357,7 +365,8 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             old = torch.as_tensor(old_logp[index], dtype=torch.float32)
             ratio = torch.exp(lp - old)
             adv = torch.as_tensor(combined[index], dtype=torch.float32)
-            policy = -torch.min(ratio * adv, ratio.clamp(1 - hyper.clip, 1 + hyper.clip) * adv).mean()
+            w = torch.as_tensor(weight[index], dtype=torch.float32)
+            policy = -(w * torch.min(ratio * adv, ratio.clamp(1 - hyper.clip, 1 + hyper.clip) * adv)).sum() / w.sum()
             with torch.no_grad():
                 anchor = explore(teacher(t), hyper.log_std_floor)
             kl = teacher_kl(out, anchor, stage.anchor_strategic).mean()
@@ -381,10 +390,14 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
 
 def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
               seeds: list[int], turns: int, stage: Stage, hyper: Hyper, optimizers: tuple, lagrange: float,
-              generator: torch.Generator, rng: np.random.Generator) -> tuple[float, dict[str, float]]:
+              generator: torch.Generator, rng: np.random.Generator,
+              grassland: frozenset = frozenset()) -> tuple[float, dict[str, float]]:
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor)
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
+    change = mix_changes(batch, draws)
+    reward = reward - hyper.mix_change_cost * change * np.maximum(0.0, batch["welfare"].astype(np.float64))
+    regimes = np.asarray([regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])])
     value = values(critic, batch, normalizer)
     bootstrap = np.zeros(len(reward))
     if roll.bootstrap_obs:
@@ -398,12 +411,55 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
-                   data.scale_free(target, batch), cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng)
+                   data.scale_free(target, batch), cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng,
+                   regimes)
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
-                  "mean_cost": mean_cost, "lagrange": lagrange, "mean_qol": float(batch["qol"].mean())})
+                  "mean_cost": mean_cost, "lagrange": lagrange, "mean_qol": float(batch["qol"].mean()),
+                  "mix_change": float(change.mean()),
+                  "regime_decisions": {r: int((regimes == r).sum()) for r in REGIMES if (regimes == r).any()}})
     return lagrange, stats
+
+
+REGIMES = ("default", "grassland", "herding", "farming", "fishing")
+
+
+def regime(seed: int, mask: int, grassland: frozenset) -> str:
+    """The world regime of a decision: a capability fixture by its withheld mask, else a grassland-rich opening or an
+    ordinary world. These are the stage-gate categories."""
+    for name, m in contracts.CAPABILITY_MASKS.items():
+        if mask == m:
+            return name
+    return "grassland" if seed in grassland else "default"
+
+
+def balance(combined: np.ndarray, regimes: np.ndarray | None, cap: float) -> tuple[np.ndarray, np.ndarray]:
+    """Per-regime advantage balancing: standardize within each regime and weight every present regime equally (each
+    decision's weight n / (K n_r), clipped to [1 / cap, cap] and renormalized to mean 1). Without regimes, the
+    previous global standardization with unit weights."""
+    if regimes is None or len(set(regimes.tolist())) <= 1:
+        out = (combined - combined.mean()) / max(1e-8, combined.std())
+        return out, np.ones(len(combined))
+    out = np.empty_like(combined); weight = np.empty(len(combined))
+    names = sorted(set(regimes.tolist())); n = len(combined)
+    for r in names:
+        rows = regimes == r
+        x = combined[rows]
+        out[rows] = (x - x.mean()) / max(1e-8, x.std()) if rows.sum() > 1 else 0.0
+        weight[rows] = np.clip(n / (len(names) * rows.sum()), 1.0 / cap, cap)
+    return out, weight / weight.mean()
+
+
+def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) -> np.ndarray:
+    """Total-variation distance between each decision's sampled economy mix and the same village's previous one
+    (0 at a village's first decision)."""
+    mix = mix_from_ratios(draws["mix_z"], torch.as_tensor(batch["economy_mix_mask"], dtype=torch.bool)).numpy()
+    change = np.zeros(len(mix))
+    for rows in data.sequences(batch):
+        for a, b in zip(rows[:-1], rows[1:]):
+            change[b] = 0.5 * float(np.abs(mix[b] - mix[a]).sum())
+    return change
 
 
 def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator):
@@ -443,7 +499,9 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
             "below_30": float(np.mean([r["below_30"] for r in rows])), "extinctions": float(sum(r["extinctions"] for r in rows)),
             "settlements": float(np.mean([r["settlements"] for r in rows])),
-            "interventions_per_decision": float(np.mean([r["interventions_per_decision"] for r in rows]))}
+            "interventions_per_decision": float(np.mean([r["interventions_per_decision"] for r in rows])),
+            "mix_change": float(np.mean([r.get("mix_change", 0.0) for r in rows])),
+            "mix_switches": float(np.mean([r.get("mix_switches", 0.0) for r in rows]))}
 
 
 def main() -> int:
@@ -457,7 +515,10 @@ def main() -> int:
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--iterations", type=int, default=1)
     parser.add_argument("--eval-every", type=int, default=0)
-    parser.add_argument("--eval-seeds", default="2000-2005", help="DEVELOPMENT seeds for periodic evaluation")
+    parser.add_argument("--eval-seeds", default="2020-2025",
+                        help="DEVELOPMENT selection seeds for periodic evaluation (disjoint from the stage gate's 2000-2019)")
+    parser.add_argument("--no-balance", action="store_true", help="global advantage standardization (pre-pilot)")
+    parser.add_argument("--mix-change-cost", type=float, default=None)
     parser.add_argument("--eval-turns", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
@@ -486,6 +547,10 @@ def main() -> int:
         hyper.cost_budget = args.cost_budget
     if args.log_std_floor is not None:
         hyper.log_std_floor = args.log_std_floor
+    if args.no_balance:
+        hyper.balance_regimes = False
+    if args.mix_change_cost is not None:
+        hyper.mix_change_cost = args.mix_change_cost
     optimizers = (torch.optim.Adam(actor.parameters(), lr=hyper.lr), torch.optim.Adam(critic.parameters(), lr=hyper.critic_lr),
                   torch.optim.Adam(cost_critic.parameters(), lr=hyper.critic_lr))
     a, b = (int(x) for x in args.seeds.split("-"))
@@ -496,9 +561,11 @@ def main() -> int:
     stage = STAGES[args.stage]; lagrange = float(state.get("lagrange", 0.0))
     draw = world_sampler(stage, train, grassland, rng)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
+    # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric
+    # mean of the per-regime welfare ratios, so no regime can be traded away for the majority.
     eval_worlds = [(s, 0) for s in range(ea, eb + 1)]
-    if stage.name == "capability":
-        eval_worlds += [(s, m) for s in range(ea, min(eb, ea + 1) + 1) for m in contracts.CAPABILITY_MASKS.values()]
+    eval_worlds += [(s, m) for s in range(ea, min(eb, ea + 1) + 1) for m in contracts.CAPABILITY_MASKS.values()]
+    grassland_set = frozenset(int(x) for x in grassland)
     args.out.mkdir(parents=True, exist_ok=True)
     trajectory = args.out / "trajectory.jsonl"
     log: list = []
@@ -511,8 +578,20 @@ def main() -> int:
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
                     "lagrange": lagrange, "log": log}, path)
 
+    def evaluate(checkpoint: Path) -> dict:
+        groups: dict[str, list] = {}
+        for seed, mask in eval_worlds:
+            groups.setdefault(regime(seed, mask, frozenset()), []).append((seed, mask))
+        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.movement)
+                  for name, worlds in groups.items()}
+        total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
+        total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))
+        total["qol"] = float(sum(r["qol"] * r["population"] for r in result.values()) / max(1.0, total["population"]))
+        total["regimes"] = result
+        return total
+
     if args.eval_every > 0:
-        baseline = evaluate_closed_loop(args.init, eval_worlds, args.eval_turns, movement=stage.movement)
+        baseline = evaluate(args.init)
         with trajectory.open("a") as f:
             f.write(json.dumps({"baseline": baseline, "eval_worlds": eval_worlds}) + "\n")
         print(json.dumps({"baseline": baseline}), flush=True)
@@ -520,15 +599,18 @@ def main() -> int:
         clock = time.time()
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
-                                    optimizers, lagrange, generator, rng)
+                                    optimizers, lagrange, generator, rng, grassland_set)
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         save(args.out / "latest.pt")
         if args.eval_every > 0 and (it + 1) % args.eval_every == 0:
-            ev = evaluate_closed_loop(args.out / "latest.pt", eval_worlds, args.eval_turns, movement=stage.movement)
+            ev = evaluate(args.out / "latest.pt")
             ev["welfare_ratio_vs_init"] = ev["welfare"] / max(1e-9, baseline["welfare"])
+            ratios = {name: r["welfare"] / max(1e-9, baseline["regimes"][name]["welfare"]) for name, r in ev["regimes"].items()}
+            ev["regime_ratios"] = ratios
+            ev["selection_score"] = float(np.exp(np.mean(np.log(np.maximum(1e-9, list(ratios.values()))))))
             stats["eval"] = ev
-            if ev["welfare"] > best and ev["extinctions"] <= baseline["extinctions"]:
-                best = ev["welfare"]; save(args.out / "best.pt")
+            if ev["selection_score"] > best and ev["extinctions"] <= baseline["extinctions"]:
+                best = ev["selection_score"]; save(args.out / "best.pt")
         log.append(stats)
         with trajectory.open("a") as f:
             f.write(json.dumps(stats) + "\n")

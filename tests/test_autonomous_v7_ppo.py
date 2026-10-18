@@ -64,3 +64,35 @@ def test_gae_matches_a_hand_computation() -> None:
     d0 = 10 + gamma * 110 - 100
     assert adv[1] == pytest.approx(d1) and adv[0] == pytest.approx(d0 + gamma * 0.5 * d1)
     assert np.allclose(target, adv + value)
+
+
+def test_regime_balance_gives_each_regime_equal_weight() -> None:
+    rng = np.random.default_rng(0)
+    regimes = np.array(["default"] * 90 + ["fishing"] * 10)
+    combined = np.concatenate([rng.normal(5, 2, 90), rng.normal(-3, 1, 10)])
+    out, weight = ppo.balance(combined, regimes, cap=20.0)
+    for r in ("default", "fishing"):
+        rows = regimes == r
+        assert abs(out[rows].mean()) < 1e-9 and abs(out[rows].std() - 1) < 1e-9
+    assert np.isclose(weight[regimes == "default"].sum(), weight[regimes == "fishing"].sum())
+    assert np.isclose(weight.mean(), 1.0)
+    capped = ppo.balance(combined, regimes, cap=4.0)[1]
+    assert capped[regimes == "fishing"][0] / capped[regimes == "default"][0] <= 16 + 1e-9
+    plain, unit = ppo.balance(combined, None, cap=4.0)
+    assert np.allclose(unit, 1) and abs(plain.mean()) < 1e-9
+
+
+def test_regimes_follow_the_gate_categories() -> None:
+    grass = frozenset({4005})
+    assert ppo.regime(1000, 0, grass) == "default" and ppo.regime(4005, 0, grass) == "grassland"
+    for name, mask in contracts.CAPABILITY_MASKS.items():
+        assert ppo.regime(1000, mask, grass) == name
+
+
+def test_mix_change_is_total_variation_within_a_village() -> None:
+    batch_ = {"world": np.array([0, 0, 0, 1]), "camp": np.array([5, 5, 5, 5]), "turn": np.array([0, 1, 2, 0]),
+              "economy_mix_mask": np.ones((4, 3), bool)}
+    z = torch.tensor([[0.0, 0.0, -50.0], [0.0, 0.0, -50.0], [50.0, 0.0, 0.0], [0.0, 50.0, 0.0]])
+    change = ppo.mix_changes(batch_, {"mix_z": z})
+    assert change[0] == 0 and change[3] == 0 and abs(change[1]) < 1e-6
+    assert abs(change[2] - 0.5) < 1e-4

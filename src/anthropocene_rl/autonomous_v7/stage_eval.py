@@ -27,6 +27,8 @@ def main() -> int:
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
+    parser.add_argument("--regime-tolerance", type=float, default=0.03,
+                        help="a candidate fails if any regime's welfare falls more than this share below the init")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     a, b = (int(x) for x in args.default_seeds.split("-")); fa, fb = (int(x) for x in args.fixture_seeds.split("-"))
@@ -53,6 +55,22 @@ def main() -> int:
                                     "vs_teacher": round(v["ratio_vs_teacher"], 4), "qol": round(v["qol"], 3),
                                     "below_30": v["below_30"], "extinctions": v["extinctions"]}
                                     for k, v in row["candidates"].items()}}}), flush=True)
+    # Gate: default welfare at least the init's, no regime more than the tolerance below the init, and no more
+    # extinctions than the init in any regime.
+    gate = {}
+    for candidate in args.candidates.split(","):
+        failures = []
+        for name, row in report.items():
+            ev = row["candidates"][candidate]
+            floor = 1.0 if name == "default" else 1.0 - args.regime_tolerance
+            if ev["ratio_vs_init"] < floor:
+                failures.append(f"{name} {ev['ratio_vs_init']:.3f} < {floor:.2f}")
+            if ev["extinctions"] > row["init"]["extinctions"]:
+                failures.append(f"{name} extinctions {ev['extinctions']:.0f} > {row['init']['extinctions']:.0f}")
+        gate[candidate] = {"pass": not failures, "failures": failures}
+        print(json.dumps({"gate": Path(candidate).parent.name + "/" + Path(candidate).stem, "pass": not failures,
+                          "failures": failures}), flush=True)
+    report["gate"] = gate
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2))
     return 0
