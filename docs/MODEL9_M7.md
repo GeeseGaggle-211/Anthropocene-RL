@@ -150,6 +150,28 @@ expert adapters and the same world draws:
 - **Recommendation:** keep routes native, or anchored, in mixed and default worlds. Route learning belongs with
   capital commitments (`ElderCapitalCommitmentsDesign.md`), where a route is a held decision.
 
+### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
+
+`--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
+one camp's food by (1 + epsilon) in copy B. On DEVELOPMENT 2000-2005 over 25 turns, with epsilon 0.001 and 0.05:
+- **11 of 12 runs end identical** in population, settlements, fissions and migrations. The perturbed food persists
+  in state (the fingerprints differ) but changes no decision.
+- **The exception** (seed 2002, 5%) ends 1.0% lower in population, with the same settlement, fission and migration
+  counts.
+
+So the world absorbs small continuous perturbations; it is not chaotic in the butterfly sense. The large per-seed
+spread of rule A/B tests (sigma about 9% on main) is a heterogeneous treatment effect: a rule acting on every camp
+every turn changes discrete decisions (fission timing, destinations, site choice) differently in each world. The
+spread between PPO seeds comes from training stochasticity, not from the environment.
+
+Still to test: discrete perturbations (one decision flipped, one extra resident, one fission delayed), whose
+cascades may differ.
+
+Practical consequences:
+- **Simulator A/B:** judge on 20 or more paired worlds (`--model9-ab`), not 6.
+- **Learner:** compare candidates on shared openings and report mean ± SE per regime; the per-world variance is
+  structural, not noise.
+
 Checkpoints are in `gs://anthropocene-rl-datasets-508912/model9/ppo-pilot/`; evidence is in `evidence/model9-pilot/`.
 
 ## Summary (pre-pilot M7)
