@@ -4,7 +4,68 @@ Status: complete (18 October 2026). Contract 8: simulator `feature/elder-model9-
 `configs/simulator/elder-model9-native8.json`, learner `autonomous_v7`. Checkpoints and trajectories are in
 `gs://anthropocene-rl-datasets-508912/model9/ppo-m7/`.
 
-## Summary
+## Pilot rebuild (18 October 2026)
+
+The pilot applied the changes agreed after M7 and reran stages 2-3 locally.
+
+**Simulator** (`feature/elder-model9-native` 4ba0de1, 3a5db2e; `Docs/HerdLabour.md`):
+- **Animal textile need.** Portable-shelter herding camps pay tent fabric ahead of the reserve, herd growth for that
+  need is granted before Recovery, and herding daughters keep an animal. Herding-only fixture QoL rose from
+  0.13-0.15 to 0.32-0.44, with no regression on default worlds.
+- **Herd transition limit.** A non-distress cull is capped at half the herd per turn. With the heuristic, culls of
+  at least half a herd fell from 70 to 38 per 32 worlds; 58 of the 70 had coincided with taking up farming, and
+  none of either set reached zero.
+- **Data.** Teacher data was regenerated as `teacher-v5`: 374k TRAIN decisions, with teacher welfare up 8.6%.
+  Stage 1 passes on seeds 0 and 2 (`MODEL9_STAGE1.md`), and M7 starts from seed 2.
+
+**Learner** (46310e9, 3fdf818):
+- **(a)** Advantages are standardized per world regime, and each regime gets equal weight (decision weights capped
+  at 4x).
+- **(b)** Optional capability-conditioned expert adapters (`--experts`): one zero-initialized residual adapter per
+  economy, averaged over the economies a village can practise.
+- **(c)** `stage_eval` fails a candidate whose default welfare is below the init, any regime more than 3% below it,
+  or with more extinctions. `best.pt` maximizes the geometric mean of per-regime ratios on separate selection seeds
+  (2020-2025), which removes the winner's curse.
+- A switching cost of 0.02 x total-variation mix change x welfare.
+
+**Runs.**
+- Stage 2: 50 iterations from stage 1 seed 2.
+- Stage 3: 40 iterations from stage-2 best, twice with the same world draws, with shared heads (a) and with expert
+  adapters (a+b).
+
+Gate (welfare against the stage-1 init; DEVELOPMENT 2000-2019 default, fixtures 2000-2009, held-out grassland 10):
+
+| Regime | Stage 2 best | Stage 3 (a) | Stage 3 (a+b) | Pre-pilot stage 2 | Pre-pilot stage 3b |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default (20) | **1.036** | 0.980 | 0.995 | 1.037 | 1.057 |
+| Herding-only (10) | 0.996 | 0.992 | 1.021 | 1.040 | 0.986 |
+| Farming-only (10) | 1.076 | 1.013 | 1.045 | 1.092 | 1.173 |
+| Fishing-only (10) | **1.045** | 1.054 | 1.080 | 0.938 | 0.860 |
+| Held-out grassland (10) | **1.018** | 0.978 | 0.974 | 0.956 | 0.961 |
+| Gate | **PASS** | fail (default) | fail (default, by 0.5%) | - | - |
+
+Against the teacher, stage-2 best scores:
+- default 1.036, herding 1.016, farming 1.042, fishing 1.213 and grassland 1.069;
+- QoL 0.83 on default worlds and 0.41 on herding-only worlds (0.14 before the simulator fix);
+- no extinctions in any regime.
+
+**Findings.**
+1. **Balancing and regime selection stop the minority-regime erosion.** Fishing moved from -6% to +4.5% and
+   grassland from -4% to +1.8%, while default worlds held at +3.6%.
+2. **Expert adapters help modestly where the regimes differ.** With the same world draws, (a+b) beat (a) in stage 3
+   on default (+1.5%), herding (+2.9%), farming (+3.2%) and fishing (+2.4%), and roughly tied on grassland. That is
+   one seed, against evaluation noise of about ±3%, so it is suggestive, not established.
+3. **Stage 3 still loses welfare.** In both variants it fell below its stage-2 start on default worlds. Its two
+   additions are unanchored clothing and shelter routes, and grassland and fixture rehearsal; the pre-pilot 3b run
+   recovered only at its last evaluation. The next run should isolate which addition causes the loss: native
+   routes or a route anchor. It should not be tuned further blind.
+4. **The switching cost is too slight to matter.** The deterministic policies' mix change per turn is the cloned
+   heuristic's (0.079 on default worlds, 6% abrupt switches). Herd liquidation is governed by the simulator's cull
+   cap.
+
+Checkpoints are in `gs://anthropocene-rl-datasets-508912/model9/ppo-pilot/`; evidence is in `evidence/model9-pilot/`.
+
+## Summary (pre-pilot M7)
 
 | Stage | Iterations | Gate on default DEVELOPMENT worlds | Notes |
 | --- | ---: | --- | --- |

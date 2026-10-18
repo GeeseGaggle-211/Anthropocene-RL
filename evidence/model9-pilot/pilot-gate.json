@@ -1,0 +1,350 @@
+{
+  "default": {
+    "teacher": {
+      "welfare": 69332006.51585838,
+      "population": 363676.0,
+      "qol": 0.8077003011268756,
+      "below_30": 0.0,
+      "extinctions": 0.0,
+      "settlements": 35.9,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 69310464.19821793,
+      "population": 314935.0,
+      "qol": 0.8614449781764694,
+      "below_30": 0.3,
+      "extinctions": 0.0,
+      "settlements": 40.45,
+      "interventions_per_decision": 2.278036829404748,
+      "mix_change": 0.07948007518282495,
+      "mix_switches": 0.06042112226890278,
+      "ratio_vs_teacher": 0.9996892875495313
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage2\\best.pt": {
+        "welfare": 71810166.16005927,
+        "population": 361310.0,
+        "qol": 0.8280394228772654,
+        "below_30": 0.15,
+        "extinctions": 0.0,
+        "settlements": 40.25,
+        "interventions_per_decision": 2.379784754817089,
+        "mix_change": 0.07912007006987676,
+        "mix_switches": 0.06013298941562843,
+        "ratio_vs_init": 1.0360652895743498,
+        "ratio_vs_teacher": 1.0357433711893806
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3\\best.pt": {
+        "welfare": 67887069.56136777,
+        "population": 326667.0,
+        "qol": 0.8341327582690932,
+        "below_30": 0.15,
+        "extinctions": 0.0,
+        "settlements": 36.05,
+        "interventions_per_decision": 2.263712453951779,
+        "mix_change": 0.08375593526674249,
+        "mix_switches": 0.06081101126673953,
+        "ratio_vs_init": 0.9794634958326139,
+        "ratio_vs_teacher": 0.9791591643296792
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3x\\best.pt": {
+        "welfare": 68960409.68818298,
+        "population": 344281.0,
+        "qol": 0.8249888526728806,
+        "below_30": 0.2,
+        "extinctions": 0.0,
+        "settlements": 38.15,
+        "interventions_per_decision": 2.3218047600272405,
+        "mix_change": 0.07920780345214795,
+        "mix_switches": 0.057577190489065164,
+        "ratio_vs_init": 0.9949494709913665,
+        "ratio_vs_teacher": 0.9946403278031423
+      }
+    }
+  },
+  "herding": {
+    "teacher": {
+      "welfare": 12414980.525919043,
+      "population": 157211.0,
+      "qol": 0.39483757696880195,
+      "below_30": 0.3,
+      "extinctions": 0.0,
+      "settlements": 77.0,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 12656930.230035206,
+      "population": 154922.0,
+      "qol": 0.4155619678885461,
+      "below_30": 1.0,
+      "extinctions": 0.0,
+      "settlements": 77.5,
+      "interventions_per_decision": 3.7736633773295787,
+      "mix_change": 0.00859278205727594,
+      "mix_switches": 0.005429255863655294,
+      "ratio_vs_teacher": 1.019488528686053
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage2\\best.pt": {
+        "welfare": 12611362.234927151,
+        "population": 152346.0,
+        "qol": 0.4087870044918624,
+        "below_30": 1.3,
+        "extinctions": 0.0,
+        "settlements": 74.9,
+        "interventions_per_decision": 3.787426820874168,
+        "mix_change": 0.006827501800087704,
+        "mix_switches": 0.0037334336004514065,
+        "ratio_vs_init": 0.9963997593192131,
+        "ratio_vs_teacher": 1.015818124611482
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3\\best.pt": {
+        "welfare": 12558724.124479124,
+        "population": 155269.0,
+        "qol": 0.4089317431238243,
+        "below_30": 0.8,
+        "extinctions": 0.0,
+        "settlements": 76.8,
+        "interventions_per_decision": 3.7811811981584165,
+        "mix_change": 0.007774262647928952,
+        "mix_switches": 0.004207465438266438,
+        "ratio_vs_init": 0.9922409222638332,
+        "ratio_vs_teacher": 1.0115782379408478
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3x\\best.pt": {
+        "welfare": 12920968.856260983,
+        "population": 156140.0,
+        "qol": 0.4223451909650768,
+        "below_30": 0.6,
+        "extinctions": 0.0,
+        "settlements": 77.1,
+        "interventions_per_decision": 3.806418851036638,
+        "mix_change": 0.00802337415135224,
+        "mix_switches": 0.0044774552252852835,
+        "ratio_vs_init": 1.0208611899905402,
+        "ratio_vs_teacher": 1.0407562725761492
+      }
+    }
+  },
+  "farming": {
+    "teacher": {
+      "welfare": 35716448.71009639,
+      "population": 173580.0,
+      "qol": 0.8045867348780625,
+      "below_30": 0.0,
+      "extinctions": 0.0,
+      "settlements": 32.9,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 34598204.3427936,
+      "population": 143732.0,
+      "qol": 0.8681665515777183,
+      "below_30": 0.2,
+      "extinctions": 0.0,
+      "settlements": 36.2,
+      "interventions_per_decision": 2.1818578476279953,
+      "mix_change": 0.0,
+      "mix_switches": 0.0,
+      "ratio_vs_teacher": 0.9686910539068605
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage2\\best.pt": {
+        "welfare": 37212551.44897728,
+        "population": 178524.0,
+        "qol": 0.8300878310123986,
+        "below_30": 0.4,
+        "extinctions": 0.0,
+        "settlements": 39.3,
+        "interventions_per_decision": 2.3322371778824182,
+        "mix_change": 0.0,
+        "mix_switches": 0.0,
+        "ratio_vs_init": 1.0755630864619774,
+        "ratio_vs_teacher": 1.0418883397681686
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3\\best.pt": {
+        "welfare": 35044574.67330452,
+        "population": 161806.0,
+        "qol": 0.8344829838105022,
+        "below_30": 0.3,
+        "extinctions": 0.0,
+        "settlements": 37.4,
+        "interventions_per_decision": 2.287254011834071,
+        "mix_change": 0.0,
+        "mix_switches": 0.0,
+        "ratio_vs_init": 1.012901546163736,
+        "ratio_vs_teacher": 0.9811886662572379
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3x\\best.pt": {
+        "welfare": 36148569.226938926,
+        "population": 172803.0,
+        "qol": 0.8273477171253377,
+        "below_30": 0.2,
+        "extinctions": 0.0,
+        "settlements": 37.7,
+        "interventions_per_decision": 2.31389714304496,
+        "mix_change": 0.0,
+        "mix_switches": 0.0,
+        "ratio_vs_init": 1.0448105592066153,
+        "ratio_vs_teacher": 1.0120986417308724
+      }
+    }
+  },
+  "fishing": {
+    "teacher": {
+      "welfare": 10423676.599714706,
+      "population": 63808.0,
+      "qol": 0.7275180462723828,
+      "below_30": 1.6,
+      "extinctions": 1.0,
+      "settlements": 33.8,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 12096624.26944402,
+      "population": 84547.0,
+      "qol": 0.7507423224396066,
+      "below_30": 1.3,
+      "extinctions": 0.0,
+      "settlements": 39.6,
+      "interventions_per_decision": 3.289421600123757,
+      "mix_change": 0.12401555333828344,
+      "mix_switches": 0.10497603892951626,
+      "ratio_vs_teacher": 1.1604949706301424
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage2\\best.pt": {
+        "welfare": 12639698.524941701,
+        "population": 79270.0,
+        "qol": 0.7370485847789068,
+        "below_30": 1.2,
+        "extinctions": 0.0,
+        "settlements": 40.0,
+        "interventions_per_decision": 3.422541092659658,
+        "mix_change": 0.15134351862725495,
+        "mix_switches": 0.1299378680400401,
+        "ratio_vs_init": 1.0448946948670201,
+        "ratio_vs_teacher": 1.2125950382312942
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3\\best.pt": {
+        "welfare": 12752734.111473145,
+        "population": 82199.0,
+        "qol": 0.7346999641809271,
+        "below_30": 1.6,
+        "extinctions": 0.0,
+        "settlements": 38.9,
+        "interventions_per_decision": 3.361205002392589,
+        "mix_change": 0.15663684950232834,
+        "mix_switches": 0.1394829133462488,
+        "ratio_vs_init": 1.0542390858321071,
+        "ratio_vs_teacher": 1.2234391569498795
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3x\\best.pt": {
+        "welfare": 13060433.257522644,
+        "population": 82688.0,
+        "qol": 0.7396371059558149,
+        "below_30": 1.1,
+        "extinctions": 0.0,
+        "settlements": 40.3,
+        "interventions_per_decision": 3.3873106605114174,
+        "mix_change": 0.14513892933592057,
+        "mix_switches": 0.12837160491748306,
+        "ratio_vs_init": 1.079675863828655,
+        "ratio_vs_teacher": 1.2529584098839086
+      }
+    }
+  },
+  "grassland": {
+    "teacher": {
+      "welfare": 44724046.83085978,
+      "population": 218422.0,
+      "qol": 0.8038857131066157,
+      "below_30": 0.2,
+      "extinctions": 0.0,
+      "settlements": 40.0,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 47002632.48525752,
+      "population": 207351.0,
+      "qol": 0.8618178019508895,
+      "below_30": 0.3,
+      "extinctions": 0.0,
+      "settlements": 49.0,
+      "interventions_per_decision": 2.3527182322545666,
+      "mix_change": 0.09862476082965901,
+      "mix_switches": 0.07815195398128083,
+      "ratio_vs_teacher": 1.0509476627420375
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage2\\best.pt": {
+        "welfare": 47823454.12207082,
+        "population": 230446.0,
+        "qol": 0.8241352204442927,
+        "below_30": 0.4,
+        "extinctions": 0.0,
+        "settlements": 48.0,
+        "interventions_per_decision": 2.383241385362087,
+        "mix_change": 0.09767144235518306,
+        "mix_switches": 0.0712349961720108,
+        "ratio_vs_init": 1.0174633120191885,
+        "ratio_vs_teacher": 1.0693006896923387
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3\\best.pt": {
+        "welfare": 45957756.89948476,
+        "population": 214021.0,
+        "qol": 0.8335225118715834,
+        "below_30": 0.4,
+        "extinctions": 0.0,
+        "settlements": 44.9,
+        "interventions_per_decision": 2.2721883898462822,
+        "mix_change": 0.09925696875545939,
+        "mix_switches": 0.07116045771007858,
+        "ratio_vs_init": 0.9777698496759626,
+        "ratio_vs_teacher": 1.0275849382165863
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3x\\best.pt": {
+        "welfare": 45782278.527074814,
+        "population": 213950.0,
+        "qol": 0.8241304961507141,
+        "below_30": 0.5,
+        "extinctions": 0.0,
+        "settlements": 43.1,
+        "interventions_per_decision": 2.335525848640703,
+        "mix_change": 0.09790679011498991,
+        "mix_switches": 0.07124099121997339,
+        "ratio_vs_init": 0.9740364763917112,
+        "ratio_vs_teacher": 1.0236613582893588
+      }
+    }
+  },
+  "gate": {
+    "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage2\\best.pt": {
+      "pass": true,
+      "failures": []
+    },
+    "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3\\best.pt": {
+      "pass": false,
+      "failures": [
+        "default 0.979 < 1.00"
+      ]
+    },
+    "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3x\\best.pt": {
+      "pass": false,
+      "failures": [
+        "default 0.995 < 1.00"
+      ]
+    }
+  }
+}
