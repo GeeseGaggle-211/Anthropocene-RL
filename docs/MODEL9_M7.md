@@ -53,7 +53,7 @@ Against the teacher, stage-2 best scores:
 1. **Balancing and regime selection stop the minority-regime erosion.** Fishing moved from -6% to +4.5% and
    grassland from -4% to +1.8%, while default worlds held at +3.6%.
 2. **Expert adapters help modestly where the regimes differ.** With the same world draws, (a+b) beat (a) in stage 3
-   on default (+1.5%), herding (+2.9%), farming (+3.2%) and fishing (+2.4%), and roughly tied on grassland. That is
+   on default (+1.5%), herding (+2.9%), farming (+3.2%) and fishing (+2.5%), and roughly tied on grassland. That is
    one seed, against evaluation noise of about ±3%, so it is suggestive, not established.
 3. **Stage 3 still loses welfare.** In both variants it fell below its stage-2 start on default worlds. Its two
    additions are unanchored clothing and shelter routes, and grassland and fixture rehearsal; the pre-pilot 3b run
