@@ -26,6 +26,7 @@ def main() -> int:
     parser.add_argument("--grassland-seeds", type=Path, default=None, help="file of grassland seeds; uses the last 10")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     a, b = (int(x) for x in args.default_seeds.split("-")); fa, fb = (int(x) for x in args.fixture_seeds.split("-"))
@@ -38,10 +39,10 @@ def main() -> int:
     report = {}
     for name, worlds in categories.items():
         teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers)
-        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers)
+        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement)
         row = {"teacher": teacher, "init": init, "candidates": {}}
         for candidate in args.candidates.split(","):
-            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers)
+            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement)
             ev["ratio_vs_init"] = ev["welfare"] / max(1e-9, init["welfare"])
             ev["ratio_vs_teacher"] = ev["welfare"] / max(1e-9, teacher["welfare"])
             row["candidates"][candidate] = ev

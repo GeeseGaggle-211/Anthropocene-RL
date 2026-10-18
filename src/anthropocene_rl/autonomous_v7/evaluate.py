@@ -31,7 +31,9 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     return actor, Normalizer.from_state(state["normalizer"])
 
 
-def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
+def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]],
+                   movement: bool = False) -> dict[int, dict[str, Any]]:
+    """Deterministic actions; movement stays native unless ``movement`` (curriculum stage 4)."""
     live = [v for v in villages if v.get("observation") is not None and not v.get("terminated")]
     if not live:
         return {}
@@ -42,21 +44,21 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
         actions[int(v["camp"])] = {
             "strategic": mode["strategic"][i].tolist(), "service": mode["service"][i].tolist(),
             "clothingRoute": int(mode["clothing"][i]), "shelterRoute": int(mode["shelter"][i]),
-            "movement": contracts.NATIVE_MOVEMENT, "fission": -1,
+            "movement": int(mode["movement"][i]) if movement else contracts.NATIVE_MOVEMENT, "fission": -1,
         }
     return actions
 
 
-def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0) -> dict[str, Any]:
+def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False) -> dict[str, Any]:
     torch.set_num_threads(1)
     actor = normalizer = None
     if checkpoint is not None:
         actor, normalizer = load(Path(checkpoint))
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     with Model9Bridge() as bridge:
-        step = bridge.reset(seed, withheld=withheld)
+        step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(turns):
-            actions = policy_actions(actor, normalizer, step["villages"]) if actor is not None else {}
+            actions = policy_actions(actor, normalizer, step["villages"], movement) if actor is not None else {}
             decisions += len(actions)
             step = bridge.step(actions)
             for v in step["villages"]:

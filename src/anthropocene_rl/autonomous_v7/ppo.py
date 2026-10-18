@@ -47,15 +47,18 @@ class Stage:
     movement: bool          # the policy chooses movement (else native)
     routes: bool            # the policy chooses clothing/shelter routes (else native)
     description: str
-    anchor_strategic: bool = True   # teacher KL on retained field/herd and development levels (service levels always)
+    # Teacher KL on retained field/herd and development levels (service levels always). Freeing them in stage 3 drove the
+    # development budget up ~30% and closed-loop welfare down 12% within 20 iterations, so every stage keeps the
+    # anchor; the economy mix (posture) and routes stay unanchored.
+    anchor_strategic: bool = True
 
 
 STAGES = {
     "capability": Stage("capability", movement=False, routes=False,
                         description="stage 2: single-capability worlds; economy levels and mix, native routes and movement"),
-    "mixed": Stage("mixed", movement=False, routes=True, anchor_strategic=False,
+    "mixed": Stage("mixed", movement=False, routes=True, anchor_strategic=True,
                    description="stage 3: mixed-use worlds; routes and posture, no teacher anchor on either"),
-    "movement": Stage("movement", movement=True, routes=True, anchor_strategic=False,
+    "movement": Stage("movement", movement=True, routes=True, anchor_strategic=True,
                       description="stage 4: the policy moves settlements over value-ordered sites"),
 }
 
@@ -426,13 +429,15 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
     return draw
 
 
-def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6) -> dict[str, float]:
+def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
+                         movement: bool = False) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds."""
     from concurrent.futures import ProcessPoolExecutor
     from .evaluate import rollout
     with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
         rows = list(pool.map(rollout, [w for w, _ in worlds], [turns] * len(worlds),
-                             [None if checkpoint is None else str(checkpoint)] * len(worlds), [m for _, m in worlds]))
+                             [None if checkpoint is None else str(checkpoint)] * len(worlds), [m for _, m in worlds],
+                             [movement] * len(worlds)))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -507,7 +512,7 @@ def main() -> int:
                     "lagrange": lagrange, "log": log}, path)
 
     if args.eval_every > 0:
-        baseline = evaluate_closed_loop(args.init, eval_worlds, args.eval_turns)
+        baseline = evaluate_closed_loop(args.init, eval_worlds, args.eval_turns, movement=stage.movement)
         with trajectory.open("a") as f:
             f.write(json.dumps({"baseline": baseline, "eval_worlds": eval_worlds}) + "\n")
         print(json.dumps({"baseline": baseline}), flush=True)
@@ -519,7 +524,7 @@ def main() -> int:
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         save(args.out / "latest.pt")
         if args.eval_every > 0 and (it + 1) % args.eval_every == 0:
-            ev = evaluate_closed_loop(args.out / "latest.pt", eval_worlds, args.eval_turns)
+            ev = evaluate_closed_loop(args.out / "latest.pt", eval_worlds, args.eval_turns, movement=stage.movement)
             ev["welfare_ratio_vs_init"] = ev["welfare"] / max(1e-9, baseline["welfare"])
             stats["eval"] = ev
             if ev["welfare"] > best and ev["extinctions"] <= baseline["extinctions"]:
