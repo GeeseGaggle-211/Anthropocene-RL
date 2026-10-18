@@ -51,6 +51,8 @@ class Stage:
     # development budget up ~30% and closed-loop welfare down 12% within 20 iterations, so every stage keeps the
     # anchor; the economy mix (posture) and routes stay unanchored.
     anchor_strategic: bool = True
+    # Teacher KL on the clothing and shelter route categoricals (stage-3 regression isolation).
+    anchor_routes: bool = False
 
 
 STAGES = {
@@ -58,6 +60,12 @@ STAGES = {
                         description="stage 2: single-capability worlds; economy levels and mix, native routes and movement"),
     "mixed": Stage("mixed", movement=False, routes=True, anchor_strategic=True,
                    description="stage 3: mixed-use worlds; routes and posture, no teacher anchor on either"),
+    # Stage-3 regression isolation: the mixed-use curriculum with native routes (route heads untrained), and with
+    # learned routes anchored to the teacher.
+    "mixed-native-routes": Stage("mixed-native-routes", movement=False, routes=False,
+                                 description="stage 3 curriculum, native clothing/shelter routes"),
+    "mixed-anchored-routes": Stage("mixed-anchored-routes", movement=False, routes=True, anchor_routes=True,
+                                   description="stage 3 curriculum, learned routes with a teacher KL anchor"),
     "movement": Stage("movement", movement=True, routes=True, anchor_strategic=True,
                       description="stage 4: the policy moves settlements over value-ordered sites"),
 }
@@ -138,7 +146,8 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     return lp, entropy
 
 
-def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], strategic: bool = True) -> torch.Tensor:
+def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], strategic: bool = True,
+               routes: bool = False) -> torch.Tensor:
     """KL(policy || teacher) on the anchored heads: service levels, and (stage 2 only) the unit strategic controls.
     The economy mix and routes are never anchored; from stage 3 the retained field/herd levels are free too, so
     pastoral and mixed postures can depart from the field-leaning teacher."""
@@ -148,6 +157,10 @@ def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], s
     kl = gauss_kl(out["service_mean"], out["service_log_std"], teacher["service_mean"], teacher["service_log_std"]).sum(dim=1)
     if strategic:
         kl = kl + gauss_kl(out["strategic_mean"], out["strategic_log_std"], teacher["strategic_mean"], teacher["strategic_log_std"]).sum(dim=1)
+    if routes:
+        for head in ("clothing", "shelter"):
+            logp, logq = torch.log_softmax(out[head], dim=1), torch.log_softmax(teacher[head], dim=1)
+            kl = kl + (logp.exp() * (logp - logq)).sum(dim=1)
     return kl
 
 
@@ -369,7 +382,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             policy = -(w * torch.min(ratio * adv, ratio.clamp(1 - hyper.clip, 1 + hyper.clip) * adv)).sum() / w.sum()
             with torch.no_grad():
                 anchor = explore(teacher(t), hyper.log_std_floor)
-            kl = teacher_kl(out, anchor, stage.anchor_strategic).mean()
+            kl = teacher_kl(out, anchor, stage.anchor_strategic, stage.anchor_routes).mean()
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
             actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
             logits = critic(t)

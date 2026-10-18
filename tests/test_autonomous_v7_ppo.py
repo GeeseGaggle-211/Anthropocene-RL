@@ -118,3 +118,13 @@ def test_expert_adapters_warm_start_identically_and_isolate_regimes() -> None:
     assert grads[0] is None or grads[0].abs().sum() == 0
     assert grads[1] is None or grads[1].abs().sum() == 0
     assert grads[2] is not None and grads[2].abs().sum() > 0
+
+
+def test_route_anchor_vanishes_for_the_teacher_and_is_positive_otherwise() -> None:
+    actor, t = setup()
+    with torch.no_grad():
+        out = actor(t)
+        assert torch.allclose(ppo.teacher_kl(out, out, True, routes=True), torch.zeros(len(out["clothing"])), atol=1e-5)
+        shifted = dict(out); shifted["clothing"] = out["clothing"] + torch.tensor([3.0, 0.0])
+        assert (ppo.teacher_kl(shifted, out, True, routes=True) >= -1e-6).all()
+        assert ppo.teacher_kl(shifted, out, True, routes=True).sum() > ppo.teacher_kl(shifted, out, True).sum()
