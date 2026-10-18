@@ -1,5 +1,28 @@
 # model9 stage 1: behaviour cloning and critic pretraining (M6)
 
+## Pilot: animal textile need and herd transition limit (18 October 2026)
+
+The heuristic gained two simulator rules (simulator 4ba0de1 and 3a5db2e, pin
+`configs/simulator/elder-model9-native8b.json`):
+- portable-shelter herding camps pay tent fabric ahead of the reserve;
+- herd growth for that need is granted before Recovery;
+- herding daughters keep an animal;
+- a non-distress cull is capped at half the herd per turn.
+
+The contract is unchanged (8).
+
+The data was regenerated on the same banks: TRAIN 374,252 and DEVELOPMENT 37,344 decisions, in
+`gs://anthropocene-rl-datasets-508912/model9/teacher-v5/`. Teacher welfare per TRAIN world rose from 3.50 to 3.80
+million. Checkpoints are in `.../checkpoints/contract8-pilot/`.
+
+| Seed | Welfare ratio (total) | Median | Min | Critic EV | MSE / var | Bias / sigma |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0 | 0.959 | 1.004 | 0.656 | 0.718 | 0.282 | -1.85% |
+| 1 | 1.010 | 1.022 | 0.764 | 0.707 | 0.293 | -2.18% |
+| 2 | 1.000 | 0.988 | 0.658 | 0.717 | 0.284 | -1.93% |
+
+Seeds 0 and 2 pass. Seed 1 again misses the bias criterion, by 0.18 points. M7 starts from seed 2.
+
 ## Contract 8 on the fixed heuristic (herd fixes, 17 October 2026)
 
 The heuristic now has three herd fixes (simulator e7c4b61, main d4f949a):

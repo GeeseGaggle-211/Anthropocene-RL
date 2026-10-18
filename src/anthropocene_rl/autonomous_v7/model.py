@@ -149,14 +149,34 @@ class Encoder(nn.Module):
         return h, rows
 
 
+class EconomyExperts(nn.Module):
+    """Capability-conditioned expert adapters (M7 pilot, option b): one residual MLP per economy (cultivation,
+    herding, fishing). A village averages the adapters of the economies it can practise (its economy-mix mask), so a
+    fishing-only village's gradient reaches only the fishing adapter. The adapters' output layers start at zero: a
+    warm start from a shared-head checkpoint reproduces it exactly."""
+
+    def __init__(self, width: int, hidden: int = 64) -> None:
+        super().__init__()
+        self.adapters = nn.ModuleList(
+            nn.Sequential(nn.Linear(width, hidden), nn.SiLU(), nn.Linear(hidden, width))
+            for _ in contracts.ECONOMY_MIX)
+        for adapter in self.adapters:
+            nn.init.zeros_(adapter[2].weight); nn.init.zeros_(adapter[2].bias)
+
+    def forward(self, h: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        gate = mask.float() / mask.float().sum(dim=1, keepdim=True).clamp(min=1.0)
+        return h + sum(gate[:, e:e + 1] * adapter(h) for e, adapter in enumerate(self.adapters))
+
+
 class Actor(nn.Module):
     """Logistic-normal service levels and unit strategic controls, a masked softmax economy mix over cultivation,
     herding and fishing, masked categorical routes and fission policy, and a pointer over site rows for movement
-    (stay is slot 0)."""
+    (stay is slot 0). With ``experts`` the strategic, mix and service heads read capability-conditioned features."""
 
-    def __init__(self, core_width: int, width: int = 256) -> None:
+    def __init__(self, core_width: int, width: int = 256, experts: bool = False) -> None:
         super().__init__()
         self.encoder = Encoder(core_width, width)
+        self.experts = EconomyExperts(width) if experts else None
         self.strategic = nn.Linear(width, 2 * contracts.UNIT_STRATEGIC)
         self.mix = nn.Linear(width, 2 * len(contracts.ECONOMY_MIX))
         self.service = nn.Linear(width, 2 * len(contracts.SERVICES))
@@ -168,9 +188,10 @@ class Actor(nn.Module):
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
-        strategic = self.strategic(h).view(-1, contracts.UNIT_STRATEGIC, 2)
-        mix = self.mix(h).view(-1, len(contracts.ECONOMY_MIX), 2)
-        service = self.service(h).view(-1, len(contracts.SERVICES), 2)
+        e = self.experts(h, t["economy_mix_mask"]) if self.experts is not None else h
+        strategic = self.strategic(e).view(-1, contracts.UNIT_STRATEGIC, 2)
+        mix = self.mix(e).view(-1, len(contracts.ECONOMY_MIX), 2)
+        service = self.service(e).view(-1, len(contracts.SERVICES), 2)
         site_scores = torch.einsum("bh,brh->br", self.site_query(h), rows["sites"]) / np.sqrt(self.encoder.set_hidden)
         movement = torch.cat([self.stay(h), site_scores], dim=1).masked_fill(~t["movement_mask"], MASKED)
         return {

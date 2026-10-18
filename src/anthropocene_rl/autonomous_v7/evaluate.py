@@ -26,7 +26,7 @@ from .model import Actor, Normalizer, act_deterministic, to_tensors
 
 def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     state = torch.load(checkpoint, map_location="cpu", weights_only=False)
-    actor = Actor(int(state["core_width"]))
+    actor = Actor(int(state["core_width"]), experts=bool(state.get("experts", False)))
     actor.load_state_dict(state["actor"]); actor.eval()
     return actor, Normalizer.from_state(state["normalizer"])
 

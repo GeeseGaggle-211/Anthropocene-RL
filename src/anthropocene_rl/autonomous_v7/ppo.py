@@ -519,6 +519,8 @@ def main() -> int:
                         help="DEVELOPMENT selection seeds for periodic evaluation (disjoint from the stage gate's 2000-2019)")
     parser.add_argument("--no-balance", action="store_true", help="global advantage standardization (pre-pilot)")
     parser.add_argument("--mix-change-cost", type=float, default=None)
+    parser.add_argument("--experts", action="store_true",
+                        help="add capability-conditioned expert adapters (warm start: identical to --init)")
     parser.add_argument("--eval-turns", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
@@ -531,8 +533,12 @@ def main() -> int:
     state = torch.load(args.init, map_location="cpu", weights_only=False)
     core_width = int(state["core_width"]); privileged = int(state.get("privileged_width", 0))
     normalizer = Normalizer.from_state(state["normalizer"])
-    actor, teacher, critic = Actor(core_width), Actor(core_width), Critic(core_width, privileged_width=privileged)
-    actor.load_state_dict(state["actor"]); critic.load_state_dict(state["critic"])
+    experts = bool(state.get("experts", False)) or args.experts
+    actor, teacher, critic = Actor(core_width, experts=experts), Actor(core_width), Critic(core_width, privileged_width=privileged)
+    missing, unexpected = actor.load_state_dict(state["actor"], strict=False)
+    if unexpected or any(not k.startswith("experts.") for k in missing):
+        raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
+    critic.load_state_dict(state["critic"])
     anchor = torch.load(args.teacher, map_location="cpu", weights_only=False) if args.teacher else state
     teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
     cost_critic = CostCritic(core_width)
@@ -576,6 +582,7 @@ def main() -> int:
         torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
+                    "experts": experts,
                     "lagrange": lagrange, "log": log}, path)
 
     def evaluate(checkpoint: Path) -> dict:

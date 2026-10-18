@@ -96,3 +96,25 @@ def test_mix_change_is_total_variation_within_a_village() -> None:
     change = ppo.mix_changes(batch_, {"mix_z": z})
     assert change[0] == 0 and change[3] == 0 and abs(change[1]) < 1e-6
     assert abs(change[2] - 0.5) < 1e-4
+
+
+def test_expert_adapters_warm_start_identically_and_isolate_regimes() -> None:
+    actor, t = setup()
+    experts = Actor(actor.encoder.core[0].in_features // 2, experts=True)
+    missing, unexpected = experts.load_state_dict(actor.state_dict(), strict=False)
+    assert not unexpected and all(k.startswith("experts.") for k in missing)
+    with torch.no_grad():
+        a, b = actor(t), experts(t)
+    for key in ("strategic_mean", "mix_logits", "service_mean"):
+        assert torch.allclose(a[key], b[key])
+    # A fishing-only village's loss reaches only the fishing adapter.
+    for adapter in experts.experts.adapters:
+        torch.nn.init.normal_(adapter[2].weight, std=0.01)
+    mask = torch.zeros_like(t["economy_mix_mask"]); mask[:, 2] = True
+    t2 = dict(t); t2["economy_mix_mask"] = mask
+    experts.zero_grad()
+    experts(t2)["strategic_mean"].sum().backward()
+    grads = [adapter[0].weight.grad for adapter in experts.experts.adapters]
+    assert grads[0] is None or grads[0].abs().sum() == 0
+    assert grads[1] is None or grads[1].abs().sum() == 0
+    assert grads[2] is not None and grads[2].abs().sum() > 0
