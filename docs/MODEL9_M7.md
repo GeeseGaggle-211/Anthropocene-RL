@@ -63,6 +63,57 @@ Against the teacher, stage-2 best scores:
    heuristic's (0.079 on default worlds, 6% abrupt switches). Herd liquidation is governed by the simulator's cull
    cap.
 
+### Stage-3 regression isolated
+
+Two more stage-3 runs used expert adapters, the same stage-2 start and the same world draws:
+- `mixed-native-routes`: clothing and shelter routes stay native, and the route heads are untrained;
+- `mixed-anchored-routes`: the routes are learned under a teacher KL anchor.
+
+Gate (against the stage-1 init):
+
+| Regime | Stage 2 best | Free routes (a) | Free routes (a+b) | Native routes (a+b) | Anchored routes (a+b) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default (20) | 1.036 | 0.980 | 0.995 | **1.032** | 1.025 |
+| Herding-only | 0.996 | 0.992 | 1.021 | 0.979 | 1.025 |
+| Farming-only | 1.076 | 1.013 | 1.045 | 1.053 | 1.026 |
+| Fishing-only | 1.045 | 1.054 | 1.080 | 0.985 | 0.967 |
+| Held-out grassland | 1.018 | 0.978 | 0.974 | 0.987 | 0.997 |
+| Gate | PASS | fail | fail | **PASS** | fail (fishing 0.967) |
+
+**Cause.** Learning the routes freely cost 4-5% on default worlds; with routes native or anchored, default
+welfare held at 1.025-1.032. The mixed-use curriculum itself is not the cause, but it adds nothing measurable over
+stage 2: the native-routes run is within noise of stage-2 best on every regime and slightly below it on four of
+five.
+
+The 6-world selection evaluation was misleading:
+- it scored both new runs below their stage-2 start on default worlds (0.94-0.98);
+- the 20-world gate puts them at 1.03.
+
+Selection needs at least the gate's size.
+
+**The game model is not the limit.** `--model9-oracle` (simulator 77ecd3d) ran 6 TRAIN worlds (1100-1105) for 25
+turns. In each arm, every village that can farm and herd follows one fixed directive for the whole horizon:
+
+| World | Best fixed arm | World welfare vs heuristic | Mixed-village welfare across arms |
+| ---: | --- | ---: | --- |
+| 1100 | farm-lean | 1.047 | 0.95-1.10 |
+| 1101 | balanced | 1.110 | 0.90-1.14 |
+| 1102 | balanced, high development | 1.030 | 0.80-0.98 |
+| 1103 | balanced, high development | 1.051 | 0.85-1.07 |
+| 1104 | pure farm | 1.013 | 0.76-1.03 |
+| 1105 | (heuristic best) | 0.942 | 0.85-0.94 |
+
+- In 5 of 6 worlds a fixed allocation beats the heuristic, by 1-11%. The best of 8 noisy arms is optimistic, but a
+  state-dependent policy should do at least as well.
+- The surface is steep: about 25% between arms. The best arm differs by world, a larger development budget is the
+  most consistent lever, and pure herding or zero development are consistently worst.
+- QoL stays at 0.78-0.90 in every arm. There is no collapse or pathology.
+
+The choice space is therefore solvable and rewards good choices. The remaining gap is on the learning side.
+
+The critic's values correlate 0.82 with realized returns on default worlds, against 0.20-0.65 on the fixtures,
+where stage 2 still improved. So critic fit does not explain the default-world loss either.
+
 Checkpoints are in `gs://anthropocene-rl-datasets-508912/model9/ppo-pilot/`; evidence is in `evidence/model9-pilot/`.
 
 ## Summary (pre-pilot M7)

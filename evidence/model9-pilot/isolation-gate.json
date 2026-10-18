@@ -1,0 +1,279 @@
+{
+  "default": {
+    "teacher": {
+      "welfare": 69332006.51585838,
+      "population": 363676.0,
+      "qol": 0.8077003011268756,
+      "below_30": 0.0,
+      "extinctions": 0.0,
+      "settlements": 35.9,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 69310464.19821793,
+      "population": 314935.0,
+      "qol": 0.8614449781764694,
+      "below_30": 0.3,
+      "extinctions": 0.0,
+      "settlements": 40.45,
+      "interventions_per_decision": 2.278036829404748,
+      "mix_change": 0.07948007518282495,
+      "mix_switches": 0.06042112226890278,
+      "ratio_vs_teacher": 0.9996892875495313
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3n\\best.pt": {
+        "welfare": 71545303.15837285,
+        "population": 348866.0,
+        "qol": 0.8279290290125395,
+        "below_30": 0.05,
+        "extinctions": 0.0,
+        "settlements": 39.5,
+        "interventions_per_decision": 2.320430848240243,
+        "mix_change": 0.07933763917565556,
+        "mix_switches": 0.058084986593842335,
+        "ratio_vs_init": 1.0322438896638118,
+        "ratio_vs_teacher": 1.031923158635373
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3a\\best.pt": {
+        "welfare": 71062430.30382414,
+        "population": 357241.0,
+        "qol": 0.8283755831020654,
+        "below_30": 0.15,
+        "extinctions": 0.0,
+        "settlements": 40.6,
+        "interventions_per_decision": 2.2906275564226783,
+        "mix_change": 0.07672059108834531,
+        "mix_switches": 0.053708275564217714,
+        "ratio_vs_init": 1.025277079382932,
+        "ratio_vs_teacher": 1.0249585130291874
+      }
+    }
+  },
+  "herding": {
+    "teacher": {
+      "welfare": 12414980.525919043,
+      "population": 157211.0,
+      "qol": 0.39483757696880195,
+      "below_30": 0.3,
+      "extinctions": 0.0,
+      "settlements": 77.0,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 12656930.230035206,
+      "population": 154922.0,
+      "qol": 0.4155619678885461,
+      "below_30": 1.0,
+      "extinctions": 0.0,
+      "settlements": 77.5,
+      "interventions_per_decision": 3.7736633773295787,
+      "mix_change": 0.00859278205727594,
+      "mix_switches": 0.005429255863655294,
+      "ratio_vs_teacher": 1.019488528686053
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3n\\best.pt": {
+        "welfare": 12388772.051401775,
+        "population": 152973.0,
+        "qol": 0.41107255110845087,
+        "below_30": 0.8,
+        "extinctions": 0.0,
+        "settlements": 75.3,
+        "interventions_per_decision": 3.7887285547409255,
+        "mix_change": 0.008229680070888711,
+        "mix_switches": 0.005077959382960121,
+        "ratio_vs_init": 0.97881333200391,
+        "ratio_vs_teacher": 0.9978889637029594
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3a\\best.pt": {
+        "welfare": 12973249.562402055,
+        "population": 157268.0,
+        "qol": 0.42641936340296127,
+        "below_30": 0.7,
+        "extinctions": 0.0,
+        "settlements": 77.7,
+        "interventions_per_decision": 3.806499207837355,
+        "mix_change": 0.007584385736931145,
+        "mix_switches": 0.004069940648969992,
+        "ratio_vs_init": 1.0249917892109586,
+        "ratio_vs_teacher": 1.0449673710979652
+      }
+    }
+  },
+  "farming": {
+    "teacher": {
+      "welfare": 35716448.71009639,
+      "population": 173580.0,
+      "qol": 0.8045867348780625,
+      "below_30": 0.0,
+      "extinctions": 0.0,
+      "settlements": 32.9,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 34598204.3427936,
+      "population": 143732.0,
+      "qol": 0.8681665515777183,
+      "below_30": 0.2,
+      "extinctions": 0.0,
+      "settlements": 36.2,
+      "interventions_per_decision": 2.1818578476279953,
+      "mix_change": 0.0,
+      "mix_switches": 0.0,
+      "ratio_vs_teacher": 0.9686910539068605
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3n\\best.pt": {
+        "welfare": 36444511.6123706,
+        "population": 173738.0,
+        "qol": 0.8248819607488946,
+        "below_30": 0.3,
+        "extinctions": 0.0,
+        "settlements": 39.7,
+        "interventions_per_decision": 2.3252394680667345,
+        "mix_change": 0.0,
+        "mix_switches": 0.0,
+        "ratio_vs_init": 1.0533642512566281,
+        "ratio_vs_teacher": 1.0203845266975942
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3a\\best.pt": {
+        "welfare": 35505063.066850364,
+        "population": 166847.0,
+        "qol": 0.8250231679270137,
+        "below_30": 0.2,
+        "extinctions": 0.0,
+        "settlements": 37.8,
+        "interventions_per_decision": 2.294004131738505,
+        "mix_change": 0.0,
+        "mix_switches": 0.0,
+        "ratio_vs_init": 1.0262111500085886,
+        "ratio_vs_teacher": 0.9940815604327911
+      }
+    }
+  },
+  "fishing": {
+    "teacher": {
+      "welfare": 10423676.599714706,
+      "population": 63808.0,
+      "qol": 0.7275180462723828,
+      "below_30": 1.6,
+      "extinctions": 1.0,
+      "settlements": 33.8,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 12096624.26944402,
+      "population": 84547.0,
+      "qol": 0.7507423224396066,
+      "below_30": 1.3,
+      "extinctions": 0.0,
+      "settlements": 39.6,
+      "interventions_per_decision": 3.289421600123757,
+      "mix_change": 0.12401555333828344,
+      "mix_switches": 0.10497603892951626,
+      "ratio_vs_teacher": 1.1604949706301424
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3n\\best.pt": {
+        "welfare": 11909800.933870936,
+        "population": 75702.0,
+        "qol": 0.7157798921316979,
+        "below_30": 1.7,
+        "extinctions": 0.0,
+        "settlements": 36.7,
+        "interventions_per_decision": 3.382536913068364,
+        "mix_change": 0.13972116514916816,
+        "mix_switches": 0.12406144342373297,
+        "ratio_vs_init": 0.9845557461807755,
+        "ratio_vs_teacher": 1.142571991747797
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3a\\best.pt": {
+        "welfare": 11702730.102019174,
+        "population": 72939.0,
+        "qol": 0.7071333572340862,
+        "below_30": 1.1,
+        "extinctions": 0.0,
+        "settlements": 36.8,
+        "interventions_per_decision": 3.401373594719513,
+        "mix_change": 0.15328935899931234,
+        "mix_switches": 0.12944155147693887,
+        "ratio_vs_init": 0.9674376785910578,
+        "ratio_vs_teacher": 1.1227065604030229
+      }
+    }
+  },
+  "grassland": {
+    "teacher": {
+      "welfare": 44724046.83085978,
+      "population": 218422.0,
+      "qol": 0.8038857131066157,
+      "below_30": 0.2,
+      "extinctions": 0.0,
+      "settlements": 40.0,
+      "interventions_per_decision": 0.0,
+      "mix_change": 0.0,
+      "mix_switches": 0.0
+    },
+    "init": {
+      "welfare": 47002632.48525752,
+      "population": 207351.0,
+      "qol": 0.8618178019508895,
+      "below_30": 0.3,
+      "extinctions": 0.0,
+      "settlements": 49.0,
+      "interventions_per_decision": 2.3527182322545666,
+      "mix_change": 0.09862476082965901,
+      "mix_switches": 0.07815195398128083,
+      "ratio_vs_teacher": 1.0509476627420375
+    },
+    "candidates": {
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3n\\best.pt": {
+        "welfare": 46404135.98683621,
+        "population": 217460.0,
+        "qol": 0.8295333487411843,
+        "below_30": 0.4,
+        "extinctions": 0.0,
+        "settlements": 47.8,
+        "interventions_per_decision": 2.3333367499129296,
+        "mix_change": 0.11201234851768056,
+        "mix_switches": 0.08200983964415745,
+        "ratio_vs_init": 0.9872667451422209,
+        "ratio_vs_teacher": 1.037565678310156
+      },
+      "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3a\\best.pt": {
+        "welfare": 46880703.21460867,
+        "population": 222000.0,
+        "qol": 0.8258358212333935,
+        "below_30": 0.5,
+        "extinctions": 0.0,
+        "settlements": 47.3,
+        "interventions_per_decision": 2.327355712704489,
+        "mix_change": 0.09038485015630528,
+        "mix_switches": 0.05843256179986282,
+        "ratio_vs_init": 0.9974059054950359,
+        "ratio_vs_teacher": 1.0482214051851138
+      }
+    }
+  },
+  "gate": {
+    "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3n\\best.pt": {
+      "pass": true,
+      "failures": []
+    },
+    "C:\\Users\\suyas\\Documents\\ChatGPT\\worktrees\\model9-data\\ppo10\\stage3a\\best.pt": {
+      "pass": false,
+      "failures": [
+        "fishing 0.967 < 0.97"
+      ]
+    }
+  }
+}

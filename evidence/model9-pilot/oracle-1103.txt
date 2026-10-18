@@ -1,0 +1,35 @@
+MODEL9_ORACLE seed=1103 arm=heuristic mixed/h=1 world/h=1 pop=23354 qol=0.8059
+MODEL9_ORACLE seed=1103 arm=farm-lean mixed/h=1.0586 world/h=1.0438 pop=22371 qol=0.837
+MODEL9_ORACLE seed=1103 arm=herd-lean mixed/h=0.9281 world/h=0.947 pop=20161 qol=0.8461
+MODEL9_ORACLE seed=1103 arm=balanced mixed/h=1.0678 world/h=1.0504 pop=23087 qol=0.8337
+MODEL9_ORACLE seed=1103 arm=pure-farm mixed/h=1.038 world/h=1.0284 pop=23058 qol=0.8304
+MODEL9_ORACLE seed=1103 arm=pure-herd mixed/h=0.8489 world/h=0.8932 pop=19593 qol=0.8488
+MODEL9_ORACLE seed=1103 arm=balanced-nodev mixed/h=0.9053 world/h=0.9305 pop=18770 qol=0.8478
+MODEL9_ORACLE seed=1103 arm=balanced-highdev mixed/h=1.0682 world/h=1.0507 pop=24191 qol=0.8209
+MODEL9_ORACLE seed=1103 arm=keep-all-lowdev mixed/h=1.0268 world/h=1.0202 pop=21787 qol=0.8371
+MODEL9_ORACLE seed=1104 arm=heuristic mixed/h=1 world/h=1 pop=14977 qol=0.8422
+MODEL9_ORACLE seed=1104 arm=farm-lean mixed/h=1.0003 world/h=0.9967 pop=15762 qol=0.8341
+MODEL9_ORACLE seed=1104 arm=herd-lean mixed/h=0.8482 world/h=0.9319 pop=13450 qol=0.8394
+MODEL9_ORACLE seed=1104 arm=balanced mixed/h=0.9894 world/h=0.9914 pop=15047 qol=0.8419
+MODEL9_ORACLE seed=1104 arm=pure-farm mixed/h=1.0271 world/h=1.0125 pop=16541 qol=0.8306
+MODEL9_ORACLE seed=1104 arm=pure-herd mixed/h=0.7626 world/h=0.8961 pop=13166 qol=0.8343
+MODEL9_ORACLE seed=1104 arm=balanced-nodev mixed/h=1.0107 world/h=1.0093 pop=16936 qol=0.8325
+MODEL9_ORACLE seed=1104 arm=balanced-highdev mixed/h=1.0072 world/h=1.0038 pop=15995 qol=0.8351
+MODEL9_ORACLE seed=1104 arm=keep-all-lowdev mixed/h=0.9248 world/h=0.9624 pop=14500 qol=0.8424
+MODEL9_ORACLE seed=1105 arm=heuristic mixed/h=1 world/h=1 pop=32542 qol=0.7916
+MODEL9_ORACLE seed=1105 arm=farm-lean mixed/h=0.8482 world/h=0.8488 pop=23876 qol=0.8381
+MODEL9_ORACLE seed=1105 arm=herd-lean mixed/h=0.8539 world/h=0.8678 pop=23468 qol=0.8794
+MODEL9_ORACLE seed=1105 arm=balanced mixed/h=0.9085 world/h=0.9077 pop=25621 qol=0.8436
+MODEL9_ORACLE seed=1105 arm=pure-farm mixed/h=0.914 world/h=0.9073 pop=27386 qol=0.8214
+MODEL9_ORACLE seed=1105 arm=pure-herd mixed/h=0.9263 world/h=0.9322 pop=26089 qol=0.8849
+MODEL9_ORACLE seed=1105 arm=balanced-nodev mixed/h=0.9406 world/h=0.9318 pop=23179 qol=0.8989
+MODEL9_ORACLE seed=1105 arm=balanced-highdev mixed/h=0.9194 world/h=0.9266 pop=28708 qol=0.7967
+MODEL9_ORACLE seed=1105 arm=keep-all-lowdev mixed/h=0.9363 world/h=0.9417 pop=26852 qol=0.853
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=farm-lean mixed/h=0.9315 world/h=0.9404 worldWins=1
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=herd-lean mixed/h=0.8757 world/h=0.9058 worldWins=0
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=balanced mixed/h=0.9672 world/h=0.9695 worldWins=1
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=pure-farm mixed/h=0.9661 world/h=0.967 worldWins=2
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=pure-herd mixed/h=0.8819 world/h=0.9125 worldWins=0
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=balanced-nodev mixed/h=0.9388 world/h=0.9476 worldWins=1
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=balanced-highdev mixed/h=0.9758 world/h=0.9814 worldWins=2
+MODEL9_ORACLE_SUMMARY seeds=1103-1105 arm=keep-all-lowdev mixed/h=0.9623 world/h=0.9704 worldWins=1
