@@ -164,8 +164,21 @@ spread of rule A/B tests (sigma about 9% on main) is a heterogeneous treatment e
 every turn changes discrete decisions (fission timing, destinations, site choice) differently in each world. The
 spread between PPO seeds comes from training stochasticity, not from the environment.
 
-Still to test: discrete perturbations (one decision flipped, one extra resident, one fission delayed), whose
-cascades may differ.
+**Discrete perturbation** (epsilon -1: one animal removed from the largest managed herd at turn 4, the same
+seeds). The gap does propagate, but it is usually small:
+
+| Seed | Population gap at turn 24 | Notes |
+| ---: | ---: | --- |
+| 2000 | 0.25% | |
+| 2001 | 0.24% | |
+| 2002 | **8.0%** | 2 more settlements and 2 more fissions |
+| 2003 | 0.72% | |
+| 2004 | 0.10% | |
+| 2005 | 0% | no managed herd |
+
+The world damps most shocks and occasionally amplifies one through fission timing (one seed in five). Fission
+cascades are therefore the amplifier behind the per-seed spread, and the curriculum-stability question is how often a
+policy's choices trigger them.
 
 Practical consequences:
 - **Simulator A/B:** judge on 20 or more paired worlds (`--model9-ab`), not 6.
