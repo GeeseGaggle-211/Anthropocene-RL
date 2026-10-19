@@ -35,7 +35,7 @@ from torch import nn
 
 from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
-from .model import MASKED, Actor, Critic, Normalizer, to_tensors
+from .model import MASKED, Actor, Critic, Normalizer, VectorCritic, to_tensors
 
 SMALL_SETTLEMENT = 30
 YOUNG_DAUGHTER_TURNS = 3
@@ -315,6 +315,19 @@ def values(critic: Critic, batch: dict[str, np.ndarray], normalizer: Normalizer)
     return u * np.maximum(1.0, batch["prior_population"].astype(np.float64))
 
 
+def vector_values(critic: VectorCritic, batch: dict[str, np.ndarray], normalizer: Normalizer) -> dict[str, np.ndarray]:
+    """Raw-unit state values per objective component."""
+    with torch.no_grad():
+        logits = critic(to_tensors(batch, normalizer))
+    scale = np.maximum(1.0, batch["prior_population"].astype(np.float64))
+    return {name: critic.expectation(value).numpy().astype(np.float64) * scale for name, value in logits.items()}
+
+
+def combine(advantages: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
+    """The policy's advantage: the weighted sum of component advantages (Part 4 of the commitments design)."""
+    return sum(float(weights.get(name, 0.0)) * value for name, value in advantages.items())
+
+
 def gae(batch: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray, bootstrap: np.ndarray,
         lam: float = 0.95) -> tuple[np.ndarray, np.ndarray]:
     """GAE(lambda) per (world, camp) sequence with the physical per-turn discount. ``bootstrap`` is the value of
@@ -372,6 +385,7 @@ class Hyper:
                                    # as a share of the village's welfare that turn (a slight switching penalty)
     break_cost: float = 0.01       # contract 9: reward cost of a voluntary break (re-deciding while a hold was legal),
                                    # as a share of the village's welfare that turn
+    objective_weights: dict = field(default_factory=lambda: dict(contracts.OBJECTIVE_WEIGHTS))
 
 
 def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
@@ -404,7 +418,11 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
             actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
             logits = critic(t)
-            value_loss = -(critic.two_hot(torch.as_tensor(target_u[index], dtype=torch.float32)) * torch.log_softmax(logits, dim=-1)).sum(-1).mean()
+            if isinstance(target_u, dict):
+                value_loss = sum(-(critic.two_hot(torch.as_tensor(target_u[name][index], dtype=torch.float32)) *
+                                   torch.log_softmax(logits[name], dim=-1)).sum(-1).mean() for name in target_u)
+            else:
+                value_loss = -(critic.two_hot(torch.as_tensor(target_u[index], dtype=torch.float32)) * torch.log_softmax(logits, dim=-1)).sum(-1).mean()
             critic_opt.zero_grad(); value_loss.backward(); nn.utils.clip_grad_norm_(critic.parameters(), 1.0); critic_opt.step()
             cost_loss = ((cost_critic(t) - torch.as_tensor(cost_target[index], dtype=torch.float32)) ** 2).mean()
             cost_opt.zero_grad(); cost_loss.backward(); nn.utils.clip_grad_norm_(cost_critic.parameters(), 1.0); cost_opt.step()
@@ -433,21 +451,40 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     hold_legal = batch.get("commit_hold_mask", np.zeros(len(reward), bool)).astype(bool)
     voluntary_break = hold_legal & (span != contracts.SPAN_HOLD) if stage.commitments else np.zeros(len(reward), bool)
     reward = reward - hyper.break_cost * voluntary_break * np.maximum(0.0, batch["welfare"].astype(np.float64))
-    value = values(critic, batch, normalizer)
-    bootstrap = np.zeros(len(reward))
-    if roll.bootstrap_obs:
-        with torch.no_grad():
-            u_tail = critic.expectation(critic(to_tensors(roll.bootstrap_obs[0], normalizer))).numpy()
-        rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
-        # The next observation's value per resident times the residents it was taken at (this row's end population).
-        bootstrap[rows] = u_tail[batch["bootstrap_index"][rows]] * np.maximum(1.0, batch["population"][rows])
-    advantage, target = gae(batch, reward, value, bootstrap)
+    rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
+    if isinstance(critic, VectorCritic):
+        # Each objective component: its own reward, value, bootstrap and GAE; the policy follows their weighted sum.
+        # The costs above are in welfare units and stay on the welfare component.
+        components = data.reward_components(batch); components["welfare"] = reward
+        value_by = vector_values(critic, batch, normalizer)
+        tails = {}
+        if roll.bootstrap_obs:
+            with torch.no_grad():
+                logits = critic(to_tensors(roll.bootstrap_obs[0], normalizer))
+            tails = {name: critic.expectation(v).numpy() for name, v in logits.items()}
+        advantages, target_by = {}, {}
+        for name in critic.heads:
+            boot = np.zeros(len(reward))
+            if name in tails:
+                boot[rows] = tails[name][batch["bootstrap_index"][rows]] * np.maximum(1.0, batch["population"][rows])
+            advantages[name], target_by[name] = gae(batch, components[name], value_by[name], boot)
+        advantage = combine(advantages, hyper.objective_weights)
+        target = {name: data.scale_free(value, batch) for name, value in target_by.items()}
+    else:
+        value = values(critic, batch, normalizer)
+        bootstrap = np.zeros(len(reward))
+        if roll.bootstrap_obs:
+            with torch.no_grad():
+                u_tail = critic.expectation(critic(to_tensors(roll.bootstrap_obs[0], normalizer))).numpy()
+            # The next observation's value per resident times the residents it was taken at (this row's end population).
+            bootstrap[rows] = u_tail[batch["bootstrap_index"][rows]] * np.maximum(1.0, batch["population"][rows])
+        advantage, target = gae(batch, reward, value, bootstrap)
+        target = data.scale_free(target, batch)
     with torch.no_grad():
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
-                   data.scale_free(target, batch), cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng,
-                   regimes)
+                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes)
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
@@ -557,6 +594,9 @@ def main() -> int:
     parser.add_argument("--no-balance", action="store_true", help="global advantage standardization (pre-pilot)")
     parser.add_argument("--mix-change-cost", type=float, default=None)
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
+    parser.add_argument("--vector-critic", action="store_true",
+                        help="one value head per objective component; the advantage is their weighted sum")
+    parser.add_argument("--objective-weights", default=None, help="name=weight[,name=weight] over contracts.OBJECTIVES")
     parser.add_argument("--break-cost", type=float, default=None)
     parser.add_argument("--experts", action="store_true",
                         help="add capability-conditioned expert adapters (warm start: identical to --init)")
@@ -578,7 +618,13 @@ def main() -> int:
     missing, unexpected = actor.load_state_dict(state["actor"], strict=False)
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
-    critic.load_state_dict(state["critic"])
+    if args.vector_critic or state.get("vector_critic"):
+        if state.get("vector_critic"):
+            vector = VectorCritic(core_width, privileged_width=privileged); vector.load_state_dict(state["critic"]); critic = vector
+        else:
+            critic.load_state_dict(state["critic"]); critic = VectorCritic.from_scalar(critic, core_width, privileged)
+    else:
+        critic.load_state_dict(state["critic"])
     anchor = upgrade(torch.load(args.teacher, map_location="cpu", weights_only=False)) if args.teacher else state
     teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
     cost_critic = CostCritic(core_width)
@@ -610,6 +656,12 @@ def main() -> int:
         stage = dataclasses.replace(stage, commitments=True)
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
+    if args.objective_weights:
+        for item in args.objective_weights.split(","):
+            name, weight = item.split("=")
+            if name not in contracts.OBJECTIVES:
+                raise ValueError(f"unknown objective {name}")
+            hyper.objective_weights[name] = float(weight)
     draw = world_sampler(stage, train, grassland, rng)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
     # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric
@@ -627,7 +679,8 @@ def main() -> int:
         torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
-                    "experts": experts,
+                    "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
+                    "objective_weights": hyper.objective_weights,
                     "lagrange": lagrange, "log": log}, path)
 
     def evaluate(checkpoint: Path) -> dict:

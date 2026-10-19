@@ -18,6 +18,10 @@ ENVIRONMENT_SCHEMA = 9
 SPANS: tuple[int, ...] = (0, 1, 2, 3, 4, 6)
 SPAN_HOLD, SPAN_SINGLE = 0, 1
 COMMITMENT_FEATURES = 11
+# Objective components (Docs/ElderCapitalCommitmentsDesign.md, Part 4). Lineage welfare is the interim reward; each
+# component gets its own value head and the advantage is a weighted sum. The default weights reproduce welfare.
+OBJECTIVES: tuple[str, ...] = ("welfare", "population_years")
+OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0}
 
 SETS: tuple[tuple[str, int, int], ...] = (
     ("sites", 7, 14),

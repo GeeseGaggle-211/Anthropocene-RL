@@ -41,7 +41,7 @@ def load(directories: Iterable[Path]) -> dict[str, np.ndarray]:
     return {key: np.concatenate([w[key] for w in worlds]) for key in worlds[0]}
 
 
-def lineage_rewards(data: dict[str, np.ndarray]) -> np.ndarray:
+def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray:
     """Population-weighted lineage sharing (decision D4): each settlement earns P_i x Q_lineage x dt, where the
     lineage is a parent and any daughter founded in the last ``LINEAGE_TURNS`` turns; rewards sum to realized welfare."""
     reward = np.zeros(len(data["camp"]), dtype=np.float64)
@@ -59,11 +59,17 @@ def lineage_rewards(data: dict[str, np.ndarray]) -> np.ndarray:
     for rows in groups.values():
         p = np.array([max(0, data["prior_population"][i]) for i in rows], dtype=np.float64)
         alive = np.array([not data["terminated"][i] for i in rows])
-        q = np.array([data["qol"][i] for i in rows], dtype=np.float64) * alive
+        q = (np.array([data["qol"][i] for i in rows], dtype=np.float64) if qol else np.ones(len(rows))) * alive
         q_lineage = float((p * q).sum() / p.sum()) if p.sum() > 0 else 0.0
         for i, pi, a in zip(rows, p, alive):
             reward[i] = pi * q_lineage * float(data["years"][i]) if a else 0.0
     return reward
+
+
+def reward_components(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Per-decision rewards for each objective in ``contracts.OBJECTIVES``: lineage welfare (P x Q_lineage x dt) and
+    lineage population-years (P x dt for living settlements)."""
+    return {"welfare": lineage_rewards(data), "population_years": lineage_rewards(data, qol=False)}
 
 
 def sequences(data: dict[str, np.ndarray]) -> list[np.ndarray]:

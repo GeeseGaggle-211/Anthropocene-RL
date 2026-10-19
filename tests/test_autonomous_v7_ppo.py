@@ -171,3 +171,28 @@ def test_hold_rows_carry_no_capital_probability() -> None:
         lp_moved, _ = ppo.log_prob(out, t, moved, stage)
     assert torch.allclose(lp_hold, lp_moved), "held capital draws must not change the log-probability"
     assert all(a["commit"] == 0 for a in ppo.to_bridge_actions(draw, t))
+
+
+def test_vector_critic_with_default_weights_reproduces_the_scalar_critic() -> None:
+    from anthropocene_rl.autonomous_v7.model import Critic, VectorCritic
+    b = batch()
+    normalizer = Normalizer.fit(b)
+    torch.manual_seed(2)
+    scalar = Critic(b["core"].shape[1])
+    vector = VectorCritic.from_scalar(scalar, b["core"].shape[1])
+    t = to_tensors(b, normalizer)
+    with torch.no_grad():
+        assert torch.allclose(scalar(t), vector(t)["welfare"])
+    # The weighted advantage with the default weights is the welfare advantage itself.
+    advantages = {"welfare": np.array([1.0, -2.0, 3.0]), "population_years": np.array([5.0, 5.0, 5.0])}
+    assert np.allclose(ppo.combine(advantages, contracts.OBJECTIVE_WEIGHTS), advantages["welfare"])
+    assert np.allclose(ppo.combine(advantages, {"welfare": 1.0, "population_years": 0.5}), advantages["welfare"] + 2.5)
+
+
+def test_reward_components_split_welfare_from_population_years() -> None:
+    d = {"world": np.array([1, 1, 1]), "camp": np.array([1, 2, 1]), "turn": np.array([0, 0, 1]), "society": np.array([5, 6, 5]),
+         "parent_society": np.array([0, 0, 0]), "prior_population": np.array([100, 50, 110]), "qol": np.array([.8, .5, .9]),
+         "years": np.full(3, 20.0), "terminated": np.array([False, False, False])}
+    parts = data.reward_components(d)
+    assert np.allclose(parts["welfare"], data.lineage_rewards(d))
+    assert np.allclose(parts["population_years"], [100 * 20, 50 * 20, 110 * 20])

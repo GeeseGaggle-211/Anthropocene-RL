@@ -261,6 +261,32 @@ class Critic(nn.Module):
         return target
 
 
+class VectorCritic(nn.Module):
+    """One two-hot value head per objective component (contracts.OBJECTIVES) on the critic's own encoder. With the
+    default weights it reproduces the scalar critic: ``from_scalar`` copies a scalar critic into the welfare head."""
+
+    def __init__(self, core_width: int, width: int = 256, privileged_width: int = 0,
+                 objectives: tuple[str, ...] = contracts.OBJECTIVES) -> None:
+        super().__init__()
+        self.encoder = Encoder(core_width, width, privileged_width=privileged_width)
+        self.heads = nn.ModuleDict({name: nn.Linear(width, BINS) for name in objectives})
+        self.register_buffer("bins", torch.linspace(BIN_LOW, BIN_HIGH, BINS))
+
+    def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        h, _ = self.encoder(t)
+        return {name: head(h) for name, head in self.heads.items()}
+
+    expectation = Critic.expectation
+    two_hot = Critic.two_hot
+
+    @staticmethod
+    def from_scalar(critic: "Critic", core_width: int, privileged_width: int = 0) -> "VectorCritic":
+        vector = VectorCritic(core_width, critic.head.in_features, privileged_width)
+        vector.encoder.load_state_dict(critic.encoder.state_dict())
+        vector.heads["welfare"].load_state_dict(critic.head.state_dict())
+        return vector
+
+
 def logit(p: torch.Tensor) -> torch.Tensor:
     p = p.clamp(LOGIT_EPS, 1 - LOGIT_EPS)
     return torch.log(p) - torch.log1p(-p)
