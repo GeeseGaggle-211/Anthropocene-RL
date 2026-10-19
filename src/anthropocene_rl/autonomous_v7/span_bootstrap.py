@@ -86,7 +86,7 @@ def main() -> int:
         entry = {"epoch": epoch, "dev": parts, "span": span_metrics(actor, dev_t, dev_span)}
         log.append(entry); print(json.dumps(entry), flush=True)
     state = dict(state)
-    state["actor"] = actor.state_dict(); state["teacher_actor"] = actor.state_dict()
+    state["actor"] = actor.state_dict(); state["teacher_actor"] = actor.state_dict(); state["commitments"] = True
     state["span_bootstrap"] = {"tolerance": args.tolerance, "epochs": args.epochs, "lr": args.lr, "log": log}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(state, args.out)

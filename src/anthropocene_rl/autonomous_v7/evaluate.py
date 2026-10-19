@@ -29,6 +29,9 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     state = upgrade(torch.load(checkpoint, map_location="cpu", weights_only=False))
     actor = Actor(int(state["core_width"]), experts=bool(state.get("experts", False)))
     actor.load_state_dict(state["actor"]); actor.eval()
+    # Contract 9: a policy trained without commitments decides every turn at evaluation too, whatever span head it
+    # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results reproduce.
+    actor.commitments = bool(state.get("commitments", True))
     return actor, Normalizer.from_state(state["normalizer"])
 
 
@@ -41,6 +44,8 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
         return {}
     with torch.no_grad():
         mode = act_deterministic(actor(to_tensors(observation_batch(live), normalizer)))
+    if not getattr(actor, "commitments", True):
+        mode["span"] = np.full(len(live), contracts.SPAN_SINGLE)
     actions = {}
     if mixes is not None:
         for i, v in enumerate(live):
@@ -55,11 +60,15 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
     return actions
 
 
-def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False) -> dict[str, Any]:
+def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
+            commitments: bool | None = None) -> dict[str, Any]:
+    """``commitments`` overrides the checkpoint's own setting when given."""
     torch.set_num_threads(1)
     actor = normalizer = None
     if checkpoint is not None:
         actor, normalizer = load(Path(checkpoint))
+        if commitments is not None:
+            actor.commitments = commitments
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     spans: dict[int, int] = {}

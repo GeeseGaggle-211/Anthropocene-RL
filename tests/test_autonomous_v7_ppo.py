@@ -157,6 +157,26 @@ def test_contract8_checkpoints_upgrade_exactly() -> None:
     assert (a9["span"].argmax(dim=1) == contracts.SPAN_SINGLE).all()
 
 
+def test_evaluation_honours_the_training_commitments_setting(tmp_path, monkeypatch) -> None:
+    from anthropocene_rl.autonomous_v7 import evaluate
+    actor, t = setup()
+    with torch.no_grad():
+        actor.span.bias.zero_(); actor.span.bias[contracts.SPANS.index(6)] = 50.0   # an inherited head that commits
+    monkeypatch.setattr(evaluate, "observation_batch", lambda live: None)
+    monkeypatch.setattr(evaluate, "to_tensors", lambda b, normalizer: t)
+    villages = [{"camp": i, "observation": {}} for i in range(len(t["core"]))]
+    assert all(a["commit"] == 6 for a in evaluate.policy_actions(actor, None, villages).values())
+    actor.commitments = False
+    assert all(a["commit"] == 1 for a in evaluate.policy_actions(actor, None, villages).values())
+    # The flag round-trips through checkpoints; checkpoints saved before it keep the span argmax.
+    normalizer = Normalizer.fit(batch())
+    for saved, expected in (({"commitments": False}, False), ({}, True)):
+        path = tmp_path / f"c{len(saved)}.pt"
+        torch.save({"actor": actor.state_dict(), "normalizer": normalizer.state_dict(), "core_width": t["core"].shape[1] // 2,
+                    "contract": contracts.NATIVE_CONTRACT, **saved}, path)
+        assert evaluate.load(path)[0].commitments is expected
+
+
 def test_hold_rows_carry_no_capital_probability() -> None:
     import dataclasses
     actor, t = setup()

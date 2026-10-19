@@ -560,14 +560,15 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 
 
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
-                         movement: bool = False) -> dict[str, float]:
-    """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds."""
+                         movement: bool = False, commitments: bool | None = None) -> dict[str, float]:
+    """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
+    the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn)."""
     from concurrent.futures import ProcessPoolExecutor
     from .evaluate import rollout
     with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
         rows = list(pool.map(rollout, [w for w, _ in worlds], [turns] * len(worlds),
                              [None if checkpoint is None else str(checkpoint)] * len(worlds), [m for _, m in worlds],
-                             [movement] * len(worlds)))
+                             [movement] * len(worlds), [commitments] * len(worlds)))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -681,7 +682,7 @@ def main() -> int:
         torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
-                    "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
+                    "commitments": stage.commitments, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights,
                     "lagrange": lagrange, "log": log}, path)
 
@@ -689,7 +690,8 @@ def main() -> int:
         groups: dict[str, list] = {}
         for seed, mask in eval_worlds:
             groups.setdefault(regime(seed, mask, frozenset()), []).append((seed, mask))
-        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.movement)
+        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.movement,
+                                             commitments=stage.commitments)
                   for name, worlds in groups.items()}
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))
