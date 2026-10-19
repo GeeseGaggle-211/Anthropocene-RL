@@ -53,6 +53,9 @@ class Stage:
     anchor_strategic: bool = True
     # Teacher KL on the clothing and shelter route categoricals (stage-3 regression isolation).
     anchor_routes: bool = False
+    # Contract 9: the policy chooses a capital commitment span (--commitments); otherwise every turn decides for
+    # itself (span 1), exactly as contract 8.
+    commitments: bool = False
 
 
 STAGES = {
@@ -122,28 +125,40 @@ def sample(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], stage: Stag
         "clothing": categorical(out["clothing"]) if stage.routes else torch.full((len(mu),), -1, dtype=torch.long),
         "shelter": categorical(out["shelter"]) if stage.routes else torch.full((len(mu),), -1, dtype=torch.long),
         "movement": categorical(out["movement"]) if stage.movement else torch.full((len(mu),), -1, dtype=torch.long),
+        "span": categorical(out["span"]) if stage.commitments else torch.full((len(mu),), contracts.SPAN_SINGLE, dtype=torch.long),
     }
     return draw
 
 
 def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dict[str, torch.Tensor],
              stage: Stage) -> tuple[torch.Tensor, torch.Tensor]:
-    """Joint log-probability of the policy-chosen parts of an action, and the joint entropy of those heads."""
-    lp = _normal_logp(draw["strategic_z"], out["strategic_mean"], out["strategic_log_std"]).sum(dim=1)
-    lp = lp + _normal_logp(draw["service_z"], out["service_mean"], out["service_log_std"]).sum(dim=1)
+    """Joint log-probability of the policy-chosen parts of an action, and the joint entropy of those heads.
+
+    Contract 9: on a hold row (span 0) the capital controls (strategic levels, economy mix and routes) are the
+    committed ones, so they are not part of this turn's action: their draws contribute no log-probability or entropy.
+    Service levels and movement are per-turn in every row; the span head counts whenever the stage learns it."""
+    half_log_2pie = 0.5 * math.log(2 * math.pi * math.e)
     mu, free, _ = _mix_parts(out, t["economy_mix_mask"])
-    lp = lp + (_normal_logp(draw["mix_z"], mu, out["mix_log_std"]) * free).sum(dim=1)
-    entropy = (out["strategic_log_std"] + 0.5 * math.log(2 * math.pi * math.e)).sum(dim=1)
-    entropy = entropy + (out["service_log_std"] + 0.5 * math.log(2 * math.pi * math.e)).sum(dim=1)
-    entropy = entropy + ((out["mix_log_std"] + 0.5 * math.log(2 * math.pi * math.e)) * free).sum(dim=1)
-    heads = [("clothing", stage.routes), ("shelter", stage.routes), ("movement", stage.movement)]
-    for head, active in heads:
-        if not active:
-            continue
+    capital_lp = _normal_logp(draw["strategic_z"], out["strategic_mean"], out["strategic_log_std"]).sum(dim=1)
+    capital_lp = capital_lp + (_normal_logp(draw["mix_z"], mu, out["mix_log_std"]) * free).sum(dim=1)
+    capital_ent = (out["strategic_log_std"] + half_log_2pie).sum(dim=1) + ((out["mix_log_std"] + half_log_2pie) * free).sum(dim=1)
+    lp = _normal_logp(draw["service_z"], out["service_mean"], out["service_log_std"]).sum(dim=1)
+    entropy = (out["service_log_std"] + half_log_2pie).sum(dim=1)
+
+    def categorical(head: str) -> tuple[torch.Tensor, torch.Tensor]:
         logq = torch.log_softmax(out[head], dim=1)
-        lp = lp + logq.gather(1, draw[head].clamp(min=0).unsqueeze(1)).squeeze(1)
-        entropy = entropy - (logq.exp() * logq).sum(dim=1)
-    return lp, entropy
+        return logq.gather(1, draw[head].clamp(min=0).unsqueeze(1)).squeeze(1), -(logq.exp() * logq).sum(dim=1)
+
+    if stage.routes:
+        for head in ("clothing", "shelter"):
+            a, b = categorical(head); capital_lp = capital_lp + a; capital_ent = capital_ent + b
+    if stage.movement:
+        a, b = categorical("movement"); lp = lp + a; entropy = entropy + b
+    decided = torch.ones_like(lp)
+    if stage.commitments:
+        a, b = categorical("span"); lp = lp + a; entropy = entropy + b
+        decided = (draw["span"] != contracts.SPAN_HOLD).float()
+    return lp + decided * capital_lp, entropy + decided * capital_ent
 
 
 def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], strategic: bool = True,
@@ -179,6 +194,7 @@ def to_bridge_actions(draw: dict[str, torch.Tensor], t: dict[str, torch.Tensor])
             "clothingRoute": int(draw["clothing"][i]), "shelterRoute": int(draw["shelter"][i]),
             "movement": movement - 1 if movement >= 0 else contracts.NATIVE_MOVEMENT,
             "fission": -1,
+            "commit": contracts.SPANS[int(draw["span"][i])],
         })
     return actions
 
@@ -354,6 +370,8 @@ class Hyper:
     regime_weight_cap: float = 4.0 # per-decision regime weights are clipped to [1 / cap, cap]
     mix_change_cost: float = 0.02  # reward cost per unit of turn-to-turn total-variation change in the economy mix,
                                    # as a share of the village's welfare that turn (a slight switching penalty)
+    break_cost: float = 0.01       # contract 9: reward cost of a voluntary break (re-deciding while a hold was legal),
+                                   # as a share of the village's welfare that turn
 
 
 def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
@@ -411,6 +429,10 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     change = mix_changes(batch, draws)
     reward = reward - hyper.mix_change_cost * change * np.maximum(0.0, batch["welfare"].astype(np.float64))
     regimes = np.asarray([regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])])
+    span = draws["span"].numpy()
+    hold_legal = batch.get("commit_hold_mask", np.zeros(len(reward), bool)).astype(bool)
+    voluntary_break = hold_legal & (span != contracts.SPAN_HOLD) if stage.commitments else np.zeros(len(reward), bool)
+    reward = reward - hyper.break_cost * voluntary_break * np.maximum(0.0, batch["welfare"].astype(np.float64))
     value = values(critic, batch, normalizer)
     bootstrap = np.zeros(len(reward))
     if roll.bootstrap_obs:
@@ -431,6 +453,8 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
                   "mean_cost": mean_cost, "lagrange": lagrange, "mean_qol": float(batch["qol"].mean()),
                   "mix_change": float(change.mean()),
+                  "span_shares": {str(s): float((span == i).mean()) for i, s in enumerate(contracts.SPANS)},
+                  "hold_legal": float(hold_legal.mean()), "voluntary_breaks": float(voluntary_break.mean()),
                   "regime_decisions": {r: int((regimes == r).sum()) for r in REGIMES if (regimes == r).any()}})
     return lagrange, stats
 
@@ -532,6 +556,8 @@ def main() -> int:
                         help="DEVELOPMENT selection seeds for periodic evaluation (disjoint from the stage gate's 2000-2019)")
     parser.add_argument("--no-balance", action="store_true", help="global advantage standardization (pre-pilot)")
     parser.add_argument("--mix-change-cost", type=float, default=None)
+    parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
+    parser.add_argument("--break-cost", type=float, default=None)
     parser.add_argument("--experts", action="store_true",
                         help="add capability-conditioned expert adapters (warm start: identical to --init)")
     parser.add_argument("--eval-turns", type=int, default=25)
@@ -543,7 +569,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     torch.manual_seed(args.seed); torch.set_num_threads(4)
-    state = torch.load(args.init, map_location="cpu", weights_only=False)
+    from .upgrade import upgrade
+    state = upgrade(torch.load(args.init, map_location="cpu", weights_only=False))
     core_width = int(state["core_width"]); privileged = int(state.get("privileged_width", 0))
     normalizer = Normalizer.from_state(state["normalizer"])
     experts = bool(state.get("experts", False)) or args.experts
@@ -552,7 +579,7 @@ def main() -> int:
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
     critic.load_state_dict(state["critic"])
-    anchor = torch.load(args.teacher, map_location="cpu", weights_only=False) if args.teacher else state
+    anchor = upgrade(torch.load(args.teacher, map_location="cpu", weights_only=False)) if args.teacher else state
     teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
     cost_critic = CostCritic(core_width)
     if "cost_critic" in state:
@@ -578,6 +605,11 @@ def main() -> int:
         if args.grassland_seeds else np.array([], dtype=int)
     rng = np.random.default_rng(args.seed); generator = torch.Generator().manual_seed(args.seed)
     stage = STAGES[args.stage]; lagrange = float(state.get("lagrange", 0.0))
+    if args.commitments:
+        import dataclasses
+        stage = dataclasses.replace(stage, commitments=True)
+    if args.break_cost is not None:
+        hyper.break_cost = args.break_cost
     draw = world_sampler(stage, train, grassland, rng)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
     # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric

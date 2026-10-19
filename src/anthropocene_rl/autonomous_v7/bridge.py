@@ -96,6 +96,7 @@ def observation_batch(villages: Sequence[Mapping[str, Any]]) -> dict[str, np.nda
         "clothing_route_mask": np.asarray([o["clothingRouteMask"] for o in obs], dtype=np.bool_),
         "shelter_route_mask": np.asarray([o["shelterRouteMask"] for o in obs], dtype=np.bool_),
         "economy_mix_mask": np.asarray([o["economyMixMask"] for o in obs], dtype=np.bool_),
+        "commit_hold_mask": np.asarray([bool(o.get("commitHoldMask", False)) for o in obs], dtype=np.bool_),
     }
     for index, (name, rows, width) in enumerate(contracts.SETS):
         batch[name] = np.asarray([o["sets"][index] for o in obs], dtype=np.float32).reshape(len(obs), rows, width)

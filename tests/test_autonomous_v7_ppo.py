@@ -128,3 +128,46 @@ def test_route_anchor_vanishes_for_the_teacher_and_is_positive_otherwise() -> No
         shifted = dict(out); shifted["clothing"] = out["clothing"] + torch.tensor([3.0, 0.0])
         assert (ppo.teacher_kl(shifted, out, True, routes=True) >= -1e-6).all()
         assert ppo.teacher_kl(shifted, out, True, routes=True).sum() > ppo.teacher_kl(shifted, out, True).sum()
+
+
+def test_contract8_checkpoints_upgrade_exactly() -> None:
+    from anthropocene_rl.autonomous_v7.upgrade import upgrade
+    from anthropocene_rl.autonomous_v7.model import Critic
+    b = batch()
+    old_width = b["core"].shape[1]
+    torch.manual_seed(1)
+    actor, critic = Actor(old_width), Critic(old_width)
+    normalizer = Normalizer.fit(b)
+    state = {"actor": {k: v for k, v in actor.state_dict().items() if not k.startswith("span.")}, "critic": critic.state_dict(),
+             "normalizer": normalizer.state_dict(), "core_width": old_width, "contract": 8}
+    up = upgrade(state)
+    assert up["core_width"] == old_width + contracts.COMMITMENT_FEATURES and up["contract"] == contracts.NATIVE_CONTRACT
+    new_actor, new_critic = Actor(up["core_width"]), Critic(up["core_width"])
+    new_actor.load_state_dict(up["actor"]); new_critic.load_state_dict(up["critic"])
+    b9 = dict(b)
+    rng = np.random.default_rng(0)
+    b9["core"] = np.concatenate([b["core"], rng.normal(size=(len(b["core"]), contracts.COMMITMENT_FEATURES)).astype(np.float32)], axis=1)
+    b9["core_present"] = np.concatenate([b["core_present"], np.ones((len(b["core"]), contracts.COMMITMENT_FEATURES), bool)], axis=1)
+    with torch.no_grad():
+        a, a9 = actor(to_tensors(b, normalizer)), new_actor(to_tensors(b9, Normalizer.from_state(up["normalizer"])))
+        c, c9 = critic(to_tensors(b, normalizer)), new_critic(to_tensors(b9, Normalizer.from_state(up["normalizer"])))
+    for key in ("strategic_mean", "service_mean", "mix_logits", "clothing", "movement"):
+        assert torch.allclose(a[key], a9[key], atol=1e-6)
+    assert torch.allclose(c, c9, atol=1e-6)
+    assert (a9["span"].argmax(dim=1) == contracts.SPAN_SINGLE).all()
+
+
+def test_hold_rows_carry_no_capital_probability() -> None:
+    import dataclasses
+    actor, t = setup()
+    t = dict(t); t["commit_hold_mask"] = torch.ones(len(t["core"]), dtype=torch.bool)
+    stage = dataclasses.replace(ppo.STAGES["mixed"], commitments=True)
+    with torch.no_grad():
+        out = ppo.explore(actor(t), -2.0)
+        draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(5))
+        draw["span"] = torch.zeros_like(draw["span"])           # every row holds
+        lp_hold, _ = ppo.log_prob(out, t, draw, stage)
+        moved = dict(draw); moved["strategic_z"] = draw["strategic_z"] + 3.0; moved["clothing"] = 1 - draw["clothing"].clamp(min=0)
+        lp_moved, _ = ppo.log_prob(out, t, moved, stage)
+    assert torch.allclose(lp_hold, lp_moved), "held capital draws must not change the log-probability"
+    assert all(a["commit"] == 0 for a in ppo.to_bridge_actions(draw, t))

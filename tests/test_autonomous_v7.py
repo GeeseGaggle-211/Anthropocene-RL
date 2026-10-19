@@ -92,7 +92,8 @@ def test_lambda_returns_discount_by_physical_years() -> None:
 
 
 def test_schema_verification_rejects_layout_drift() -> None:
-    schema = {"nativeContract": 8, "actionSchema": 8, "observationSchema": 8, "environmentSchema": 8,
+    schema = {"nativeContract": contracts.NATIVE_CONTRACT, "actionSchema": contracts.ACTION_SCHEMA,
+              "observationSchema": contracts.OBSERVATION_SCHEMA, "environmentSchema": contracts.ENVIRONMENT_SCHEMA,
               "movementSlots": 8, "nativeMovement": -2,
               "sets": [{"name": n, "rows": r, "width": w} for n, r, w in contracts.SETS],
               "services": list(contracts.SERVICES), "strategic": list(contracts.STRATEGIC),

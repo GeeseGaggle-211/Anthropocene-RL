@@ -1,4 +1,4 @@
-"""Native Elder contract 8 (model9): the learner-side registry.
+"""Native Elder contract 9 (model9): the learner-side registry.
 
 The native side is authoritative (``ElderModel9Contract`` in the simulator). ``verify_schema`` checks a bridge's
 schema response against this registry so a learner never trains against a mismatched layout.
@@ -9,10 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-NATIVE_CONTRACT = 8
-ACTION_SCHEMA = 8
-OBSERVATION_SCHEMA = 8
-ENVIRONMENT_SCHEMA = 8
+NATIVE_CONTRACT = 9
+ACTION_SCHEMA = 9
+OBSERVATION_SCHEMA = 9
+ENVIRONMENT_SCHEMA = 9
+# Contract 9 capital commitments: the span head's categories (0 holds the active commitment, 1 decides this turn
+# only, 2-6 commit the capital controls for that many turns) and the commitment block appended to the core.
+SPANS: tuple[int, ...] = (0, 1, 2, 3, 4, 6)
+SPAN_HOLD, SPAN_SINGLE = 0, 1
+COMMITMENT_FEATURES = 11
 
 SETS: tuple[tuple[str, int, int], ...] = (
     ("sites", 7, 14),

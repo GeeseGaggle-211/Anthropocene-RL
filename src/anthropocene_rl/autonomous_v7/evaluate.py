@@ -22,10 +22,11 @@ import torch
 from . import contracts
 from .bridge import Model9Bridge, observation_batch
 from .model import Actor, Normalizer, act_deterministic, to_tensors
+from .upgrade import upgrade
 
 
 def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
-    state = torch.load(checkpoint, map_location="cpu", weights_only=False)
+    state = upgrade(torch.load(checkpoint, map_location="cpu", weights_only=False))
     actor = Actor(int(state["core_width"]), experts=bool(state.get("experts", False)))
     actor.load_state_dict(state["actor"]); actor.eval()
     return actor, Normalizer.from_state(state["normalizer"])
@@ -49,6 +50,7 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
             "strategic": mode["strategic"][i].tolist(), "service": mode["service"][i].tolist(),
             "clothingRoute": int(mode["clothing"][i]), "shelterRoute": int(mode["shelter"][i]),
             "movement": int(mode["movement"][i]) if movement else contracts.NATIVE_MOVEMENT, "fission": -1,
+            "commit": contracts.SPANS[int(mode["span"][i])],
         }
     return actions
 

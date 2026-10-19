@@ -98,6 +98,10 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
     if mix_mask is None:
         mix_mask = np.ones((len(batch["core"]), len(contracts.ECONOMY_MIX)), bool)
     out["economy_mix_mask"] = torch.as_tensor(mix_mask, dtype=torch.bool, device=device)
+    hold = batch.get("commit_hold_mask")
+    if hold is None:
+        hold = np.zeros(len(batch["core"]), bool)
+    out["commit_hold_mask"] = torch.as_tensor(hold, dtype=torch.bool, device=device)
     if "privileged" in batch and normalizer.privileged_mean is not None:
         out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std),
                                             dtype=torch.float32, device=device)
@@ -168,6 +172,22 @@ class EconomyExperts(nn.Module):
         return h + sum(gate[:, e:e + 1] * adapter(h) for e, adapter in enumerate(self.adapters))
 
 
+def init_span_head(layer: nn.Linear) -> None:
+    nn.init.zeros_(layer.weight)
+    with torch.no_grad():
+        layer.bias.zero_()
+        layer.bias[contracts.SPAN_SINGLE] = float(np.log(len(contracts.SPANS) - 1))
+
+
+def span_mask(t: dict[str, torch.Tensor]) -> torch.Tensor:
+    """True where a span is illegal: holding needs an active, unbroken commitment."""
+    rows = t["core"].shape[0]
+    mask = torch.zeros(rows, len(contracts.SPANS), dtype=torch.bool, device=t["core"].device)
+    hold = t.get("commit_hold_mask")
+    mask[:, contracts.SPAN_HOLD] = True if hold is None else ~hold
+    return mask
+
+
 class Actor(nn.Module):
     """Logistic-normal service levels and unit strategic controls, a masked softmax economy mix over cultivation,
     herding and fishing, masked categorical routes and fission policy, and a pointer over site rows for movement
@@ -185,6 +205,10 @@ class Actor(nn.Module):
         self.fission = nn.Linear(width, contracts.FISSION_POLICIES)
         self.stay = nn.Linear(width, 1)
         self.site_query = nn.Linear(width, self.encoder.set_hidden)
+        # Contract 9 commitment span over contracts.SPANS. It starts at about even odds for "this turn only" against
+        # the rest, so the argmax (deterministic evaluation) is "this turn only", contract 8's behaviour.
+        self.span = nn.Linear(width, len(contracts.SPANS))
+        init_span_head(self.span)
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
@@ -203,6 +227,7 @@ class Actor(nn.Module):
             "shelter": self.shelter(h).masked_fill(~t["shelter_route_mask"], MASKED),
             "fission": self.fission(h),
             "movement": movement,
+            "span": self.span(h).masked_fill(span_mask(t), MASKED),
         }
 
 
@@ -307,4 +332,5 @@ def act_deterministic(out: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
         "shelter": out["shelter"].argmax(dim=1).cpu().numpy(),
         "fission": out["fission"].argmax(dim=1).cpu().numpy(),
         "movement": out["movement"].argmax(dim=1).cpu().numpy() - 1,
+        "span": out["span"].argmax(dim=1).cpu().numpy() if "span" in out else np.full(len(mix), contracts.SPAN_SINGLE),
     }

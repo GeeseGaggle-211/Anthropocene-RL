@@ -111,6 +111,8 @@ namespace Anthropocene.RLBridge
             d.ShelterRoute = e.TryGetProperty("shelterRoute", out var sr) ? sr.GetInt32() : -1;
             d.MovementCandidate = e.TryGetProperty("movement", out var mv) ? mv.GetInt32() : ElderModel9Contract.NativeMovement;
             d.FissionPolicy = e.TryGetProperty("fission", out var fp) ? fp.GetInt32() : -1;
+            // Contract 9: capital commitment span (0 hold, 1 this turn only, 2-6 commit); absent is 1.
+            d.CommitTurns = e.TryGetProperty("commit", out var ct) ? ct.GetInt32() : 1;
             return d;
         }
 
@@ -129,7 +131,8 @@ namespace Anthropocene.RLBridge
                     sets = v.Observation.Sets, rowPresent = v.Observation.RowPresent,
                     movementMask = v.Observation.MovementMask,
                     clothingRouteMask = v.Observation.ClothingRouteMask, shelterRouteMask = v.Observation.ShelterRouteMask,
-                    economyMixMask = v.Observation.EconomyMixMask
+                    economyMixMask = v.Observation.EconomyMixMask,
+                    commitHoldMask = v.Observation.CommitmentHoldMask
                 },
                 teacher = v.Teacher == null ? null : new
                 {
