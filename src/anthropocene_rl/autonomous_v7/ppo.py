@@ -575,7 +575,9 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
             "settlements": float(np.mean([r["settlements"] for r in rows])),
             "interventions_per_decision": float(np.mean([r["interventions_per_decision"] for r in rows])),
             "mix_change": float(np.mean([r.get("mix_change", 0.0) for r in rows])),
-            "mix_switches": float(np.mean([r.get("mix_switches", 0.0) for r in rows]))}
+            "mix_switches": float(np.mean([r.get("mix_switches", 0.0) for r in rows])),
+            "hold_share": float(np.mean([r.get("hold_share", 0.0) for r in rows])),
+            "commit_share": float(np.mean([r.get("commit_share", 0.0) for r in rows]))}
 
 
 def main() -> int:

@@ -62,11 +62,14 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         actor, normalizer = load(Path(checkpoint))
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
+    spans: dict[int, int] = {}
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(turns):
             mixes: dict[int, np.ndarray] = {}
             actions = policy_actions(actor, normalizer, step["villages"], movement, mixes) if actor is not None else {}
+            for action in actions.values():
+                spans[action.get("commit", 1)] = spans.get(action.get("commit", 1), 0) + 1
             for camp, mix in mixes.items():
                 if camp in previous:
                     changes.append(0.5 * float(np.abs(mix - previous[camp]).sum()))
@@ -99,6 +102,9 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         # Turn-to-turn total-variation change of each village's economy mix, and the share of abrupt switches.
         "mix_change": float(np.mean(changes)) if changes else 0.0,
         "mix_switches": float(np.mean([c > 0.5 for c in changes])) if changes else 0.0,
+        # Contract 9: share of decisions holding (0), deciding one turn (1) or committing (2-6).
+        "hold_share": spans.get(0, 0) / max(1, sum(spans.values())),
+        "commit_share": sum(v for k, v in spans.items() if k >= 2) / max(1, sum(spans.values())),
     }
 
 

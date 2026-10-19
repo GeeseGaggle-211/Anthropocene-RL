@@ -196,3 +196,21 @@ def test_reward_components_split_welfare_from_population_years() -> None:
     parts = data.reward_components(d)
     assert np.allclose(parts["welfare"], data.lineage_rewards(d))
     assert np.allclose(parts["population_years"], [100 * 20, 50 * 20, 110 * 20])
+
+
+def test_span_labels_follow_the_heuristics_own_persistence() -> None:
+    from anthropocene_rl.autonomous_v7 import span_labels
+    n = 7
+    strategic = np.tile(np.array([1.0, 1.0, 0.2, 0.5, 0.0], np.float32), (n, 1))
+    strategic[4:, 2] = 0.6                     # from turn 4 the Development budget changes
+    b = {"world": np.zeros(n, int), "camp": np.full(n, 3), "turn": np.arange(n),
+         "strategic": strategic, "strategic_mask": np.ones((n, 5), bool),
+         "clothing_route": np.zeros(n), "shelter_route": np.zeros(n),
+         "clothing_route_label_mask": np.ones(n, bool), "shelter_route_label_mask": np.ones(n, bool)}
+    d = span_labels.derive(b, 0.05)
+    spans = [contracts.SPANS[i] for i in d["span_label"]]
+    # Turns 0-3 repeat: a 4-turn commitment then three holds; turns 4-6 repeat the new budget: a 3-turn commitment.
+    assert spans == [4, 0, 0, 0, 3, 0, 0]
+    assert d["commit_hold_mask"].tolist() == [False, True, True, True, False, True, True]
+    assert d["commitment_features"][1, :3].tolist() == [1.0, 3.0, 1.0]
+    assert abs(d["commitment_features"][5, 5] - 0.6) < 1e-6
