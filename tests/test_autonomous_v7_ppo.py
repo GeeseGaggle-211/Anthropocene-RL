@@ -177,6 +177,23 @@ def test_evaluation_honours_the_training_commitments_setting(tmp_path, monkeypat
         assert evaluate.load(path)[0].commitments is expected
 
 
+def test_paired_compare_and_seed_lists() -> None:
+    from anthropocene_rl.autonomous_v7 import paired_compare
+    from anthropocene_rl.autonomous_v7.stage_eval import seed_list
+    assert seed_list("2000-2002,2026,2030-2031") == [2000, 2001, 2002, 2026, 2030, 2031]
+    rng = np.random.default_rng(0)
+    difficulty = rng.uniform(1.0, 100.0, 40)                  # shared world difficulty must cancel in the pairing
+    def row(scale: float, seeds: int) -> dict:
+        return {f"{scale}-{s}": {"worlds": [[i, 0, float(d * scale * (1 + 0.01 * rng.normal())), 0] for i, d in enumerate(difficulty)],
+                                 "ratio_vs_teacher": scale, "extinctions": 0} for s in range(seeds)}
+    candidates = {**row(1.0, 3), **row(1.05, 3)}
+    report = {"default": {"candidates": candidates}, "gate": {}}
+    result = paired_compare.compare(report, [k for k in candidates if k.startswith("1.0-")],
+                                    [k for k in candidates if k.startswith("1.05-")], draws=500)
+    r = result["default"]["b_vs_a"]
+    assert abs(r["ratio"] - 1.05) < 0.01 and r["lo"] < r["ratio"] < r["hi"] and r["lo"] > 1.03
+
+
 def test_hold_rows_carry_no_capital_probability() -> None:
     import dataclasses
     actor, t = setup()

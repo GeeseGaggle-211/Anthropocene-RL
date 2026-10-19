@@ -17,13 +17,23 @@ from . import contracts
 from .ppo import evaluate_closed_loop
 
 
+def seed_list(text: str) -> list[int]:
+    """"2000-2019,2026-2059" -> the seeds in order."""
+    seeds: list[int] = []
+    for part in text.split(","):
+        a, _, b = part.strip().partition("-")
+        seeds += list(range(int(a), int(b or a) + 1))
+    return seeds
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--init", type=Path, required=True)
     parser.add_argument("--candidates", required=True, help="comma-separated checkpoints")
-    parser.add_argument("--default-seeds", default="2000-2019")
-    parser.add_argument("--fixture-seeds", default="2000-2009")
-    parser.add_argument("--grassland-seeds", type=Path, default=None, help="file of grassland seeds; uses the last 10")
+    parser.add_argument("--default-seeds", default="2000-2019", help="comma-separated seeds or ranges")
+    parser.add_argument("--fixture-seeds", default="2000-2009", help="comma-separated seeds or ranges")
+    parser.add_argument("--grassland-seeds", type=Path, default=None, help="file of grassland seeds; uses the last --grassland-count")
+    parser.add_argument("--grassland-count", type=int, default=10)
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
@@ -31,12 +41,11 @@ def main() -> int:
                         help="a candidate fails if any regime's welfare falls more than this share below the init")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    a, b = (int(x) for x in args.default_seeds.split("-")); fa, fb = (int(x) for x in args.fixture_seeds.split("-"))
-    categories = {"default": [(s, 0) for s in range(a, b + 1)]}
+    categories = {"default": [(s, 0) for s in seed_list(args.default_seeds)]}
     for name, mask in contracts.CAPABILITY_MASKS.items():
-        categories[name] = [(s, mask) for s in range(fa, fb + 1)]
+        categories[name] = [(s, mask) for s in seed_list(args.fixture_seeds)]
     if args.grassland_seeds is not None:
-        seeds = [int(x) for x in args.grassland_seeds.read_text().split(",") if x.strip()][-10:]
+        seeds = [int(x) for x in args.grassland_seeds.read_text().split(",") if x.strip()][-args.grassland_count:]
         categories["grassland"] = [(s, 0) for s in seeds]
     report = {}
     for name, worlds in categories.items():
