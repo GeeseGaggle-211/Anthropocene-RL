@@ -150,6 +150,39 @@ expert adapters and the same world draws:
 - **Recommendation:** keep routes native, or anchored, in mixed and default worlds. Route learning belongs with
   capital commitments (`ElderCapitalCommitmentsDesign.md`), where a route is a held decision.
 
+### Capital commitments, first learning test (19 October 2026)
+
+Setup:
+- stage 2 with `--commitments` (contract 9: simulator c37ea55, learner 7568ced), three seeds from stage-1 seed 2;
+- control: the three contract-8 stage-2 seeds (same init, seeds and settings; not bit-identical, see the upgrade
+  note);
+- welfare compared against the teacher, because the contract-9 init re-evaluates slightly differently.
+
+| Regime | Control | Commitments | Difference |
+| --- | ---: | ---: | ---: |
+| Default (20) | 1.026 (sd 0.018) | 1.016 (sd 0.029) | -0.010 |
+| Herding-only | 1.016 (sd 0.008) | 1.005 (sd 0.006) | -0.011 |
+| Farming-only | 0.976 (sd 0.058) | 0.950 (sd 0.011) | -0.026 |
+| Fishing-only | 1.204 (sd 0.021) | 1.185 (sd 0.082) | -0.020 |
+| Grassland | 1.048 (sd 0.030) | 1.021 (sd 0.009) | -0.027 |
+
+- No commitment seed passes every regime gate (control: 2 of 3). Every difference is within about one control sd
+  except farming and grassland (about 1 sd).
+- **The policy did not learn to use commitments.** Over 50 iterations the span shares barely moved: holds stayed
+  at 3-6% and "this turn only" at 48-57%. A third of decisions broke a holdable commitment.
+- Deterministic evaluation takes the argmax span, which stayed "this turn only", so **the evaluated policies never
+  commit.** The small losses reflect noisier training (random commitments of randomly drawn capital values during
+  rollouts), not committed behaviour.
+- **Conclusion:** the experiment does not test whether commitments help. The machinery works (simulator and
+  learner checks); the exploration does not.
+
+Next, before any retest:
+- initialise the span head by behaviour cloning from the heuristic's own persistence: label a hold where the
+  heuristic's capital decision matches its previous one within tolerance, and a span where it stays matched;
+- or start holds at higher probability and strengthen the break cost.
+
+Until then, keep commitments off in training. With the span head off, a contract-9 policy behaves as contract 8.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
