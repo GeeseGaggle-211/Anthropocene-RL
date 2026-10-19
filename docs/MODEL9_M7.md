@@ -291,6 +291,41 @@ Decision proposed:
   inheritance;
 - confirm the stage-3 result with three seeds of free routes, single-turn.
 
+The user approved this on 19 October. Evaluation now honours the setting (RL e156184).
+
+### Decisive stage-3 experiment: pre-registration (written 19 October 2026, before any result)
+
+Question: is stage 3 (mixed use, free routes) worse than simply training stage 2 for as long?
+
+Every earlier stage-3 comparison was against an untrained init, on 1-3 seeds and about 30 worlds.
+
+Arms:
+- shared: init `stage2-span-seed0/best.pt`, expert adapters, single-turn, 40 iterations, identical arguments except
+  `--stage`;
+- treatment: stage 3 (`mixed`), seeds 3-7 (seed 3 is `stage3-c9-free`, evaluated single-turn);
+- control: stage 2 (`capability`), seeds 3-7.
+- reference: the init evaluated single-turn.
+
+Evaluation (`stage_eval`, script `model9-data/stage3-decisive.ps1`):
+- 54 default DEVELOPMENT worlds (2000-2019, 2026-2059; the selection worlds 2020-2025 are excluded);
+- 20 seeds for each capability fixture (2000-2019);
+- the 10 held-out grassland seeds;
+- CONFIRMATION seeds untouched.
+
+Primary measure:
+- `latest.pt` (fixed training budget, no checkpoint selection);
+- default-world welfare, treatment vs control;
+- 95% bootstrap interval resampling training seeds and the shared worlds (`paired_compare`).
+
+Decision rule:
+- interval entirely below 1: stage 3 regresses, and the cause is investigated before scale-out;
+- interval entirely above 1: stage 3 helps;
+- interval containing 1: no detectable difference at this scale; if it lies within ±2%, mixed-use training is
+  safe to carry into scale-out.
+
+Secondary measures: the other four regimes on the same rule (3% tolerance), each arm against the reference, and the
+same comparison on `best.pt` where selection kept one.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
