@@ -271,7 +271,7 @@ Interpretation (one seed per arm; stage-2 gate noise is about 0.02-0.03):
 
 **Committing at evaluation does not help either.**
 - In both free arms, forcing "this turn only" is neutral on default worlds (+0.003 / -0.005).
-- It is better by 2-6% on farming, fishing and grassland in four of six comparisons.
+- It is better by 2-6% on farming, fishing and grassland in five of six comparisons.
 - The heuristic's own persistence, copied into the span head, costs a little where it differs from the policy's own
   choices.
 
