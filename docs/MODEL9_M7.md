@@ -183,6 +183,61 @@ Next, before any retest:
 
 Until then, keep commitments off in training. With the span head off, a contract-9 policy behaves as contract 8.
 
+### Capital commitments, bootstrapped span head (19 October 2026)
+
+Bootstrap (`span_bootstrap.py`, 83bcd28):
+- labels come from `span_labels.py`. Where the heuristic's capital decision repeats within 0.05 (levels and mix
+  shares, identical routes), the run becomes the longest allowed span, followed by holds. In the DEVELOPMENT data,
+  31% of decisions are holds and 13% start a commitment.
+- stage-1 seed 2 was upgraded to contract 9 and fine-tuned for 3 epochs on the BC loss plus span cross-entropy;
+  output `checkpoints10/stage1-seed2-span.pt`.
+- span accuracy 0.894 (always-single 0.56). Holds are taken whenever legal and 6-turn spans recall 62%; 2-4-turn
+  spans are rarely predicted.
+- closed loop on 20 DEVELOPMENT worlds: welfare 0.9955 of the teacher; 6.4% commitment starts and 10.6% holds;
+  replay exact.
+
+The stage-2 test was then rerun (same settings as the first test, three seeds from the bootstrapped init). Welfare is
+shown against the teacher:
+
+| Regime | Control | First test | Bootstrapped | Bootstrapped - control |
+| --- | ---: | ---: | ---: | ---: |
+| Default (20) | 1.026 (sd 0.018) | 1.016 (sd 0.029) | 1.035 (sd 0.027) | +0.009 |
+| Herding-only | 1.016 (sd 0.008) | 1.005 (sd 0.006) | 1.026 (sd 0.006) | +0.010 |
+| Farming-only | 0.976 (sd 0.058) | 0.950 (sd 0.011) | 0.996 (sd 0.105) | +0.020 |
+| Fishing-only | 1.204 (sd 0.021) | 1.185 (sd 0.082) | 1.247 (sd 0.064) | +0.043 |
+| Grassland | 1.048 (sd 0.030) | 1.021 (sd 0.009) | 1.035 (sd 0.009) | -0.013 |
+
+Usage:
+- **The policy now commits.** In training, holds are 30-35% of decisions and commitment starts 17-22%. Voluntary
+  breaks are about 0.1-0.2%, against a third of holdable commitments in the first test.
+- In deterministic evaluation, holds are 6-9% of decisions on default and farming worlds and 18-27% on herding and
+  fishing worlds.
+
+Selection artefact:
+- Seed 2 wrote no `best.pt`. Every one of its evaluations had a single fishing-fixture extinction. Best-checkpoint
+  selection rejects more extinctions than the init's own baseline, and this init's baseline happened to have none
+  (the control and first-test inits each had one).
+- Seed 1's selected checkpoint is therefore from iteration 9. Seed 2 was gated on `latest.pt` and is marked
+  unselected.
+- Extinctions on these fixtures are common to every arm. Selection should compare against a fixed reference rather
+  than the init's own luck.
+
+Gate: no bootstrapped candidate passes.
+- seed 0: farming 0.967;
+- seed 1: farming 0.928, at iteration 9;
+- seed 2: one fishing extinction.
+
+For comparison, the control passed 2 of 3 and the first test 0 of 3.
+
+Conclusions:
+- **The bootstrap fixes exploration, and commitments no longer cost welfare.** The bootstrapped arm is above the
+  first test in every regime and above the control in four of five.
+- **It does not show a gain.** Every difference from the control is within about one control sd, except herding
+  (+0.010, about 1.3 sd); with three seeds that is not significant.
+- Farming remains the weak regime for both commitment arms: two of three candidates fall below its 3% gate.
+- Not yet tested: whether commitments help where they were designed to help, i.e. stage 3 mixed use with committed
+  routes against the route-churn regression.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
