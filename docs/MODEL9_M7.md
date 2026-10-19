@@ -236,7 +236,60 @@ Conclusions:
   (+0.010, about 1.3 sd); with three seeds that is not significant.
 - Farming remains the weak regime for both commitment arms: two of three candidates fall below its 3% gate.
 - Not yet tested: whether commitments help where they were designed to help, i.e. stage 3 mixed use with committed
-  routes against the route-churn regression.
+  routes against the route-churn regression (tested next).
+
+### Stage 3 with committed routes (19-20 October 2026)
+
+Setup (`model9-data/stage3-commit.ps1`):
+- all arms start from the bootstrapped stage-2 seed 0 (`stage2-span-seed0/best.pt`, default 1.029 vs teacher);
+- same settings as the stage-3 p2 pair: experts, seed 3, 40 iterations;
+- one seed per arm.
+
+**Evaluation caveat.** Training without `--commitments` forces "this turn only", but deterministic evaluation always
+takes the span head's argmax.
+- A policy that inherited the bootstrapped span head therefore still commits at evaluation, even when PPO never
+  trained its spans.
+- Each free-route arm was gated twice: as trained, and with its span head forced to "this turn only" (`best-single`).
+- Contract-8 controls are unaffected: their upgraded span head never commits.
+
+Welfare against the teacher:
+
+| Arm | Spans at evaluation | Default | Herding | Farming | Fishing | Grassland | Gate |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Free routes, trained with commitments | committing | 0.995 | 1.005 | 0.944 | 1.158 | 1.051 | farming 0.954 |
+| same | single | 0.998 | 0.997 | 0.967 | 1.197 | 1.054 | pass |
+| Free routes, trained single-turn | inherited bootstrap | 1.047 | 1.025 | 1.019 | 1.142 | 1.024 | pass |
+| same | single | 1.042 | 1.031 | 1.047 | 1.199 | 1.048 | pass |
+| Native routes, trained with commitments | committing | 1.027 | 1.016 | 0.976 | 1.103 | 1.002 | fishing 0.951, grassland 0.956 |
+
+Interpretation (one seed per arm; stage-2 gate noise is about 0.02-0.03):
+
+**Committed routes do not repair stage 3.**
+- Training with commitments gave the weakest default-world policy (0.995-0.998). This is 4-5% below the same
+  init trained single-turn, whichever way its spans are evaluated.
+- The loss therefore lies in the trained weights, not in committing at evaluation.
+
+**Committing at evaluation does not help either.**
+- In both free arms, forcing "this turn only" is neutral on default worlds (+0.003 / -0.005).
+- It is better by 2-6% on farming, fishing and grassland in four of six comparisons.
+- The heuristic's own persistence, copied into the span head, costs a little where it differs from the policy's own
+  choices.
+
+**Free routes trained single-turn pass every regime.**
+- The single-span evaluation is the best stage-3 result so far: default 1.042 against 1.029 for its stage-2 init,
+  i.e. stage 3 adds about 1%, within noise.
+- The earlier default-world regression (free routes 0.980) does not reproduce from this init.
+- With one seed, this is not yet evidence that the regression is gone. Together with the seed-noise section, it
+  supports noise plus fewer, smaller settlements, not route churn. That mechanism is one commitments were never
+  designed to address.
+
+Decision proposed:
+- keep commitments off in training and force "this turn only" at evaluation; contract 9 remains in place
+  (simulator, saves, learner) at no cost;
+- stop pursuing commitments as the stage-3 fix;
+- make evaluation honour the training stage's commitments setting, so a single-turn policy cannot commit by
+  inheritance;
+- confirm the stage-3 result with three seeds of free routes, single-turn.
 
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
