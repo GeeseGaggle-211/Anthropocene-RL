@@ -228,6 +228,25 @@ def test_learned_movement_draws_recompute_their_log_probability_with_the_conditi
     assert codes <= allowed
 
 
+def test_learned_fission_is_sampled_scored_and_anchored() -> None:
+    import dataclasses
+    actor, t = setup()
+    stage = dataclasses.replace(ppo.STAGES["mixed"], fission=True)
+    with torch.no_grad():
+        out = actor(t)
+        draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(4))
+        lp1, _ = ppo.log_prob(out, t, draw, stage)
+        other = dict(draw); other["fission"] = (draw["fission"] + 1) % contracts.FISSION_POLICIES
+        lp2, _ = ppo.log_prob(out, t, other, stage)
+        shifted = dict(out); shifted["fission"] = out["fission"] + torch.tensor([3.0, 0.0, 0.0])
+        assert torch.allclose(ppo.teacher_kl(out, out, fission=True), ppo.teacher_kl(out, out), atol=1e-6)
+        assert (ppo.teacher_kl(shifted, out, fission=True) > ppo.teacher_kl(shifted, out)).all()
+    assert not torch.allclose(lp1, lp2)
+    assert all(a["fission"] in (0, 1, 2) for a in ppo.to_bridge_actions(draw, t))
+    native = ppo.sample(out, t, ppo.STAGES["mixed"], torch.Generator().manual_seed(4))
+    assert all(a["fission"] == -1 for a in ppo.to_bridge_actions(native, t))
+
+
 def test_observed_movement_control_stays_native() -> None:
     import dataclasses
     actor, t = setup()

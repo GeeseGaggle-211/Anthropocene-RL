@@ -34,6 +34,7 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     actor.commitments = bool(state.get("commitments", True))
     # Contract 10: a policy trained with learned movement moves over region rows; others keep the contract-8 pointer.
     actor.region_movement = bool(state.get("region_movement", False))
+    actor.learned_fission = bool(state.get("learned_fission", False))
     return actor, Normalizer.from_state(state["normalizer"])
 
 
@@ -58,14 +59,16 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
             "strategic": mode["strategic"][i].tolist(), "service": mode["service"][i].tolist(),
             "clothingRoute": int(mode["clothing"][i]), "shelterRoute": int(mode["shelter"][i]),
             "movement": (region_code(int(mode["region"][i])) if region else int(mode["movement"][i])) if movement
-                        else contracts.NATIVE_MOVEMENT, "fission": -1,
+                        else contracts.NATIVE_MOVEMENT,
+            "fission": int(mode["fission"][i]) if getattr(actor, "learned_fission", False) else -1,
             "commit": contracts.SPANS[int(mode["span"][i])],
         }
     return actions
 
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
-            commitments: bool | None = None, region: bool | None = None, warmup: int = 0) -> dict[str, Any]:
+            commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
+            fission: bool | None = None) -> dict[str, Any]:
     """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
     ``warmup``: the heuristic plays that many turns first (selected fixture states, e.g. valley fixtures); they count
     toward neither welfare nor decisions."""
@@ -77,10 +80,13 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             actor.commitments = commitments
         if region is not None:
             actor.region_movement = region
+        if fission is not None:
+            actor.learned_fission = fission
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     spans: dict[int, int] = {}
     moves = 0
+    policies: dict[int, int] = {}
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(warmup):
@@ -92,6 +98,7 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                 spans[action.get("commit", 1)] = spans.get(action.get("commit", 1), 0) + 1
                 code = action.get("movement", contracts.NATIVE_MOVEMENT)
                 moves += int(code == contracts.KEEP_INTENT or code > contracts.REGION_BASE)
+                policies[action.get("fission", -1)] = policies.get(action.get("fission", -1), 0) + 1
             for camp, mix in mixes.items():
                 if camp in previous:
                     changes.append(0.5 * float(np.abs(mix - previous[camp]).sum()))
@@ -129,6 +136,9 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         "commit_share": sum(v for k, v in spans.items() if k >= 2) / max(1, sum(spans.values())),
         # Contract 10: share of decisions that chose a region row other than the current tile, or kept an intent.
         "region_move_share": moves / max(1, sum(spans.values())),
+        # Learned fission: share of decisions setting Discourage (1) and Encourage (2); -1 is native.
+        "fission_discourage_share": policies.get(1, 0) / max(1, sum(policies.values())),
+        "fission_encourage_share": policies.get(2, 0) / max(1, sum(policies.values())),
     }
 
 
