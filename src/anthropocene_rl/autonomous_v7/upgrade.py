@@ -170,6 +170,14 @@ def _to_12(state: dict[str, Any]) -> dict[str, Any]:
     for seed, key in enumerate(("actor", "teacher_actor", "critic", "cost_critic")):
         if key in state:
             state[key] = _append_set(state[key], "activities", 12_000 + seed)
+    # A saved vector critic gets a zero head for every objective it lacks (qol_years from contract 12).
+    if "critic" in state and "heads.welfare.weight" in state["critic"]:
+        critic = dict(state["critic"])
+        for name in contracts.OBJECTIVES:
+            if f"heads.{name}.weight" not in critic:
+                critic[f"heads.{name}.weight"] = torch.zeros_like(critic["heads.welfare.weight"])
+                critic[f"heads.{name}.bias"] = torch.zeros_like(critic["heads.welfare.bias"])
+        state["critic"] = critic
     normalizer = dict(state["normalizer"])
     width = next(s for s in contracts.SETS if s[0] == "activities")[2]
     normalizer.setdefault("activities_mean", [0.0] * width)

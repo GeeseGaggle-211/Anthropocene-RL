@@ -113,6 +113,11 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
     if region is None:  # only native is legal
         region = np.zeros((len(batch["core"]), contracts.REGION_MOVEMENT_SLOTS), bool); region[:, contracts.REGION_NATIVE] = True
     out["region_movement_mask"] = torch.as_tensor(region, dtype=torch.bool, device=device)
+    # Elder personality: per-row weights over contracts.OBJECTIVES (absent: the default personality).
+    personality = batch.get("personality")
+    if personality is None:
+        personality = np.tile(np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32), (len(batch["core"]), 1))
+    out["personality"] = torch.as_tensor(personality, dtype=torch.float32, device=device)
     if "privileged" in batch and normalizer.privileged_mean is not None:
         out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std),
                                             dtype=torch.float32, device=device)
@@ -178,7 +183,8 @@ class TokenEncoder(nn.Module):
         self.position = nn.ModuleDict({name: nn.Embedding(rows, d) for name, rows, _ in contracts.SETS})
         for e in self.position.values():
             nn.init.normal_(e.weight, std=0.02)
-        self.village = nn.Linear(core_width * 2 + privileged_width, d)
+        # The village token reads the core observation and the Elder's personality (docs/MODEL9_PERSONALITY.md).
+        self.village = nn.Linear(core_width * 2 + privileged_width + contracts.PERSONALITY_WIDTH, d)
         layer = nn.TransformerEncoderLayer(d, heads, dim_feedforward=2 * d, dropout=0.0, batch_first=True, norm_first=True)
         self.attention = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
         self.norm = nn.LayerNorm(d)
@@ -187,6 +193,7 @@ class TokenEncoder(nn.Module):
 
     def forward(self, t: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         core = t["core"] if self.privileged_width == 0 else torch.cat([t["core"], t["privileged"]], dim=1)
+        core = torch.cat([core, t["personality"]], dim=1)
         tokens = [self.village(core).unsqueeze(1)]
         present = [torch.ones(len(core), 1, dtype=torch.bool, device=core.device)]
         spans = {}

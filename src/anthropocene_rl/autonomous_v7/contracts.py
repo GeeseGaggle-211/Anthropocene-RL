@@ -20,8 +20,11 @@ SPAN_HOLD, SPAN_SINGLE = 0, 1
 COMMITMENT_FEATURES = 11
 # Objective components (Docs/ElderCapitalCommitmentsDesign.md, Part 4). Lineage welfare is the interim reward; each
 # component gets its own value head and the advantage is a weighted sum. The default weights reproduce welfare.
-OBJECTIVES: tuple[str, ...] = ("welfare", "population_years", "trade_utility")
-OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0, "trade_utility": 0.0}
+OBJECTIVES: tuple[str, ...] = ("welfare", "population_years", "trade_utility", "qol_years")
+OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0, "trade_utility": 0.0, "qol_years": 0.0}
+# Elder personality (docs/MODEL9_PERSONALITY.md): a weighting over OBJECTIVES, an input to the token model's village
+# token and critics. The default personality is OBJECTIVE_WEIGHTS (welfare only), which reproduces non-personality runs.
+PERSONALITY_WIDTH = len(OBJECTIVES)
 # Contract 11: the trade_utility weight a --learned-trade run uses unless --objective-weights sets it. Trade gains already
 # reach welfare through the goods; this small extra credit speeds learning for economies whose output they cannot use.
 TRADE_UTILITY_WEIGHT = 0.1

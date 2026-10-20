@@ -282,13 +282,27 @@ def _cost(v: dict[str, Any], founded_turn: int, turn: int) -> float:
 
 
 def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage: Stage,
-            generator: torch.Generator, workers: int = 6, floor: float = -2.0) -> Rollout:
+            generator: torch.Generator, workers: int = 6, floor: float = -2.0, personality=None) -> Rollout:
     """Run every world for ``turns`` steps with the sampled shared policy (worlds step in lockstep). A world is a
-    seed or a (seed, withheld-technology mask) pair."""
+    seed or a (seed, withheld-technology mask) pair. ``personality``: a sampler of Elder personalities, drawn per
+    (world, lineage) and inherited by daughters; None keeps the default personality (no input)."""
     worlds = [(s, 0) if isinstance(s, int) else (int(s[0]), int(s[1])) for s in seeds]
     seeds = [s for s, _ in worlds]
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
+    traits: list[dict[int, np.ndarray]] = [{} for _ in seeds]
+
+    def with_personality(batch: dict[str, np.ndarray], villages: list[tuple[int, dict]]) -> dict[str, np.ndarray]:
+        if personality is None:
+            return batch
+        rows = []
+        for w, v in villages:
+            society, parent = int(v["society"]), int(v.get("parentSociety", 0))
+            if society not in traits[w]:
+                traits[w][society] = traits[w][parent] if parent in traits[w] else personality()
+            rows.append(traits[w][society])
+        batch["personality"] = np.asarray(rows, dtype=np.float32)
+        return batch
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             steps = list(pool.map(lambda pair: pair[0].reset(pair[1][0], movement=stage.bridge_movement, withheld=pair[1][1]),
@@ -299,7 +313,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                         if v.get("observation") is not None and not v.get("terminated")]
                 if not live:
                     break
-                batch = village_batch([v for _, v in live])
+                batch = with_personality(village_batch([v for _, v in live]), live)
                 t = to_tensors(batch, normalizer)
                 with torch.no_grad():
                     out = explore(actor(t), floor)
@@ -343,7 +357,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
             tail = [(w, v) for w, s in enumerate(steps) for v in s["villages"]
                     if v.get("observation") is not None and not v.get("terminated")]
             if tail:
-                roll.bootstrap_obs.append(village_batch([v for _, v in tail]))
+                roll.bootstrap_obs.append(with_personality(village_batch([v for _, v in tail]), tail))
                 index = {(w, int(v["camp"])): i for i, (w, v) in enumerate(tail)}
                 o = roll.outcome
                 last: dict[tuple[int, int], int] = {}
@@ -385,6 +399,18 @@ def vector_values(critic: VectorCritic, batch: dict[str, np.ndarray], normalizer
 def combine(advantages: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
     """The policy's advantage: the weighted sum of component advantages (Part 4 of the commitments design)."""
     return sum(float(weights.get(name, 0.0)) * value for name, value in advantages.items())
+
+
+def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray) -> np.ndarray:
+    """Per-row personality weights over contracts.OBJECTIVES on scale-normalised component advantages: components
+    differ by orders of magnitude (population-years against QoL-years), so a weight means a share of each component's
+    own spread. The result is rescaled to the welfare component's spread, keeping learning rates comparable."""
+    scale = {name: float(np.std(a)) + 1e-9 for name, a in advantages.items()}
+    total = np.zeros(len(personality))
+    for k, name in enumerate(contracts.OBJECTIVES):
+        if name in advantages:
+            total = total + personality[:, k] * advantages[name] / scale[name]
+    return total * scale.get("welfare", 1.0)
 
 
 def gae(batch: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray, bootstrap: np.ndarray,
@@ -445,6 +471,30 @@ class Hyper:
     break_cost: float = 0.01       # contract 9: reward cost of a voluntary break (re-deciding while a hold was legal),
                                    # as a share of the village's welfare that turn
     objective_weights: dict = field(default_factory=lambda: dict(contracts.OBJECTIVE_WEIGHTS))
+    # Elder personality distribution (docs/MODEL9_PERSONALITY.md): "default", "fixed:w,w,w,w" or "dirichlet:alpha";
+    # drawn per (world, lineage), inherited by daughters. Non-default personalities weight scale-normalised component
+    # advantages per row.
+    personality: str = "default"
+
+
+def default_personality() -> np.ndarray:
+    return np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32)
+
+
+def personality_sampler(spec: str, rng: np.random.Generator):
+    """A draw of one personality (weights over contracts.OBJECTIVES, summing to 1)."""
+    if spec == "default":
+        return lambda: default_personality()
+    kind, _, arg = spec.partition(":")
+    if kind == "fixed":
+        w = np.maximum(0.0, np.asarray([float(x) for x in arg.split(",")], np.float32))
+        if len(w) != contracts.PERSONALITY_WIDTH or not w.sum() > 0:
+            raise ValueError(f"a fixed personality needs {contracts.PERSONALITY_WIDTH} non-negative weights")
+        return lambda: (w / w.sum()).astype(np.float32)
+    if kind == "dirichlet":
+        alpha = float(arg)
+        return lambda: rng.dirichlet(np.full(contracts.PERSONALITY_WIDTH, alpha)).astype(np.float32)
+    raise ValueError(f"unknown personality spec {spec!r}")
 
 
 def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
@@ -500,7 +550,8 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
               seeds: list[int], turns: int, stage: Stage, hyper: Hyper, optimizers: tuple, lagrange: float,
               generator: torch.Generator, rng: np.random.Generator,
               grassland: frozenset = frozenset()) -> tuple[float, dict[str, float]]:
-    roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor)
+    sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
+    roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler)
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
     change = mix_changes(batch, draws)
@@ -527,7 +578,8 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
             if name in tails:
                 boot[rows] = tails[name][batch["bootstrap_index"][rows]] * np.maximum(1.0, batch["population"][rows])
             advantages[name], target_by[name] = gae(batch, components[name], value_by[name], boot)
-        advantage = combine(advantages, hyper.objective_weights)
+        advantage = (combine(advantages, hyper.objective_weights) if "personality" not in batch
+                     else combine_personal(advantages, batch["personality"]))
         target = {name: data.scale_free(value, batch) for name, value in target_by.items()}
     else:
         value = values(critic, batch, normalizer)
@@ -668,6 +720,8 @@ def main() -> int:
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
     parser.add_argument("--learned-movement", action="store_true",
                         help="contract 10: the policy moves over region rows with destination intents (mix given the destination)")
+    parser.add_argument("--personality", default="default",
+                        help="Elder personalities for training: default | fixed:w,w,w,w | dirichlet:alpha (token model only)")
     parser.add_argument("--resume", action="store_true",
                         help="continue from <out>/resume.pt when present (preemptible VMs); otherwise start fresh")
     parser.add_argument("--learned-trade", action="store_true",
@@ -705,7 +759,7 @@ def main() -> int:
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
     # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised trade utility).
-    if args.vector_critic or state.get("vector_critic") or args.learned_trade:
+    if args.vector_critic or state.get("vector_critic") or args.learned_trade or args.personality != "default":
         if state.get("vector_critic"):
             vector = VectorCritic(core_width, privileged_width=privileged, token=token); vector.load_state_dict(state["critic"]); critic = vector
         else:
@@ -751,6 +805,11 @@ def main() -> int:
     if args.learned_trade:
         stage = dataclasses.replace(stage, trade=True)
         hyper.objective_weights["trade_utility"] = contracts.TRADE_UTILITY_WEIGHT
+    if args.personality != "default":
+        if not token:
+            raise ValueError("personalities need the token model (its village token reads them)")
+        hyper.personality = args.personality
+        personality_sampler(args.personality, rng)  # validate the spec
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     if args.objective_weights:

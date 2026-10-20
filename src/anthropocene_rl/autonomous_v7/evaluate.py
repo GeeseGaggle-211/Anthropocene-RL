@@ -40,15 +40,19 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
 
 
 def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]],
-                   movement: bool = False, mixes: dict[int, np.ndarray] | None = None) -> dict[int, dict[str, Any]]:
+                   movement: bool = False, mixes: dict[int, np.ndarray] | None = None,
+                   personality: list[float] | None = None) -> dict[int, dict[str, Any]]:
     """Deterministic actions; movement stays native unless ``movement`` (curriculum stage 4). ``mixes`` receives each
     village's economy mix."""
     live = [v for v in villages if v.get("observation") is not None and not v.get("terminated")]
     if not live:
         return {}
     region = movement and getattr(actor, "region_movement", False)
+    batch = observation_batch(live)
+    if personality is not None:  # every village of the rollout at this personality (a sweep point)
+        batch["personality"] = np.tile(np.asarray(personality, np.float32), (len(live), 1))
     with torch.no_grad():
-        mode = act_deterministic(actor(to_tensors(observation_batch(live), normalizer)), region=region)
+        mode = act_deterministic(actor(to_tensors(batch, normalizer)), region=region)
     if not getattr(actor, "commitments", True):
         mode["span"] = np.full(len(live), contracts.SPAN_SINGLE)
     actions = {}
@@ -73,7 +77,7 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
-            fission: bool | None = None, trade: bool | None = None) -> dict[str, Any]:
+            fission: bool | None = None, trade: bool | None = None, personality: list[float] | None = None) -> dict[str, Any]:
     """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
     ``warmup``: the heuristic plays that many turns first (selected fixture states, e.g. valley fixtures); they count
     toward neither welfare nor decisions."""
@@ -101,7 +105,7 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             step = bridge.step({})
         for _ in range(turns):
             mixes: dict[int, np.ndarray] = {}
-            actions = policy_actions(actor, normalizer, step["villages"], movement, mixes) if actor is not None else {}
+            actions = policy_actions(actor, normalizer, step["villages"], movement, mixes, personality) if actor is not None else {}
             for action in actions.values():
                 spans[action.get("commit", 1)] = spans.get(action.get("commit", 1), 0) + 1
                 code = action.get("movement", contracts.NATIVE_MOVEMENT)

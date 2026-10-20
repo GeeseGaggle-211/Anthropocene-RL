@@ -233,6 +233,33 @@ def test_token_model_draws_recompute_their_log_probability(stage: str) -> None:
     assert torch.allclose(lp1, lp2, atol=1e-5) and torch.all(torch.isfinite(lp1)) and torch.all(torch.isfinite(entropy))
 
 
+def test_personality_conditions_the_token_model_and_weights_advantages() -> None:
+    b = batch(); normalizer = Normalizer.fit(b)
+    torch.manual_seed(9)
+    actor = Actor(b["core"].shape[1], token=True); actor.eval()
+    t = to_tensors(b, normalizer)
+    assert torch.allclose(t["personality"][0], torch.tensor(ppo.default_personality()))
+    qol = dict(t); qol["personality"] = torch.tensor([[0, 0, 0, 1.0]] * len(t["core"]))
+    with torch.no_grad():
+        assert not torch.allclose(actor(t)["strategic_mean"], actor(qol)["strategic_mean"])
+    rng = np.random.default_rng(0)
+    for spec in ("default", "fixed:1,1,0,2", "dirichlet:1.0"):
+        p = ppo.personality_sampler(spec, rng)()
+        assert p.shape == (contracts.PERSONALITY_WIDTH,) and abs(float(p.sum()) - 1) < 1e-5 and (p >= 0).all()
+    advantages = {name: np.random.default_rng(k).normal(scale=10 ** k, size=50) for k, name in enumerate(contracts.OBJECTIVES)}
+    welfare_only = np.tile(ppo.default_personality(), (50, 1))
+    assert np.allclose(ppo.combine_personal(advantages, welfare_only), advantages["welfare"])
+    mixed = np.tile(np.asarray([0.5, 0.5, 0, 0], np.float32), (50, 1))
+    scale = {k: np.std(v) for k, v in advantages.items()}
+    expected = (0.5 * advantages["welfare"] / scale["welfare"] + 0.5 * advantages["population_years"] / scale["population_years"]) * scale["welfare"]
+    assert np.allclose(ppo.combine_personal(advantages, mixed), expected, rtol=1e-6)
+    d = {"world": np.array([1, 1]), "camp": np.array([1, 2]), "turn": np.array([0, 0]), "society": np.array([5, 6]),
+         "parent_society": np.array([0, 0]), "prior_population": np.array([100, 50]), "qol": np.array([.8, .5]),
+         "years": np.full(2, 20.0), "terminated": np.array([False, True])}
+    parts = data.reward_components(d)
+    assert np.allclose(parts["qol_years"], [0.8 * 20, 0.0])
+
+
 def test_learned_trade_draws_score_anchor_and_reach_the_bridge() -> None:
     import dataclasses
     actor, t = setup()

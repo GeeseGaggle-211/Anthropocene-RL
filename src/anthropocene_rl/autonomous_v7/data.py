@@ -79,7 +79,12 @@ def reward_components(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     utility, in person-QoL-years on true valuations; self-interested: a partner's gain is never credited."""
     n = len(data["camp"])
     trade = np.asarray(data["trade_utility"], dtype=np.float64) if "trade_utility" in data else np.zeros(n)
-    return {"welfare": lineage_rewards(data), "population_years": lineage_rewards(data, qol=False), "trade_utility": trade}
+    # qol_years: the lineage QoL over the interval regardless of headcount (living settlements); welfare is P times it.
+    welfare = lineage_rewards(data)
+    p = np.maximum(1.0, np.asarray(data["prior_population"], dtype=np.float64))
+    alive = ~np.asarray(data["terminated"], dtype=bool)
+    qol_years = np.where(alive & (np.asarray(data["prior_population"]) > 0), welfare / p, 0.0)
+    return {"welfare": welfare, "population_years": lineage_rewards(data, qol=False), "trade_utility": trade, "qol_years": qol_years}
 
 
 def sequences(data: dict[str, np.ndarray]) -> list[np.ndarray]:

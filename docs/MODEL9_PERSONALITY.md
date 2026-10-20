@@ -1,6 +1,14 @@
 # model9: Elder personalities (preference-conditioned policy), design
 
-Status: design, 20 October 2026, following the user's direction:
+Status: implemented in the token model, 20 October 2026. The pieces:
+- `contracts.PERSONALITY_WIDTH` and the `qol_years` component;
+- the village token reads `t["personality"]`;
+- `ppo --personality default|fixed:...|dirichlet:a`, drawn per (world, lineage) and inherited by daughters;
+- `combine_personal` for the per-row, scale-normalised advantage;
+- evaluation at a given personality, and `personality_sweep.py`.
+
+Personalities need the token model (the per-set-pooling network rejects them). An end-to-end smoke run (token clone,
+Dirichlet PPO, sweep) passes. The design follows, written for the user's direction:
 - Elders should have different personalities; some value QoL over population and vice versa.
 - The mechanism should scale.
 - It is "less a reward function change than a personality vector".
