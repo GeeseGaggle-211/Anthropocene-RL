@@ -326,6 +326,75 @@ Decision rule:
 Secondary measures: the other four regimes on the same rule (3% tolerance), each arm against the reference, and the
 same comparison on `best.pt` where selection kept one.
 
+### Decisive stage-3 experiment: results (20 October 2026)
+
+The run took 6.5 hours (23:09-05:43): 6 trainings in two batches, then about 1.1 hours per 1,600-rollout
+evaluation. Evidence is in `eval10/decisive-{latest,best}.json` and `-compare.json`.
+
+Treatment (stage 3) against control (stage 2 continued). The ratio is of arm-mean welfare summed over worlds, with
+95% bootstrap intervals over training seeds and shared worlds:
+
+| Regime (worlds) | `latest.pt` (primary) | `best.pt` |
+| --- | --- | --- |
+| Default (54) | **0.987 [0.955, 1.017]** | 0.983 [0.963, 1.003] |
+| Herding (20) | 1.003 [0.983, 1.026] | 1.006 [0.985, 1.027] |
+| Farming (20) | 0.979 [0.941, 1.023] | 0.990 [0.955, 1.028] |
+| Fishing (20) | 1.014 [0.952, 1.082] | 0.980 [0.914, 1.046] |
+| Grassland (10) | 0.984 [0.943, 1.023] | 0.988 [0.951, 1.028] |
+
+Per seed, welfare against the teacher (`latest.pt`):
+- default worlds:
+  - control 0.993, 1.023, 0.998, 1.014, 1.004 (mean 1.006, sd 0.012);
+  - stage 3 0.992, 1.015, 0.948, 0.994, 1.015 (mean 0.993, sd 0.027).
+- stage-1 init: 0.967;
+- stage-2 init, single-turn reference: 1.008.
+
+Each arm against that reference (`latest.pt`):
+
+| Regime | Control | Stage 3 |
+| --- | --- | --- |
+| Default | 0.999 [0.970, 1.027] | 0.985 [0.953, 1.018] |
+| Herding | 1.016 [0.993, 1.039] | 1.020 [0.997, 1.044] |
+| Farming | **1.077 [1.028, 1.132]** | 1.055 [0.998, 1.110] |
+| Fishing | 0.956 [0.876, 1.043] | 0.970 [0.883, 1.069] |
+| Grassland | 1.002 [0.965, 1.044] | 0.986 [0.949, 1.023] |
+
+Gate against the stage-1 init (3% regime tolerance, no extra extinctions):
+
+| Checkpoint | Control passes | Stage 3 passes |
+| --- | --- | --- |
+| `latest.pt` | 4 of 5 | 1 of 5 |
+| `best.pt` | 3 of 5 | 3 of 5 |
+
+Five of the ten failures are a single extinction on the 20 fishing worlds.
+
+Findings:
+
+1. **Pre-registered verdict: inconclusive.**
+   - The primary interval contains 1, but it does not lie within ±2%.
+   - A stage-3 regression of up to about 4.5% on default worlds is not ruled out, and neither is a 1.7% gain.
+   - Both point estimates are -1.3 to -1.7%, and `best.pt` is borderline (upper bound 1.003).
+   - Stage 3 is **less stable rather than uniformly worse**: four of five seeds lie in the control's range, and
+     seed 5 falls to 0.948. Its default-world seed sd is twice the control's.
+2. **Forty more iterations of PPO do not improve default worlds in either arm.**
+   - The control against its own init gives 0.999 [0.970, 1.027].
+   - At this batch size and anchor strength, learning on default worlds has plateaued at about 1% above the teacher.
+   - The gains that remain are in the capability fixtures: farming +7.7% (interval excludes 1) and herding +1.6%.
+   - This matters more for scale-out than the stage-3 question: longer runs of the same configuration are not
+     expected to move default worlds. Batch size, the teacher anchor and the reward need testing as variables.
+3. **Seed noise dominates the uncertainty.**
+   - Per-world differences between the arms are small: the largest is 0.34% of total welfare.
+   - The interval is set by seed-to-seed spread: default sd 0.012-0.027 per seed at `latest.pt`, 0.005-0.013 at
+     `best.pt`.
+   - Narrowing the primary interval to ±1% needs about 20-45 seeds per arm. That is the 64-vCPU machine's job, not
+     more worlds.
+4. **The extinction rule makes the gate a coin flip.**
+   - One extinction in 20 fishing worlds decides half the failures, and its occurrence varies between seeds of the
+     same arm.
+   - The gate should use an extinction rate with an interval rather than "no more than the init".
+5. **Seed 7 settles the selection artefact.**
+   - With the single-turn baseline, selection kept a `best.pt` for every new seed.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
