@@ -504,6 +504,39 @@ welfare objective is nearly indifferent to. Whether "more people, slightly worse
 question, not an optimisation one. It is reported to the user as the first concrete case of welfare shaping
 behaviour toward growth at QoL's expense.
 
+### Economy-only ceiling on default worlds (20 October 2026)
+
+E2's rule sends a "no cell moves" result to the ceiling question. Method:
+- simulator `--model9-oracle` on DEVELOPMENT 2000-2019, 25 turns, laptop;
+- every village that can both farm and herd gets one fixed directive for the whole horizon;
+- routes, services, movement and fission stay native;
+- each world's welfare is compared with the heuristic's.
+
+| Fixed arm | Mean world welfare / heuristic | Worlds above 1 (of 20) |
+| --- | ---: | ---: |
+| keep-all-lowdev | 1.010 | 8 |
+| balanced | 1.006 | 7 |
+| herd-lean | 0.999 | 8 |
+| pure-herd | 0.983 | 7 |
+| farm-lean | 0.984 | 6 |
+| balanced-highdev | 0.980 | 6 |
+| balanced-nodev | 0.964 | 4 |
+| pure-farm | 0.958 | 3 |
+
+- The best fixed arm chosen per world averages 1.037 (median 1.018; 12 of 20 above 1).
+- The arms' welfare spreads by 4.0% (sd) within a world, mostly from the chaotic divergence already measured.
+- With noise of that size, the best of 8 identical arms would exceed the mean by about 1.4 sd (about +5.7%). The
+  per-world best is therefore no evidence of headroom by itself.
+
+**Reading.**
+- The best static mixed-use posture is worth about +1% over the heuristic on default worlds. That is what the
+  trained policies already reach (+1 to +2% against the teacher).
+- Economy-only control of mixed-use villages looks close to its ceiling.
+- The oracle bounds static directives only. An adaptive policy could beat them in principle, but RL at this budget
+  has not.
+- Further default-world gains are more likely from levers the economy head does not hold: where settlements live and
+  split (the 2x2's movement arms), trade, and the reward itself (E2's QoL-for-population trade).
+
 ### E3: a robust extinction gate (20 October 2026)
 
 `paired_compare` now reports each arm's extinct settlements per world, pooled over its seeds, and the difference
