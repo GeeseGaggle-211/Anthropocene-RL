@@ -66,6 +66,9 @@ class Stage:
     # Learned fission timing (--learned-fission): the policy chooses the fission policy (Neutral, Discourage,
     # Encourage: the split threshold and daughter share); the destination stays native. Anchored to the teacher.
     fission: bool = False
+    # Contract 11 (--learned-trade): the policy sets the trade posture (relative values, offer gates, export share),
+    # capital controls anchored to the teacher's native posture.
+    trade: bool = False
 
     @property
     def bridge_movement(self) -> bool:
@@ -110,8 +113,9 @@ def explore(out: dict[str, torch.Tensor], floor: float) -> dict[str, torch.Tenso
     """Behaviour cloning drives the logistic-normal scales toward the clamp (the teacher is near-deterministic).
     PPO samples, recomputes and anchors with the same floored scales, so ratios stay bounded."""
     out = dict(out)
-    for key in ("strategic_log_std", "service_log_std", "mix_log_std"):
-        out[key] = out[key].clamp(min=floor)
+    for key in ("strategic_log_std", "service_log_std", "mix_log_std", "trade_value_log_std", "trade_share_log_std"):
+        if key in out:
+            out[key] = out[key].clamp(min=floor)
     return out
 
 
@@ -148,6 +152,11 @@ def sample(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], stage: Stag
         "span": categorical(out["span"]) if stage.commitments else torch.full((len(mu),), contracts.SPAN_SINGLE, dtype=torch.long),
         "fission": categorical(out["fission"]) if stage.fission else torch.full((len(mu),), -1, dtype=torch.long),
     }
+    if stage.trade:
+        gate = out["trade_gate"]
+        draw["trade_value_z"] = gauss(out["trade_value_mean"], out["trade_value_log_std"])
+        draw["trade_gate"] = categorical(gate.reshape(-1, gate.shape[2])).view(gate.shape[0], gate.shape[1])
+        draw["trade_share_z"] = gauss(out["trade_share_mean"], out["trade_share_log_std"])
     return draw
 
 
@@ -175,6 +184,14 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     if stage.routes:
         for head in ("clothing", "shelter"):
             a, b = categorical(head); capital_lp = capital_lp + a; capital_ent = capital_ent + b
+    if stage.trade:
+        # The trade posture is a capital control: a hold row re-emits the committed posture.
+        capital_lp = capital_lp + _normal_logp(draw["trade_value_z"], out["trade_value_mean"], out["trade_value_log_std"]).sum(dim=1)
+        capital_lp = capital_lp + _normal_logp(draw["trade_share_z"], out["trade_share_mean"], out["trade_share_log_std"])
+        capital_ent = capital_ent + (out["trade_value_log_std"] + half_log_2pie).sum(dim=1) + out["trade_share_log_std"] + half_log_2pie
+        logq = torch.log_softmax(out["trade_gate"], dim=2)
+        capital_lp = capital_lp + logq.gather(2, draw["trade_gate"].clamp(min=0).unsqueeze(2)).squeeze(2).sum(dim=1)
+        capital_ent = capital_ent - (logq.exp() * logq).sum(dim=(1, 2))
     if stage.region_movement:
         a, b = categorical("region"); lp = lp + a; entropy = entropy + b
     elif stage.movement:
@@ -189,7 +206,7 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
 
 
 def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], strategic: bool = True,
-               routes: bool = False, fission: bool = False) -> torch.Tensor:
+               routes: bool = False, fission: bool = False, trade: bool = False) -> torch.Tensor:
     """KL(policy || teacher) on the anchored heads: service levels, and (stage 2 only) the unit strategic controls.
     The economy mix and routes are never anchored; from stage 3 the retained field/herd levels are free too, so
     pastoral and mixed postures can depart from the field-leaning teacher."""
@@ -203,6 +220,11 @@ def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], s
     for head in heads:
         logp, logq = torch.log_softmax(out[head], dim=1), torch.log_softmax(teacher[head], dim=1)
         kl = kl + (logp.exp() * (logp - logq)).sum(dim=1)
+    if trade:
+        kl = kl + gauss_kl(out["trade_value_mean"], out["trade_value_log_std"], teacher["trade_value_mean"], teacher["trade_value_log_std"]).sum(dim=1)
+        kl = kl + gauss_kl(out["trade_share_mean"], out["trade_share_log_std"], teacher["trade_share_mean"], teacher["trade_share_log_std"])
+        logp, logq = torch.log_softmax(out["trade_gate"], dim=2), torch.log_softmax(teacher["trade_gate"], dim=2)
+        kl = kl + (logp.exp() * (logp - logq)).sum(dim=(1, 2))
     return kl
 
 
@@ -225,6 +247,11 @@ def to_bridge_actions(draw: dict[str, torch.Tensor], t: dict[str, torch.Tensor])
             "fission": int(draw["fission"][i]) if "fission" in draw else -1,
             "commit": contracts.SPANS[int(draw["span"][i])],
         })
+        if "trade_value_z" in draw:
+            lo, hi = contracts.TRADE_VALUE_RANGE
+            actions[-1]["tradeValue"] = np.clip(np.exp(draw["trade_value_z"][i].numpy()), lo, hi).tolist()
+            actions[-1]["tradeGate"] = [int(g) for g in draw["trade_gate"][i]]
+            actions[-1]["tradeShare"] = float(torch.sigmoid(draw["trade_share_z"][i]))
     return actions
 
 
@@ -235,7 +262,8 @@ class Rollout:
     obs: list[dict[str, np.ndarray]] = field(default_factory=list)
     draws: list[dict[str, torch.Tensor]] = field(default_factory=list)
     logp: list[np.ndarray] = field(default_factory=list)
-    outcome: dict[str, list] = field(default_factory=lambda: {k: [] for k in data.OUTCOME_KEYS + ["world", "seed", "mask", "cost", "bootstrap_index"]})
+    outcome: dict[str, list] = field(default_factory=lambda: {k: [] for k in data.OUTCOME_KEYS + ["world", "seed", "mask", "cost", "bootstrap_index",
+                                                                                         "trade_utility"]})
     bootstrap_obs: list[dict[str, np.ndarray]] = field(default_factory=list)
 
 
@@ -303,6 +331,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                         o["prior_population"].append(v["priorPopulation"]); o["population"].append(v["population"])
                         o["qol"].append(v["qol"]); o["nutrition"].append(v["nutrition"]); o["years"].append(v["years"])
                         o["welfare"].append(v["welfare"]); o["terminated"].append(v["terminated"])
+                        o["trade_utility"].append(float(v.get("tradeUtility", 0.0)))
                         o["cost"].append(_cost(v, founded[w][v["camp"]], s["turn"]))
                         o["bootstrap_index"].append(-1)
                 order = np.asarray(kept, dtype=np.int64)
@@ -443,7 +472,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             policy = -(w * torch.min(ratio * adv, ratio.clamp(1 - hyper.clip, 1 + hyper.clip) * adv)).sum() / w.sum()
             with torch.no_grad():
                 anchor = explore(teacher(t), hyper.log_std_floor)
-            kl = teacher_kl(out, anchor, stage.anchor_strategic, stage.anchor_routes, stage.fission).mean()
+            kl = teacher_kl(out, anchor, stage.anchor_strategic, stage.anchor_routes, stage.fission, stage.trade).mean()
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
             actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
             logits = critic(t)
@@ -590,7 +619,7 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
                          movement: bool = False, commitments: bool | None = None, region: bool | None = None,
-                         fission: bool | None = None) -> dict[str, float]:
+                         fission: bool | None = None, trade: bool | None = None) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
     the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn). A world is
     (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns)."""
@@ -600,7 +629,7 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
         rows = list(pool.map(rollout, [w[0] for w in worlds], [turns] * len(worlds),
                              [None if checkpoint is None else str(checkpoint)] * len(worlds), [w[1] for w in worlds],
                              [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds),
-                             [w[2] if len(w) > 2 else 0 for w in worlds], [fission] * len(worlds)))
+                             [w[2] if len(w) > 2 else 0 for w in worlds], [fission] * len(worlds), [trade] * len(worlds)))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -612,6 +641,10 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
             "hold_share": float(np.mean([r.get("hold_share", 0.0) for r in rows])),
             "commit_share": float(np.mean([r.get("commit_share", 0.0) for r in rows])),
             "region_move_share": float(np.mean([r.get("region_move_share", 0.0) for r in rows])),
+            "fission_encourage_share": float(np.mean([r.get("fission_encourage_share", 0.0) for r in rows])),
+            "fission_discourage_share": float(np.mean([r.get("fission_discourage_share", 0.0) for r in rows])),
+            "trade_utility": float(sum(r.get("trade_utility", 0.0) for r in rows)),
+            "trades": float(sum(r.get("trades", 0) for r in rows)),
             # Per-world outcomes, in world order, for paired comparisons across policies.
             "worlds": [[int(w[0]), int(w[1]), float(r["welfare"]), int(r["extinctions"])] for w, r in zip(worlds, rows)]}
 
@@ -634,6 +667,9 @@ def main() -> int:
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
     parser.add_argument("--learned-movement", action="store_true",
                         help="contract 10: the policy moves over region rows with destination intents (mix given the destination)")
+    parser.add_argument("--learned-trade", action="store_true",
+                        help="contract 11: the policy sets its trade posture; adds the trade_utility critic component "
+                             "(weight contracts.TRADE_UTILITY_WEIGHT unless --objective-weights sets it)")
     parser.add_argument("--learned-fission", action="store_true",
                         help="the policy chooses the fission policy (split timing and daughter share), anchored to the teacher")
     parser.add_argument("--observe-movement", action="store_true",
@@ -663,7 +699,8 @@ def main() -> int:
     missing, unexpected = actor.load_state_dict(state["actor"], strict=False)
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
-    if args.vector_critic or state.get("vector_critic"):
+    # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised trade utility).
+    if args.vector_critic or state.get("vector_critic") or args.learned_trade:
         if state.get("vector_critic"):
             vector = VectorCritic(core_width, privileged_width=privileged); vector.load_state_dict(state["critic"]); critic = vector
         else:
@@ -706,6 +743,9 @@ def main() -> int:
         stage = dataclasses.replace(stage, observe_movement=True)
     if args.learned_fission:
         stage = dataclasses.replace(stage, fission=True)
+    if args.learned_trade:
+        stage = dataclasses.replace(stage, trade=True)
+        hyper.objective_weights["trade_utility"] = contracts.TRADE_UTILITY_WEIGHT
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     if args.objective_weights:
@@ -732,7 +772,8 @@ def main() -> int:
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
                     "commitments": stage.commitments, "region_movement": stage.region_movement,
-                    "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
+                    "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "learned_trade": stage.trade,
+                    "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "lagrange": lagrange, "log": log}, path)
 
@@ -743,7 +784,7 @@ def main() -> int:
         result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.bridge_movement,
                                              commitments=stage.commitments,
                                              region=stage.region_movement or stage.observe_movement,
-                                             fission=stage.fission)
+                                             fission=stage.fission, trade=stage.trade)
                   for name, worlds in groups.items()}
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))

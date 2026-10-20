@@ -35,6 +35,7 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     # Contract 10: a policy trained with learned movement moves over region rows; others keep the contract-8 pointer.
     actor.region_movement = bool(state.get("region_movement", False))
     actor.learned_fission = bool(state.get("learned_fission", False))
+    actor.learned_trade = bool(state.get("learned_trade", False))
     return actor, Normalizer.from_state(state["normalizer"])
 
 
@@ -63,12 +64,16 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
             "fission": int(mode["fission"][i]) if getattr(actor, "learned_fission", False) else -1,
             "commit": contracts.SPANS[int(mode["span"][i])],
         }
+        if getattr(actor, "learned_trade", False):
+            actions[int(v["camp"])].update({"tradeValue": mode["trade_value"][i].tolist(),
+                                            "tradeGate": [int(g) for g in mode["trade_gate"][i]],
+                                            "tradeShare": float(mode["trade_share"][i])})
     return actions
 
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
-            fission: bool | None = None) -> dict[str, Any]:
+            fission: bool | None = None, trade: bool | None = None) -> dict[str, Any]:
     """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
     ``warmup``: the heuristic plays that many turns first (selected fixture states, e.g. valley fixtures); they count
     toward neither welfare nor decisions."""
@@ -82,11 +87,14 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             actor.region_movement = region
         if fission is not None:
             actor.learned_fission = fission
+        if trade is not None:
+            actor.learned_trade = trade
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     spans: dict[int, int] = {}
     moves = 0
     policies: dict[int, int] = {}
+    trade_utility = 0.0; trades = 0
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(warmup):
@@ -109,6 +117,7 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                 if v["priorPopulation"] <= 0:
                     continue
                 welfare += float(v["welfare"]); camp_turns += 1
+                trade_utility += float(v.get("tradeUtility", 0.0)); trades += int(abs(float(v.get("tradeUtility", 0.0))) > 0)
                 hungry += int(v["nutrition"] < 0.8 and not v["terminated"])
                 interventions += int(v["interventions"])
             if not any(not v["terminated"] for v in step["villages"]):
@@ -139,6 +148,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         # Learned fission: share of decisions setting Discourage (1) and Encourage (2); -1 is native.
         "fission_discourage_share": policies.get(1, 0) / max(1, sum(policies.values())),
         "fission_encourage_share": policies.get(2, 0) / max(1, sum(policies.values())),
+        # Contract 11: realised trade utility summed over villages and turns, and village-turns that traded.
+        "trade_utility": trade_utility, "trades": trades,
     }
 
 

@@ -19,7 +19,7 @@ import torch
 from torch import nn
 
 from . import contracts
-from .model import SetEncoder, init_span_head, NATIVE_START
+from .model import SetEncoder, init_span_head, init_trade_heads, NATIVE_START
 
 _CORE_KEY = "encoder.core.0.weight"
 _TRUNK_KEY = "encoder.trunk.0.weight"
@@ -98,16 +98,67 @@ def _to_10(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+# _to_10 above appends the regions set; _to_11 below the trade set (contract 11).
+
+
+_TRADE = next(s for s in contracts.SETS if s[0] == "trade")
+
+
+def _add_trade(net: dict[str, torch.Tensor], seed: int, actor: bool) -> dict[str, torch.Tensor]:
+    """Contract 11: the trade set's pooled block enters the trunk through zero columns; the actor gets the trade heads
+    at their native start; a vector critic gets a zero trade_utility head."""
+    net = dict(net)
+    if "encoder.sets.trade.row.0.weight" not in net:
+        hidden = net["encoder.sets.sites.row.2.weight"].shape[0]
+        w = net[_TRUNK_KEY]
+        net[_TRUNK_KEY] = torch.cat([w, torch.zeros(w.shape[0], 3 * hidden + 1, dtype=w.dtype)], dim=1)
+        with torch.random.fork_rng():
+            torch.manual_seed(seed)
+            encoder = SetEncoder(_TRADE[2], hidden)
+        for name, value in encoder.state_dict().items():
+            net["encoder.sets.trade." + name] = value.detach().clone()
+    if actor and "trade_value.weight" not in net:
+        from .model import Actor
+        width = net["stay.weight"].shape[1]
+        heads = Actor.__new__(Actor); nn.Module.__init__(heads)
+        groups = len(contracts.TRADE_GROUPS)
+        heads.trade_value = nn.Linear(width, 2 * groups); heads.trade_gate = nn.Linear(width, groups * contracts.TRADE_GATES)
+        heads.trade_share = nn.Linear(width, 2)
+        init_trade_heads(heads)
+        for name in ("trade_value", "trade_gate", "trade_share"):
+            layer = getattr(heads, name)
+            net[name + ".weight"] = layer.weight.detach().clone(); net[name + ".bias"] = layer.bias.detach().clone()
+    if "heads.welfare.weight" in net and "heads.trade_utility.weight" not in net:
+        net["heads.trade_utility.weight"] = torch.zeros_like(net["heads.welfare.weight"])
+        net["heads.trade_utility.bias"] = torch.zeros_like(net["heads.welfare.bias"])
+    return net
+
+
+def _to_11(state: dict[str, Any]) -> dict[str, Any]:
+    state = dict(state)
+    for seed, key in enumerate(("actor", "teacher_actor", "critic", "cost_critic")):
+        if key in state:
+            state[key] = _add_trade(state[key], 11_000 + seed, actor=key in ("actor", "teacher_actor"))
+    normalizer = dict(state["normalizer"])
+    normalizer.setdefault("trade_mean", [0.0] * _TRADE[2])
+    normalizer.setdefault("trade_std", [1.0] * _TRADE[2])
+    state["normalizer"] = normalizer
+    state["contract"] = 11
+    return state
+
+
 def upgrade(state: dict[str, Any]) -> dict[str, Any]:
     """Return a current-contract checkpoint state; current states pass through unchanged."""
     contract = int(state.get("contract", 8))
     if contract >= contracts.NATIVE_CONTRACT:
         return state
-    if contract not in (8, 9):
+    if contract not in (8, 9, 10):
         raise ValueError(f"no upgrade path from contract {contract}")
     original = contract
     if contract == 8:
         state = _to_9(state); contract = 9
-    state = _to_10(state)
-    state.setdefault("upgraded_from", original)  # a contract-9 state upgraded from 8 keeps its first origin
+    if contract == 9:
+        state = _to_10(state); contract = 10
+    state = _to_11(state)
+    state.setdefault("upgraded_from", original)  # an upgraded state keeps its first origin
     return state

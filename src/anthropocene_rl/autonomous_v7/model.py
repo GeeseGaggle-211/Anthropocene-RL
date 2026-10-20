@@ -205,6 +205,25 @@ def init_region_heads(actor: "Actor") -> None:
         actor.region_native.bias.fill_(float(np.log(NATIVE_START / (1 - NATIVE_START) * others)))
 
 
+# Contract 11 trade heads start at the native posture: log relative value 0, gates at Make with probability
+# TRADE_GATE_START, and an export share whose mean sigmoid(TRADE_SHARE_START) snaps to 0 in deterministic evaluation
+# (the shipped share is 0) while sampled shares explore small making capacity.
+TRADE_GATE_START = 0.8
+TRADE_SHARE_START = -4.6
+TRADE_LOG_STD_START = -2.3
+
+
+def init_trade_heads(actor: "Actor") -> None:
+    with torch.no_grad():
+        for layer in (actor.trade_value, actor.trade_gate, actor.trade_share):
+            layer.weight.zero_(); layer.bias.zero_()
+        groups = len(contracts.TRADE_GROUPS)
+        actor.trade_value.bias[groups:] = TRADE_LOG_STD_START
+        gate = actor.trade_gate.bias.view(groups, contracts.TRADE_GATES)
+        gate[:, contracts.TRADE_MAKE] = float(np.log(TRADE_GATE_START / (1 - TRADE_GATE_START) * (contracts.TRADE_GATES - 1)))
+        actor.trade_share.bias[0] = TRADE_SHARE_START; actor.trade_share.bias[1] = TRADE_LOG_STD_START
+
+
 def condition_mix(out: dict[str, torch.Tensor], slot: torch.Tensor) -> dict[str, torch.Tensor]:
     """The economy mix given the chosen region-movement slot (contract 10: the mix is chosen after the site)."""
     if "mix_offset" not in out:
@@ -253,6 +272,12 @@ class Actor(nn.Module):
         self.region_query = nn.Linear(width, hidden)
         self.mix_region = nn.Linear(hidden, len(contracts.ECONOMY_MIX))
         init_region_heads(self)
+        # Contract 11 trade posture: relative value per group, offer gate per group, export labour share.
+        groups = len(contracts.TRADE_GROUPS)
+        self.trade_value = nn.Linear(width, 2 * groups)
+        self.trade_gate = nn.Linear(width, groups * contracts.TRADE_GATES)
+        self.trade_share = nn.Linear(width, 2)
+        init_trade_heads(self)
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
@@ -266,7 +291,13 @@ class Actor(nn.Module):
         region_scores = torch.einsum("bh,brh->br", self.region_query(h), region_rows) / np.sqrt(self.encoder.set_hidden)
         region = torch.cat([self.region_native(h), self.region_keep(h), region_scores], dim=1)
         mix_offset = torch.cat([torch.zeros(len(h), 2, len(contracts.ECONOMY_MIX), device=h.device), self.mix_region(region_rows)], dim=1)
+        groups = len(contracts.TRADE_GROUPS)
+        trade_value = self.trade_value(e).view(-1, 2, groups)
+        trade_share = self.trade_share(e)
         return {
+            "trade_value_mean": trade_value[:, 0], "trade_value_log_std": trade_value[:, 1].clamp(-5, 1),
+            "trade_gate": self.trade_gate(e).view(-1, groups, contracts.TRADE_GATES),
+            "trade_share_mean": trade_share[:, 0], "trade_share_log_std": trade_share[:, 1].clamp(-5, 1),
             "region": region.masked_fill(~t["region_movement_mask"], MASKED),
             "mix_offset": mix_offset,
             "strategic_mean": strategic[..., 0], "strategic_log_std": strategic[..., 1].clamp(-5, 1),
@@ -415,6 +446,11 @@ def act_deterministic(out: dict[str, torch.Tensor], region: bool = False) -> dic
         "movement": out["movement"].argmax(dim=1).cpu().numpy() - 1,
         "span": out["span"].argmax(dim=1).cpu().numpy() if "span" in out else np.full(len(mix), contracts.SPAN_SINGLE),
         "region": slot.cpu().numpy(),
+        # Contract 11: relative values (clamped), the most likely gate, and the export share (snapped to 0 below 0.01).
+        "trade_value": np.clip(np.exp(out["trade_value_mean"].detach().cpu().numpy()), *contracts.TRADE_VALUE_RANGE),
+        "trade_gate": out["trade_gate"].argmax(dim=2).cpu().numpy(),
+        "trade_share": np.where(torch.sigmoid(out["trade_share_mean"]).detach().cpu().numpy() < 0.01, 0.0,
+                                torch.sigmoid(out["trade_share_mean"]).detach().cpu().numpy()),
     }
 
 

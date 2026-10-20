@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-NATIVE_CONTRACT = 10
-ACTION_SCHEMA = 10
-OBSERVATION_SCHEMA = 10
-ENVIRONMENT_SCHEMA = 10
+NATIVE_CONTRACT = 11
+ACTION_SCHEMA = 11
+OBSERVATION_SCHEMA = 11
+ENVIRONMENT_SCHEMA = 11
 # Contract 9 capital commitments: the span head's categories (0 holds the active commitment, 1 decides this turn
 # only, 2-6 commit the capital controls for that many turns) and the commitment block appended to the core.
 SPANS: tuple[int, ...] = (0, 1, 2, 3, 4, 6)
@@ -20,8 +20,11 @@ SPAN_HOLD, SPAN_SINGLE = 0, 1
 COMMITMENT_FEATURES = 11
 # Objective components (Docs/ElderCapitalCommitmentsDesign.md, Part 4). Lineage welfare is the interim reward; each
 # component gets its own value head and the advantage is a weighted sum. The default weights reproduce welfare.
-OBJECTIVES: tuple[str, ...] = ("welfare", "population_years")
-OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0}
+OBJECTIVES: tuple[str, ...] = ("welfare", "population_years", "trade_utility")
+OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0, "trade_utility": 0.0}
+# Contract 11: the trade_utility weight a --learned-trade run uses unless --objective-weights sets it. Trade gains already
+# reach welfare through the goods; this small extra credit speeds learning for economies whose output they cannot use.
+TRADE_UTILITY_WEIGHT = 0.1
 
 SETS: tuple[tuple[str, int, int], ...] = (
     ("sites", 7, 14),
@@ -31,7 +34,15 @@ SETS: tuple[tuple[str, int, int], ...] = (
     ("contacts", 8, 9),
     # Contract 10: regional movement candidates (simulator ElderMovement); row 0 is the current tile.
     ("regions", 8, 24),
+    # Contract 11: one row per trade group (simulator ElderTrade).
+    ("trade", 7, 10),
 )
+# Contract 11 trade posture per group: relative value (log-scale Gaussian, clamped to TRADE_VALUE_RANGE), offer gate
+# (0 withhold, 1 offer stock, 2 offer and make to order), and one export labour share in [0, 1].
+TRADE_GROUPS: tuple[str, ...] = ("clothing", "housing", "tents", "pots", "tools", "materials", "food")
+TRADE_VALUE_RANGE = (0.25, 4.0)
+TRADE_GATES = 3
+TRADE_MAKE = 2
 # Contract 10 movement head: native (the heuristic's orders), keep the destination intent, then region rows 0-7.
 # Bridge codes: native -2, keep -3, region r is REGION_BASE + r (row 0 is stay).
 REGION_ROWS = 8

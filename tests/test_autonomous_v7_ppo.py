@@ -163,12 +163,13 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     b = batch(); normalizer = Normalizer.fit(b)
     torch.manual_seed(4)
     actor, critic = Actor(b["core"].shape[1]), Critic(b["core"].shape[1])
-    pooled = 3 * actor.encoder.set_hidden + 1
+    pooled = 2 * (3 * actor.encoder.set_hidden + 1)  # the regions (contract 10) and trade (contract 11) blocks
     def as_contract9(net: dict) -> dict:
-        net = {k: v for k, v in net.items() if ".sets.regions." not in k and not k.startswith(("region_", "mix_region"))}
+        net = {k: v for k, v in net.items() if ".sets.regions." not in k and ".sets.trade." not in k
+               and not k.startswith(("region_", "mix_region", "trade_"))}
         net["encoder.trunk.0.weight"] = net["encoder.trunk.0.weight"][:, :-pooled].clone()
         return net
-    norm9 = {k: v for k, v in normalizer.state_dict().items() if not k.startswith("regions")}
+    norm9 = {k: v for k, v in normalizer.state_dict().items() if not k.startswith(("regions", "trade"))}
     state9 = {"actor": as_contract9(actor.state_dict()), "critic": as_contract9(critic.state_dict()), "normalizer": norm9,
               "core_width": b["core"].shape[1], "contract": 9}
     up = upgrade(state9)
@@ -183,12 +184,48 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     # Region rows, present or absent, change nothing an upgraded policy outputs; its region argmax is native.
     t = to_tensors(b, Normalizer.from_state(up["normalizer"]))
     absent = dict(t); absent["regions_present"] = torch.zeros_like(t["regions_present"])
+    absent["trade_present"] = torch.zeros_like(t["trade_present"])
     with torch.no_grad():
         a, a0 = new_actor(t), new_actor(absent)
         assert torch.allclose(new_critic(t), new_critic(absent))
-    for key in ("strategic_mean", "service_mean", "mix_logits", "clothing", "movement", "span", "region"):
+    for key in ("strategic_mean", "service_mean", "mix_logits", "clothing", "movement", "span", "region",
+                "trade_value_mean", "trade_gate", "trade_share_mean"):
         assert torch.allclose(a[key], a0[key]), key
     assert torch.all(a["mix_offset"] == 0) and torch.all(a["region"].argmax(dim=1) == contracts.REGION_NATIVE)
+    # The trade heads start at the native posture: values 1, every gate Make, export share 0 (the shipped share).
+    from anthropocene_rl.autonomous_v7.model import act_deterministic
+    mode = act_deterministic(a)
+    assert np.all(mode["trade_value"] == 1.0) and np.all(mode["trade_gate"] == contracts.TRADE_MAKE) and np.all(mode["trade_share"] == 0.0)
+
+
+def test_learned_trade_draws_score_anchor_and_reach_the_bridge() -> None:
+    import dataclasses
+    actor, t = setup()
+    stage = dataclasses.replace(ppo.STAGES["mixed"], trade=True)
+    with torch.no_grad():
+        out = ppo.explore(actor(t), -2.0)
+        draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(6))
+        lp1, entropy = ppo.log_prob(out, t, draw, stage)
+        lp2, _ = ppo.log_prob(ppo.explore(actor(t), -2.0), t, draw, stage)
+        other = dict(draw); other["trade_gate"] = (draw["trade_gate"] + 1) % contracts.TRADE_GATES
+        lp3, _ = ppo.log_prob(out, t, other, stage)
+        assert torch.allclose(ppo.teacher_kl(out, out, trade=True), ppo.teacher_kl(out, out), atol=1e-6)
+    assert torch.allclose(lp1, lp2) and not torch.allclose(lp1, lp3) and torch.all(torch.isfinite(entropy))
+    lo, hi = contracts.TRADE_VALUE_RANGE
+    for a in ppo.to_bridge_actions(draw, t):
+        assert len(a["tradeValue"]) == len(contracts.TRADE_GROUPS) and all(lo <= x <= hi for x in a["tradeValue"])
+        assert all(g in (0, 1, 2) for g in a["tradeGate"]) and 0.0 <= a["tradeShare"] <= 1.0
+    plain = ppo.sample(out, t, ppo.STAGES["mixed"], torch.Generator().manual_seed(6))
+    assert all("tradeValue" not in a for a in ppo.to_bridge_actions(plain, t))
+
+
+def test_trade_utility_is_a_self_interested_reward_component() -> None:
+    d = {"world": np.array([1, 1, 1]), "camp": np.array([1, 2, 1]), "turn": np.array([0, 0, 1]), "society": np.array([5, 5, 5]),
+         "parent_society": np.array([0, 0, 0]), "prior_population": np.array([100, 50, 110]), "qol": np.array([.8, .5, .9]),
+         "years": np.full(3, 20.0), "terminated": np.array([False, False, False]), "trade_utility": np.array([3.0, 0.0, 1.5])}
+    parts = data.reward_components(d)
+    assert np.allclose(parts["trade_utility"], [3.0, 0.0, 1.5])  # each village's own; a same-lineage partner's is not pooled
+    assert "trade_utility" in contracts.OBJECTIVES and contracts.OBJECTIVE_WEIGHTS["trade_utility"] == 0.0
 
 
 def test_region_head_starts_native_and_respects_masks() -> None:

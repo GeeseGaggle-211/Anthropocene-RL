@@ -67,9 +67,12 @@ def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray
 
 
 def reward_components(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
-    """Per-decision rewards for each objective in ``contracts.OBJECTIVES``: lineage welfare (P x Q_lineage x dt) and
-    lineage population-years (P x dt for living settlements)."""
-    return {"welfare": lineage_rewards(data), "population_years": lineage_rewards(data, qol=False)}
+    """Per-decision rewards for each objective in ``contracts.OBJECTIVES``: lineage welfare (P x Q_lineage x dt),
+    lineage population-years (P x dt for living settlements) and (contract 11) the village's own realised trade
+    utility, in person-QoL-years on true valuations; self-interested: a partner's gain is never credited."""
+    n = len(data["camp"])
+    trade = np.asarray(data["trade_utility"], dtype=np.float64) if "trade_utility" in data else np.zeros(n)
+    return {"welfare": lineage_rewards(data), "population_years": lineage_rewards(data, qol=False), "trade_utility": trade}
 
 
 def sequences(data: dict[str, np.ndarray]) -> list[np.ndarray]:

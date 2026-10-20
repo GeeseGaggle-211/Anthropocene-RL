@@ -62,6 +62,8 @@ namespace Anthropocene.RLBridge
                         regionMovementSlots = ElderModel9Contract.RegionMovementSlots,
                         keepIntent = ElderMovement.KeepIntent, regionBase = ElderMovement.RegionBase,
                         regionFeatures = ElderModel9Encoder.RegionFeatureNames(),
+                        tradeGroups = ElderTrade.Groups, tradeFeatures = ElderModel9Encoder.TradeFeatureNames(),
+                        tradeValueRange = new[] { ElderTrade.MinValue, ElderTrade.MaxValue },
                         buildHash = ElderModel9Environment.BuildHash
                     };
                 case "reset":
@@ -116,6 +118,10 @@ namespace Anthropocene.RLBridge
             d.FissionPolicy = e.TryGetProperty("fission", out var fp) ? fp.GetInt32() : -1;
             // Contract 9: capital commitment span (0 hold, 1 this turn only, 2-6 commit); absent is 1.
             d.CommitTurns = e.TryGetProperty("commit", out var ct) ? ct.GetInt32() : 1;
+            // Contract 11 trade posture (absent: native).
+            if (e.TryGetProperty("tradeValue", out var tv) && tv.ValueKind == JsonValueKind.Array) d.TradeValue = tv.Deserialize<double[]>(Json);
+            if (e.TryGetProperty("tradeGate", out var tg) && tg.ValueKind == JsonValueKind.Array) d.TradeGate = tg.Deserialize<int[]>(Json);
+            d.TradeExportShare = e.TryGetProperty("tradeShare", out var ts) && ts.ValueKind == JsonValueKind.Number ? ts.GetDouble() : -1;
             return d;
         }
 
@@ -128,6 +134,7 @@ namespace Anthropocene.RLBridge
                 priorPopulation = v.PriorPopulation, population = v.Population, qol = v.QoL, nutrition = v.Nutrition,
                 clothing = v.Clothing, housing = v.Housing, years = v.Years, welfare = v.Welfare,
                 terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length, privileged = v.Privileged,
+                tradeUtility = v.TradeUtility,
                 observation = v.Observation == null ? null : new
                 {
                     core = v.Observation.Core, corePresent = v.Observation.CorePresent,
@@ -147,7 +154,9 @@ namespace Anthropocene.RLBridge
                     clothingRoute = v.Teacher.Action.ClothingRoute, clothingRouteLabel = v.Teacher.ClothingRouteMask,
                     shelterRoute = v.Teacher.Action.ShelterRoute, shelterRouteLabel = v.Teacher.ShelterRouteMask,
                     movement = v.Teacher.Action.MovementCandidate, movementLabel = v.Teacher.MovementMask,
-                    fission = v.Teacher.Action.FissionPolicy, repair = v.Teacher.RepairSize
+                    fission = v.Teacher.Action.FissionPolicy, repair = v.Teacher.RepairSize,
+                    tradeValue = v.Teacher.Action.TradeValue, tradeGate = v.Teacher.Action.TradeGate,
+                    tradeShare = v.Teacher.Action.TradeExportShare, tradeLabel = v.Teacher.TradeMask
                 }
             }).ToArray()
         };
