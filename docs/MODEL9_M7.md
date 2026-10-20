@@ -440,6 +440,62 @@ Secondary measures:
 - the welfare/QoL breakdown, to flag gains bought by population at the expense of QoL;
 - teacher KL at the end of training.
 
+### Contract 10 (destination movement): built 20 October 2026
+
+- Simulator b38c2c1: `ElderMovement`, Elder memory schema 3.
+- Learner 3be0f7d and a7237f1.
+- Design notes: simulator `Docs/ElderModel9Contract9MovementDesign.md`, "Implementation".
+
+Exactness and start state:
+- Contract-9 checkpoints upgrade exactly. With native movement, an upgraded `stage2-span-seed0/best-single.pt`
+  reproduces the decisive experiment's per-world welfare bit for bit (DEVELOPMENT 2000 and 2001).
+- The region head starts native, at probability 0.8 when all rows are legal, so its argmax is native. It needs no
+  re-cloning: the heuristic's label is "native" by construction.
+- At its start, a learned-movement policy makes no moves, yet its welfare differs per world: 0.76-1.28, totalling
+  0.995 over DEVELOPMENT 2000-2019.
+- The cause is input shift, not movement. Enabling movement changes the mask inputs, which the contract-9 policy never
+  saw in training, and the world's cascades amplify the small change in its other choices.
+- The 2x2's native arms therefore train with `--observe-movement`: the same observations, every decision native.
+
+### 2x2 movement x stage: pre-registration (written 20 October 2026, before any result)
+
+Question: does learned destination movement help, alone or together with mixed-use (stage 3) training?
+
+Arms, 6 seeds each (30-35), on the 60-vCPU VM:
+
+| Arm | Stage | Movement |
+| --- | --- | --- |
+| N-cap | `capability` | `--observe-movement` (native, same observations) |
+| L-cap | `capability` | `--learned-movement` |
+| N-mix | `mixed` | `--observe-movement` |
+| L-mix | `mixed` | `--learned-movement` |
+
+Shared settings:
+- init `stage2-span-seed0/best.pt` (upgraded to contract 10), `--experts`, single-turn, 50 iterations;
+- the optimisation settings E2 selects by its decision rule (the baseline if no cell moves default worlds).
+
+Evaluation:
+- `stage_eval --movement --region-movement` on the decisive experiment's 104 worlds, `latest.pt`;
+- every policy runs in the same movement-enabled environment; native arms argmax native;
+- the reference is the init in that environment;
+- intervals from `paired_compare`.
+
+Primary measure: L-mix against N-cap on default worlds (the combined stage against the stage-2 control).
+
+Decision rule:
+- carry the combined stage into scale-out if its interval's lower bound is at least 0.98 and no regime's point
+  estimate is below 0.97;
+- otherwise use whichever single-factor arm meets that rule against N-cap;
+- if none does, stage-2 training stays the scale-out curriculum, and movement is investigated on the valley
+  fixtures first.
+
+Secondary measures:
+- the movement main effect (L-cap/N-cap, L-mix/N-mix) and the stage main effect (N-mix/N-cap);
+- their interaction;
+- the share of decisions that move at evaluation. If the learned arms never move, the movement question is untested;
+- welfare against QoL;
+- valley fixtures, if the scan finds enough.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
