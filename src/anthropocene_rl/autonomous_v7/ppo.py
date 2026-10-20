@@ -60,6 +60,13 @@ class Stage:
     # Contract 10 (--learned-movement): the policy moves over region rows with destination intents and chooses the
     # economy mix given the destination; the contract-8 site pointer is not used.
     region_movement: bool = False
+    # Contract 10 (--observe-movement): the bridge enables movement, so the policy sees the same movement masks as a
+    # learned-movement arm, but every decision stays native (the untrained region head argmaxes to native).
+    observe_movement: bool = False
+
+    @property
+    def bridge_movement(self) -> bool:
+        return self.movement or self.observe_movement
 
 
 STAGES = {
@@ -249,7 +256,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
     roll = Rollout()
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            steps = list(pool.map(lambda pair: pair[0].reset(pair[1][0], movement=stage.movement, withheld=pair[1][1]),
+            steps = list(pool.map(lambda pair: pair[0].reset(pair[1][0], movement=stage.bridge_movement, withheld=pair[1][1]),
                                   zip(bridges, worlds)))
             founded = [{v["camp"]: s["turn"] for v in s["villages"]} for s in steps]
             for _ in range(turns):
@@ -618,6 +625,8 @@ def main() -> int:
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
     parser.add_argument("--learned-movement", action="store_true",
                         help="contract 10: the policy moves over region rows with destination intents (mix given the destination)")
+    parser.add_argument("--observe-movement", action="store_true",
+                        help="contract 10 control: movement is enabled in the bridge (same observations) but every decision is native")
     parser.add_argument("--vector-critic", action="store_true",
                         help="one value head per objective component; the advantage is their weighted sum")
     parser.add_argument("--objective-weights", default=None, help="name=weight[,name=weight] over contracts.OBJECTIVES")
@@ -682,6 +691,8 @@ def main() -> int:
         stage = dataclasses.replace(stage, commitments=True)
     if args.learned_movement:
         stage = dataclasses.replace(stage, movement=True, region_movement=True)
+    if args.observe_movement:
+        stage = dataclasses.replace(stage, observe_movement=True)
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     if args.objective_weights:
@@ -707,7 +718,8 @@ def main() -> int:
         torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
-                    "commitments": stage.commitments, "region_movement": stage.region_movement, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
+                    "commitments": stage.commitments, "region_movement": stage.region_movement,
+                    "observe_movement": stage.observe_movement, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "lagrange": lagrange, "log": log}, path)
 
@@ -715,8 +727,9 @@ def main() -> int:
         groups: dict[str, list] = {}
         for seed, mask in eval_worlds:
             groups.setdefault(regime(seed, mask, frozenset()), []).append((seed, mask))
-        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.movement,
-                                             commitments=stage.commitments, region=stage.region_movement)
+        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.bridge_movement,
+                                             commitments=stage.commitments,
+                                             region=stage.region_movement or stage.observe_movement)
                   for name, worlds in groups.items()}
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))

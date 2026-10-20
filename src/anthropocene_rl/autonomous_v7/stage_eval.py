@@ -37,6 +37,8 @@ def main() -> int:
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
+    parser.add_argument("--region-movement", action="store_true",
+                        help="with --movement: every policy, the init included, moves over contract-10 region rows")
     parser.add_argument("--regime-tolerance", type=float, default=0.03,
                         help="a candidate fails if any regime's welfare falls more than this share below the init")
     parser.add_argument("--out", type=Path, required=True)
@@ -50,10 +52,11 @@ def main() -> int:
     report = {}
     for name, worlds in categories.items():
         teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers)
-        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement)
+        region = True if args.region_movement else None
+        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement, region=region)
         row = {"teacher": teacher, "init": init, "candidates": {}}
         for candidate in args.candidates.split(","):
-            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement)
+            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement, region=region)
             ev["ratio_vs_init"] = ev["welfare"] / max(1e-9, init["welfare"])
             ev["ratio_vs_teacher"] = ev["welfare"] / max(1e-9, teacher["welfare"])
             row["candidates"][candidate] = ev

@@ -228,6 +228,17 @@ def test_learned_movement_draws_recompute_their_log_probability_with_the_conditi
     assert codes <= allowed
 
 
+def test_observed_movement_control_stays_native() -> None:
+    import dataclasses
+    actor, t = setup()
+    t = dict(t); t["region_movement_mask"] = torch.ones_like(t["region_movement_mask"])
+    stage = dataclasses.replace(ppo.STAGES["mixed"], observe_movement=True)
+    assert stage.bridge_movement and not stage.movement
+    with torch.no_grad():
+        draw = ppo.sample(actor(t), t, stage, torch.Generator().manual_seed(2))
+    assert all(a["movement"] == contracts.NATIVE_MOVEMENT for a in ppo.to_bridge_actions(draw, t))
+
+
 def test_evaluation_honours_the_training_commitments_setting(tmp_path, monkeypatch) -> None:
     from anthropocene_rl.autonomous_v7 import evaluate
     actor, t = setup()
