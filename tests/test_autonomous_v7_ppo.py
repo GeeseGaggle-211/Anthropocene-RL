@@ -260,6 +260,31 @@ def test_personality_conditions_the_token_model_and_weights_advantages() -> None
     assert np.allclose(parts["qol_years"], [0.8 * 20, 0.0])
 
 
+def test_personality_shaping_costs_reach_every_component() -> None:
+    components = {"welfare": np.array([10.0, 10.0]), "population_years": np.array([200.0, 200.0]),
+                  "trade_utility": np.array([-1.0, 2.0]), "qol_years": np.array([16.0, 16.0])}
+    shaped = ppo.shape_components(components, np.array([0.0, 0.1]))
+    assert np.allclose(shaped["welfare"], components["welfare"])  # already charged in welfare units
+    assert np.allclose(shaped["population_years"], [200.0, 180.0]) and np.allclose(shaped["qol_years"], [16.0, 14.4])
+    assert np.allclose(shaped["trade_utility"], [-1.0, 1.8])  # a loss is not made larger
+
+
+def test_spread_selection_needs_both_directions_and_the_guard() -> None:
+    def ev(welfare, population, qol, extinctions=0):
+        regimes = {"default": {"welfare": welfare}, "farming": {"welfare": welfare}}
+        return {"welfare": 2 * welfare, "population": population, "qol": qol, "extinctions": extinctions, "regimes": regimes}
+    baseline = ev(100.0, 1000.0, 0.6)
+    points = {"welfare": ev(100.0, 1000.0, 0.6), "population": ev(95.0, 1200.0, 0.5), "qol": ev(90.0, 800.0, 0.7)}
+    s = ppo.spread_selection(points, baseline)
+    assert s["eligible"] and np.isclose(s["score"], min(np.log(0.7 / 0.5), np.log(1200 / 800)))
+    same = {name: ev(100.0, 1000.0, 0.6) for name in points}
+    assert np.isclose(ppo.spread_selection(same, baseline)["score"], 0.0)
+    one_way = dict(points, qol=ev(90.0, 800.0, 0.45))  # population separates, QoL goes the wrong way
+    assert ppo.spread_selection(one_way, baseline)["score"] < 0
+    assert not ppo.spread_selection(dict(points, qol=ev(90.0, 800.0, 0.7, extinctions=1)), baseline)["eligible"]
+    assert not ppo.spread_selection(dict(points, welfare=ev(96.0, 1000.0, 0.6)), baseline)["eligible"]
+
+
 def test_learned_trade_draws_score_anchor_and_reach_the_bridge() -> None:
     import dataclasses
     actor, t = setup()

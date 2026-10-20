@@ -71,6 +71,35 @@ A daughter keeps its parent's `p` within an episode.
 - A population-leaning elder must not breach the below-30 or QoL-drop floors beyond its declared trade-off. Those
   floors are per personality; the hard floors stay global: extinctions and regime viability.
 
+## Welfare leakage (20 October 2026)
+
+A personality run's policy follows the personality-weighted advantage, not welfare. Welfare still reaches it through
+four side routes, and each one pulls personalities toward the default. Two of them are now closed.
+
+| Route | Fix | Status |
+| --- | --- | --- |
+| Checkpoint selection | `spread_selection`, below | built |
+| Shaping costs | `shape_components`, below | built |
+| Teacher-KL anchor and the stage-1 clone | a weaker-anchor arm in the next stage; report each personality against the heuristic | planned |
+| Global guard floors | floors per personality; extinctions and regime viability stay global | designed |
+
+**Spread selection.**
+- At each periodic evaluation, a personality run evaluates the checkpoint at three points: welfare `[1,0,0,0]`,
+  population `[0,1,0,0]` and QoL `[0,0,0,1]`. Each point uses the same selection worlds; this triples the evaluation
+  cost.
+- Score: `min(log(QoL at qol / QoL at population), log(population at population / population at qol))`. Both
+  directions must separate, and 0 means none.
+- Eligibility: every point keeps extinctions at or below the init's, and the welfare point keeps every regime's
+  welfare ratio at or above 0.97.
+- The trajectory logs the score, both gaps and each point's outcomes under `eval.spread`.
+- Default-personality runs keep the geometric-mean welfare rule.
+
+**Per-component shaping costs.**
+- The mix-change and break costs are a share of the decision's reward that turn.
+- In personality runs the same share is charged on every component in its own units. A negative trade utility is
+  not enlarged.
+- Default-personality runs keep the costs on welfare only, so earlier runs reproduce exactly.
+
 ## Simulator (later, with the game)
 
 - A `Personality` field on `Society`, persisted and inherited at fission with small drift.

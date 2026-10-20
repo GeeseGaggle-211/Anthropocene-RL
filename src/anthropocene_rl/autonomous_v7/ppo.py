@@ -414,6 +414,15 @@ def combine(advantages: dict[str, np.ndarray], weights: dict[str, float]) -> np.
     return sum(float(weights.get(name, 0.0)) * value for name, value in advantages.items())
 
 
+def shape_components(components: dict[str, np.ndarray], share: np.ndarray) -> dict[str, np.ndarray]:
+    """Personality runs charge the shaping costs (``share`` of each decision's reward) on every component in its own
+    units, so an Elder with no welfare weight still pays for churn (docs/MODEL9_PERSONALITY.md, welfare leakage).
+    ``welfare`` is returned unchanged: its costs are already charged. Default-personality runs keep the costs on
+    welfare only, which keeps earlier runs reproducible."""
+    return {name: value if name == "welfare" else value - share * np.maximum(0.0, value)
+            for name, value in components.items()}
+
+
 def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray) -> np.ndarray:
     """Per-row personality weights over contracts.OBJECTIVES on scale-normalised component advantages: components
     differ by orders of magnitude (population-years against QoL-years), so a weight means a share of each component's
@@ -567,18 +576,21 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler)
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
-    change = mix_changes(batch, draws)
-    reward = reward - hyper.mix_change_cost * change * np.maximum(0.0, batch["welfare"].astype(np.float64))
     regimes = np.asarray([regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])])
     span = draws["span"].numpy()
     hold_legal = batch.get("commit_hold_mask", np.zeros(len(reward), bool)).astype(bool)
     voluntary_break = hold_legal & (span != contracts.SPAN_HOLD) if stage.commitments else np.zeros(len(reward), bool)
-    reward = reward - hyper.break_cost * voluntary_break * np.maximum(0.0, batch["welfare"].astype(np.float64))
+    # Shaping costs as a share of the decision's reward that turn: the mix-change and voluntary-break costs.
+    change = mix_changes(batch, draws)
+    share = hyper.mix_change_cost * change + hyper.break_cost * voluntary_break
+    welfare_now = np.maximum(0.0, batch["welfare"].astype(np.float64))
+    reward = reward - hyper.mix_change_cost * change * welfare_now - hyper.break_cost * voluntary_break * welfare_now
     rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
     if isinstance(critic, VectorCritic):
         # Each objective component: its own reward, value, bootstrap and GAE; the policy follows their weighted sum.
-        # The costs above are in welfare units and stay on the welfare component.
         components = data.reward_components(batch); components["welfare"] = reward
+        if "personality" in batch:
+            components = shape_components(components, share)
         value_by = vector_values(critic, batch, normalizer)
         tails = {}
         if roll.bootstrap_obs:
@@ -694,17 +706,20 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
                          movement: bool = False, commitments: bool | None = None, region: bool | None = None,
-                         fission: bool | None = None, trade: bool | None = None) -> dict[str, float]:
+                         fission: bool | None = None, trade: bool | None = None,
+                         personality: list[float] | None = None) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
     the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn). A world is
-    (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns)."""
+    (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns). ``personality`` evaluates every village
+    at that Elder personality (None: the default)."""
     from concurrent.futures import ProcessPoolExecutor
     from .evaluate import rollout
     with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
         rows = list(pool.map(rollout, [w[0] for w in worlds], [turns] * len(worlds),
                              [None if checkpoint is None else str(checkpoint)] * len(worlds), [w[1] for w in worlds],
                              [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds),
-                             [w[2] if len(w) > 2 else 0 for w in worlds], [fission] * len(worlds), [trade] * len(worlds)))
+                             [w[2] if len(w) > 2 else 0 for w in worlds], [fission] * len(worlds), [trade] * len(worlds),
+                             [personality] * len(worlds)))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -722,6 +737,30 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
             "trades": float(sum(r.get("trades", 0) for r in rows)),
             # Per-world outcomes, in world order, for paired comparisons across policies.
             "worlds": [[int(w[0]), int(w[1]), float(r["welfare"]), int(r["extinctions"])] for w, r in zip(worlds, rows)]}
+
+
+# Spread selection (docs/MODEL9_PERSONALITY.md, welfare leakage): the personalities a personality run's checkpoints are
+# judged at, over contracts.OBJECTIVES (welfare, population_years, trade_utility, qol_years).
+SELECTION_POINTS: dict[str, list[float]] = {"welfare": [1, 0, 0, 0], "population": [0, 1, 0, 0], "qol": [0, 0, 0, 1]}
+SELECTION_REGIME_FLOOR = 0.97
+
+
+def spread_selection(points: dict[str, dict], baseline: dict) -> dict[str, Any]:
+    """Score one personality-run checkpoint from its evaluations at SELECTION_POINTS (each an ``evaluate`` total with
+    per-regime results). Eligible only when every point keeps extinctions at or below the init's and the welfare
+    point keeps every regime's welfare ratio at or above SELECTION_REGIME_FLOOR. The score is the smaller of two log
+    separations, so both directions must move: QoL at the QoL point over QoL at the population point, and population
+    at the population point over population at the QoL point. A score of 0 is no separation."""
+    eps = 1e-9
+    qol_gap = float(np.log(max(eps, points["qol"]["qol"]) / max(eps, points["population"]["qol"])))
+    pop_gap = float(np.log(max(eps, points["population"]["population"]) / max(eps, points["qol"]["population"])))
+    ratios = {name: r["welfare"] / max(eps, baseline["regimes"][name]["welfare"])
+              for name, r in points["welfare"]["regimes"].items()}
+    extinctions = {name: p["extinctions"] for name, p in points.items()}
+    eligible = (all(x <= baseline["extinctions"] for x in extinctions.values())
+                and min(ratios.values()) >= SELECTION_REGIME_FLOOR)
+    return {"score": min(qol_gap, pop_gap), "qol_gap": qol_gap, "population_gap": pop_gap,
+            "welfare_regime_ratios": ratios, "extinctions": extinctions, "eligible": bool(eligible)}
 
 
 def main() -> int:
@@ -880,14 +919,14 @@ def main() -> int:
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "lagrange": lagrange, "log": log}, path)
 
-    def evaluate(checkpoint: Path) -> dict:
+    def evaluate(checkpoint: Path, personality: list[float] | None = None) -> dict:
         groups: dict[str, list] = {}
         for seed, mask in eval_worlds:
             groups.setdefault(regime(seed, mask, frozenset()), []).append((seed, mask))
         result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.bridge_movement,
                                              commitments=stage.commitments,
                                              region=stage.region_movement or stage.observe_movement,
-                                             fission=stage.fission, trade=stage.trade)
+                                             fission=stage.fission, trade=stage.trade, personality=personality)
                   for name, worlds in groups.items()}
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))
@@ -928,8 +967,18 @@ def main() -> int:
             ratios = {name: r["welfare"] / max(1e-9, baseline["regimes"][name]["welfare"]) for name, r in ev["regimes"].items()}
             ev["regime_ratios"] = ratios
             ev["selection_score"] = float(np.exp(np.mean(np.log(np.maximum(1e-9, list(ratios.values()))))))
+            eligible = ev["extinctions"] <= baseline["extinctions"]
+            if hyper.personality != "default":
+                # Personality runs select on how far personalities separate, not on default welfare (the default
+                # point is ev itself, the Elder at [1, 0, 0, 0]).
+                points = {"welfare": ev, **{name: evaluate(args.out / "latest.pt", p)
+                                             for name, p in SELECTION_POINTS.items() if name != "welfare"}}
+                spread = spread_selection(points, baseline)
+                spread["points"] = {name: {k: p[k] for k in ("welfare", "population", "qol", "below_30", "extinctions")}
+                                    for name, p in points.items()}
+                ev["spread"] = spread; ev["selection_score"] = spread["score"]; eligible = spread["eligible"]
             stats["eval"] = ev
-            if ev["selection_score"] > best and ev["extinctions"] <= baseline["extinctions"]:
+            if ev["selection_score"] > best and eligible:
                 best = ev["selection_score"]; save(args.out / "best.pt")
         log.append(stats)
         with trajectory.open("a") as f:
