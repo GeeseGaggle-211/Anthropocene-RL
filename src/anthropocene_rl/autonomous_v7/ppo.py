@@ -585,13 +585,15 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
                          movement: bool = False, commitments: bool | None = None, region: bool | None = None) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
-    the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn)."""
+    the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn). A world is
+    (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns)."""
     from concurrent.futures import ProcessPoolExecutor
     from .evaluate import rollout
     with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
-        rows = list(pool.map(rollout, [w for w, _ in worlds], [turns] * len(worlds),
-                             [None if checkpoint is None else str(checkpoint)] * len(worlds), [m for _, m in worlds],
-                             [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds)))
+        rows = list(pool.map(rollout, [w[0] for w in worlds], [turns] * len(worlds),
+                             [None if checkpoint is None else str(checkpoint)] * len(worlds), [w[1] for w in worlds],
+                             [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds),
+                             [w[2] if len(w) > 2 else 0 for w in worlds]))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -604,7 +606,7 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
             "commit_share": float(np.mean([r.get("commit_share", 0.0) for r in rows])),
             "region_move_share": float(np.mean([r.get("region_move_share", 0.0) for r in rows])),
             # Per-world outcomes, in world order, for paired comparisons across policies.
-            "worlds": [[int(w), int(m), float(r["welfare"]), int(r["extinctions"])] for (w, m), r in zip(worlds, rows)]}
+            "worlds": [[int(w[0]), int(w[1]), float(r["welfare"]), int(r["extinctions"])] for w, r in zip(worlds, rows)]}
 
 
 def main() -> int:

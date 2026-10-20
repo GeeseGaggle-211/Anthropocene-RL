@@ -34,6 +34,9 @@ def main() -> int:
     parser.add_argument("--fixture-seeds", default="2000-2009", help="comma-separated seeds or ranges")
     parser.add_argument("--grassland-seeds", type=Path, default=None, help="file of grassland seeds; uses the last --grassland-count")
     parser.add_argument("--grassland-count", type=int, default=10)
+    parser.add_argument("--valley", type=Path, default=None,
+                        help="contract-10 valley fixtures: lines 'seed,warmup' (the heuristic plays warmup turns first)")
+    parser.add_argument("--valley-strict", type=Path, default=None, help="strict valley fixtures (competition and a valley)")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
@@ -49,6 +52,10 @@ def main() -> int:
     if args.grassland_seeds is not None:
         seeds = [int(x) for x in args.grassland_seeds.read_text().split(",") if x.strip()][-args.grassland_count:]
         categories["grassland"] = [(s, 0) for s in seeds]
+    for name, path in (("valley", args.valley), ("valley-strict", args.valley_strict)):
+        if path is not None:
+            pairs = [line.split(",") for line in path.read_text().split() if line.strip()]
+            categories[name] = [(int(s), 0, int(w)) for s, w in pairs]
     report = {}
     for name, worlds in categories.items():
         teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers)

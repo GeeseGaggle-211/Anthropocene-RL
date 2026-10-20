@@ -494,7 +494,19 @@ Secondary measures:
 - their interaction;
 - the share of decisions that move at evaluation. If the learned arms never move, the movement question is untested;
 - welfare against QoL;
-- valley fixtures, if the scan finds enough.
+- valley fixtures (below): learned against native movement on each bank, and the move share.
+
+Valley fixtures (simulator `--model9-valley-scan`, seeds 7000-7999; the heuristic plays up to 12 turns):
+- The scan looks for a grassland herding village whose own region observation shows farmland away from its tile:
+  - visible: a farming forecast of at least one meal per resident and 1.25 times the current tile's;
+  - remembered: river land in grassland, temperate or tropical environments.
+- **Strict** adds competition: a known foreign settlement within 4 tiles. 13 seeds qualify; the bank is
+  `valley-strict.txt`.
+- **Relaxed** requires the valley alone. 221 seeds qualify. The first 40 are held out (`valley-relaxed-heldout.txt`);
+  the other 168 (`valley-relaxed-train.txt`) are reserved for curriculum.
+- A fixture is (seed, first qualifying turn); evaluation plays the heuristic that many turns, then 25 policy turns.
+- Openings alone never qualify: camp spacing (3) keeps every settlement at least 3 tiles away. The design's
+  within-two-tiles competition was therefore impossible, and both the rows and the scan count within 4 tiles.
 
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 

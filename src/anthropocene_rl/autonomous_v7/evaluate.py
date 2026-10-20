@@ -65,8 +65,10 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
 
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
-            commitments: bool | None = None, region: bool | None = None) -> dict[str, Any]:
-    """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings."""
+            commitments: bool | None = None, region: bool | None = None, warmup: int = 0) -> dict[str, Any]:
+    """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
+    ``warmup``: the heuristic plays that many turns first (selected fixture states, e.g. valley fixtures); they count
+    toward neither welfare nor decisions."""
     torch.set_num_threads(1)
     actor = normalizer = None
     if checkpoint is not None:
@@ -81,6 +83,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     moves = 0
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
+        for _ in range(warmup):
+            step = bridge.step({})
         for _ in range(turns):
             mixes: dict[int, np.ndarray] = {}
             actions = policy_actions(actor, normalizer, step["villages"], movement, mixes) if actor is not None else {}
