@@ -164,6 +164,45 @@ class Encoder(nn.Module):
         return h, rows
 
 
+class TokenEncoder(nn.Module):
+    """Contract 12 token encoder (docs/MODEL9_TOKENS.md): every present row of every entity set is a token (a per-set
+    projection plus set-type and row-index embeddings), the core observation is the village token, and L self-attention
+    layers mix them. The village token's output feeds a fixed-width trunk, so adding a set or a row kind never changes
+    the trunk; pointer heads read their set's token outputs. Absent rows are masked out of attention, never zeros."""
+
+    def __init__(self, core_width: int, width: int = 256, d: int = 128, layers: int = 2, heads: int = 4,
+                 privileged_width: int = 0) -> None:
+        super().__init__()
+        self.project = nn.ModuleDict({name: nn.Linear(w, d) for name, _, w in contracts.SETS})
+        self.kind = nn.ParameterDict({name: nn.Parameter(torch.zeros(d)) for name, _, _ in contracts.SETS})
+        self.position = nn.ModuleDict({name: nn.Embedding(rows, d) for name, rows, _ in contracts.SETS})
+        for e in self.position.values():
+            nn.init.normal_(e.weight, std=0.02)
+        self.village = nn.Linear(core_width * 2 + privileged_width, d)
+        layer = nn.TransformerEncoderLayer(d, heads, dim_feedforward=2 * d, dropout=0.0, batch_first=True, norm_first=True)
+        self.attention = nn.TransformerEncoder(layer, layers, enable_nested_tensor=False)
+        self.norm = nn.LayerNorm(d)
+        self.trunk = nn.Sequential(nn.Linear(d, width), nn.SiLU(), nn.LayerNorm(width), nn.Linear(width, width), nn.SiLU(), nn.LayerNorm(width))
+        self.width, self.set_hidden, self.privileged_width = width, d, privileged_width
+
+    def forward(self, t: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+        core = t["core"] if self.privileged_width == 0 else torch.cat([t["core"], t["privileged"]], dim=1)
+        tokens = [self.village(core).unsqueeze(1)]
+        present = [torch.ones(len(core), 1, dtype=torch.bool, device=core.device)]
+        spans = {}
+        offset = 1
+        for name, rows, _ in contracts.SETS:
+            x = self.project[name](t[name]) + self.kind[name] + self.position[name].weight.unsqueeze(0)
+            tokens.append(x); present.append(t[name + "_present"])
+            spans[name] = (offset, offset + rows); offset += rows
+        x = torch.cat(tokens, dim=1)
+        mask = torch.cat(present, dim=1)
+        out = self.norm(self.attention(x, src_key_padding_mask=~mask))
+        out = out * mask.unsqueeze(-1).float()
+        rows_out = {name: out[:, a:b] for name, (a, b) in spans.items()}
+        return self.trunk(out[:, 0]), rows_out
+
+
 class EconomyExperts(nn.Module):
     """Capability-conditioned expert adapters (M7 pilot, option b): one residual MLP per economy (cultivation,
     herding, fishing). A village averages the adapters of the economies it can practise (its economy-mix mask), so a
@@ -248,9 +287,12 @@ class Actor(nn.Module):
     herding and fishing, masked categorical routes and fission policy, and a pointer over site rows for movement
     (stay is slot 0). With ``experts`` the strategic, mix and service heads read capability-conditioned features."""
 
-    def __init__(self, core_width: int, width: int = 256, experts: bool = False) -> None:
+    def __init__(self, core_width: int, width: int = 256, experts: bool = False, token: bool = False) -> None:
         super().__init__()
-        self.encoder = Encoder(core_width, width)
+        # Contract 12: the token model reads the economy mix from activity tokens and the trade posture from trade
+        # tokens, so new activities and trade groups are rows, not heads.
+        self.token = token
+        self.encoder = TokenEncoder(core_width, width) if token else Encoder(core_width, width)
         self.experts = EconomyExperts(width) if experts else None
         self.strategic = nn.Linear(width, 2 * contracts.UNIT_STRATEGIC)
         self.mix = nn.Linear(width, 2 * len(contracts.ECONOMY_MIX))
@@ -278,6 +320,13 @@ class Actor(nn.Module):
         self.trade_gate = nn.Linear(width, groups * contracts.TRADE_GATES)
         self.trade_share = nn.Linear(width, 2)
         init_trade_heads(self)
+        if token:
+            self.activity = nn.Linear(hidden, 2)                                  # per activity token: mix logit, log std
+            self.trade_token = nn.Linear(hidden, 2 + contracts.TRADE_GATES)       # per trade token: log value, log std, gates
+            with torch.no_grad():
+                self.trade_token.weight.zero_(); self.trade_token.bias.zero_()
+                self.trade_token.bias[1] = TRADE_LOG_STD_START
+                self.trade_token.bias[2 + contracts.TRADE_MAKE] = float(np.log(TRADE_GATE_START / (1 - TRADE_GATE_START) * (contracts.TRADE_GATES - 1)))
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
@@ -292,11 +341,19 @@ class Actor(nn.Module):
         region = torch.cat([self.region_native(h), self.region_keep(h), region_scores], dim=1)
         mix_offset = torch.cat([torch.zeros(len(h), 2, len(contracts.ECONOMY_MIX), device=h.device), self.mix_region(region_rows)], dim=1)
         groups = len(contracts.TRADE_GROUPS)
-        trade_value = self.trade_value(e).view(-1, 2, groups)
         trade_share = self.trade_share(e)
+        if self.token:
+            a = self.activity(rows["activities"])
+            mix = torch.stack([a[..., 0], a[..., 1]], dim=-1)
+            tt = self.trade_token(rows["trade"])
+            trade_value = torch.stack([tt[..., 0], tt[..., 1]], dim=1)
+            trade_gate = tt[..., 2:]
+        else:
+            trade_value = self.trade_value(e).view(-1, 2, groups)
+            trade_gate = self.trade_gate(e).view(-1, groups, contracts.TRADE_GATES)
         return {
             "trade_value_mean": trade_value[:, 0], "trade_value_log_std": trade_value[:, 1].clamp(-5, 1),
-            "trade_gate": self.trade_gate(e).view(-1, groups, contracts.TRADE_GATES),
+            "trade_gate": trade_gate,
             "trade_share_mean": trade_share[:, 0], "trade_share_log_std": trade_share[:, 1].clamp(-5, 1),
             "region": region.masked_fill(~t["region_movement_mask"], MASKED),
             "mix_offset": mix_offset,
@@ -315,10 +372,11 @@ class Actor(nn.Module):
 class Critic(nn.Module):
     """Predicts u = return per opening resident as a two-hot distribution over symlog-spaced bins."""
 
-    def __init__(self, core_width: int, width: int = 256, privileged_width: int = 0) -> None:
+    def __init__(self, core_width: int, width: int = 256, privileged_width: int = 0, token: bool = False) -> None:
         super().__init__()
         # Privileged inputs reach only the critic's own encoder, never the actor graph.
-        self.encoder = Encoder(core_width, width, privileged_width=privileged_width)
+        self.encoder = (TokenEncoder(core_width, width, privileged_width=privileged_width) if token
+                        else Encoder(core_width, width, privileged_width=privileged_width))
         self.head = nn.Linear(width, BINS)
         self.register_buffer("bins", torch.linspace(BIN_LOW, BIN_HIGH, BINS))
 
@@ -347,9 +405,10 @@ class VectorCritic(nn.Module):
     default weights it reproduces the scalar critic: ``from_scalar`` copies a scalar critic into the welfare head."""
 
     def __init__(self, core_width: int, width: int = 256, privileged_width: int = 0,
-                 objectives: tuple[str, ...] = contracts.OBJECTIVES) -> None:
+                 objectives: tuple[str, ...] = contracts.OBJECTIVES, token: bool = False) -> None:
         super().__init__()
-        self.encoder = Encoder(core_width, width, privileged_width=privileged_width)
+        self.encoder = (TokenEncoder(core_width, width, privileged_width=privileged_width) if token
+                        else Encoder(core_width, width, privileged_width=privileged_width))
         self.heads = nn.ModuleDict({name: nn.Linear(width, BINS) for name in objectives})
         self.register_buffer("bins", torch.linspace(BIN_LOW, BIN_HIGH, BINS))
 
@@ -362,7 +421,7 @@ class VectorCritic(nn.Module):
 
     @staticmethod
     def from_scalar(critic: "Critic", core_width: int, privileged_width: int = 0) -> "VectorCritic":
-        vector = VectorCritic(core_width, critic.head.in_features, privileged_width)
+        vector = VectorCritic(core_width, critic.head.in_features, privileged_width, token=isinstance(critic.encoder, TokenEncoder))
         vector.encoder.load_state_dict(critic.encoder.state_dict())
         vector.heads["welfare"].load_state_dict(critic.head.state_dict())
         return vector

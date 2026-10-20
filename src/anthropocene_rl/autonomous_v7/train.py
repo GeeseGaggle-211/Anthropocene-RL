@@ -166,6 +166,7 @@ def main() -> int:
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--resume", type=Path, default=None, help="continue from a checkpoint (actor and critic)")
     parser.add_argument("--critic-lr", type=float, default=None)
+    parser.add_argument("--token", action="store_true", help="contract 12 token model (docs/MODEL9_TOKENS.md)")
     args = parser.parse_args()
     torch.manual_seed(args.seed); np.random.seed(args.seed); torch.set_num_threads(args.threads)
     clock = time.time()
@@ -175,7 +176,7 @@ def main() -> int:
     normalizer = Normalizer.fit(train)
     core_width = train["core"].shape[1]
     privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
-    actor, critic = Actor(core_width), Critic(core_width, privileged_width=privileged_width)
+    actor, critic = Actor(core_width, token=args.token), Critic(core_width, privileged_width=privileged_width, token=args.token)
     log: list = []
     if args.resume is not None:
         state = torch.load(args.resume, map_location="cpu", weights_only=False)
@@ -186,7 +187,8 @@ def main() -> int:
                          args.critic_lr or args.lr, log, warm=args.resume is not None)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
-                "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "seed": args.seed, "log": log,
+                "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "token": args.token,
+                "seed": args.seed, "log": log,
                 "critic_dev": final}, args.out)
     print(json.dumps({"saved": str(args.out), "seconds": time.time() - clock, "critic_dev": final}), flush=True)
     return 0

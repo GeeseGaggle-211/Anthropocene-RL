@@ -64,6 +64,7 @@ namespace Anthropocene.RLBridge
                         regionFeatures = ElderModel9Encoder.RegionFeatureNames(),
                         tradeGroups = ElderTrade.Groups, tradeFeatures = ElderModel9Encoder.TradeFeatureNames(),
                         tradeValueRange = new[] { ElderTrade.MinValue, ElderTrade.MaxValue },
+                        activityFeatures = ElderModel9Encoder.ActivityFeatureNames(),
                         buildHash = ElderModel9Environment.BuildHash
                     };
                 case "reset":

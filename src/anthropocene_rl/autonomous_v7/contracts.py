@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-NATIVE_CONTRACT = 11
+NATIVE_CONTRACT = 12
 ACTION_SCHEMA = 11
-OBSERVATION_SCHEMA = 11
-ENVIRONMENT_SCHEMA = 11
+OBSERVATION_SCHEMA = 12
+ENVIRONMENT_SCHEMA = 12
 # Contract 9 capital commitments: the span head's categories (0 holds the active commitment, 1 decides this turn
 # only, 2-6 commit the capital controls for that many turns) and the commitment block appended to the core.
 SPANS: tuple[int, ...] = (0, 1, 2, 3, 4, 6)
@@ -36,6 +36,8 @@ SETS: tuple[tuple[str, int, int], ...] = (
     ("regions", 8, 24),
     # Contract 11: one row per trade group (simulator ElderTrade).
     ("trade", 7, 10),
+    # Contract 12: activity tokens in ECONOMY_MIX order (cultivation, herding, fishing); later kinds append rows.
+    ("activities", 3, 12),
 )
 # Contract 11 trade posture per group: relative value (log-scale Gaussian, clamped to TRADE_VALUE_RANGE), offer gate
 # (0 withhold, 1 offer stock, 2 offer and make to order), and one export labour share in [0, 1].

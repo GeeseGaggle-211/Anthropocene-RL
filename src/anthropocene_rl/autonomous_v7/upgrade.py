@@ -147,18 +147,53 @@ def _to_11(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
+def _append_set(net: dict[str, torch.Tensor], name: str, seed: int) -> dict[str, torch.Tensor]:
+    """A set appended to a per-set-pooling (pre-token) encoder: zero trunk columns for its pooled block and a
+    fixed-seed default set encoder, so every earlier output is unchanged."""
+    net = dict(net)
+    if f"encoder.sets.{name}.row.0.weight" in net:
+        return net
+    width = next(s for s in contracts.SETS if s[0] == name)[2]
+    hidden = net["encoder.sets.sites.row.2.weight"].shape[0]
+    w = net[_TRUNK_KEY]
+    net[_TRUNK_KEY] = torch.cat([w, torch.zeros(w.shape[0], 3 * hidden + 1, dtype=w.dtype)], dim=1)
+    with torch.random.fork_rng():
+        torch.manual_seed(seed)
+        encoder = SetEncoder(width, hidden)
+    for key, value in encoder.state_dict().items():
+        net[f"encoder.sets.{name}." + key] = value.detach().clone()
+    return net
+
+
+def _to_12(state: dict[str, Any]) -> dict[str, Any]:
+    state = dict(state)
+    for seed, key in enumerate(("actor", "teacher_actor", "critic", "cost_critic")):
+        if key in state:
+            state[key] = _append_set(state[key], "activities", 12_000 + seed)
+    normalizer = dict(state["normalizer"])
+    width = next(s for s in contracts.SETS if s[0] == "activities")[2]
+    normalizer.setdefault("activities_mean", [0.0] * width)
+    normalizer.setdefault("activities_std", [1.0] * width)
+    state["normalizer"] = normalizer
+    state["contract"] = 12
+    return state
+
+
 def upgrade(state: dict[str, Any]) -> dict[str, Any]:
-    """Return a current-contract checkpoint state; current states pass through unchanged."""
+    """Return a current-contract checkpoint state; current states pass through unchanged. Token-model checkpoints are
+    contract 12 from stage-1 cloning; the exact upgrades apply to the per-set-pooling network only."""
     contract = int(state.get("contract", 8))
     if contract >= contracts.NATIVE_CONTRACT:
         return state
-    if contract not in (8, 9, 10):
+    if contract not in (8, 9, 10, 11):
         raise ValueError(f"no upgrade path from contract {contract}")
     original = contract
     if contract == 8:
         state = _to_9(state); contract = 9
     if contract == 9:
         state = _to_10(state); contract = 10
-    state = _to_11(state)
+    if contract == 10:
+        state = _to_11(state); contract = 11
+    state = _to_12(state)
     state.setdefault("upgraded_from", original)  # an upgraded state keeps its first origin
     return state

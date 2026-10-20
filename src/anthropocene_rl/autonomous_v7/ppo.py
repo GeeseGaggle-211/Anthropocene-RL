@@ -413,10 +413,10 @@ def gae(batch: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray, boo
 class CostCritic(nn.Module):
     """Discounted guard cost (settlement-turns below 30 residents) per decision; plain regression."""
 
-    def __init__(self, core_width: int, width: int = 128) -> None:
+    def __init__(self, core_width: int, width: int = 128, token: bool = False) -> None:
         super().__init__()
-        from .model import Encoder
-        self.encoder = Encoder(core_width, width)
+        from .model import Encoder, TokenEncoder
+        self.encoder = TokenEncoder(core_width, width) if token else Encoder(core_width, width)
         self.head = nn.Linear(width, 1)
 
     def forward(self, t: dict[str, torch.Tensor]) -> torch.Tensor:
@@ -698,21 +698,23 @@ def main() -> int:
     core_width = int(state["core_width"]); privileged = int(state.get("privileged_width", 0))
     normalizer = Normalizer.from_state(state["normalizer"])
     experts = bool(state.get("experts", False)) or args.experts
-    actor, teacher, critic = Actor(core_width, experts=experts), Actor(core_width), Critic(core_width, privileged_width=privileged)
+    token = bool(state.get("token", False))  # contract 12 token model (from stage-1 cloning; never an upgrade)
+    actor, teacher = Actor(core_width, experts=experts, token=token), Actor(core_width, token=token)
+    critic = Critic(core_width, privileged_width=privileged, token=token)
     missing, unexpected = actor.load_state_dict(state["actor"], strict=False)
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
     # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised trade utility).
     if args.vector_critic or state.get("vector_critic") or args.learned_trade:
         if state.get("vector_critic"):
-            vector = VectorCritic(core_width, privileged_width=privileged); vector.load_state_dict(state["critic"]); critic = vector
+            vector = VectorCritic(core_width, privileged_width=privileged, token=token); vector.load_state_dict(state["critic"]); critic = vector
         else:
             critic.load_state_dict(state["critic"]); critic = VectorCritic.from_scalar(critic, core_width, privileged)
     else:
         critic.load_state_dict(state["critic"])
     anchor = upgrade(torch.load(args.teacher, map_location="cpu", weights_only=False)) if args.teacher else state
     teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
-    cost_critic = CostCritic(core_width)
+    cost_critic = CostCritic(core_width, token=token)
     if "cost_critic" in state:
         cost_critic.load_state_dict(state["cost_critic"])
     hyper = Hyper()
@@ -782,7 +784,7 @@ def main() -> int:
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
                     "commitments": stage.commitments, "region_movement": stage.region_movement,
                     "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "learned_trade": stage.trade,
-                    "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
+                    "experts": experts, "token": token, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "lagrange": lagrange, "log": log}, path)
 

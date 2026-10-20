@@ -14,6 +14,7 @@ from . import contracts
 OBSERVATION_KEYS = ["core", "core_present", "movement_mask", "clothing_route_mask", "shelter_route_mask", "economy_mix_mask"] + [
     key for name, _, _ in contracts.SETS for key in (name, name + "_present")
 ]
+OPTIONAL_KEYS = {key for name in ("regions", "trade", "activities") for key in (name, name + "_present")}
 LABEL_KEYS = [
     "strategic", "strategic_mask", "service_levels", "service_mask", "clothing_route", "clothing_route_label_mask",
     "shelter_route", "shelter_route_label_mask", "movement", "movement_label_mask", "fission_policy", "repair",
@@ -26,7 +27,12 @@ OUTCOME_KEYS = [
 
 def load_world(directory: Path) -> dict[str, np.ndarray]:
     meta = json.loads((directory / "meta.json").read_text())
-    arrays = {key: np.load(directory / f"{key}.npy") for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS}
+    # Sets and masks added after a shard was written (contracts 10-12) are optional: to_tensors treats them as absent.
+    arrays = {key: np.load(directory / f"{key}.npy") for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS
+              if key not in OPTIONAL_KEYS or (directory / f"{key}.npy").exists()}
+    for key in ("region_movement_mask", "commit_hold_mask", "trade_utility"):
+        if (directory / f"{key}.npy").exists():
+            arrays[key] = np.load(directory / f"{key}.npy")
     if (directory / "privileged.npy").exists():
         arrays["privileged"] = np.load(directory / "privileged.npy")
     arrays["world"] = np.full(len(arrays["camp"]), int(meta["seed"]), dtype=np.int32)
@@ -38,7 +44,8 @@ def load(directories: Iterable[Path]) -> dict[str, np.ndarray]:
     worlds = [w for w in worlds if len(w["camp"]) > 0]
     if not worlds:
         raise ValueError("no teacher shards found")
-    return {key: np.concatenate([w[key] for w in worlds]) for key in worlds[0]}
+    keys = [key for key in worlds[0] if all(key in w for w in worlds)]  # shards of mixed vintage share their common keys
+    return {key: np.concatenate([w[key] for w in worlds]) for key in keys}
 
 
 def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray:

@@ -163,13 +163,13 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     b = batch(); normalizer = Normalizer.fit(b)
     torch.manual_seed(4)
     actor, critic = Actor(b["core"].shape[1]), Critic(b["core"].shape[1])
-    pooled = 2 * (3 * actor.encoder.set_hidden + 1)  # the regions (contract 10) and trade (contract 11) blocks
+    pooled = 3 * (3 * actor.encoder.set_hidden + 1)  # the regions (10), trade (11) and activities (12) blocks
     def as_contract9(net: dict) -> dict:
-        net = {k: v for k, v in net.items() if ".sets.regions." not in k and ".sets.trade." not in k
+        net = {k: v for k, v in net.items() if ".sets.regions." not in k and ".sets.trade." not in k and ".sets.activities." not in k
                and not k.startswith(("region_", "mix_region", "trade_"))}
         net["encoder.trunk.0.weight"] = net["encoder.trunk.0.weight"][:, :-pooled].clone()
         return net
-    norm9 = {k: v for k, v in normalizer.state_dict().items() if not k.startswith(("regions", "trade"))}
+    norm9 = {k: v for k, v in normalizer.state_dict().items() if not k.startswith(("regions", "trade", "activities"))}
     state9 = {"actor": as_contract9(actor.state_dict()), "critic": as_contract9(critic.state_dict()), "normalizer": norm9,
               "core_width": b["core"].shape[1], "contract": 9}
     up = upgrade(state9)
@@ -185,6 +185,7 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     t = to_tensors(b, Normalizer.from_state(up["normalizer"]))
     absent = dict(t); absent["regions_present"] = torch.zeros_like(t["regions_present"])
     absent["trade_present"] = torch.zeros_like(t["trade_present"])
+    absent["activities_present"] = torch.zeros_like(t["activities_present"])
     with torch.no_grad():
         a, a0 = new_actor(t), new_actor(absent)
         assert torch.allclose(new_critic(t), new_critic(absent))
@@ -196,6 +197,40 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     from anthropocene_rl.autonomous_v7.model import act_deterministic
     mode = act_deterministic(a)
     assert np.all(mode["trade_value"] == 1.0) and np.all(mode["trade_gate"] == contracts.TRADE_MAKE) and np.all(mode["trade_share"] == 0.0)
+
+
+def test_token_model_masks_absent_rows_and_starts_native() -> None:
+    from anthropocene_rl.autonomous_v7.model import act_deterministic
+    b = batch(); normalizer = Normalizer.fit(b)
+    torch.manual_seed(7)
+    actor = Actor(b["core"].shape[1], token=True); actor.eval()
+    t = to_tensors(b, normalizer)
+    poked = dict(t)
+    for name, _, _ in contracts.SETS:  # absent rows' values must never matter
+        x = t[name].clone(); x[~t[name + "_present"]] = 99.0; poked[name] = x
+    with torch.no_grad():
+        a, p = actor(t), actor(poked)
+    for key in ("strategic_mean", "service_mean", "mix_logits", "trade_value_mean", "trade_gate", "region", "span", "fission"):
+        assert torch.allclose(a[key], p[key], atol=1e-5), key
+    assert a["mix_logits"].shape == (6, len(contracts.ECONOMY_MIX)) and a["trade_gate"].shape == (6, len(contracts.TRADE_GROUPS), contracts.TRADE_GATES)
+    mode = act_deterministic(a)
+    assert np.all(mode["trade_value"] == 1.0) and np.all(mode["trade_gate"] == contracts.TRADE_MAKE) and np.all(mode["trade_share"] == 0.0)
+
+
+@pytest.mark.parametrize("stage", sorted(ppo.STAGES))
+def test_token_model_draws_recompute_their_log_probability(stage: str) -> None:
+    import dataclasses
+    b = batch(); normalizer = Normalizer.fit(b)
+    torch.manual_seed(8)
+    actor = Actor(b["core"].shape[1], token=True); actor.eval()
+    t = to_tensors(b, normalizer)
+    s = dataclasses.replace(ppo.STAGES[stage], trade=True, fission=True)
+    with torch.no_grad():
+        out = ppo.explore(actor(t), -2.0)
+        draw = ppo.sample(out, t, s, torch.Generator().manual_seed(3))
+        lp1, entropy = ppo.log_prob(out, t, draw, s)
+        lp2, _ = ppo.log_prob(ppo.explore(actor(t), -2.0), t, draw, s)
+    assert torch.allclose(lp1, lp2, atol=1e-5) and torch.all(torch.isfinite(lp1)) and torch.all(torch.isfinite(entropy))
 
 
 def test_learned_trade_draws_score_anchor_and_reach_the_bridge() -> None:
