@@ -712,6 +712,43 @@ Decision rules:
 The combined curriculum (mixed use, learned movement, fission and trade) then runs on the token model from the
 passing stage 2.
 
+### Search teacher round 1: pre-registration (written 20 October 2026, before any result)
+
+Approved by the user: "generate labels on train and valley worlds, then PPO with learned movement and the labels,
+gated against the frozen reference". Design: `MODEL9_SEARCH_TEACHER.md`. Driver: VM `r1.sh`, resumable, sharing the
+VM with t1.
+
+**Labels.**
+- Source policy: the frozen reference, `stage2-span-seed0/best.pt` forced single-turn (the 2x2's reference).
+- Worlds: TRAIN 1000-1095 and the first 96 relaxed valley TRAIN fixtures (192 worlds).
+- 3 decision turns × 2 villages per world, horizon 8, return-only scoring. That gives about 1,150 points.
+- Rows beating the policy by more than 0.5% are imitated.
+
+**Arms.** Capability stage, `--learned-movement`, valley TRAIN fixtures in training, experts, 50 iterations, seeds
+50-55, same settings as the 2x2 otherwise:
+- **S**: with the search labels, imitation weight 0.5;
+- **C**: identical without labels (paired by seed).
+
+**Evaluation.** `stage_eval --movement --region-movement`, `latest.pt`, on:
+- the decisive experiment's 104 worlds;
+- held-out relaxed valley fixtures (40) and strict valley fixtures (13).
+
+The frozen reference is the init, forced single-turn, in the same environment.
+
+**Decision rules.**
+- **Gate (S against the frozen reference):** S passes when all of these hold:
+  - its default-world interval's lower bound is at least 0.98;
+  - no regime's point estimate is below 0.97;
+  - the no-collapse guard holds (extinction interval, QoL drop of at most 0.03, below-30 share).
+- **Labels work (S against C):**
+  - S's evaluation move share is above 0;
+  - S beats C on the relaxed valley bank (point estimate above 1);
+  - S does not lose to C on default worlds (lower bound at least 0.98).
+- **If S never moves at evaluation:** the imitation weight or the label count is too small. Round 2 raises them before
+  any other conclusion.
+- **If S moves but loses on valley worlds:** the search labels do not transfer to closed-loop play (horizon or credit
+  mismatch). Round 2 then tests a longer horizon and whole-world scoring.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
