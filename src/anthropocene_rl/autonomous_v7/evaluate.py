@@ -21,7 +21,7 @@ import torch
 
 from . import contracts
 from .bridge import Model9Bridge, observation_batch
-from .model import Actor, Normalizer, act_deterministic, to_tensors
+from .model import Actor, Normalizer, act_deterministic, region_code, to_tensors
 from .upgrade import upgrade
 
 
@@ -32,6 +32,8 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     # Contract 9: a policy trained without commitments decides every turn at evaluation too, whatever span head it
     # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results reproduce.
     actor.commitments = bool(state.get("commitments", True))
+    # Contract 10: a policy trained with learned movement moves over region rows; others keep the contract-8 pointer.
+    actor.region_movement = bool(state.get("region_movement", False))
     return actor, Normalizer.from_state(state["normalizer"])
 
 
@@ -42,8 +44,9 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
     live = [v for v in villages if v.get("observation") is not None and not v.get("terminated")]
     if not live:
         return {}
+    region = movement and getattr(actor, "region_movement", False)
     with torch.no_grad():
-        mode = act_deterministic(actor(to_tensors(observation_batch(live), normalizer)))
+        mode = act_deterministic(actor(to_tensors(observation_batch(live), normalizer)), region=region)
     if not getattr(actor, "commitments", True):
         mode["span"] = np.full(len(live), contracts.SPAN_SINGLE)
     actions = {}
@@ -54,24 +57,28 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
         actions[int(v["camp"])] = {
             "strategic": mode["strategic"][i].tolist(), "service": mode["service"][i].tolist(),
             "clothingRoute": int(mode["clothing"][i]), "shelterRoute": int(mode["shelter"][i]),
-            "movement": int(mode["movement"][i]) if movement else contracts.NATIVE_MOVEMENT, "fission": -1,
+            "movement": (region_code(int(mode["region"][i])) if region else int(mode["movement"][i])) if movement
+                        else contracts.NATIVE_MOVEMENT, "fission": -1,
             "commit": contracts.SPANS[int(mode["span"][i])],
         }
     return actions
 
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
-            commitments: bool | None = None) -> dict[str, Any]:
-    """``commitments`` overrides the checkpoint's own setting when given."""
+            commitments: bool | None = None, region: bool | None = None) -> dict[str, Any]:
+    """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings."""
     torch.set_num_threads(1)
     actor = normalizer = None
     if checkpoint is not None:
         actor, normalizer = load(Path(checkpoint))
         if commitments is not None:
             actor.commitments = commitments
+        if region is not None:
+            actor.region_movement = region
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     spans: dict[int, int] = {}
+    moves = 0
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(turns):
@@ -79,6 +86,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             actions = policy_actions(actor, normalizer, step["villages"], movement, mixes) if actor is not None else {}
             for action in actions.values():
                 spans[action.get("commit", 1)] = spans.get(action.get("commit", 1), 0) + 1
+                code = action.get("movement", contracts.NATIVE_MOVEMENT)
+                moves += int(code == contracts.KEEP_INTENT or code > contracts.REGION_BASE)
             for camp, mix in mixes.items():
                 if camp in previous:
                     changes.append(0.5 * float(np.abs(mix - previous[camp]).sum()))
@@ -114,6 +123,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         # Contract 9: share of decisions holding (0), deciding one turn (1) or committing (2-6).
         "hold_share": spans.get(0, 0) / max(1, sum(spans.values())),
         "commit_share": sum(v for k, v in spans.items() if k >= 2) / max(1, sum(spans.values())),
+        # Contract 10: share of decisions that chose a region row other than the current tile, or kept an intent.
+        "region_move_share": moves / max(1, sum(spans.values())),
     }
 
 

@@ -95,6 +95,8 @@ def test_schema_verification_rejects_layout_drift() -> None:
     schema = {"nativeContract": contracts.NATIVE_CONTRACT, "actionSchema": contracts.ACTION_SCHEMA,
               "observationSchema": contracts.OBSERVATION_SCHEMA, "environmentSchema": contracts.ENVIRONMENT_SCHEMA,
               "movementSlots": 8, "nativeMovement": -2,
+              "regionMovementSlots": contracts.REGION_MOVEMENT_SLOTS, "keepIntent": contracts.KEEP_INTENT,
+              "regionBase": contracts.REGION_BASE,
               "sets": [{"name": n, "rows": r, "width": w} for n, r, w in contracts.SETS],
               "services": list(contracts.SERVICES), "strategic": list(contracts.STRATEGIC),
               "coreFeatures": ["a", "b"], "coreWidth": 2, "buildHash": "x"}

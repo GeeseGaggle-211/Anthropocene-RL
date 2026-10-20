@@ -157,6 +157,77 @@ def test_contract8_checkpoints_upgrade_exactly() -> None:
     assert (a9["span"].argmax(dim=1) == contracts.SPAN_SINGLE).all()
 
 
+def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
+    from anthropocene_rl.autonomous_v7.upgrade import upgrade
+    from anthropocene_rl.autonomous_v7.model import Critic
+    b = batch(); normalizer = Normalizer.fit(b)
+    torch.manual_seed(4)
+    actor, critic = Actor(b["core"].shape[1]), Critic(b["core"].shape[1])
+    pooled = 3 * actor.encoder.set_hidden + 1
+    def as_contract9(net: dict) -> dict:
+        net = {k: v for k, v in net.items() if ".sets.regions." not in k and not k.startswith(("region_", "mix_region"))}
+        net["encoder.trunk.0.weight"] = net["encoder.trunk.0.weight"][:, :-pooled].clone()
+        return net
+    norm9 = {k: v for k, v in normalizer.state_dict().items() if not k.startswith("regions")}
+    state9 = {"actor": as_contract9(actor.state_dict()), "critic": as_contract9(critic.state_dict()), "normalizer": norm9,
+              "core_width": b["core"].shape[1], "contract": 9}
+    up = upgrade(state9)
+    assert up["contract"] == contracts.NATIVE_CONTRACT and up["upgraded_from"] == 9
+    new_actor, new_critic = Actor(up["core_width"]), Critic(up["core_width"])
+    new_actor.load_state_dict(up["actor"]); new_critic.load_state_dict(up["critic"])
+    for key, value in state9["actor"].items():
+        if key != "encoder.trunk.0.weight":
+            assert torch.equal(up["actor"][key], value), key
+    w = up["actor"]["encoder.trunk.0.weight"]
+    assert torch.equal(w[:, :-pooled], state9["actor"]["encoder.trunk.0.weight"]) and torch.all(w[:, -pooled:] == 0)
+    # Region rows, present or absent, change nothing an upgraded policy outputs; its region argmax is native.
+    t = to_tensors(b, Normalizer.from_state(up["normalizer"]))
+    absent = dict(t); absent["regions_present"] = torch.zeros_like(t["regions_present"])
+    with torch.no_grad():
+        a, a0 = new_actor(t), new_actor(absent)
+        assert torch.allclose(new_critic(t), new_critic(absent))
+    for key in ("strategic_mean", "service_mean", "mix_logits", "clothing", "movement", "span", "region"):
+        assert torch.allclose(a[key], a0[key]), key
+    assert torch.all(a["mix_offset"] == 0) and torch.all(a["region"].argmax(dim=1) == contracts.REGION_NATIVE)
+
+
+def test_region_head_starts_native_and_respects_masks() -> None:
+    from anthropocene_rl.autonomous_v7.model import NATIVE_START, region_code
+    actor, t = setup()
+    t = dict(t); mask = torch.ones_like(t["region_movement_mask"]); mask[:, contracts.REGION_KEEP] = False; mask[:, 2 + 5:] = False
+    t["region_movement_mask"] = mask
+    with torch.no_grad():
+        p = torch.softmax(actor(t)["region"], dim=1)
+    assert torch.all(p[:, contracts.REGION_KEEP] < 1e-9) and torch.all(p[:, 2 + 5:] < 1e-9)
+    t_all = dict(t); t_all["region_movement_mask"] = torch.ones_like(mask)
+    with torch.no_grad():
+        p_all = torch.softmax(actor(t_all)["region"], dim=1)
+    assert torch.allclose(p_all[:, contracts.REGION_NATIVE], torch.full((len(p_all),), NATIVE_START), atol=1e-5)
+    assert [region_code(s) for s in (0, 1, 2, 9)] == [contracts.NATIVE_MOVEMENT, contracts.KEEP_INTENT,
+                                                      contracts.REGION_BASE, contracts.REGION_BASE + 7]
+
+
+def test_learned_movement_draws_recompute_their_log_probability_with_the_conditioned_mix() -> None:
+    import dataclasses
+    actor, t = setup()
+    with torch.no_grad():
+        actor.mix_region.weight.normal_(0, 1.0); actor.region_query.weight.normal_(0, 1.0)  # make conditioning matter
+    stage = dataclasses.replace(ppo.STAGES["mixed"], movement=True, region_movement=True)
+    with torch.no_grad():
+        out = actor(t)
+        draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(9))
+        lp1, entropy = ppo.log_prob(out, t, draw, stage)
+        lp2, _ = ppo.log_prob(actor(t), t, draw, stage)
+        # The mix density depends on the drawn slot: scoring the same draw under another slot changes it.
+        other = dict(draw); other["region"] = (draw["region"] + 1) % contracts.REGION_MOVEMENT_SLOTS
+        lp3, _ = ppo.log_prob(out, t, other, stage)
+    assert torch.allclose(lp1, lp2) and torch.all(torch.isfinite(lp1)) and torch.all(torch.isfinite(entropy))
+    assert not torch.allclose(lp1, lp3)
+    codes = {a["movement"] for a in ppo.to_bridge_actions(draw, t)}
+    allowed = {contracts.NATIVE_MOVEMENT, contracts.KEEP_INTENT} | {contracts.REGION_BASE + r for r in range(contracts.REGION_ROWS)}
+    assert codes <= allowed
+
+
 def test_evaluation_honours_the_training_commitments_setting(tmp_path, monkeypatch) -> None:
     from anthropocene_rl.autonomous_v7 import evaluate
     actor, t = setup()

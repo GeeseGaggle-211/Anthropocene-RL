@@ -36,7 +36,7 @@ from torch import nn
 
 from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
-from .model import MASKED, Actor, Critic, Normalizer, VectorCritic, to_tensors
+from .model import MASKED, Actor, Critic, Normalizer, VectorCritic, condition_mix, region_code, to_tensors
 
 SMALL_SETTLEMENT = 30
 YOUNG_DAUGHTER_TURNS = 3
@@ -57,6 +57,9 @@ class Stage:
     # Contract 9: the policy chooses a capital commitment span (--commitments); otherwise every turn decides for
     # itself (span 1), exactly as contract 8.
     commitments: bool = False
+    # Contract 10 (--learned-movement): the policy moves over region rows with destination intents and chooses the
+    # economy mix given the destination; the contract-8 site pointer is not used.
+    region_movement: bool = False
 
 
 STAGES = {
@@ -117,15 +120,21 @@ def sample(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], stage: Stag
         return torch.multinomial(torch.softmax(logits, dim=1), 1, generator=generator).squeeze(1)
 
     mask = t["economy_mix_mask"]
+    # Contract 10: the region slot is drawn first and the mix given it.
+    region = categorical(out["region"]) if stage.region_movement else torch.full((len(mask),), contracts.REGION_NATIVE, dtype=torch.long)
+    if stage.region_movement:
+        out = condition_mix(out, region)
     mu, free, _ = _mix_parts(out, mask)
     mix_z = torch.where(free > 0, gauss(mu, out["mix_log_std"]), torch.zeros_like(mu))
     draw = {
+        "region": region,
         "strategic_z": gauss(out["strategic_mean"], out["strategic_log_std"]),
         "service_z": gauss(out["service_mean"], out["service_log_std"]),
         "mix_z": mix_z,
         "clothing": categorical(out["clothing"]) if stage.routes else torch.full((len(mu),), -1, dtype=torch.long),
         "shelter": categorical(out["shelter"]) if stage.routes else torch.full((len(mu),), -1, dtype=torch.long),
-        "movement": categorical(out["movement"]) if stage.movement else torch.full((len(mu),), -1, dtype=torch.long),
+        "movement": categorical(out["movement"]) if stage.movement and not stage.region_movement
+                    else torch.full((len(mu),), -1, dtype=torch.long),
         "span": categorical(out["span"]) if stage.commitments else torch.full((len(mu),), contracts.SPAN_SINGLE, dtype=torch.long),
     }
     return draw
@@ -139,6 +148,8 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     committed ones, so they are not part of this turn's action: their draws contribute no log-probability or entropy.
     Service levels and movement are per-turn in every row; the span head counts whenever the stage learns it."""
     half_log_2pie = 0.5 * math.log(2 * math.pi * math.e)
+    if stage.region_movement:
+        out = condition_mix(out, draw["region"])
     mu, free, _ = _mix_parts(out, t["economy_mix_mask"])
     capital_lp = _normal_logp(draw["strategic_z"], out["strategic_mean"], out["strategic_log_std"]).sum(dim=1)
     capital_lp = capital_lp + (_normal_logp(draw["mix_z"], mu, out["mix_log_std"]) * free).sum(dim=1)
@@ -153,7 +164,9 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     if stage.routes:
         for head in ("clothing", "shelter"):
             a, b = categorical(head); capital_lp = capital_lp + a; capital_ent = capital_ent + b
-    if stage.movement:
+    if stage.region_movement:
+        a, b = categorical("region"); lp = lp + a; entropy = entropy + b
+    elif stage.movement:
         a, b = categorical("movement"); lp = lp + a; entropy = entropy + b
     decided = torch.ones_like(lp)
     if stage.commitments:
@@ -189,11 +202,13 @@ def to_bridge_actions(draw: dict[str, torch.Tensor], t: dict[str, torch.Tensor])
     actions = []
     for i in range(len(strategic)):
         movement = int(draw["movement"][i])
+        # A contract-8 site draw (stage 4) wins; otherwise the contract-10 region slot (native unless learned).
+        code = movement - 1 if movement >= 0 else region_code(int(draw["region"][i])) if "region" in draw else contracts.NATIVE_MOVEMENT
         actions.append({
             "strategic": [*strategic[i].tolist(), float(field_share[i]), float(mix[i, 2])],
             "service": service[i].tolist(),
             "clothingRoute": int(draw["clothing"][i]), "shelterRoute": int(draw["shelter"][i]),
-            "movement": movement - 1 if movement >= 0 else contracts.NATIVE_MOVEMENT,
+            "movement": code,
             "fission": -1,
             "commit": contracts.SPANS[int(draw["span"][i])],
         })
@@ -561,7 +576,7 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 
 
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
-                         movement: bool = False, commitments: bool | None = None) -> dict[str, float]:
+                         movement: bool = False, commitments: bool | None = None, region: bool | None = None) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
     the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn)."""
     from concurrent.futures import ProcessPoolExecutor
@@ -569,7 +584,7 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
     with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
         rows = list(pool.map(rollout, [w for w, _ in worlds], [turns] * len(worlds),
                              [None if checkpoint is None else str(checkpoint)] * len(worlds), [m for _, m in worlds],
-                             [movement] * len(worlds), [commitments] * len(worlds)))
+                             [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds)))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -580,6 +595,7 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
             "mix_switches": float(np.mean([r.get("mix_switches", 0.0) for r in rows])),
             "hold_share": float(np.mean([r.get("hold_share", 0.0) for r in rows])),
             "commit_share": float(np.mean([r.get("commit_share", 0.0) for r in rows])),
+            "region_move_share": float(np.mean([r.get("region_move_share", 0.0) for r in rows])),
             # Per-world outcomes, in world order, for paired comparisons across policies.
             "worlds": [[int(w), int(m), float(r["welfare"]), int(r["extinctions"])] for (w, m), r in zip(worlds, rows)]}
 
@@ -600,6 +616,8 @@ def main() -> int:
     parser.add_argument("--no-balance", action="store_true", help="global advantage standardization (pre-pilot)")
     parser.add_argument("--mix-change-cost", type=float, default=None)
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
+    parser.add_argument("--learned-movement", action="store_true",
+                        help="contract 10: the policy moves over region rows with destination intents (mix given the destination)")
     parser.add_argument("--vector-critic", action="store_true",
                         help="one value head per objective component; the advantage is their weighted sum")
     parser.add_argument("--objective-weights", default=None, help="name=weight[,name=weight] over contracts.OBJECTIVES")
@@ -662,6 +680,8 @@ def main() -> int:
     stage = STAGES[args.stage]; lagrange = float(state.get("lagrange", 0.0))
     if args.commitments:
         stage = dataclasses.replace(stage, commitments=True)
+    if args.learned_movement:
+        stage = dataclasses.replace(stage, movement=True, region_movement=True)
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     if args.objective_weights:
@@ -687,7 +707,7 @@ def main() -> int:
         torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
-                    "commitments": stage.commitments, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
+                    "commitments": stage.commitments, "region_movement": stage.region_movement, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "lagrange": lagrange, "log": log}, path)
 
@@ -696,7 +716,7 @@ def main() -> int:
         for seed, mask in eval_worlds:
             groups.setdefault(regime(seed, mask, frozenset()), []).append((seed, mask))
         result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.movement,
-                                             commitments=stage.commitments)
+                                             commitments=stage.commitments, region=stage.region_movement)
                   for name, worlds in groups.items()}
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))

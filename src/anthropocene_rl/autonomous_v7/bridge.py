@@ -97,6 +97,9 @@ def observation_batch(villages: Sequence[Mapping[str, Any]]) -> dict[str, np.nda
         "shelter_route_mask": np.asarray([o["shelterRouteMask"] for o in obs], dtype=np.bool_),
         "economy_mix_mask": np.asarray([o["economyMixMask"] for o in obs], dtype=np.bool_),
         "commit_hold_mask": np.asarray([bool(o.get("commitHoldMask", False)) for o in obs], dtype=np.bool_),
+        # Contract 10: native, keep intent, region rows 0-7.
+        "region_movement_mask": np.asarray([o.get("regionMovementMask", [True] + [False] * (contracts.REGION_MOVEMENT_SLOTS - 1))
+                                            for o in obs], dtype=np.bool_),
     }
     for index, (name, rows, width) in enumerate(contracts.SETS):
         batch[name] = np.asarray([o["sets"][index] for o in obs], dtype=np.float32).reshape(len(obs), rows, width)

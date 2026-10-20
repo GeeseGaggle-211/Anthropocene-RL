@@ -51,6 +51,9 @@ class Normalizer:
         core_mean, core_std = moments(batch["core"], batch["core_present"])
         normalizer = Normalizer(core_mean, core_std)
         for name, rows, width in contracts.SETS:
+            if name not in batch:  # shards written before the set existed (contract 10 regions): identity moments
+                normalizer.set_mean[name], normalizer.set_std[name] = np.zeros(width, np.float32), np.ones(width, np.float32)
+                continue
             x = batch[name].reshape(-1, width)
             present = np.repeat(batch[name + "_present"].reshape(-1, 1), width, axis=1)
             normalizer.set_mean[name], normalizer.set_std[name] = moments(x, present)
@@ -86,7 +89,11 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
     present = batch["core_present"].astype(np.float32)
     core = norm(batch["core"], normalizer.core_mean, normalizer.core_std) * present
     out = {"core": torch.as_tensor(np.concatenate([core, present], axis=1), dtype=torch.float32, device=device)}
-    for name, _, _ in contracts.SETS:
+    for name, rows, width in contracts.SETS:
+        if name not in batch:  # a set the shard predates: every row absent
+            out[name] = torch.zeros(len(batch["core"]), rows, width, dtype=torch.float32, device=device)
+            out[name + "_present"] = torch.zeros(len(batch["core"]), rows, dtype=torch.bool, device=device)
+            continue
         x = norm(batch[name], normalizer.set_mean[name], normalizer.set_std[name])
         mask = batch[name + "_present"]
         x = x * mask[..., None]
@@ -102,6 +109,10 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
     if hold is None:
         hold = np.zeros(len(batch["core"]), bool)
     out["commit_hold_mask"] = torch.as_tensor(hold, dtype=torch.bool, device=device)
+    region = batch.get("region_movement_mask")
+    if region is None:  # only native is legal
+        region = np.zeros((len(batch["core"]), contracts.REGION_MOVEMENT_SLOTS), bool); region[:, contracts.REGION_NATIVE] = True
+    out["region_movement_mask"] = torch.as_tensor(region, dtype=torch.bool, device=device)
     if "privileged" in batch and normalizer.privileged_mean is not None:
         out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std),
                                             dtype=torch.float32, device=device)
@@ -179,6 +190,31 @@ def init_span_head(layer: nn.Linear) -> None:
         layer.bias[contracts.SPAN_SINGLE] = float(np.log(len(contracts.SPANS) - 1))
 
 
+# Contract 10: the region movement head starts at NATIVE_START probability on native movement, the rest spread
+# evenly, so a learned-movement policy begins as the heuristic (argmax native) and explores the alternatives.
+NATIVE_START = 0.8
+
+
+def init_region_heads(actor: "Actor") -> None:
+    """Zero weights everywhere; the native logit's bias sets NATIVE_START. The mix offset starts at zero, so the mix
+    given any destination equals the unconditioned mix."""
+    others = contracts.REGION_MOVEMENT_SLOTS - 1
+    with torch.no_grad():
+        for layer in (actor.region_native, actor.region_keep, actor.region_query, actor.mix_region):
+            layer.weight.zero_(); layer.bias.zero_()
+        actor.region_native.bias.fill_(float(np.log(NATIVE_START / (1 - NATIVE_START) * others)))
+
+
+def condition_mix(out: dict[str, torch.Tensor], slot: torch.Tensor) -> dict[str, torch.Tensor]:
+    """The economy mix given the chosen region-movement slot (contract 10: the mix is chosen after the site)."""
+    if "mix_offset" not in out:
+        return out
+    out = dict(out)
+    offset = out["mix_offset"].gather(1, slot.clamp(min=0).view(-1, 1, 1).expand(-1, 1, out["mix_offset"].shape[2])).squeeze(1)
+    out["mix_logits"] = out["mix_logits"] + offset
+    return out
+
+
 def span_mask(t: dict[str, torch.Tensor]) -> torch.Tensor:
     """True where a span is illegal: holding needs an active, unbroken commitment."""
     rows = t["core"].shape[0]
@@ -209,6 +245,14 @@ class Actor(nn.Module):
         # the rest, so the argmax (deterministic evaluation) is "this turn only", contract 8's behaviour.
         self.span = nn.Linear(width, len(contracts.SPANS))
         init_span_head(self.span)
+        # Contract 10 movement: native and keep-intent logits plus a pointer over region rows, and the economy-mix
+        # offset given the chosen row.
+        hidden = self.encoder.set_hidden
+        self.region_native = nn.Linear(width, 1)
+        self.region_keep = nn.Linear(width, 1)
+        self.region_query = nn.Linear(width, hidden)
+        self.mix_region = nn.Linear(hidden, len(contracts.ECONOMY_MIX))
+        init_region_heads(self)
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
@@ -218,7 +262,13 @@ class Actor(nn.Module):
         service = self.service(e).view(-1, len(contracts.SERVICES), 2)
         site_scores = torch.einsum("bh,brh->br", self.site_query(h), rows["sites"]) / np.sqrt(self.encoder.set_hidden)
         movement = torch.cat([self.stay(h), site_scores], dim=1).masked_fill(~t["movement_mask"], MASKED)
+        region_rows = rows["regions"]
+        region_scores = torch.einsum("bh,brh->br", self.region_query(h), region_rows) / np.sqrt(self.encoder.set_hidden)
+        region = torch.cat([self.region_native(h), self.region_keep(h), region_scores], dim=1)
+        mix_offset = torch.cat([torch.zeros(len(h), 2, len(contracts.ECONOMY_MIX), device=h.device), self.mix_region(region_rows)], dim=1)
         return {
+            "region": region.masked_fill(~t["region_movement_mask"], MASKED),
+            "mix_offset": mix_offset,
             "strategic_mean": strategic[..., 0], "strategic_log_std": strategic[..., 1].clamp(-5, 1),
             "mix_logits": mix[..., 0].masked_fill(~t["economy_mix_mask"], MASKED),
             "mix_log_std": mix[..., 1].clamp(-5, 1),
@@ -338,8 +388,13 @@ def mix_log_prob(logits: torch.Tensor, log_std: torch.Tensor, mix: torch.Tensor,
     return ((gauss + jacobian) * others).sum(dim=1) + (jacobian * (m - others)).sum(dim=1) * (others.sum(dim=1) > 0).float()
 
 
-def act_deterministic(out: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
-    """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends)."""
+def act_deterministic(out: dict[str, torch.Tensor], region: bool = False) -> dict[str, np.ndarray]:
+    """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends). With
+    ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it."""
+    slot = out["region"].argmax(dim=1) if region and "region" in out else torch.zeros(len(out["mix_logits"]), dtype=torch.long)
+    if region:
+        out = condition_mix(out, slot)
+
     def level(mean: torch.Tensor) -> np.ndarray:
         p = torch.sigmoid(mean).detach().cpu().numpy()
         p[p < 0.01] = 0.0
@@ -359,4 +414,14 @@ def act_deterministic(out: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
         "fission": out["fission"].argmax(dim=1).cpu().numpy(),
         "movement": out["movement"].argmax(dim=1).cpu().numpy() - 1,
         "span": out["span"].argmax(dim=1).cpu().numpy() if "span" in out else np.full(len(mix), contracts.SPAN_SINGLE),
+        "region": slot.cpu().numpy(),
     }
+
+
+def region_code(slot: int) -> int:
+    """Bridge movement code of a region-movement slot: native, keep intent, or region row."""
+    if slot == contracts.REGION_NATIVE:
+        return contracts.NATIVE_MOVEMENT
+    if slot == contracts.REGION_KEEP:
+        return contracts.KEEP_INTENT
+    return contracts.REGION_BASE + slot - 2

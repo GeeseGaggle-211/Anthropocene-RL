@@ -1,4 +1,4 @@
-"""Native Elder contract 9 (model9): the learner-side registry.
+"""Native Elder contract 10 (model9): the learner-side registry.
 
 The native side is authoritative (``ElderModel9Contract`` in the simulator). ``verify_schema`` checks a bridge's
 schema response against this registry so a learner never trains against a mismatched layout.
@@ -9,10 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-NATIVE_CONTRACT = 9
-ACTION_SCHEMA = 9
-OBSERVATION_SCHEMA = 9
-ENVIRONMENT_SCHEMA = 9
+NATIVE_CONTRACT = 10
+ACTION_SCHEMA = 10
+OBSERVATION_SCHEMA = 10
+ENVIRONMENT_SCHEMA = 10
 # Contract 9 capital commitments: the span head's categories (0 holds the active commitment, 1 decides this turn
 # only, 2-6 commit the capital controls for that many turns) and the commitment block appended to the core.
 SPANS: tuple[int, ...] = (0, 1, 2, 3, 4, 6)
@@ -29,7 +29,15 @@ SETS: tuple[tuple[str, int, int], ...] = (
     ("herds", 8, 8),
     ("commodities", 11, 8),
     ("contacts", 8, 9),
+    # Contract 10: regional movement candidates (simulator ElderMovement); row 0 is the current tile.
+    ("regions", 8, 24),
 )
+# Contract 10 movement head: native (the heuristic's orders), keep the destination intent, then region rows 0-7.
+# Bridge codes: native -2, keep -3, region r is REGION_BASE + r (row 0 is stay).
+REGION_ROWS = 8
+REGION_MOVEMENT_SLOTS = 2 + REGION_ROWS
+REGION_NATIVE, REGION_KEEP = 0, 1
+KEEP_INTENT, REGION_BASE = -3, 100
 SERVICES: tuple[str, ...] = ("food", "clothing", "shelter", "tools", "storage", "materials")
 STRATEGIC: tuple[str, ...] = (
     "retained-field-operation",
@@ -72,6 +80,9 @@ def verify_schema(response: Mapping[str, Any]) -> Schema:
         "environmentSchema": ENVIRONMENT_SCHEMA,
         "movementSlots": MOVEMENT_SLOTS,
         "nativeMovement": NATIVE_MOVEMENT,
+        "regionMovementSlots": REGION_MOVEMENT_SLOTS,
+        "keepIntent": KEEP_INTENT,
+        "regionBase": REGION_BASE,
     }
     for key, value in expected.items():
         if response.get(key) != value:

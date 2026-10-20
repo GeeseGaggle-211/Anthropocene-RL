@@ -59,6 +59,9 @@ namespace Anthropocene.RLBridge
                         economyMix = ElderModel9Contract.EconomyMix,
                         movementSlots = ElderModel9Contract.MovementSlots,
                         nativeMovement = ElderModel9Contract.NativeMovement,
+                        regionMovementSlots = ElderModel9Contract.RegionMovementSlots,
+                        keepIntent = ElderMovement.KeepIntent, regionBase = ElderMovement.RegionBase,
+                        regionFeatures = ElderModel9Encoder.RegionFeatureNames(),
                         buildHash = ElderModel9Environment.BuildHash
                     };
                 case "reset":
@@ -132,7 +135,8 @@ namespace Anthropocene.RLBridge
                     movementMask = v.Observation.MovementMask,
                     clothingRouteMask = v.Observation.ClothingRouteMask, shelterRouteMask = v.Observation.ShelterRouteMask,
                     economyMixMask = v.Observation.EconomyMixMask,
-                    commitHoldMask = v.Observation.CommitmentHoldMask
+                    commitHoldMask = v.Observation.CommitmentHoldMask,
+                    regionMovementMask = v.Observation.RegionMovementMask
                 },
                 teacher = v.Teacher == null ? null : new
                 {
