@@ -192,6 +192,12 @@ def test_paired_compare_and_seed_lists() -> None:
                                     [k for k in candidates if k.startswith("1.05-")], draws=500)
     r = result["default"]["b_vs_a"]
     assert abs(r["ratio"] - 1.05) < 0.01 and r["lo"] < r["ratio"] < r["hi"] and r["lo"] > 1.03
+    # Shards over the same worlds merge into one report.
+    teacher = {"worlds": [[i, 0, 1.0, 0] for i in range(len(difficulty))]}
+    names = sorted(candidates)
+    shards = [{"default": {"teacher": teacher, "candidates": {k: candidates[k] for k in names[:3]}}, "gate": {}},
+              {"default": {"teacher": teacher, "candidates": {k: candidates[k] for k in names[3:]}}, "gate": {}}]
+    assert set(paired_compare.merge(shards)["default"]["candidates"]) == set(candidates)
 
 
 def test_hold_rows_carry_no_capital_probability() -> None:

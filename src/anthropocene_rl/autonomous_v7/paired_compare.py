@@ -56,16 +56,31 @@ def compare(report: dict, arm_a: list[str], arm_b: list[str], reference: str | N
     return out
 
 
+def merge(reports: list[dict]) -> dict:
+    """stage_eval reports over the same worlds (e.g. candidate shards run in parallel) as one report."""
+    out = json.loads(json.dumps(reports[0]))
+    for other in reports[1:]:
+        for name, row in other.items():
+            if name == "gate":
+                out["gate"].update(row)
+                continue
+            if [w[:2] for w in row["teacher"]["worlds"]] != [w[:2] for w in out[name]["teacher"]["worlds"]]:
+                raise ValueError(f"{name}: reports cover different worlds")
+            out[name]["candidates"].update(row["candidates"])
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument("--report", type=Path, nargs="+", required=True, help="one or more stage_eval reports (merged)")
     parser.add_argument("--a", required=True, help="comma-separated checkpoints of arm A (control)")
     parser.add_argument("--b", required=True, help="comma-separated checkpoints of arm B (treatment)")
     parser.add_argument("--reference", default=None)
     parser.add_argument("--draws", type=int, default=4000)
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
-    result = compare(json.loads(args.report.read_text()), args.a.split(","), args.b.split(","), args.reference, args.draws)
+    report = merge([json.loads(p.read_text()) for p in args.report])
+    result = compare(report, args.a.split(","), args.b.split(","), args.reference, args.draws)
     for name, e in result.items():
         r = e["b_vs_a"]
         line = f"{name:10s} worlds {e['worlds']:3d}  B/A {r['ratio']:.4f} [{r['lo']:.4f}, {r['hi']:.4f}]"
