@@ -749,6 +749,102 @@ The frozen reference is the init, forced single-turn, in the same environment.
 - **If S moves but loses on valley worlds:** the search labels do not transfer to closed-loop play (horizon or credit
   mismatch). Round 2 then tests a longer horizon and whole-world scoring.
 
+### Token model (contract 12): results (20 October 2026)
+
+Run on the VM 11:14-21:43 UTC, with three Spot restarts. Evidence is in GCS `model9/token-c12/t1/runs`.
+
+**Stage-1 fidelity fails.** Closed-loop welfare against the teacher on DEVELOPMENT 2000-2019:
+
+| Clone | Ratio |
+| --- | --- |
+| current network (legacy stage 1) | 1.003 |
+| token seed 0 | 0.401 |
+| token seed 1 (best) | 0.889 |
+| token seed 2 | 0.123 |
+
+- The rule (at least 0.95, and within 3% of the legacy clone) fails.
+- The best token clone is biased, not noisy. On default worlds it runs about 711k residents at QoL 0.881; the
+  teacher runs 1,018k at 0.805. It behaves like a QoL-leaning Elder.
+- Two of the three seeds collapse. Cloning with the token encoder is unstable at the M5 settings.
+
+The driver did not enforce the gate, so stage 2 started from seed 1 anyway. Its results, read against that init:
+
+- **T2def against the token init:** default 1.035 [1.005, 1.066]. No regime interval lies entirely below 0.97 (the
+  lowest lower bound is farming, 0.963) and no extinction interval rises, so the rule passes. It is still about 0.88 of
+  the teacher on default worlds, against 1.04 for the legacy network.
+- **T2per against T2def:** default 0.994 [0.970, 1.018]. The lower bound misses 0.98 by 0.010, so the rule fails
+  narrowly.
+- **Personality sweep fails.** The qol point does not reach higher QoL than the population point (1 of 5 seeds). The
+  population point reaches more residents than the qol point in 3 of 5 seeds. Every difference is about 1-2%, within
+  seed noise.
+
+  Causes, in my reading: a capability stage leaves little room for trade-offs; the teacher anchor holds every
+  personality together; the welfare leakage (`MODEL9_PERSONALITY.md`) was still open in this run; and the init itself
+  is biased.
+
+**Verdict:** the token model does not replace the current network yet, and personalities are not shown to work.
+Under the user's direction (push on only through passing gates), this line stops here for review. Next for it:
+- stabilise token cloning (learning-rate warm-up, or initialising from the pooling encoder, then more epochs);
+- rerun the sweep in a mixed-use stage with the welfare-leakage fixes and a weaker anchor.
+
+### Search teacher round 1: results (20 October 2026)
+
+Run on the VM 14:02-22:21 UTC, alongside t1. Evidence is in GCS `model9/search-r1`.
+
+Labels: 1,152 decision points on 192 worlds.
+- Search beat the reference at 83-92% of points per shard.
+- Winners: region moves 709, native 245, pure mix 31.
+- The median whole-world gain of winners is +0.4% to +1.0%. 1-6% of winners lower world welfare.
+
+| Comparison | Default (54) | Herding | Farming | Fishing | Grassland | Valley (40) | Strict valley (13) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| S against the frozen reference | **1.059 [1.022, 1.096]** | 0.981 | 1.007 | 1.272 | 1.054 | 1.018 [0.995, 1.043] | 1.017 |
+| S against C | **1.050 [1.020, 1.079]** | 0.986 | 0.981 | 1.213 | 1.025 | **1.023 [1.001, 1.046]** | 1.020 |
+
+Guard, S against the reference:
+- no extinction interval rises;
+- default-world QoL is 0.864 against 0.841 (no drop);
+- settlements below 30 are 1.1% of settlements, against 0.6%. S founds about 39% more settlements: 53.7 against 38.7
+  per default world, with 1.018M residents against 0.919M.
+
+Movement: S moves on 26% of default-world decisions at evaluation (fishing 49%, valley 20%). C and the reference
+never move.
+
+**Pre-registered verdict:**
+- **The gate passes.** The lower bound is 1.022, every regime point estimate is at least 0.97, and the guard holds.
+- **The labels work.** S moves, beats C on valley worlds (point estimate above 1), and holds against C on default
+  worlds (lower bound 1.020).
+
+This is the first learned policy that moves, and the first to beat the stage-2 reference with every head trained.
+S-s55, the best on the selection bank (1.115), starts round 2.
+
+### Search teacher round 2: pre-registration (written 21 October 2026, before any result)
+
+Under the user's direction to push forward through passing gates. Driver: VM `r2.sh`.
+
+**Labels.**
+- Source policy: S-s55, which uses its own learned movement.
+- Fresh worlds: TRAIN 1096-1191 and relaxed valley TRAIN fixtures 97-168 (168 worlds).
+- Same search settings as round 1.
+
+**Arms.** Init S-s55, labels at weight 0.5, learned movement, valley TRAIN worlds, experts, 50 iterations, seeds
+60-65:
+- **cap**: capability stage;
+- **mix**: mixed-use stage. This is the all-heads gate that failed in the 2x2;
+- **all**: mixed use plus learned fission and learned trade.
+
+**Evaluation.** As in round 1. The candidates are the frozen reference, S-s55 and every round-2 policy.
+
+**Decision rules.**
+- **Gate:** each arm against the frozen reference. Its default lower bound must be at least 0.98, every regime point
+  estimate at least 0.97, and the guard must hold. The guard here means: no rising extinction interval, a default QoL
+  drop of at most 0.03, and below-30 settlements at most 2% of settlements.
+- **Expert iteration holds:** cap against S-s55, default lower bound at least 0.98.
+- **Frontier:** the most capable passing arm (all, then mix, then cap) starts round 3. Round 3 extends search to the
+  mixed-use alternatives and the remaining heads.
+- **If mix and all fail but cap passes:** mixed use remains the open problem, and is reported with its population
+  against QoL split.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
