@@ -286,7 +286,9 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
     """Run every world for ``turns`` steps with the sampled shared policy (worlds step in lockstep). A world is a
     seed or a (seed, withheld-technology mask) pair. ``personality``: a sampler of Elder personalities, drawn per
     (world, lineage) and inherited by daughters; None keeps the default personality (no input)."""
-    worlds = [(s, 0) if isinstance(s, int) else (int(s[0]), int(s[1])) for s in seeds]
+    full = [(s, 0, 0) if isinstance(s, int) else (int(s[0]), int(s[1]), int(s[2]) if len(s) > 2 else 0) for s in seeds]
+    warmups = [w for _, _, w in full]
+    worlds = [(s, m) for s, m, _ in full]
     seeds = [s for s, _ in worlds]
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
@@ -305,8 +307,13 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
         return batch
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            steps = list(pool.map(lambda pair: pair[0].reset(pair[1][0], movement=stage.bridge_movement, withheld=pair[1][1]),
-                                  zip(bridges, worlds)))
+            def start(pair):
+                bridge, (seed, mask), warm = pair
+                step = bridge.reset(seed, movement=stage.bridge_movement, withheld=mask)
+                for _ in range(warm):  # fixture states: the heuristic plays the warm-up turns
+                    step = bridge.step({})
+                return step
+            steps = list(pool.map(start, zip(bridges, worlds, warmups)))
             founded = [{v["camp"]: s["turn"] for v in s["villages"]} for s in steps]
             for _ in range(turns):
                 live = [(w, v) for w, s in enumerate(steps) for v in s["villages"]
@@ -394,6 +401,12 @@ def vector_values(critic: VectorCritic, batch: dict[str, np.ndarray], normalizer
         logits = critic(to_tensors(batch, normalizer))
     scale = np.maximum(1.0, batch["prior_population"].astype(np.float64))
     return {name: critic.expectation(value).numpy().astype(np.float64) * scale for name, value in logits.items()}
+
+
+def region_groups(draws: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
+    slot = draws["region"].numpy() if "region" in draws else np.zeros(0, dtype=np.int64)
+    return {"native": slot == contracts.REGION_NATIVE, "keep": slot == contracts.REGION_KEEP,
+            "stay": slot == 2, "move": slot > 2}
 
 
 def combine(advantages: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
@@ -602,6 +615,10 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
                   "mean_cost": mean_cost, "lagrange": lagrange, "mean_qol": float(batch["qol"].mean()),
                   "mix_change": float(change.mean()),
                   "span_shares": {str(s): float((span == i).mean()) for i, s in enumerate(contracts.SPANS)},
+                  # Contract 10 movement diagnostics: sampled slot shares (native, keep, row 0 stay, rows 1-7 move) and
+                  # each group's mean advantage, so "never moves" can be told apart from "moved and it did not pay".
+                  "region_shares": {name: float(m.mean()) for name, m in region_groups(draws).items()},
+                  "region_advantage": {name: float(advantage[m].mean()) for name, m in region_groups(draws).items() if m.any()},
                   "hold_legal": float(hold_legal.mean()), "voluntary_breaks": float(voluntary_break.mean()),
                   "regime_decisions": {r: int((regimes == r).sum()) for r in REGIMES if (regimes == r).any()}})
     return lagrange, stats
@@ -647,16 +664,21 @@ def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) ->
     return change
 
 
-def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator):
-    """Curriculum worlds as (seed, withheld-technology mask). Stage 2 draws the three single-capability fixtures
-    equally; stages 3-4 draw half ordinary TRAIN worlds, a quarter grassland-rich openings (where herding competes
-    with farming) and a quarter rehearsed capability fixtures."""
+def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator,
+                  valley: list[tuple[int, int]] | None = None):
+    """Curriculum worlds as (seed, withheld-technology mask[, heuristic warm-up turns]). Stage 2 draws the three
+    single-capability fixtures equally; stages 3-4 draw half ordinary TRAIN worlds, a quarter grassland-rich openings
+    (where herding competes with farming) and a quarter rehearsed capability fixtures. With learned movement and a
+    valley bank, a quarter of worlds (any stage) are valley fixture states, where moving can pay."""
     masks = list(contracts.CAPABILITY_MASKS.values())
 
-    def draw(n: int) -> list[tuple[int, int]]:
+    def draw(n: int) -> list[tuple]:
         worlds = []
         for i in range(n):
-            if stage.name == "capability":
+            if valley and stage.region_movement and i % 4 == 2:
+                seed, warm = valley[int(rng.integers(len(valley)))]
+                worlds.append((int(seed), 0, int(warm)))
+            elif stage.name == "capability":
                 worlds.append((int(rng.choice(train)), int(masks[i % len(masks)])))
             elif i % 4 == 1 and len(grassland) > 0:
                 worlds.append((int(rng.choice(grassland)), 0))
@@ -720,6 +742,10 @@ def main() -> int:
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
     parser.add_argument("--learned-movement", action="store_true",
                         help="contract 10: the policy moves over region rows with destination intents (mix given the destination)")
+    parser.add_argument("--valley-seeds", type=Path, default=None,
+                        help="valley fixture bank (lines 'seed,warmup'); with --learned-movement a quarter of training worlds")
+    parser.add_argument("--native-start", type=float, default=None,
+                        help="re-seat the region head's native probability (all slots legal), e.g. 0.5")
     parser.add_argument("--personality", default="default",
                         help="Elder personalities for training: default | fixed:w,w,w,w | dirichlet:alpha (token model only)")
     parser.add_argument("--resume", action="store_true",
@@ -818,7 +844,14 @@ def main() -> int:
             if name not in contracts.OBJECTIVES:
                 raise ValueError(f"unknown objective {name}")
             hyper.objective_weights[name] = float(weight)
-    draw = world_sampler(stage, train, grassland, rng)
+    valley = [tuple(int(x) for x in line.split(",")) for line in args.valley_seeds.read_text().split() if line.strip()] \
+        if args.valley_seeds else None
+    if args.native_start is not None:
+        # Re-seat the native prior of a loaded region head (the learned weights are kept).
+        with torch.no_grad():
+            others = contracts.REGION_MOVEMENT_SLOTS - 1
+            actor.region_native.bias.fill_(float(np.log(args.native_start / (1 - args.native_start) * others)))
+    draw = world_sampler(stage, train, grassland, rng, valley)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
     # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric
     # mean of the per-regime welfare ratios, so no regime can be traded away for the majority.
