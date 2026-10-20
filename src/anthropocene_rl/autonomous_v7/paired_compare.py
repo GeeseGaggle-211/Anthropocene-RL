@@ -35,6 +35,23 @@ def ratio_interval(a: np.ndarray, b: np.ndarray, draws: int, rng: np.random.Gene
     return {"ratio": float(point), "lo": float(lo), "hi": float(hi)}
 
 
+def extinction_matrix(row: dict, checkpoints: list[str]) -> np.ndarray:
+    return np.array([[w[3] for w in row["candidates"][c]["worlds"]] for c in checkpoints], dtype=np.float64)
+
+
+def difference_interval(a: np.ndarray, b: np.ndarray, draws: int, rng: np.random.Generator) -> dict[str, float]:
+    """Arm B minus arm A in mean extinct settlements per world (E3: a rate with an interval, pooled over seeds),
+    resampling seeds within each arm and the shared worlds."""
+    point = b.mean() - a.mean()
+    worlds = a.shape[1]
+    samples = np.empty(draws)
+    for i in range(draws):
+        w = rng.integers(0, worlds, worlds)
+        samples[i] = b[rng.integers(0, len(b), len(b))][:, w].mean() - a[rng.integers(0, len(a), len(a))][:, w].mean()
+    lo, hi = np.quantile(samples, [0.025, 0.975])
+    return {"difference": float(point), "lo": float(lo), "hi": float(hi), "a_rate": float(a.mean()), "b_rate": float(b.mean())}
+
+
 def compare(report: dict, arm_a: list[str], arm_b: list[str], reference: str | None = None, draws: int = 4000,
             seed: int = 0) -> dict:
     rng = np.random.default_rng(seed)
@@ -44,6 +61,7 @@ def compare(report: dict, arm_a: list[str], arm_b: list[str], reference: str | N
             continue
         a, b = welfare_matrix(row, arm_a), welfare_matrix(row, arm_b)
         entry = {"b_vs_a": ratio_interval(a, b, draws, rng), "worlds": int(a.shape[1]),
+                 "extinctions_b_minus_a": difference_interval(extinction_matrix(row, arm_a), extinction_matrix(row, arm_b), draws, rng),
                  "per_seed_vs_teacher": {"a": [float(row["candidates"][c]["ratio_vs_teacher"]) for c in arm_a],
                                          "b": [float(row["candidates"][c]["ratio_vs_teacher"]) for c in arm_b]},
                  "extinctions": {"a": [row["candidates"][c]["extinctions"] for c in arm_a],
@@ -83,7 +101,9 @@ def main() -> int:
     result = compare(report, args.a.split(","), args.b.split(","), args.reference, args.draws)
     for name, e in result.items():
         r = e["b_vs_a"]
-        line = f"{name:10s} worlds {e['worlds']:3d}  B/A {r['ratio']:.4f} [{r['lo']:.4f}, {r['hi']:.4f}]"
+        x = e["extinctions_b_minus_a"]
+        line = (f"{name:10s} worlds {e['worlds']:3d}  B/A {r['ratio']:.4f} [{r['lo']:.4f}, {r['hi']:.4f}]"
+                f"  extinct/world A {x['a_rate']:.3f} B {x['b_rate']:.3f} diff [{x['lo']:+.3f}, {x['hi']:+.3f}]")
         for key in ("a_vs_reference", "b_vs_reference"):
             if key in e:
                 q = e[key]; line += f"  {key} {q['ratio']:.4f} [{q['lo']:.4f}, {q['hi']:.4f}]"

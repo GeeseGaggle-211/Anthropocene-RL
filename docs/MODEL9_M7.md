@@ -440,6 +440,28 @@ Secondary measures:
 - the welfare/QoL breakdown, to flag gains bought by population at the expense of QoL;
 - teacher KL at the end of training.
 
+### E3: a robust extinction gate (20 October 2026)
+
+`paired_compare` now reports each arm's extinct settlements per world, pooled over its seeds, and the difference
+between arms with a bootstrap interval over seeds and shared worlds.
+
+On the decisive experiment (`latest.pt`, 5 seeds per arm), stage 3 against stage 2 continued:
+
+| Regime | Control | Stage 3 | Difference (95% interval) |
+| --- | ---: | ---: | --- |
+| Default (54) | 0.000 | 0.000 | 0 |
+| Herding (20) | 0.020 | 0.030 | [-0.030, +0.060] |
+| Farming (20) | 0.000 | 0.000 | 0 |
+| Fishing (20) | 0.010 | 0.020 | [-0.040, +0.070] |
+| Grassland (10) | 0.000 | 0.000 | 0 |
+
+Under the old per-checkpoint rule ("no more extinctions than the init"), half of all gate failures were single events
+like these. They are statistically indistinguishable between arms.
+
+Rule adopted for arm-level decisions from here on: an arm fails on extinctions only when its difference from the
+comparison arm has an interval lying entirely above zero. Per-checkpoint selection keeps the old rule; it only picks
+`best.pt`, and the primary measures use `latest.pt`.
+
 ### Contract 10 (destination movement): built 20 October 2026
 
 - Simulator b38c2c1: `ElderMovement`, Elder memory schema 3.
