@@ -627,6 +627,61 @@ Valley fixtures (simulator `--model9-valley-scan`, seeds 7000-7999; the heuristi
 - Openings alone never qualify: camp spacing (3) keeps every settlement at least 3 tiles away. The design's
   within-two-tiles competition was therefore impossible, and both the rows and the scan count within 4 tiles.
 
+### 2x2 movement x stage: results (20 October 2026)
+
+Run on the VM: 07:40-11:02 UTC, 24 arms of 6 seeds each. Evidence is in `model9-data/vm-x2`. Every policy was
+evaluated in the movement-enabled environment on the decisive experiment's 104 worlds plus the valley fixtures,
+`latest.pt`.
+
+Default worlds (54), with 95% intervals:
+
+| Comparison | Ratio |
+| --- | --- |
+| Ncap (stage 2, native) against the reference | **1.039 [1.017, 1.063]** |
+| Lcap against Ncap (learned movement) | 0.989 [0.969, 1.009] |
+| Nmix against Ncap (mixed-use stage) | **0.948 [0.922, 0.971]** |
+| Lmix against Ncap (combined, primary) | **0.945 [0.918, 0.974]** |
+| Lmix against Nmix | 0.997 [0.966, 1.030] |
+
+The valley fixtures agree:
+- relaxed (40): Lmix/Ncap 0.959, Nmix/Ncap 0.970, Lcap/Ncap 0.990;
+- strict (13): Lmix/Ncap 0.958, Nmix/Ncap 0.967, Lcap/Ncap 0.993.
+
+Guard:
+- no arm's extinctions are significantly higher than Ncap's (every interval contains 0);
+- default-world QoL against the reference (0.841) is Ncap 0.821, Lcap 0.823, Nmix 0.829, Lmix 0.837, so the drop is
+  at most 0.020;
+- the share of settlements below 30 is 0.14-0.21.
+
+The no-collapse guard holds in every arm.
+
+**Pre-registered verdict:**
+- The combined stage fails (lower bound 0.918 < 0.98), and so does each single factor against Ncap.
+- Stage 2 stays the scale-out curriculum under the original rule.
+
+**Two findings change the reading.**
+
+1. **Learned movement was never exercised at evaluation.** The move share is 0.0000 in every learned arm: the region
+   head's argmax stayed native (started at 0.8). The movement question is untested, not answered. Lcap's small
+   differences come from the moves sampled during training.
+   Next:
+   - inspect the sampled move outcomes in training;
+   - lower the native prior;
+   - put valley fixtures, where moving pays, into training rather than only evaluation.
+2. **Mixed use trades population for QoL; it does not lose welfare to a defect.** Against Ncap, Nmix runs 933k
+   residents at QoL 0.829 against 1,018k at 0.821.
+   - **The user's reading (20 October):** "that means that the mixed-use case is working in terms of impact". What
+     remains is that the personality inputs weighting QoL against population must have a tangible effect in mixed
+     use.
+   - Mixed use is therefore not a regression to fix. It becomes a personality test: under preference-conditioned
+     training, mixed-use outcomes must separate by personality.
+
+**Added to the token-model plan:** a mixed-use stage with Dirichlet personalities. It passes if the personality
+sweep separates on default and valley worlds in at least 4 of 5 seeds:
+- the qol personality reaches higher QoL than the population personality;
+- the population personality reaches more residents than the qol personality;
+- both differences are larger than the seed spread.
+
 ### Token model (contract 12): pre-registration (written 20 October 2026, before any result)
 
 The user directed that the Elder be tokenised for scalability, with personalities and a looser anchor accepted under
