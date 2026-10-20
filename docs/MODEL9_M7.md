@@ -627,6 +627,36 @@ Valley fixtures (simulator `--model9-valley-scan`, seeds 7000-7999; the heuristi
 - Openings alone never qualify: camp spacing (3) keeps every settlement at least 3 tiles away. The design's
   within-two-tiles competition was therefore impossible, and both the rows and the scan count within 4 tiles.
 
+### Token model (contract 12): pre-registration (written 20 October 2026, before any result)
+
+The user directed that the Elder be tokenised for scalability, with personalities and a looser anchor accepted under
+the no-collapse guard. Driver: VM `t1.sh`, resumable. Designs: `MODEL9_TOKENS.md` and `MODEL9_PERSONALITY.md`.
+
+1. **Teacher shards.** Regenerated with contract-12 observations: TRAIN 1000-1599, DEVELOPMENT 2000-2059, 25 turns.
+2. **Stage-1 cloning.** Three seeds, `train.py --token`, with the M5 settings (12 BC epochs, critic 4 x 6).
+   **Fidelity gate:** closed-loop welfare on DEVELOPMENT 2000-2019 against the teacher, at least 0.95, and within 3%
+   of the current network's stage-1 clone measured the same way. The seed with the highest ratio proceeds.
+3. **Stage 2** (capability, 50 iterations, teacher-KL 0.01, experts):
+   - five seeds at the default personality (T2def);
+   - five with Dirichlet(1) personalities (T2per).
+
+   Evaluation runs on the decisive experiment's 104 worlds at the default personality (`latest.pt`).
+
+Decision rules:
+- **T2def against the token stage-1 init:** stage 2 passes if no regime's interval lies entirely below 0.97 and the
+  no-collapse guard holds:
+  - extinction interval;
+  - regime of at least 0.97;
+  - default-world QoL drop of at most 0.03;
+  - below-30 share.
+- **T2per against T2def** at the default personality: personality training must cost at most 2% on default worlds
+  (lower bound of the interval at least 0.98).
+- **Sweep (`personality_sweep.py`):** the frontier is monotone. QoL is highest at the qol personality and population
+  at the population personality, in at least 4 of 5 seeds.
+
+The combined curriculum (mixed use, learned movement, fission and trade) then runs on the token model from the
+passing stage 2.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
