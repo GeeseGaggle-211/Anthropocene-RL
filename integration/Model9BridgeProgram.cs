@@ -71,10 +71,27 @@ namespace Anthropocene.RLBridge
                 {
                     // withheld: SimulationConfig.TrainingWithheldTechnologies for capability fixtures (0 = the game).
                     int withheld = root.TryGetProperty("withheld", out var wh) ? wh.GetInt32() : 0;
-                    byte[] snapshot = root.TryGetProperty("snapshot", out var s) && s.ValueKind == JsonValueKind.String
-                        ? Convert.FromBase64String(s.GetString())
-                        : ElderModel9Environment.GenerateOpening(root.GetProperty("seed").GetInt32(),
-                            root.TryGetProperty("players", out var p) ? p.GetInt32() : 8, out _, 40, withheld);
+                    // Optional world size (scale probes): width, height, separation; absent keeps SimulationConfig.Small.
+                    int width = root.TryGetProperty("width", out var wd) ? wd.GetInt32() : 0;
+                    int height = root.TryGetProperty("height", out var ht) ? ht.GetInt32() : 0;
+                    int separation = root.TryGetProperty("separation", out var sp) ? sp.GetInt32() : 0;
+                    var previous = ElderModel9Environment.ConfigOverride;
+                    if (width > 0 || height > 0 || separation > 0)
+                        ElderModel9Environment.ConfigOverride = c =>
+                        {
+                            if (width > 0) c.Width = width;
+                            if (height > 0) c.Height = height;
+                            if (separation > 0) c.StartSeparation = separation;
+                        };
+                    byte[] snapshot;
+                    try
+                    {
+                        snapshot = root.TryGetProperty("snapshot", out var s) && s.ValueKind == JsonValueKind.String
+                            ? Convert.FromBase64String(s.GetString())
+                            : ElderModel9Environment.GenerateOpening(root.GetProperty("seed").GetInt32(),
+                                root.TryGetProperty("players", out var p) ? p.GetInt32() : 8, out _, 40, withheld);
+                    }
+                    finally { ElderModel9Environment.ConfigOverride = previous; }
                     bool movement = root.TryGetProperty("movement", out var m) && m.GetBoolean();
                     environment = new ElderModel9Environment { WithheldTechnologies = withheld };
                     var step = environment.Reset(snapshot, movement);

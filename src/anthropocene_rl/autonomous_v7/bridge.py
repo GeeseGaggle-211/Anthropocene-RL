@@ -53,10 +53,14 @@ class Model9Bridge:
                 raise RuntimeError(f"model9 bridge error: {response.get('error')}")
             return response
 
-    def reset(self, seed: int, players: int = 8, movement: bool = False, withheld: int = 0) -> dict[str, Any]:
-        """withheld: training-only technology mask (1 << Technology) for capability fixtures; 0 is the game."""
-        return self.request({"op": "reset", "seed": seed, "players": players, "movement": movement,
-                             "withheld": withheld})["step"]
+    def reset(self, seed: int, players: int = 8, movement: bool = False, withheld: int = 0,
+              size: tuple[int, int, int] | None = None) -> dict[str, Any]:
+        """withheld: training-only technology mask (1 << Technology) for capability fixtures; 0 is the game.
+        size: optional (width, height, start separation) for scale probes; None keeps the Small training world."""
+        payload = {"op": "reset", "seed": seed, "players": players, "movement": movement, "withheld": withheld}
+        if size is not None:
+            payload.update(width=size[0], height=size[1], separation=size[2])
+        return self.request(payload)["step"]
 
     def step(self, actions: Mapping[int, Mapping[str, Any]]) -> dict[str, Any]:
         return self.request({"op": "step", "actions": {str(k): v for k, v in actions.items()}})["step"]
