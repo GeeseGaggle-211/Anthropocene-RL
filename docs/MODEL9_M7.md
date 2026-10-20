@@ -440,6 +440,70 @@ Secondary measures:
 - the welfare/QoL breakdown, to flag gains bought by population at the expense of QoL;
 - teacher KL at the end of training.
 
+### E2: results (20 October 2026)
+
+Run on the 60-vCPU VM:
+- 24 arms, 04:40-06:54 UTC (50 iterations in about 2 h 14 min at `OMP_NUM_THREADS=3`);
+- evaluation in four shards, 06:54-07:26 (32 min);
+- evidence in `gs://.../model9/ppo-c9/e2/runs/` and locally in `model9-data/vm-e2`.
+
+Default worlds (54), `latest.pt`, with 95% intervals over seeds and shared worlds:
+
+| Cell | Against the reference (init) | Against A |
+| --- | --- | --- |
+| A baseline (5) | 1.012 [0.982, 1.041] | n/a |
+| B lr 3e-5 (5) | 1.000 [0.973, 1.027] | 0.988 [0.965, 1.011] |
+| C lr 1e-4 (5) | 0.988 [0.951, 1.027] | 0.976 [0.939, 1.013] |
+| D teacher-KL 0.01 (5) | 1.022 [0.991, 1.053] | 1.009 [0.987, 1.035] |
+| E 48 worlds, 12 iterations (4) | 1.003 [0.979, 1.027] | 0.991 [0.972, 1.009] |
+
+Other regimes against A:
+- every interval contains 1;
+- farming against the reference is +6 to +8% in every cell, with intervals above 1;
+- fishing is 0.94-0.99 against the reference, with wide intervals.
+
+Extinctions:
+- none fail the interval rule;
+- D's herding rate is 0.04 against A's 0.01, with an interval of [0.000, +0.120] that just touches zero.
+
+Training diagnostics (last iteration, mean over seeds):
+
+| Cell | Teacher KL | Approx. KL | Epochs | Guard cost | Multiplier |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| A | 0.21 | 0.010 | 4.0 | 0.013 | 0.61 |
+| B | 0.28 | 0.029 | 3.6 | 0.012 | 0.57 |
+| C | 0.51 | 0.049 | 1.0 (target-KL stop) | 0.016 | 0.62 |
+| D | 0.71 | 0.014 | 4.0 | 0.012 | 0.63 |
+| E | 0.21 | 0.013 | 4.0 | 0.015 | 0.29 |
+
+Welfare against QoL on default worlds (the secondary measure):
+
+| | Population | QoL |
+| --- | ---: | ---: |
+| Reference | 933k | 0.840 |
+| A | 1,001k (+7%) | 0.821 |
+| B | 987k | 0.820 |
+| C | 974k | 0.821 |
+| D | 1,031k (+11%) | 0.811 |
+| E | 993k | 0.820 |
+
+**Pre-registered verdict: no cell moves default worlds.**
+- No interval against the reference lies above 1. Optimisation is not the bottleneck at this budget, and the 2x2
+  uses the baseline settings.
+- Larger steps hurt: C (lr 1e-4) mostly stops after one epoch on the target-KL limit, and is the worst cell.
+- A 4x batch at equal decisions does not help.
+- A looser anchor is the only direction with a positive point estimate (+0.9% against A), bought with the most
+  population growth and the lowest QoL.
+
+**Flag (welfare as interim reward).** Every trained cell trades QoL for population:
+- +5 to +11% residents at 0.011-0.029 lower QoL;
+- welfare (population x QoL x years) nearly cancels, so default worlds stay flat.
+
+The plateau is therefore not an inability to change outcomes: the policy changes them a lot, along a direction the
+welfare objective is nearly indifferent to. Whether "more people, slightly worse off" is wanted is an objective
+question, not an optimisation one. It is reported to the user as the first concrete case of welfare shaping
+behaviour toward growth at QoL's expense.
+
 ### E3: a robust extinction gate (20 October 2026)
 
 `paired_compare` now reports each arm's extinct settlements per world, pooled over its seeds, and the difference
