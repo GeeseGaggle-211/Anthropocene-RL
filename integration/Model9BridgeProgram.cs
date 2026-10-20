@@ -6,7 +6,7 @@ using Anthropocene.Simulation;
 
 // JSON-lines bridge for native Elder contract 8 (model9). One environment per process; the learner never
 // reimplements physics. Ops: schema, reset {seed, players, movement} | {snapshot}, step {actions}, verify_replay,
-// capture, close. Missing actions run the native heuristic for that village.
+// capture, fork, restore {fork}, drop {fork}, close. Missing actions run the native heuristic for that village.
 namespace Anthropocene.RLBridge
 {
     internal static class Model9BridgeProgram
@@ -16,6 +16,9 @@ namespace Anthropocene.RLBridge
             IncludeFields = true, PropertyNameCaseInsensitive = true, WriteIndented = false
         };
         private static ElderModel9Environment environment;
+        // Search forks of the current environment (op fork / restore / drop), cleared on reset.
+        private static readonly Dictionary<int, ElderModel9Fork> forks = new Dictionary<int, ElderModel9Fork>();
+        private static int nextFork = 1;
 
         private static int Main()
         {
@@ -94,6 +97,7 @@ namespace Anthropocene.RLBridge
                     finally { ElderModel9Environment.ConfigOverride = previous; }
                     bool movement = root.TryGetProperty("movement", out var m) && m.GetBoolean();
                     environment = new ElderModel9Environment { WithheldTechnologies = withheld };
+                    forks.Clear();
                     var step = environment.Reset(snapshot, movement);
                     return new { ok = true, op, step = Encode(step), fingerprint = environment.Replay.InitialFingerprint,
                         configurationHash = environment.Replay.ConfigurationHash, buildHash = environment.Replay.BuildHash };
@@ -108,8 +112,27 @@ namespace Anthropocene.RLBridge
                     var step = environment.Step(actions);
                     return new { ok = true, op, step = Encode(step) };
                 }
+                case "fork":
+                {
+                    // Search branch point: returns its id and the decision step; every restore replays from here exactly.
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    int id = nextFork++;
+                    forks[id] = environment.Fork(out var step);
+                    return new { ok = true, op, fork = id, step = Encode(step) };
+                }
+                case "restore":
+                {
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    int id = root.GetProperty("fork").GetInt32();
+                    if (!forks.TryGetValue(id, out var fork)) throw new ArgumentException("unknown fork " + id);
+                    return new { ok = true, op, step = Encode(environment.Restore(fork)) };
+                }
+                case "drop":
+                    forks.Remove(root.GetProperty("fork").GetInt32());
+                    return new { ok = true, op };
                 case "verify_replay":
                     if (environment == null) throw new InvalidOperationException("reset required");
+                    if (environment.Forked) throw new InvalidOperationException("replay verification is unavailable after a search fork");
                     ElderModel9Environment.VerifyReplay(environment.Replay);
                     return new { ok = true, op, steps = environment.Replay.Steps.Count };
                 case "capture":

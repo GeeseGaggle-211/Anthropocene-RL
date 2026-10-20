@@ -65,6 +65,17 @@ class Model9Bridge:
     def step(self, actions: Mapping[int, Mapping[str, Any]]) -> dict[str, Any]:
         return self.request({"op": "step", "actions": {str(k): v for k, v in actions.items()}})["step"]
 
+    def fork(self) -> tuple[int, dict[str, Any]]:
+        """A search branch point: its id and the decision step. Every restore replays from it exactly."""
+        response = self.request({"op": "fork"})
+        return int(response["fork"]), response["step"]
+
+    def restore(self, fork: int) -> dict[str, Any]:
+        return self.request({"op": "restore", "fork": fork})["step"]
+
+    def drop(self, fork: int) -> None:
+        self.request({"op": "drop", "fork": fork})
+
     def verify_replay(self) -> int:
         return int(self.request({"op": "verify_replay"})["steps"])
 

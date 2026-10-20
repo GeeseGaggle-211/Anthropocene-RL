@@ -37,7 +37,8 @@ from torch import nn
 
 from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
-from .model import MASKED, Actor, Critic, Normalizer, VectorCritic, condition_mix, region_code, to_tensors
+from .model import (MASKED, Actor, Critic, Normalizer, VectorCritic, condition_mix, mix_soft_cross_entropy, region_code,
+                    to_tensors)
 
 SMALL_SETTLEMENT = 30
 YOUNG_DAUGHTER_TURNS = 3
@@ -497,6 +498,11 @@ class Hyper:
     # drawn per (world, lineage), inherited by daughters. Non-default personalities weight scale-normalised component
     # advantages per row.
     personality: str = "default"
+    # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner labels, the
+    # relative gain a label must clear, and label rows per minibatch. 0 turns it off.
+    search_weight: float = 0.0
+    search_margin: float = 0.005
+    search_batch: int = 256
 
 
 def default_personality() -> np.ndarray:
@@ -519,11 +525,48 @@ def personality_sampler(spec: str, rng: np.random.Generator):
     raise ValueError(f"unknown personality spec {spec!r}")
 
 
+def load_search_labels(paths: list[Path], margin: float) -> dict[str, np.ndarray] | None:
+    """Search-teacher label rows (search_teacher.py) whose best alternative beats the policy by more than ``margin``
+    (relative score) and is not the policy itself: the rows PPO imitates."""
+    from .search_teacher import POLICY
+    parts = [dict(np.load(p)) for p in paths]
+    parts = [p for p in parts if p]
+    if not parts:
+        return None
+    keys = set.intersection(*(set(p) for p in parts))
+    rows = {k: np.concatenate([p[k] for p in parts]) for k in keys}
+    gain = (rows["score_best"] - rows["score_policy"]) / np.maximum(1e-9, np.abs(rows["score_policy"]))
+    keep = (gain > margin) & (rows["label_kind"] != POLICY)
+    return {k: v[keep] for k, v in rows.items()} if keep.any() else None
+
+
+def search_loss(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], kind: torch.Tensor, slot: torch.Tensor,
+                mix: torch.Tensor) -> torch.Tensor:
+    """Imitation of search winners: cross-entropy of the region head on region and native labels (native is slot 0),
+    and soft cross-entropy of the economy mix on mix labels and on native labels that carry the heuristic's mix. The mix
+    is conditioned on the label's slot for native labels and on the policy's own most likely slot otherwise."""
+    from .search_teacher import NATIVE, REGION
+    zero = out["mix_logits"].sum() * 0.0
+    loss, count = zero, 0
+    on_slot = (kind == REGION) | (kind == NATIVE)
+    if on_slot.any() and "region" in out:
+        logq = torch.log_softmax(out["region"], dim=1)
+        loss = loss - logq.gather(1, slot.clamp(min=0).unsqueeze(1)).squeeze(1)[on_slot].sum(); count += int(on_slot.sum())
+    has_mix = ~torch.isnan(mix).any(dim=1)
+    if has_mix.any():
+        own = out["region"].argmax(dim=1) if "region" in out else torch.zeros_like(slot)
+        conditioned = condition_mix(out, torch.where(kind == NATIVE, slot.clamp(min=0), own))
+        ce, valid = mix_soft_cross_entropy(conditioned["mix_logits"], torch.nan_to_num(mix), t["economy_mix_mask"])
+        rows = has_mix & valid
+        loss = loss + ce[rows].sum(); count += int(rows.sum())
+    return loss / max(1, count)
+
+
 def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
            batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor], old_logp: np.ndarray,
            advantage: np.ndarray, target_u: np.ndarray, cost_adv: np.ndarray, cost_target: np.ndarray,
            lagrange: float, stage: Stage, hyper: Hyper, optimizers: tuple, rng: np.random.Generator,
-           regimes: np.ndarray | None = None) -> dict[str, float]:
+           regimes: np.ndarray | None = None, search: dict[str, np.ndarray] | None = None) -> dict[str, float]:
     actor_opt, critic_opt, cost_opt = optimizers
     n = len(advantage)
     combined = advantage / max(1e-8, advantage.std()) - lagrange * cost_adv / max(1e-8, cost_adv.std() + 1e-8)
@@ -547,6 +590,16 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                 anchor = explore(teacher(t), hyper.log_std_floor)
             kl = teacher_kl(out, anchor, stage.anchor_strategic, stage.anchor_routes, stage.fission, stage.trade).mean()
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
+            imitation = None
+            if search is not None and hyper.search_weight > 0:
+                m = len(search["label_kind"])
+                pick = rng.permutation(m)[: hyper.search_batch] if m > hyper.search_batch else np.arange(m)
+                s_obs = {k: v[pick] for k, v in search.items()}
+                ts = to_tensors(s_obs, normalizer)
+                imitation = search_loss(actor(ts), ts, torch.as_tensor(s_obs["label_kind"], dtype=torch.long),
+                                        torch.as_tensor(s_obs["label_slot"], dtype=torch.long),
+                                        torch.as_tensor(s_obs["label_mix"], dtype=torch.float32))
+                loss = loss + hyper.search_weight * imitation
             actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
             logits = critic(t)
             if isinstance(target_u, dict):
@@ -560,6 +613,8 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             approx.append(float((old - lp).mean().detach()))
             stats = {"policy": float(policy.detach()), "teacher_kl": float(kl.detach()), "entropy": float(ent.mean().detach()),
                      "value": float(value_loss.detach()), "cost_value": float(cost_loss.detach())}
+            if imitation is not None:
+                stats["search"] = float(imitation.detach())
             if n <= hyper.batch:
                 break
         stats["approx_kl"] = float(np.mean(approx)); stats["epochs"] = epoch + 1
@@ -571,7 +626,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
 def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
               seeds: list[int], turns: int, stage: Stage, hyper: Hyper, optimizers: tuple, lagrange: float,
               generator: torch.Generator, rng: np.random.Generator,
-              grassland: frozenset = frozenset()) -> tuple[float, dict[str, float]]:
+              grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler)
     batch, draws, old_logp = flatten(roll)
@@ -620,7 +675,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
-                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes)
+                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search)
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
@@ -787,6 +842,10 @@ def main() -> int:
                         help="re-seat the region head's native probability (all slots legal), e.g. 0.5")
     parser.add_argument("--personality", default="default",
                         help="Elder personalities for training: default | fixed:w,w,w,w | dirichlet:alpha (token model only)")
+    parser.add_argument("--search-labels", default=None,
+                        help="comma-separated search_teacher labels.npz files: imitate search winners (expert iteration)")
+    parser.add_argument("--search-weight", type=float, default=0.5)
+    parser.add_argument("--search-margin", type=float, default=None)
     parser.add_argument("--resume", action="store_true",
                         help="continue from <out>/resume.pt when present (preemptible VMs); otherwise start fresh")
     parser.add_argument("--learned-trade", action="store_true",
@@ -877,6 +936,13 @@ def main() -> int:
         personality_sampler(args.personality, rng)  # validate the spec
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
+    search = None
+    if args.search_labels:
+        if args.search_margin is not None:
+            hyper.search_margin = args.search_margin
+        hyper.search_weight = args.search_weight
+        search = load_search_labels([Path(p) for p in args.search_labels.split(",")], hyper.search_margin)
+        print(json.dumps({"search_rows": 0 if search is None else int(len(search["label_kind"]))}), flush=True)
     if args.objective_weights:
         for item in args.objective_weights.split(","):
             name, weight = item.split("=")
@@ -958,7 +1024,7 @@ def main() -> int:
         clock = time.time()
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
-                                    optimizers, lagrange, generator, rng, grassland_set)
+                                    optimizers, lagrange, generator, rng, grassland_set, search)
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         save(args.out / "latest.pt")
         if args.eval_every > 0 and (it + 1) % args.eval_every == 0:
