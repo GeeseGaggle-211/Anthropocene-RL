@@ -21,6 +21,7 @@ punished beyond the guard.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import math
 import time
@@ -608,6 +609,7 @@ def main() -> int:
     parser.add_argument("--eval-turns", type=int, default=25)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
+    parser.add_argument("--teacher-kl", type=float, default=None, help="weight of the teacher KL anchor (default 0.05)")
     parser.add_argument("--log-std-floor", type=float, default=None)
     parser.add_argument("--lagrange-lr", type=float, default=None)
     parser.add_argument("--cost-budget", type=float, default=None)
@@ -638,6 +640,8 @@ def main() -> int:
     hyper = Hyper()
     if args.lr is not None:
         hyper.lr = args.lr
+    if args.teacher_kl is not None:
+        hyper.teacher_kl = args.teacher_kl
     if args.lagrange_lr is not None:
         hyper.lagrange_lr = args.lagrange_lr
     if args.cost_budget is not None:
@@ -657,7 +661,6 @@ def main() -> int:
     rng = np.random.default_rng(args.seed); generator = torch.Generator().manual_seed(args.seed)
     stage = STAGES[args.stage]; lagrange = float(state.get("lagrange", 0.0))
     if args.commitments:
-        import dataclasses
         stage = dataclasses.replace(stage, commitments=True)
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
@@ -685,7 +688,7 @@ def main() -> int:
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
                     "commitments": stage.commitments, "experts": experts, "vector_critic": isinstance(critic, VectorCritic),
-                    "objective_weights": hyper.objective_weights,
+                    "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "lagrange": lagrange, "log": log}, path)
 
     def evaluate(checkpoint: Path) -> dict:

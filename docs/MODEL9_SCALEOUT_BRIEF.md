@@ -71,9 +71,34 @@ On 64 vCPUs:
 - Never print credentials or tokens.
 - Commit code and docs to the RL branch. Upload evidence to `gs://.../model9/ppo-c9/<experiment>/`.
 
-## Experiments, in order
+## The VM (revised 20 October)
 
-### E1: the stage-3 question, at power
+- `anthropocene-trainer-60`, project `anthropocene-508912`, zone `us-central1-c`: Spot c3d-highcpu-60 (60 vCPU,
+  115 GiB), Ubuntu 24.04.
+- It auto-stops after 8 hours. Spot preemption also stops it, and the local disk survives.
+- SSH through IAP only, with `--strict-host-key-checking=yes`. The pinned key is
+  SHA256:qv55HFWP7NUJyGC4CvB6H8vvFO8YeNANHgAeYVi0zfE; stop on any host-key prompt.
+- **Only one agent controls it.** Check its status before starting, and stop it when done.
+- Environment in `~/m9-bench`:
+  - venv at `venv`, code at `rl/src` (replace it with the current `src`; the bridge has not changed since 20fed92);
+  - bridge at `rl/integration/bin/model9`.
+- Measured throughput: 18 arms is about 2.1-2.2M decisions per hour. Run 18-24 arms with `OMP_NUM_THREADS=3`,
+  detached with `setsid nohup`.
+- No resume and no GCS upload: results come back by `gcloud compute scp`, then go to GCS from the laptop.
+- Each batch must fit in the 8-hour cap, or be restartable.
+
+## Experiments, in order (revised 20 October)
+
+The user decided to train stage 3 and learned movement together, as a 2x2 of movement (native or learned) against
+stage (capability or mixed). That waits for contract-9 movement and a cloned movement head within about 2-3% of the
+teacher. Until then the VM runs E2 (pre-registered in `docs/MODEL9_M7.md`: learning rate, teacher anchor and batch
+size, 24 arms, equal decision budgets) and E3.
+
+The economy-only ceiling (`--model9-oracle` on default worlds, simulator side) runs on the laptop.
+
+The original E1 below is kept for reference only; it is superseded by the 2x2.
+
+### E1 (superseded): the stage-3 question, at power
 
 Same design as the laptop's decisive experiment (`model9-data/stage3-decisive.ps1`, in the evidence folder), with
 20 seeds per arm:

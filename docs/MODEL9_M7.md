@@ -395,6 +395,51 @@ Findings:
 5. **Seed 7 settles the selection artefact.**
    - With the single-turn baseline, selection kept a `best.pt` for every new seed.
 
+Curriculum decision (user, 20 October): stage 3 and learned movement will be trained together, as a 2x2 of movement
+(native or learned) against stage (capability or mixed). The prerequisites are contract-9 movement and a cloned
+movement head within about 2-3% of the teacher. The standalone 20-seed stage-3 experiment is dropped; it becomes one
+cell of the 2x2.
+
+### E2: what moves default worlds? Pre-registration (written 20 October 2026, before any result)
+
+Question: which optimisation lever lets stage-2 PPO improve default-world welfare at all?
+
+The control above did not move in 40 iterations (0.999 against its init). The suspects are:
+- the learning rate: 1e-5, with approximate KL of only 0.005-0.012 per update;
+- the teacher anchor: weight 0.05;
+- the batch: 12 worlds per iteration.
+
+Design, on the 60-vCPU VM, 24 arms with `OMP_NUM_THREADS=3` (RL `--teacher-kl` flag; hyperparameters saved in
+checkpoints):
+
+| Cell | Change from baseline | Seeds | Iterations |
+| --- | --- | --- | ---: |
+| A baseline | none (lr 1e-5, teacher-KL 0.05, 12 worlds) | 20-24 | 50 |
+| B | lr 3e-5 | 20-24 | 50 |
+| C | lr 1e-4 (target-KL early stop still active) | 20-24 | 50 |
+| D | teacher-KL 0.01 | 20-24 | 50 |
+| E | 48 worlds per iteration | 20-23 | 12 |
+
+- Every cell has the same decision budget, about 450-500k.
+- Shared: init `stage2-span-seed0/best.pt`, `--stage capability --experts`, single-turn, with the other arguments
+  as in the decisive experiment.
+- Evaluation: the decisive experiment's 104 worlds, `latest.pt`, against the reference (the init, single-turn).
+  Intervals come from `paired_compare`.
+
+Primary measure: each cell's default-world welfare against the reference.
+
+Decision rule:
+- a cell "moves default worlds" if its interval lies entirely above 1;
+- among moving cells, prefer the one with no regime below 0.97 of the reference, then the largest default gain;
+- if no cell moves, optimisation is not the bottleneck at this budget. The economy-only ceiling (oracle on default
+  worlds) then decides whether the cap is the action space.
+
+Secondary measures:
+- each cell against cell A (paired);
+- the guard cost and Lagrange multiplier;
+- the welfare/QoL breakdown, to flag gains bought by population at the expense of QoL;
+- teacher KL at the end of training.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
