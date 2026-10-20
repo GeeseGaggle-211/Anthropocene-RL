@@ -24,6 +24,7 @@ import argparse
 import dataclasses
 import json
 import math
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -667,6 +668,8 @@ def main() -> int:
     parser.add_argument("--commitments", action="store_true", help="contract 9: learn the capital commitment span")
     parser.add_argument("--learned-movement", action="store_true",
                         help="contract 10: the policy moves over region rows with destination intents (mix given the destination)")
+    parser.add_argument("--resume", action="store_true",
+                        help="continue from <out>/resume.pt when present (preemptible VMs); otherwise start fresh")
     parser.add_argument("--learned-trade", action="store_true",
                         help="contract 11: the policy sets its trade posture; adds the trade_utility critic component "
                              "(weight contracts.TRADE_UTILITY_WEIGHT unless --objective-weights sets it)")
@@ -767,8 +770,14 @@ def main() -> int:
     baseline = None
     best = -np.inf
 
+    def atomic(obj: Any, path: Path) -> None:
+        # Write then rename, so a preempted VM never leaves a half-written checkpoint.
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        torch.save(obj, tmp)
+        os.replace(tmp, path)
+
     def save(path: Path) -> None:
-        torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
+        atomic({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                     "teacher_actor": teacher.state_dict(), "normalizer": state["normalizer"], "core_width": core_width,
                     "privileged_width": privileged, "contract": contracts.NATIVE_CONTRACT, "stage": stage.name,
                     "commitments": stage.commitments, "region_movement": stage.region_movement,
@@ -792,12 +801,27 @@ def main() -> int:
         total["regimes"] = result
         return total
 
-    if args.eval_every > 0:
+    # Resume (--resume): everything an iteration depends on, written atomically after each iteration's trajectory line.
+    resume_path = args.out / "resume.pt"
+    start = 0
+    if args.resume and resume_path.exists():
+        r = torch.load(resume_path, map_location="cpu", weights_only=False)
+        actor.load_state_dict(r["actor"]); critic.load_state_dict(r["critic"]); cost_critic.load_state_dict(r["cost_critic"])
+        for optimizer, saved in zip(optimizers, r["optimizers"]):
+            optimizer.load_state_dict(saved)
+        lagrange, best, baseline, log, start = r["lagrange"], r["best"], r["baseline"], r["log"], r["iteration"] + 1
+        rng.bit_generator.state = r["numpy_rng"]; generator.set_state(r["generator"]); torch.set_rng_state(r["torch_rng"])
+        # Keep the trajectory consistent with the resumed state: the baseline and iterations up to the saved one.
+        lines = trajectory.read_text().splitlines() if trajectory.exists() else []
+        kept = [line for line in lines if "baseline" in json.loads(line) or json.loads(line).get("iteration", -1) < start]
+        trajectory.write_text("".join(line + "\n" for line in kept))
+        print(json.dumps({"resumed_at": start}), flush=True)
+    elif args.eval_every > 0:
         baseline = evaluate(args.init)
-        with trajectory.open("a") as f:
+        with trajectory.open("w") as f:
             f.write(json.dumps({"baseline": baseline, "eval_worlds": eval_worlds}) + "\n")
         print(json.dumps({"baseline": baseline}), flush=True)
-    for it in range(args.iterations):
+    for it in range(start, args.iterations):
         clock = time.time()
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
@@ -816,7 +840,12 @@ def main() -> int:
         log.append(stats)
         with trajectory.open("a") as f:
             f.write(json.dumps(stats) + "\n")
+        atomic({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
+                "optimizers": [o.state_dict() for o in optimizers], "lagrange": lagrange, "best": best, "baseline": baseline,
+                "log": log, "iteration": it, "numpy_rng": rng.bit_generator.state, "generator": generator.get_state(),
+                "torch_rng": torch.get_rng_state()}, resume_path)
         print(json.dumps({k: v for k, v in stats.items() if k != "worlds"}), flush=True)
+    (args.out / "done").write_text(json.dumps({"iterations": args.iterations}))
     return 0
 
 
