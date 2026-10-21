@@ -582,7 +582,7 @@ class Hyper:
     # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner labels, the
     # relative gain a label must clear, and label rows per minibatch. 0 turns it off.
     search_weight: float = 0.0
-    search_margin: float = 0.005
+    search_margin: float = 0.004  # search utility v2: U_p gain in reference spreads (about the old 0.5% at a mean village)
     search_batch: int = 256
     # Critic warm-up: when a run starts by converting a scalar critic into the vector critic, its population, QoL and
     # trade heads are new (only welfare is copied). This many extra iterations first train only the critics, so
@@ -635,12 +635,15 @@ def personality_sampler(spec: str, rng: np.random.Generator):
     raise ValueError(f"unknown personality spec {spec!r}")
 
 
-def load_search_labels(paths: list[Path], margin: float) -> dict[str, np.ndarray] | None:
+def load_search_labels(paths: list[Path], margin: float, legacy_margin: float = 0.005) -> dict[str, np.ndarray] | None:
     """Search-teacher label rows (search_teacher.py) whose best alternative beats the policy by more than ``margin``
-    (relative score) and is not the policy itself: the rows PPO imitates."""
-    from .search_teacher import POLICY
+    and is not the policy itself: the rows PPO imitates. Gains are on search utility version 2 (U_p in reference
+    spreads, the units of PPO's advantage); version-1 files are rescored from their return vectors, and rows whose
+    label is no longer the best are dropped. Files too old to rescore keep the relative rule against
+    ``legacy_margin``."""
+    from .search_teacher import POLICY, label_gain, rescore
     parts = [dict(np.load(p)) for p in paths]
-    parts = [p for p in parts if p]
+    parts = [rescore(p) for p in parts if p]
     if not parts:
         return None
     groups = len(contracts.TRADE_GROUPS)
@@ -662,8 +665,8 @@ def load_search_labels(paths: list[Path], margin: float) -> dict[str, np.ndarray
                                                  if fill == -1 else np.float64)], axis=1) for a in arrays]
         return np.concatenate(arrays)
     rows = {k: stack(k) for k in keys}
-    gain = (rows["score_best"] - rows["score_policy"]) / np.maximum(1e-9, np.abs(rows["score_policy"]))
-    keep = (gain > margin) & (rows["label_kind"] != POLICY)
+    _, kept = label_gain(rows, margin, legacy_margin)
+    keep = kept & (rows["label_kind"] != POLICY)
     return {k: v[keep] for k, v in rows.items()} if keep.any() else None
 
 
