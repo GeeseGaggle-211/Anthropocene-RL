@@ -916,6 +916,58 @@ Under the user's direction to push forward through passing gates. Driver: VM `r2
 - **If mix and all fail but cap passes:** mixed use remains the open problem, and is reported with its population
   against QoL split.
 
+### Search teacher round 2: results (21 October 2026)
+
+Run on the VM 22:35-08:27 UTC, with one restart. Results are in `~/r2/runs`.
+
+Labels: 1,008 decision points on 168 worlds.
+- Search beat S-s55 at 81-91% of points per shard.
+- Winners: region 553, native 311, mix 9. The native share of native-or-region winners is 0.36, against 0.26 in round
+  1.
+- The median whole-world gain of winners is +0.4% to +0.7%. 3-6% of winners lower world welfare.
+
+| Comparison | Default (54) | Herding | Farming | Fishing | Grassland | Valley | Strict valley |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| cap against the reference | 1.039 [0.999, 1.080] | 1.048 | 1.077 | 0.981 | 1.023 | 0.984 | 0.983 |
+| mix against the reference | 1.016 [0.973, 1.060] | 1.048 | 1.078 | 1.035 | 1.015 | 0.974 | 0.973 |
+| all against the reference | 1.017 [0.981, 1.053] | 1.045 | 1.026 | 1.056 | 1.015 | 0.972 | 0.970 |
+| cap against S-s55 | 1.001 [0.961, 1.040] | 1.067 | 1.070 | **0.772** | 0.961 | 0.967 | 0.962 |
+| mix against cap | 0.978 [0.945, 1.010] | 1.000 | 1.001 | 1.054 | 0.993 | 0.990 | 0.989 |
+| all against mix | 1.002 [0.970, 1.035] | 0.997 | 0.952 | 1.021 | 1.000 | 0.998 | 0.997 |
+
+Guard on default worlds:
+
+| Policy | QoL | Residents | Extinctions | Below-30 share | Evaluation move share |
+| --- | --- | --- | --- | --- | --- |
+| reference | 0.841 | 919k | 0 | 0.6% | 0 |
+| S-s55 | 0.865 | 998k | 0 | 1.2% | 0.287 |
+| cap | 0.862 | 980k | 2 | 1.7% | 0.069 |
+| mix | 0.865 | 924k | 6 | 1.1% | 0.058 |
+| all | 0.866 | 936k | 2 | 1.4% | 0.059 |
+
+Every extinction interval contains 0. Learned fission is inert: Discourage and Encourage shares are 0. Learned trade
+is active: 637-1,840 trades per default evaluation.
+
+**Pre-registered verdict:**
+- **Gate:** cap passes (lower bound 0.999) and all passes (0.981; strict valley 0.970 is a valley bank, not a regime).
+  mix fails (0.973).
+- **Expert iteration fails:** cap against S-s55 has a lower bound of 0.961, with fishing at 0.772.
+- Round 2 improves on neither S-s55 nor the reference by more than round 1 did. The search line stops here for review
+  rather than starting round 3.
+
+**Diagnosis: the action rule at evaluation, not lost movement.**
+- In training rollouts (sampled actions), round 2 keeps moving at 0.52-0.57. It started at 0.64 from S-s55.
+- At evaluation the policy takes the argmax over the 10 region-head slots. Native is one slot with about 0.30 of the
+  probability; moving is spread over up to 7 region rows, each smaller. So the argmax is native on about 94% of
+  decisions, even when moving is the more likely choice overall.
+- Round 2's labels made this worse: more native winners (0.36 against 0.26). Search from S-s55 often found native
+  better than S's own move.
+- Fishing, where S moved on 49% of decisions, loses the most (0.77).
+
+**Proposed next step.** Make the region head hierarchical: first move or not, then where. Equivalently, take the
+argmax over the move-or-native decision before the row. The cheap test is to re-evaluate the round-2 checkpoints
+with that grouped argmax. If they then match or beat S-s55, round 3 proceeds with the hierarchical head.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
