@@ -79,12 +79,24 @@ namespace Anthropocene.RLBridge
                     int height = root.TryGetProperty("height", out var ht) ? ht.GetInt32() : 0;
                     int separation = root.TryGetProperty("separation", out var sp) ? sp.GetInt32() : 0;
                     var previous = ElderModel9Environment.ConfigOverride;
-                    if (width > 0 || height > 0 || separation > 0)
+                    // Optional simulator-rule override for paired re-measurement (ANTHROPOCENE_SIM_RULES, e.g.
+                    // "SettlingGraceOnce=false;PlantTentsEnabled=true"): public SimulationConfig/NeolithicConfig fields by
+                    // name, set by reflection so the bridge still builds against simulators without them.
+                    string rules = Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_RULES");
+                    if (width > 0 || height > 0 || separation > 0 || !string.IsNullOrWhiteSpace(rules))
                         ElderModel9Environment.ConfigOverride = c =>
                         {
                             if (width > 0) c.Width = width;
                             if (height > 0) c.Height = height;
                             if (separation > 0) c.StartSeparation = separation;
+                            foreach (var item in (rules ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                var kv = item.Split('=', 2);
+                                object target = c; var field = typeof(SimulationConfig).GetField(kv[0].Trim());
+                                if (field == null) { target = c.Neolithic; field = typeof(NeolithicConfig).GetField(kv[0].Trim()); }
+                                if (field == null) throw new InvalidOperationException("Unknown simulator rule " + kv[0]);
+                                field.SetValue(target, Convert.ChangeType(kv[1].Trim(), field.FieldType, System.Globalization.CultureInfo.InvariantCulture));
+                            }
                         };
                     byte[] snapshot;
                     try
