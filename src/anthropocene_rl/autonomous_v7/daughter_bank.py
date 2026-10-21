@@ -4,8 +4,12 @@ is founded, so training, search and evaluation can start from young daughters in
 A bank is a directory of zlib-compressed snapshot files (``<hash>.snap``, the bridge's ``capture`` bytes, named by
 content so daughters founded in the same world and turn share one file) and an
 ``index.jsonl`` of entries: id, seed, mask (withheld technologies), movement, turn, the daughter's society and camp and
-its parent society. It keeps at most ``cap`` entries, oldest first out, and persists across iterations and runs. Entries
-whose id falls in the held-out slice (``held_out``) are reserved for ``daughter_eval`` and never drawn for training.
+its parent society. It keeps at most ``cap`` entries, oldest first out, and persists across iterations and runs.
+
+Held-out partition: whole root worlds, never single entries. Entries whose world seed has seed % HOLDOUT_EVERY == 0
+(``held_out``) are reserved for ``daughter_eval`` and never drawn for training. Daughters of one world and turn share a
+content-addressed snapshot, so an id-based split would put identical states on both sides; a seed split cannot, and
+``check_partition`` asserts that no snapshot file appears in both partitions.
 """
 
 from __future__ import annotations
@@ -22,11 +26,21 @@ import numpy as np
 
 CAP = 500
 CAPTURES_PER_WORLD = 3  # a reservoir sample over each world rollout's founded daughters
-HOLDOUT_EVERY = 10  # entries with id % HOLDOUT_EVERY == 0 are the held-out evaluation slice
+HOLDOUT_EVERY = 10  # entries from worlds with seed % HOLDOUT_EVERY == 0 are the held-out evaluation family
 
 
 def held_out(entry: dict[str, Any]) -> bool:
-    return int(entry["id"]) % HOLDOUT_EVERY == 0
+    """The held-out family: the entry's root world seed (bank starts keep their root seed, so a capture made inside a
+    bank world stays in its root's partition)."""
+    return int(entry["seed"]) % HOLDOUT_EVERY == 0
+
+
+def check_partition(entries: list[dict[str, Any]]) -> None:
+    """No snapshot (by content hash) may serve both training and held-out evaluation."""
+    train = {e["file"] for e in entries if not held_out(e)}
+    shared = train & {e["file"] for e in entries if held_out(e)}
+    if shared:
+        raise AssertionError(f"daughter bank leak: snapshots in both partitions: {sorted(shared)[:3]}")
 
 
 class Reservoir:
@@ -62,10 +76,12 @@ class DaughterBank:
         return [json.loads(line) for line in self.index.read_text().splitlines() if line.strip()]
 
     def training_entries(self) -> list[dict[str, Any]]:
-        return [e for e in self.entries() if not held_out(e)]
+        entries = self.entries(); check_partition(entries)
+        return [e for e in entries if not held_out(e)]
 
     def evaluation_entries(self) -> list[dict[str, Any]]:
-        return [e for e in self.entries() if held_out(e)]
+        entries = self.entries(); check_partition(entries)
+        return [e for e in entries if held_out(e)]
 
     def add(self, snapshot: str | bytes, seed: int, mask: int, turn: int, society: int, camp: int, parent_society: int,
             movement: bool = False) -> dict[str, Any]:

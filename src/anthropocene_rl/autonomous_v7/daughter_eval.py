@@ -1,6 +1,7 @@
 """Daughter-start evaluation (docs/MODEL9_PERSONALITY.md, daughter bank): how a checkpoint treats young daughters.
 
-From each held-out daughter-bank snapshot (``daughter_bank.held_out``; never drawn for training) the world runs
+From each held-out daughter-bank snapshot (``daughter_bank.held_out``: the held-out world-seed family, never drawn
+for training; the partition is checked for shared snapshots) the world runs
 ``turns`` turns twice: every village on the checkpoint's deterministic policy, and every village on the native
 heuristic. Both start from the same bytes, so each entry is a paired comparison. Reported per entry and in aggregate:
 the daughter society's survival (any of its settlements alive at the end), its population growth (final residents over
@@ -22,7 +23,7 @@ import numpy as np
 import torch
 
 from .bridge import Model9Bridge
-from .daughter_bank import DaughterBank
+from .daughter_bank import DaughterBank, held_out
 from .evaluate import load, policy_actions
 
 
@@ -38,6 +39,8 @@ def run_entry(bank: str, entry_id: int, checkpoint: str | None, turns: int, move
     """One start, played by ``checkpoint`` (None: the heuristic) for ``turns`` turns."""
     torch.set_num_threads(1)
     store = DaughterBank(bank); entry = store.get(entry_id)
+    if not held_out(entry):
+        raise ValueError(f"daughter_eval uses only the held-out family; entry {entry_id} (seed {entry['seed']}) trains")
     move = bool(entry.get("movement", False)) if movement is None else movement
     actor = normalizer = None
     if checkpoint is not None:
@@ -82,7 +85,7 @@ def main() -> int:
     parser.add_argument("--personality", default=None, help="w,w,w,w for every village (personality checkpoints)")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    entries = DaughterBank(args.bank).evaluation_entries()
+    entries = DaughterBank(args.bank).evaluation_entries()  # held-out family only (asserts the partition)
     if args.limit > 0:
         entries = entries[:args.limit]
     ids = [int(e["id"]) for e in entries]
