@@ -71,6 +71,26 @@ A daughter keeps its parent's `p` within an episode.
 - A population-leaning elder must not breach the below-30 or QoL-drop floors beyond its declared trade-off. Those
   floors are per personality; the hard floors stay global: extinctions and regime viability.
 
+## FiLM conditioning (21 October 2026)
+
+The personality originally entered only as 4 of about 450 inputs to the village token's projection. Behaviour
+cloning only ever showed the default, so the network starts out ignoring it.
+
+The token encoder now also applies FiLM:
+- `c` is `p` minus the default personality.
+- Each attention layer's input tokens become `x · (1 + W_s c) + W_b c`. The village-token output after each trunk
+  layer gets the same.
+- The FiLM weights are bias-free and start at zero.
+
+This gives three properties:
+- **Exact for old checkpoints.** A load hook fills missing FiLM weights with zeros, so every checkpoint without them
+  behaves as before.
+- **Inert at the default personality.** With `c` = 0, outputs are unchanged and the FiLM weights get no gradient.
+- **Scalable.** A new trait vector widens `c` rather than adding a token that every other token must attend to. The
+  user preferred this for that reason.
+
+The critic and cost critic use the same encoder, so their value estimates are FiLM-conditioned too.
+
 ## Welfare leakage (20 October 2026)
 
 A personality run's policy follows the personality-weighted advantage, not welfare. Welfare still reaches it through

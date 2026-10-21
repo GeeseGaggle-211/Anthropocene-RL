@@ -838,6 +838,16 @@ successfully here." This changes two things:
   the missing separation.
 - **The fix.** `ppo` now runs 5 critic-only iterations (`--critic-warmup`, actor frozen) whenever it creates new
   heads, before the 50 PPO iterations. It also logs per-objective value losses (`value_by`).
+
+**Addendum 3 (21 October, before any stage-3 result): FiLM personality conditioning.** The user chose FiLM over a
+dedicated personality token, because more trait vectors are coming and each should shift activations rather than
+need attention.
+- The token encoder (actor and critic) now applies a per-channel scale and shift before each attention layer and
+  after each trunk layer. Both come from the personality's offset from the default personality.
+- The weights are bias-free and zero-initialised. FiLM is the identity in every existing checkpoint and exactly inert
+  at the default personality, so T3def is unaffected. Tests check equality with the pre-FiLM network.
+- T3per and T3lo learn the FiLM weights from zero during PPO; the stage-1 clone is unchanged. Any separation those
+  arms show is judged by the same pre-registered rules.
 - **Scope.** T3per and T3lo get the warm-up. T3def keeps the scalar critic, so it is unchanged. Round 2's `all` arm
   (learned trade) started before this change and runs without it.
 

@@ -260,6 +260,36 @@ def test_personality_conditions_the_token_model_and_weights_advantages() -> None
     assert np.allclose(parts["qol_years"], [0.8 * 20, 0.0])
 
 
+def test_film_is_exact_at_init_inert_at_default_and_conditions_otherwise() -> None:
+    from anthropocene_rl.autonomous_v7.model import TokenEncoder
+    b = batch(); normalizer = Normalizer.fit(b)
+    torch.manual_seed(4)
+    encoder = TokenEncoder(b["core"].shape[1]); encoder.eval()
+    t = to_tensors(b, normalizer)
+    other = dict(t); other["personality"] = torch.tensor([[0.2, 0.3, 0.1, 0.4]] * len(t["core"]))
+
+    def legacy(enc, tt):  # the forward pass before FiLM: the whole encoder at once, then the trunk
+        core = torch.cat([tt["core"], tt["personality"]], dim=1)
+        tokens, present = [enc.village(core).unsqueeze(1)], [torch.ones(len(core), 1, dtype=torch.bool)]
+        for name, rows, _ in contracts.SETS:
+            tokens.append(enc.project[name](tt[name]) + enc.kind[name] + enc.position[name].weight.unsqueeze(0))
+            present.append(tt[name + "_present"])
+        mask = torch.cat(present, dim=1)
+        out = enc.norm(enc.attention(torch.cat(tokens, dim=1), src_key_padding_mask=~mask)) * mask.unsqueeze(-1).float()
+        return enc.trunk(out[:, 0])
+
+    with torch.no_grad():
+        assert torch.allclose(encoder(other)[0], legacy(encoder, other), atol=1e-5)  # zero FiLM = the old network
+        for film in [*encoder.film_tokens, *encoder.film_trunk]:
+            film.weight.normal_(std=0.5)
+        assert torch.allclose(encoder(t)[0], legacy(encoder, t), atol=1e-5)  # the default personality is untouched
+        assert not torch.allclose(encoder(other)[0], legacy(encoder, other), atol=1e-3)  # others are conditioned
+    # A checkpoint saved before FiLM loads, with identity FiLM.
+    old = {k: v for k, v in encoder.state_dict().items() if not k.startswith("film_")}
+    fresh = TokenEncoder(b["core"].shape[1]); fresh.load_state_dict(old)
+    assert all(float(f.weight.abs().sum()) == 0 for f in [*fresh.film_tokens, *fresh.film_trunk])
+
+
 def test_personality_shaping_costs_reach_every_component() -> None:
     components = {"welfare": np.array([10.0, 10.0]), "population_years": np.array([200.0, 200.0]),
                   "trade_utility": np.array([-1.0, 2.0]), "qol_years": np.array([16.0, 16.0])}

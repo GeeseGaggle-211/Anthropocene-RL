@@ -190,9 +190,36 @@ class TokenEncoder(nn.Module):
         self.norm = nn.LayerNorm(d)
         self.trunk = nn.Sequential(nn.Linear(d, width), nn.SiLU(), nn.LayerNorm(width), nn.Linear(width, width), nn.SiLU(), nn.LayerNorm(width))
         self.width, self.set_hidden, self.privileged_width = width, d, privileged_width
+        # FiLM conditioning (docs/MODEL9_PERSONALITY.md): the personality's offset from the default personality sets a
+        # per-channel scale and shift on the tokens before every attention layer and after each trunk layer, so a
+        # personality reshapes every computation instead of being one more input. Bias-free and zero-initialised: at
+        # the default personality, and in any checkpoint saved before FiLM, it is exactly the identity. Later trait
+        # vectors widen the conditioning input rather than adding tokens.
+        self.film_tokens = nn.ModuleList(nn.Linear(contracts.PERSONALITY_WIDTH, 2 * d, bias=False) for _ in range(layers))
+        self.film_trunk = nn.ModuleList(nn.Linear(contracts.PERSONALITY_WIDTH, 2 * width, bias=False) for _ in range(2))
+        for film in [*self.film_tokens, *self.film_trunk]:
+            nn.init.zeros_(film.weight)
+        self.register_buffer("default_personality",
+                             torch.tensor([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], dtype=torch.float32),
+                             persistent=False)
+        self._register_load_state_dict_pre_hook(self._identity_film)
+
+    def _identity_film(self, state_dict, prefix, *args) -> None:
+        """Checkpoints saved before FiLM load with identity (zero) FiLM weights."""
+        for name, p in self.named_parameters():
+            if name.startswith("film_") and prefix + name not in state_dict:
+                state_dict[prefix + name] = torch.zeros_like(p)
+
+    @staticmethod
+    def _film(h: torch.Tensor, film: nn.Linear, c: torch.Tensor) -> torch.Tensor:
+        scale, shift = film(c).chunk(2, dim=-1)
+        if h.dim() == 3:
+            scale, shift = scale.unsqueeze(1), shift.unsqueeze(1)
+        return h * (1 + scale) + shift
 
     def forward(self, t: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
         core = t["core"] if self.privileged_width == 0 else torch.cat([t["core"], t["privileged"]], dim=1)
+        condition = t["personality"] - self.default_personality
         core = torch.cat([core, t["personality"]], dim=1)
         tokens = [self.village(core).unsqueeze(1)]
         present = [torch.ones(len(core), 1, dtype=torch.bool, device=core.device)]
@@ -204,10 +231,15 @@ class TokenEncoder(nn.Module):
             spans[name] = (offset, offset + rows); offset += rows
         x = torch.cat(tokens, dim=1)
         mask = torch.cat(present, dim=1)
-        out = self.norm(self.attention(x, src_key_padding_mask=~mask))
+        # The encoder's layers one by one (it has no final norm), each after its FiLM step.
+        for layer, film in zip(self.attention.layers, self.film_tokens):
+            x = layer(self._film(x, film, condition), src_key_padding_mask=~mask)
+        out = self.norm(x)
         out = out * mask.unsqueeze(-1).float()
         rows_out = {name: out[:, a:b] for name, (a, b) in spans.items()}
-        return self.trunk(out[:, 0]), rows_out
+        h = self._film(self.trunk[:3](out[:, 0]), self.film_trunk[0], condition)
+        h = self._film(self.trunk[3:](h), self.film_trunk[1], condition)
+        return h, rows_out
 
 
 class EconomyExperts(nn.Module):
