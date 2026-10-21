@@ -36,6 +36,7 @@ import torch
 from torch import nn
 
 from . import contracts, data
+from .daughter_bank import CAPTURES_PER_WORLD, DaughterBank, Reservoir
 from .bridge import Model9Bridge, observation_batch
 from .model import (MASKED, Actor, Critic, Normalizer, VectorCritic, condition_mix, mix_soft_cross_entropy, region_code,
                     to_tensors)
@@ -265,7 +266,7 @@ class Rollout:
     draws: list[dict[str, torch.Tensor]] = field(default_factory=list)
     logp: list[np.ndarray] = field(default_factory=list)
     outcome: dict[str, list] = field(default_factory=lambda: {k: [] for k in data.OUTCOME_KEYS + ["world", "seed", "mask", "cost", "bootstrap_index",
-                                                                                         "trade_utility"]})
+                                                                                         "trade_utility", "bank"]})
     bootstrap_obs: list[dict[str, np.ndarray]] = field(default_factory=list)
 
 
@@ -284,22 +285,38 @@ def _cost(v: dict[str, Any], founded_turn: int, turn: int) -> float:
 
 def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage: Stage,
             generator: torch.Generator, workers: int = 6, floor: float = -2.0, personality=None,
-            inherit=None) -> Rollout:
+            inherit=None, bank: DaughterBank | None = None) -> Rollout:
     """Run every world for ``turns`` steps with the sampled shared policy (worlds step in lockstep). A world is a
-    seed or a (seed, withheld-technology mask) pair. ``personality``: a sampler of Elder personalities, drawn per
-    (world, lineage) and inherited by daughters; None keeps the default personality (no input). ``inherit``: a
-    daughter's personality from its parent's (None: an exact copy)."""
-    full = [(s, 0, 0) if isinstance(s, int) else (int(s[0]), int(s[1]), int(s[2]) if len(s) > 2 else 0) for s in seeds]
-    warmups = [w for _, _, w in full]
-    worlds = [(s, m) for s, m, _ in full]
+    seed, a (seed, withheld-technology mask) pair, (seed, mask, heuristic warm-up turns) or (seed, mask, 0, bank entry
+    id): a daughter-bank world, reset from that entry's snapshot. ``personality``: a sampler of Elder personalities,
+    drawn per (world, lineage) and inherited by daughters; None keeps the default personality (no input). ``inherit``:
+    a daughter's personality from its parent's (None: an exact copy). ``bank``: capture the world when a daughter is
+    first seen founded (at most daughter_bank.CAPTURES_PER_WORLD per world) and resolve bank worlds."""
+    full = [(s, 0, 0, -1) if isinstance(s, int) else
+            (int(s[0]), int(s[1]), int(s[2]) if len(s) > 2 else 0, int(s[3]) if len(s) > 3 else -1) for s in seeds]
+    warmups = [w for _, _, w, _ in full]
+    worlds = [(s, m) for s, m, _, _ in full]
+    banked = [b for _, _, _, b in full]
+    if any(b >= 0 for b in banked) and bank is None:
+        raise ValueError("bank worlds need the daughter bank")
     seeds = [s for s, _ in worlds]
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
     traits: list[dict[int, np.ndarray]] = [{} for _ in seeds]
+    # Bank captures: per world, a reservoir sample of CAPTURES_PER_WORLD over all founded daughters (keyed by the
+    # world), so captures spread over the episode. Kept daughters are captured on founding; evicted ones are deleted.
+    reservoirs = [Reservoir(CAPTURES_PER_WORLD, np.random.default_rng([s, m, w, b + 1, 0xDA])) for s, m, w, b in full]
 
     def with_personality(batch: dict[str, np.ndarray], villages: list[tuple[int, dict]]) -> dict[str, np.ndarray]:
         if personality is None:
             return batch
+        # Founders first (societies whose parent is neither known nor present), so a daughter seen together with its
+        # parent (the first step of a bank world) inherits with drift whatever the village order.
+        present = [{int(v["society"]) for w2, v in villages if w2 == w} for w in range(len(seeds))]
+        for w, v in villages:
+            society, parent = int(v["society"]), int(v.get("parentSociety", 0))
+            if society not in traits[w] and parent not in traits[w] and (parent == society or parent not in present[w]):
+                traits[w][society] = personality()
         rows = []
         for w, v in villages:
             society, parent = int(v["society"]), int(v.get("parentSociety", 0))
@@ -314,12 +331,15 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             def start(pair):
-                bridge, (seed, mask), warm = pair
+                bridge, (seed, mask), warm, entry = pair
+                if entry >= 0:  # a daughter-bank world: its snapshot, under the entry's own withheld mask
+                    return bridge.reset(seed, movement=stage.bridge_movement, withheld=mask,
+                                        snapshot=bank.snapshot(bank.get(entry)))
                 step = bridge.reset(seed, movement=stage.bridge_movement, withheld=mask)
                 for _ in range(warm):  # fixture states: the heuristic plays the warm-up turns
                     step = bridge.step({})
                 return step
-            steps = list(pool.map(start, zip(bridges, worlds, warmups)))
+            steps = list(pool.map(start, zip(bridges, worlds, warmups, banked)))
             founded = [{v["camp"]: s["turn"] for v in s["villages"]} for s in steps]
             for _ in range(turns):
                 live = [(w, v) for w, s in enumerate(steps) for v in s["villages"]
@@ -345,7 +365,18 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                 kept = []
                 for w, s in enumerate(steps):
                     for v in s["villages"]:
+                        new = v["camp"] not in founded[w]
                         founded[w].setdefault(v["camp"], s["turn"])
+                        if bank is not None and new and v.get("founded") and not v.get("terminated"):
+                            # A daughter's first sight: if the reservoir keeps it, its world (before it decides)
+                            # joins the bank, and the daughter it displaces leaves.
+                            slot, evicted = reservoirs[w].offer(None)
+                            if slot is not None:
+                                entry = bank.add(bridges[w].capture(), seeds[w], worlds[w][1], s["turn"], int(v["society"]),
+                                                 int(v["camp"]), int(v["parentSociety"]), movement=stage.bridge_movement)
+                                reservoirs[w].items[slot] = int(entry["id"])
+                                if evicted is not None:
+                                    bank.remove(evicted)
                         k = row_of.get((w, int(v["camp"])))
                         if k is None:
                             continue
@@ -361,7 +392,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                         o["welfare"].append(v["welfare"]); o["terminated"].append(v["terminated"])
                         o["trade_utility"].append(float(v.get("tradeUtility", 0.0)))
                         o["cost"].append(_cost(v, founded[w][v["camp"]], s["turn"]))
-                        o["bootstrap_index"].append(-1)
+                        o["bootstrap_index"].append(-1); o["bank"].append(banked[w])
                 order = np.asarray(kept, dtype=np.int64)
                 roll.obs.append({key: value[order] for key, value in batch.items()})
                 roll.draws.append({key: value[order] for key, value in draw.items()})
@@ -439,16 +470,44 @@ def shape_components(components: dict[str, np.ndarray], share: np.ndarray) -> di
             for name, value in components.items()}
 
 
-def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray) -> np.ndarray:
+def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray, scales: str = "batch",
+                     clip: float = 0.0) -> np.ndarray:
     """Per-row personality weights over contracts.OBJECTIVES on scale-normalised component advantages: components
     differ by orders of magnitude (population-years against QoL-years), so a weight means a share of each component's
-    own spread. The result is rescaled to the welfare component's spread, keeping learning rates comparable."""
-    scale = {name: float(np.std(a)) + 1e-9 for name, a in advantages.items()}
+    spread. ``scales`` "reference" (round 3; the training default, through Hyper.personality_scales) divides by the
+    fixed contracts.OBJECTIVE_REFERENCE_SCALES, A = sum_k p_k A_k / s_k_ref, so the exchange rate between objectives
+    never moves with batch content; "batch" (the earlier rule, and this function's default) divides by each
+    component's batch std and rescales to the welfare component's spread. ``update`` standardises the result, so the
+    overall scale does not matter and a welfare-only personality updates identically under either rule (exactly with
+    ``clip`` 0). ``clip`` > 0 (reference rule only) clips each normalised component A_k / s_k_ref to +/- clip before
+    weighting, so one component's critic noise (an untrained head's) cannot dominate the sum."""
+    if scales == "reference":
+        scale = {name: float(contracts.OBJECTIVE_REFERENCE_SCALES[name]) for name in advantages}
+    elif scales == "batch":
+        scale = {name: float(np.std(a)) + 1e-9 for name, a in advantages.items()}
+    else:
+        raise ValueError(f"unknown personality scales {scales!r}")
     total = np.zeros(len(personality))
     for k, name in enumerate(contracts.OBJECTIVES):
         if name in advantages:
-            total = total + personality[:, k] * advantages[name] / scale[name]
-    return total * scale.get("welfare", 1.0)
+            z = advantages[name] / scale[name]
+            if scales == "reference" and clip > 0:
+                z = np.clip(z, -clip, clip)
+            total = total + personality[:, k] * z
+    return total * scale.get("welfare", 1.0) if scales == "batch" else total
+
+
+def clip_fractions(advantages: dict[str, np.ndarray], clip: float) -> dict[str, float]:
+    """Each objective's share of rows whose normalised advantage A_k / s_k_ref lies beyond +/- clip (0 when off)."""
+    return {name: float(np.mean(np.abs(a / float(contracts.OBJECTIVE_REFERENCE_SCALES[name])) > clip)) if clip > 0 else 0.0
+            for name, a in advantages.items() if name in contracts.OBJECTIVE_REFERENCE_SCALES}
+
+
+def scale_drift(advantages: dict[str, np.ndarray]) -> dict[str, float]:
+    """Each objective's batch advantage spread over its reference spread: how far the batch rule's exchange rates
+    would have moved this iteration (1 everywhere is no drift)."""
+    return {name: float(np.std(a)) / float(contracts.OBJECTIVE_REFERENCE_SCALES[name])
+            for name, a in advantages.items() if name in contracts.OBJECTIVE_REFERENCE_SCALES}
 
 
 def gae(batch: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray, bootstrap: np.ndarray,
@@ -515,10 +574,15 @@ class Hyper:
     personality: str = "default"
     # Daughters inherit the parent's personality with a small Dirichlet shift (personality_drift); 0 copies exactly.
     personality_drift: float = 200.0
+    # How personality weights exchange objectives (combine_personal): "reference" divides each component advantage by
+    # its fixed contracts.OBJECTIVE_REFERENCE_SCALES entry (round 3); "batch" by its batch std (earlier runs).
+    personality_scales: str = "reference"
+    # Reference rule: clip each normalised component advantage A_k / s_k_ref to +/- this before weighting; 0 off.
+    personality_clip: float = 5.0
     # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner labels, the
     # relative gain a label must clear, and label rows per minibatch. 0 turns it off.
     search_weight: float = 0.0
-    search_margin: float = 0.005
+    search_margin: float = 0.004  # search utility v2: U_p gain in reference spreads (about the old 0.5% at a mean village)
     search_batch: int = 256
     # Critic warm-up: when a run starts by converting a scalar critic into the vector critic, its population, QoL and
     # trade heads are new (only welfare is copied). This many extra iterations first train only the critics, so
@@ -571,12 +635,15 @@ def personality_sampler(spec: str, rng: np.random.Generator):
     raise ValueError(f"unknown personality spec {spec!r}")
 
 
-def load_search_labels(paths: list[Path], margin: float) -> dict[str, np.ndarray] | None:
+def load_search_labels(paths: list[Path], margin: float, legacy_margin: float = 0.005) -> dict[str, np.ndarray] | None:
     """Search-teacher label rows (search_teacher.py) whose best alternative beats the policy by more than ``margin``
-    (relative score) and is not the policy itself: the rows PPO imitates."""
-    from .search_teacher import POLICY
+    and is not the policy itself: the rows PPO imitates. Gains are on search utility version 2 (U_p in reference
+    spreads, the units of PPO's advantage); version-1 files are rescored from their return vectors, and rows whose
+    label is no longer the best are dropped. Files too old to rescore keep the relative rule against
+    ``legacy_margin``."""
+    from .search_teacher import POLICY, label_gain, rescore
     parts = [dict(np.load(p)) for p in paths]
-    parts = [p for p in parts if p]
+    parts = [rescore(p) for p in parts if p]
     if not parts:
         return None
     groups = len(contracts.TRADE_GROUPS)
@@ -598,8 +665,8 @@ def load_search_labels(paths: list[Path], margin: float) -> dict[str, np.ndarray
                                                  if fill == -1 else np.float64)], axis=1) for a in arrays]
         return np.concatenate(arrays)
     rows = {k: stack(k) for k in keys}
-    gain = (rows["score_best"] - rows["score_policy"]) / np.maximum(1e-9, np.abs(rows["score_policy"]))
-    keep = (gain > margin) & (rows["label_kind"] != POLICY)
+    _, kept = label_gain(rows, margin, legacy_margin)
+    keep = kept & (rows["label_kind"] != POLICY)
     return {k: v[keep] for k, v in rows.items()} if keep.any() else None
 
 
@@ -768,11 +835,12 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
               generator: torch.Generator, rng: np.random.Generator,
               grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None,
               train_actor: bool = True,
-              branch: tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None] | None = None) -> tuple[float, dict[str, float]]:
+              branch: tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None] | None = None,
+              bank: DaughterBank | None = None) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
     inherit = None if sampler is None else (lambda parent: personality_drift(parent, rng, hyper.personality_drift))
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler,
-                   inherit=inherit)
+                   inherit=inherit, bank=bank)
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
     regimes = np.asarray([regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])])
@@ -785,6 +853,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     welfare_now = np.maximum(0.0, batch["welfare"].astype(np.float64))
     reward = reward - hyper.mix_change_cost * change * welfare_now - hyper.break_cost * voluntary_break * welfare_now
     rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
+    drift = clipped = None
     if isinstance(critic, VectorCritic):
         # Each objective component: its own reward, value, bootstrap and GAE; the policy follows their weighted sum.
         components = data.reward_components(batch); components["welfare"] = reward
@@ -803,7 +872,10 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
                 boot[rows] = tails[name][batch["bootstrap_index"][rows]] * head_scale(name, batch["population"][rows])
             advantages[name], target_by[name] = gae(batch, components[name], value_by[name], boot)
         advantage = (combine(advantages, hyper.objective_weights) if "personality" not in batch
-                     else combine_personal(advantages, batch["personality"]))
+                     else combine_personal(advantages, batch["personality"], hyper.personality_scales,
+                                           hyper.personality_clip))
+        drift = scale_drift(advantages)
+        clipped = clip_fractions(advantages, hyper.personality_clip if hyper.personality_scales == "reference" else 0.0)
         target = {name: value / head_scale(name, batch["prior_population"]) for name, value in target_by.items()}
     else:
         value = values(critic, batch, normalizer)
@@ -830,6 +902,9 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     if "personality" in batch and hasattr(actor.encoder, "film_extent"):  # FiLM instability monitor
         sample = {k: v[:512] for k, v in batch.items()}
         stats["film_max"] = actor.encoder.film_extent(to_tensors(sample, normalizer))
+    if drift is not None:
+        stats["scale_drift"] = drift; stats["scale_clipped"] = clipped
+    stats["bank_decisions"] = int((batch["bank"] >= 0).sum()) if "bank" in batch else 0
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
@@ -886,17 +961,24 @@ def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) ->
 
 
 def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator,
-                  valley: list[tuple[int, int]] | None = None):
-    """Curriculum worlds as (seed, withheld-technology mask[, heuristic warm-up turns]). Stage 2 draws the three
-    single-capability fixtures equally; stages 3-4 draw half ordinary TRAIN worlds, a quarter grassland-rich openings
-    (where herding competes with farming) and a quarter rehearsed capability fixtures. With learned movement and a
-    valley bank, a quarter of worlds (any stage) are valley fixture states, where moving can pay."""
+                  valley: list[tuple[int, int]] | None = None, bank: DaughterBank | None = None):
+    """Curriculum worlds as (seed, withheld-technology mask[, heuristic warm-up turns[, bank entry id]]). Stage 2 draws
+    the three single-capability fixtures equally; stages 3-4 draw half ordinary TRAIN worlds, a quarter grassland-rich
+    openings (where herding competes with farming) and a quarter rehearsed capability fixtures. With learned movement
+    and a valley bank, a quarter of worlds (any stage) are valley fixture states, where moving can pay. With a
+    non-empty daughter bank, slot i % 4 == 0 is a banked daughter start (stage 2: only capability-fixture entries);
+    an empty bank (or no eligible entry) leaves that slot as before."""
     masks = list(contracts.CAPABILITY_MASKS.values())
 
     def draw(n: int) -> list[tuple]:
         worlds = []
         for i in range(n):
-            if valley and stage.region_movement and i % 4 == 2:
+            entry = None
+            if bank is not None and i % 4 == 0:
+                entry = bank.sample(rng, set(masks) if stage.name == "capability" else None)
+            if entry is not None:
+                worlds.append((int(entry["seed"]), int(entry["mask"]), 0, int(entry["id"])))
+            elif valley and stage.region_movement and i % 4 == 2:
                 seed, warm = valley[int(rng.integers(len(valley)))]
                 worlds.append((int(seed), 0, int(warm)))
             elif stage.name == "capability":
@@ -932,6 +1014,7 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
+            "specialist_share": float(sum(r.get("specialist_share", 0.0) * r["population"] for r in rows) / max(1, population)),
             "below_30": float(np.mean([r["below_30"] for r in rows])), "extinctions": float(sum(r["extinctions"] for r in rows)),
             "settlements": float(np.mean([r["settlements"] for r in rows])),
             "interventions_per_decision": float(np.mean([r["interventions_per_decision"] for r in rows])),
@@ -996,6 +1079,13 @@ def main() -> int:
                         help="re-seat the region head's native probability (all slots legal), e.g. 0.5")
     parser.add_argument("--personality", default="default",
                         help="Elder personalities for training: default | fixed:w,w,w,w | dirichlet:alpha (token model only)")
+    parser.add_argument("--personality-scales", choices=("reference", "batch"), default="reference",
+                        help="personality exchange rates: fixed contracts.OBJECTIVE_REFERENCE_SCALES (round 3) or each "
+                             "component's batch std (earlier runs)")
+    parser.add_argument("--personality-clip", type=float, default=5.0,
+                        help="clip each normalised component advantage A_k / s_k_ref to +/- this (reference scales; 0 off)")
+    parser.add_argument("--daughter-bank", type=Path, default=None,
+                        help="daughter-start bank directory: capture founding daughters and draw a quarter of worlds from it")
     parser.add_argument("--search-labels", default=None,
                         help="comma-separated search_teacher labels.npz files: imitate search winners (expert iteration)")
     parser.add_argument("--search-weight", type=float, default=0.5)
@@ -1107,6 +1197,8 @@ def main() -> int:
             raise ValueError("personalities need the token model (its village token reads them)")
         hyper.personality = args.personality
         personality_sampler(args.personality, rng)  # validate the spec
+    hyper.personality_scales = args.personality_scales
+    hyper.personality_clip = args.personality_clip
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     search = None
@@ -1129,7 +1221,8 @@ def main() -> int:
         with torch.no_grad():
             others = contracts.REGION_MOVEMENT_SLOTS - 1
             actor.region_native.bias.fill_(float(np.log(args.native_start / (1 - args.native_start) * others)))
-    draw = world_sampler(stage, train, grassland, rng, valley)
+    bank = DaughterBank(args.daughter_bank) if args.daughter_bank else None
+    draw = world_sampler(stage, train, grassland, rng, valley, bank)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
     # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric
     # mean of the per-regime welfare ratios, so no regime can be traded away for the majority.
@@ -1156,6 +1249,8 @@ def main() -> int:
                     "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "learned_trade": stage.trade,
                     "experts": experts, "token": token, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
+                    "personality_scales": hyper.personality_scales, "personality_clip": hyper.personality_clip,
+                    "daughter_bank": None if bank is None else str(bank.directory),
                     "lagrange": lagrange, "log": log}, path)
 
     def evaluate(checkpoint: Path, personality: list[float] | None = None) -> dict:
@@ -1171,6 +1266,8 @@ def main() -> int:
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))
         total["qol"] = float(sum(r["qol"] * r["population"] for r in result.values()) / max(1.0, total["population"]))
+        total["specialist_share"] = float(sum(r["specialist_share"] * r["population"] for r in result.values())
+                                          / max(1.0, total["population"]))
         total["regimes"] = result
         return total
 
@@ -1220,7 +1317,7 @@ def main() -> int:
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
                                     optimizers, lagrange, generator, rng, grassland_set, search, train_actor=it >= warmup,
-                                    branch=branch)
+                                    branch=branch, bank=bank)
         stats["critic_warmup"] = it < warmup
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         save(args.out / "latest.pt")

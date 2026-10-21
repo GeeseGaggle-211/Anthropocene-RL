@@ -45,13 +45,15 @@ def test_personality_scores_rank_alternatives_by_the_personalitys_own_objectives
     # Objectives: welfare, population_years, trade_utility, qol_years. Policy first; alt 1 adds people at lower QoL,
     # alt 2 raises QoL with fewer people.
     returns = np.array([[100.0, 1000.0, 0.0, 16.0], [104.0, 1200.0, 0.0, 14.0], [99.0, 900.0, 0.0, 18.0]])
+    s = contracts.OBJECTIVE_REFERENCE_SCALES
     welfare = st.personality_score(returns, np.array([1.0, 0, 0, 0]))
-    assert np.allclose(welfare, [1.0, 1.04, 0.99])  # the default personality: the welfare ratio to the policy
+    # Utility version 2 (PPO's): U_p(alt) - U_p(policy) in reference spreads; the policy scores 0.
+    assert np.allclose(welfare, [0.0, 4.0 / s["welfare"], -1.0 / s["welfare"]])
     assert int(np.argmax(st.personality_score(returns, np.array([0, 1.0, 0, 0])))) == 1
     assert int(np.argmax(st.personality_score(returns, np.array([0, 0, 0, 1.0])))) == 2
     # A zero component (no trade) and a missing head add nothing.
     with_nan = returns.copy(); with_nan[:, 2] = np.nan
-    assert np.allclose(st.personality_score(with_nan, np.array([0.5, 0, 0.5, 0])), 1 + 0.5 * (returns[:, 0] / 100 - 1))
+    assert np.allclose(st.personality_score(with_nan, np.array([0.5, 0, 0.5, 0])), 0.5 * (returns[:, 0] - 100) / s["welfare"])
 
 
 def test_component_rewards_and_daughters_inherit_in_branches() -> None:

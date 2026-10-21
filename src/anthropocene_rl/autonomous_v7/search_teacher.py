@@ -69,6 +69,9 @@ class SearchConfig:
     # its society's personality: 1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|. The policy, the critic and
     # the imitation loss all read that personality, through the same FiLM-conditioned encoder.
     personality: str = "default"
+    # Round 3: when a decision point has a young daughter (parentSociety > 0 and first seen within YOUNG_TURNS turns,
+    # or the daughter of a bank start), one of the searched villages is a young daughter. 0 keeps the uniform draw.
+    daughter_search: bool = True
     # Round 3 (docs/MODEL9_SEARCH_TEACHER.md, *Probes*): fission probes (Encourage and Discourage submitted every turn of
     # the horizon) and trade-posture probes (TRADE_PROBES, a full posture every turn of the horizon).
     fission: bool = True
@@ -80,6 +83,9 @@ class SearchConfig:
     # realised turns rather than against its own bootstrap. Only when tail > 0.
     calibration_share: float = 0.1
     calibration_tail: int = 12
+
+
+YOUNG_TURNS = 3
 
 
 def load_critic(checkpoint: Path):
@@ -139,14 +145,52 @@ def component_rewards(villages: list[dict[str, Any]], lineage: set[int]) -> np.n
     return out
 
 
+# Search utility versions (docs/MODEL9_PERSONALITY.md, *One utility for PPO and search*). Version 1 (labels before
+# 22 October 2026): 1 + sum_k p_k (G_k - G_k(policy)) / |G_k(policy)|, a relative change against the policy's own
+# return. Version 2: the utility PPO's advantage uses, U_p = sum_k p_k G_k / s_k_ref (contracts.OBJECTIVE_REFERENCE_
+# SCALES); an alternative scores U_p(alt) - U_p(policy), so the policy scores 0 and a gain is in reference spreads (for
+# the welfare personality, a fraction of s_welfare_ref). Label files keep every alternative's return vector
+# (alt_returns), so version-1 labels are rescored (``rescore``).
+UTILITY_VERSION = 2
+
+
+def personality_utility(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
+    """U_p = sum_k p_k G_k / s_k_ref per row of ``returns`` (objectives in contracts.OBJECTIVES order). A component
+    missing (NaN) for any alternative gets no weight, so every alternative is scored on the same components."""
+    scale = np.asarray([contracts.OBJECTIVE_REFERENCE_SCALES[k] for k in contracts.OBJECTIVES], np.float64)
+    weights = np.where(np.isnan(returns).any(axis=0), 0.0, np.asarray(p, np.float64))
+    return (np.nan_to_num(returns) / scale * weights).sum(axis=1)
+
+
 def personality_score(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
-    """Scores of a decision point's alternatives (rows of ``returns``, the policy first) for personality ``p``:
-    1 + sum_k p_k (R_k - R_k(policy)) / |R_k(policy)|. The policy scores 1; at the default personality this is the
-    welfare ratio to the policy."""
-    base = returns[0]
-    scale = np.where(np.abs(base) > 1e-9, np.abs(base), 1.0)
-    weights = np.where(np.isnan(returns).any(axis=0), 0.0, p)
-    return 1.0 + (np.nan_to_num(returns - base) / scale * weights).sum(axis=1)
+    """Version-2 scores of a decision point's alternatives (rows of ``returns``, the policy first) for personality
+    ``p``: U_p(alt) - U_p(policy). The policy scores 0."""
+    u = personality_utility(returns, p)
+    return u - u[0]
+
+
+def rescore(labels: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Label arrays on the version-2 utility. Version-2 files pass through. Version-1 files with per-alternative
+    return vectors (alt_returns, personality) are rescored: alt_score, score_policy (0) and score_best (the stored
+    label's alternative, the version-1 argmax); label_is_best marks rows whose label is still the version-2 argmax.
+    Files without return vectors keep version 1 (utility_version 1) and are judged by the legacy relative margin."""
+    n = len(labels["label_kind"])
+    if "utility_version" in labels and (np.asarray(labels["utility_version"]) == UTILITY_VERSION).all():
+        return labels
+    out = dict(labels)
+    if not all(k in labels for k in ("alt_returns", "personality", "alt_score", "alt_kind")):
+        out["utility_version"] = np.full(n, 1); out["label_is_best"] = np.ones(n, bool)
+        return out
+    present = np.asarray(labels["alt_kind"]) >= 0
+    old_best = np.argmax(np.where(present, np.nan_to_num(labels["alt_score"], nan=-np.inf), -np.inf), axis=1)
+    scores = np.full(present.shape, np.nan)
+    for i in range(n):
+        m = present[i]
+        scores[i, m] = personality_score(np.asarray(labels["alt_returns"][i][m], np.float64), labels["personality"][i])
+    new_best = np.argmax(np.where(present, scores, -np.inf), axis=1)
+    out.update(alt_score=scores, score_policy=np.zeros(n), score_best=scores[np.arange(n), old_best],
+               label_is_best=old_best == new_best, utility_version=np.full(n, UTILITY_VERSION))
+    return out
 
 
 def base_posture(action: dict[str, Any] | None, teacher: dict[str, Any] | None) -> dict[str, Any]:
@@ -411,8 +455,26 @@ def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int
     return result
 
 
-def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config: SearchConfig) -> dict[str, Any]:
-    """One world's main path with the policy, searching at sampled decision points."""
+def choose_villages(live: list[dict[str, Any]], first_seen: dict[int, int], turn: int, rng: np.random.Generator,
+                    count: int, daughter_search: bool = True, known: frozenset = frozenset()) -> list[dict[str, Any]]:
+    """The villages searched at a decision point: a uniform draw of ``count``, except that with ``daughter_search``
+    and a young daughter present, one is a uniformly drawn young daughter and the rest a uniform draw of the others.
+    Young: parentSociety > 0 and first seen at most YOUNG_TURNS turns ago, or a ``known`` (bank) daughter camp.
+    Without a young daughter the draw is the uniform one, so earlier searches reproduce."""
+    young = [i for i, v in enumerate(live)
+             if int(v["camp"]) in known
+             or (int(v.get("parentSociety", 0)) > 0 and turn - first_seen.get(int(v["camp"]), turn) <= YOUNG_TURNS)]
+    if not daughter_search or not young or count <= 0:
+        return [live[i] for i in rng.permutation(len(live))[:count]]
+    first = young[int(rng.integers(len(young)))]
+    rest = [i for i in rng.permutation(len(live)) if i != first][:count - 1]
+    return [live[first]] + [live[i] for i in rest]
+
+
+def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config: SearchConfig,
+                 bank: str | None = None, entry: int = -1) -> dict[str, Any]:
+    """One world's main path with the policy, searching at sampled decision points. ``bank`` and ``entry``: start from
+    that daughter-bank snapshot instead of ``seed``'s opening (its daughter counts as young for selection)."""
     torch.set_num_threads(1)
     actor, normalizer = load(Path(checkpoint)); critic = load_critic(Path(checkpoint))
     movement = bool(getattr(actor, "region_movement", False))
@@ -431,15 +493,25 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
     turns = set(rng.choice(np.arange(config.first_turn, last), size=min(config.points, last - config.first_turn), replace=False).tolist())
     rows: list[dict[str, Any]] = []
     clock = time.perf_counter(); branches = 0
+    known: frozenset = frozenset()  # the banked daughter of a bank start
+    first_seen: dict[int, int] = {}  # main-path turn index each camp was first seen at (daughter selection)
     founded: dict[int, int] = {}
     traded: dict[int, list[float]] = {}; trade_points = {"trade_points_probed": 0, "trade_points_skipped": 0}
     with Model9Bridge() as bridge:
-        step = bridge.reset(seed, withheld=withheld, movement=True)
+        if entry >= 0:
+            from .daughter_bank import DaughterBank
+            store = DaughterBank(bank); record = store.get(entry)
+            step = bridge.reset(seed, withheld=withheld, movement=True, snapshot=store.snapshot(record))
+            known = frozenset({int(record["camp"])})
+        else:
+            step = bridge.reset(seed, withheld=withheld, movement=True)
         note_founded(founded, step)
         for _ in range(warmup):
             step = bridge.step({})
             note_founded(founded, step); note_trade(traded, step)
         for turn in range(config.turns):
+            for v in step["villages"]:
+                first_seen.setdefault(int(v["camp"]), turn)
             assign(step["villages"])
             if turn in turns:
                 # The heuristic's trade labels on the main-path step whose observation the fork restores (a restored
@@ -449,7 +521,7 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
                 base = policy_actions(actor, normalizer, decision["villages"], movement, personality=personalities)
                 live = [v for v in decision["villages"] if v.get("observation") is not None and not v["terminated"]
                         and int(v["camp"]) in base]
-                for v in [live[i] for i in rng.permutation(len(live))[:config.villages]]:
+                for v in choose_villages(live, first_seen, turn, rng, config.villages, config.daughter_search, known):
                     camp, society = int(v["camp"]), int(v["society"])
                     trade_ok = trade_active(v, traded.get(camp))
                     if config.trade:
@@ -471,8 +543,8 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
             note_founded(founded, step); note_trade(traded, step)
             if not any(not v["terminated"] for v in step["villages"]):
                 break
-    return {"seed": seed, "withheld": withheld, "warmup": warmup, "rows": rows, "seconds": time.perf_counter() - clock,
-            "branches": branches, **trade_points}
+    return {"seed": seed, "withheld": withheld, "warmup": warmup, "entry": entry, "rows": rows,
+            "seconds": time.perf_counter() - clock, "branches": branches, **trade_points}
 
 
 def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
@@ -481,7 +553,8 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
     villages, extra = [], {k: [] for k in ("seed", "turn", "camp", "label_kind", "label_slot", "label_mix", "score_policy",
                                            "score_best", "alt_kind", "alt_slot", "alt_score", "alt_return", "alt_bootstrap",
                                            "alt_world", "personality", "alt_returns", "alt_bootstraps", "label_fission",
-                                           "label_trade_value", "label_trade_gate", "label_trade_mask")}
+                                           "label_trade_value", "label_trade_gate", "label_trade_mask",
+                                           "utility_version", "label_is_best")}
     width = len(contracts.OBJECTIVES); groups = len(contracts.TRADE_GROUPS)
     for world in worlds:
         for row in world["rows"]:
@@ -501,6 +574,7 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
             extra["label_trade_gate"].append(np.full(groups, -1) if trade is None else np.asarray(trade["gate"], np.int64))
             extra["label_trade_mask"].append(np.zeros(groups, np.int8) if trade is None else np.asarray(trade["mask"], np.int8))
             extra["score_policy"].append(scores[0]); extra["score_best"].append(scores[best])
+            extra["utility_version"].append(UTILITY_VERSION); extra["label_is_best"].append(True)
             pad = MAX_ALTERNATIVES - len(scores)
             extra["alt_kind"].append([a["kind"] for a in row["alternatives"]] + [-1] * pad)
             extra["alt_slot"].append([a["slot"] for a in row["alternatives"]] + [-1] * pad)
@@ -541,13 +615,28 @@ def write_branch_shards(worlds: list[dict[str, Any]], root: Path) -> dict[str, A
     return {"branch_shards": shards, "branch_rows": counts, "calibration_shards": calibration}
 
 
+def label_gain(labels: dict[str, np.ndarray], margin: float, legacy_margin: float = 0.005) -> tuple[np.ndarray, np.ndarray]:
+    """Each label row's gain over the policy and whether it clears its margin. Version-2 rows: score_best -
+    score_policy in reference spreads against ``margin``, and only while the label is the version-2 argmax. Version-1
+    rows that could not be rescored: the relative score gain against ``legacy_margin``."""
+    n = len(labels["score_best"])
+    version = np.asarray(labels.get("utility_version", np.ones(n)))
+    absolute = labels["score_best"] - labels["score_policy"]
+    relative = absolute / np.maximum(1e-9, np.abs(labels["score_policy"]))
+    best = np.asarray(labels.get("label_is_best", np.ones(n, bool)), bool)
+    v2 = version == UTILITY_VERSION
+    return np.where(v2, absolute, relative), np.where(v2, (absolute > margin) & best, relative > legacy_margin)
+
+
 def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
-    """How often and by how much search beats the policy, by winning kind."""
+    """How often and by how much search beats the policy, by winning kind. Version-2 gains are in reference spreads
+    (U_p units), and ``margin`` is in the same units."""
     if not labels:
         return {"rows": 0}
-    gain = (labels["score_best"] - labels["score_policy"]) / np.maximum(1e-9, np.abs(labels["score_policy"]))
-    kept = gain > margin
+    labels = rescore(labels)
+    gain, kept = label_gain(labels, margin)
     out = {"rows": int(len(gain)), "beats_policy_share": float(np.mean(kept)), "margin": margin,
+           "utility_version": UTILITY_VERSION,
            "gain_median_when_kept": float(np.median(gain[kept])) if kept.any() else 0.0,
            "gain_p90": float(np.quantile(gain, 0.9))}
     for k, name in enumerate(KINDS):
@@ -559,7 +648,8 @@ def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
     def relative(key: str) -> np.ndarray:
         base = labels[key][:, :1]
         return (labels[key] - base) / np.maximum(1e-9, np.abs(base))
-    rel, ret = relative("alt_score"), relative("alt_return")
+    # alt_score is already a difference from the policy in U_p units (version 2); alt_return stays relative.
+    rel, ret = labels["alt_score"] - labels["alt_score"][:, :1], relative("alt_return")
     if "alt_world" in labels:
         # The winners' effect on the whole world: a lineage gain with a world loss takes from neighbours.
         best = np.nanargmax(np.where(labels["alt_kind"] >= 0, labels["alt_score"], -np.inf), axis=1)
@@ -581,22 +671,33 @@ def main() -> int:
     parser.add_argument("--seeds", default="1000-1011", help="TRAIN seed range (never selection or gate seeds)")
     parser.add_argument("--valley-seeds", type=Path, default=None, help="valley fixture bank (lines 'seed,warmup')")
     parser.add_argument("--withheld", type=int, default=0)
+    parser.add_argument("--daughter-bank", type=Path, default=None, help="daughter-start bank (ppo --daughter-bank)")
+    parser.add_argument("--bank-worlds", type=int, default=0,
+                        help="also search this many training entries of --daughter-bank (newest first), from their snapshots")
     parser.add_argument("--workers", type=int, default=6)
-    parser.add_argument("--margin", type=float, default=0.005, help="relative gain a label must clear (summary only)")
+    parser.add_argument("--margin", type=float, default=0.004,
+                        help="U_p gain a label must clear, in reference spreads (a fraction of s_welfare_ref for the "
+                             "welfare personality; summary only)")
     parser.add_argument("--out", type=Path, required=True)
     for name, value in asdict(SearchConfig()).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value) if not isinstance(value, bool) else int, default=value)
     args = parser.parse_args()
     config = SearchConfig(**{k: (bool(getattr(args, k)) if isinstance(v, bool) else getattr(args, k)) for k, v in asdict(SearchConfig()).items()})
     a, b = (int(x) for x in args.seeds.split("-"))
-    worlds = [(s, args.withheld, 0) for s in range(a, b + 1)]
+    worlds = [(s, args.withheld, 0, -1) for s in range(a, b + 1)]
     if args.valley_seeds:
-        worlds += [(int(s), 0, int(w)) for s, w in (line.split(",") for line in args.valley_seeds.read_text().split() if line.strip())]
+        worlds += [(int(s), 0, int(w), -1) for s, w in (line.split(",") for line in args.valley_seeds.read_text().split() if line.strip())]
+    if args.daughter_bank and args.bank_worlds > 0:
+        from .daughter_bank import DaughterBank
+        entries = DaughterBank(args.daughter_bank).training_entries()[::-1][:args.bank_worlds]
+        worlds += [(int(e["seed"]), int(e["mask"]), 0, int(e["id"])) for e in entries]
     args.out.mkdir(parents=True, exist_ok=True)
     clock = time.time()
     with ProcessPoolExecutor(max_workers=min(args.workers, len(worlds))) as pool:
         results = list(pool.map(search_world, [args.checkpoint] * len(worlds), [w[0] for w in worlds], [w[1] for w in worlds],
-                                [w[2] for w in worlds], [config] * len(worlds)))
+                                [w[2] for w in worlds], [config] * len(worlds),
+                                [None if args.daughter_bank is None else str(args.daughter_bank)] * len(worlds),
+                                [w[3] for w in worlds]))
     labels = label_arrays(results)
     if labels:
         np.savez_compressed(args.out / "labels.npz", **labels)

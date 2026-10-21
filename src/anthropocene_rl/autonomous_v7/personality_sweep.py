@@ -53,16 +53,20 @@ def main() -> int:
             settlements = sum(r["settlements"] for r in rows)
             report[name] = {"personality": p, "welfare": sum(r["welfare"] for r in rows), "population": population,
                             "qol": sum(r["qol"] * r["population"] for r in rows) / max(1, population),
+                            "specialist_share": sum(r.get("specialist_share", 0.0) * r["population"] for r in rows) / max(1, population),
                             "trade_utility": sum(r["trade_utility"] for r in rows), "extinctions": sum(r["extinctions"] for r in rows),
                             # A degenerate split shows as many settlements and a high below-30 share.
                             "settlements": settlements, "below_30_share": sum(r["below_30"] for r in rows) / max(1, settlements),
-                            "per_seed": [{"seed": s, "population": r["population"], "qol": r["qol"]} for s, r in zip(seeds, rows)]}
+                            "per_seed": [{"seed": s, "population": r["population"], "qol": r["qol"],
+                                           "specialist_share": r.get("specialist_share", 0.0)} for s, r in zip(seeds, rows)]}
             if args.focal:
                 focal = sum(r["focal_population"] for r in rows)
                 report[name].update({"focal_population": focal,
                                      "focal_qol": sum(r["focal_qol"] * r["focal_population"] for r in rows) / max(1, focal),
                                      "focal_settlements": sum(r["focal_settlements"] for r in rows),
-                                     "focal_below_30": sum(r["focal_below_30"] for r in rows)})
+                                     "focal_below_30": sum(r["focal_below_30"] for r in rows),
+                                     "focal_specialist_share": sum(r.get("focal_specialist_share", 0.0) * r["focal_population"]
+                                                                   for r in rows) / max(1, focal)})
             print(json.dumps({name: report[name]}), flush=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2))

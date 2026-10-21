@@ -1036,6 +1036,35 @@ is active: 637-1,840 trades per default evaluation.
 argmax over the move-or-native decision before the row. The cheap test is to re-evaluate the round-2 checkpoints
 with that grouped argmax. If they then match or beat S-s55, round 3 proceeds with the hierarchical head.
 
+### Round 3 build: stable scales, daughter bank, specialist reporting
+
+Built 21 October 2026 on `feature/r3-persona`. Design notes are in `docs/MODEL9_PERSONALITY.md` (*Stable scales*,
+*Daughter-start bank*).
+
+| Piece | Flag or tool | Default |
+| --- | --- | --- |
+| Personality exchange rates | `ppo --personality-scales reference\|batch` | `reference` (saved in checkpoints) |
+| Reference scales | `scale_reference.py`; values in `contracts.OBJECTIVE_REFERENCE_SCALES` | measured, below |
+| Per-component clip | `ppo --personality-clip c` (normalised `A_k / s_k_ref` clipped to `+/- c`) | 5 (0 off) |
+| Scale drift log | trajectory `scale_drift` and `scale_clipped` (vector-critic runs) | always logged |
+| Daughter bank | `ppo --daughter-bank <dir>` | off; cap 500, reservoir of 3 per world, world seeds `% 10 == 0` held out |
+| Bank worlds in training | slot `i % 4 == 0` when the bank is non-empty | on with the bank |
+| Daughter search | `search_teacher --daughter-search 0\|1`; `--daughter-bank`, `--bank-worlds N` | 1; no bank worlds |
+| Daughter evaluation | `daughter_eval.py --checkpoint --bank --turns 5` | held-out seed family only |
+| Search utility v2 | `search_teacher` scores `U_p(alt) - U_p(policy)`, `U_p = sum_k p_k G_k / s_k_ref`; old labels rescored | `--margin` / `ppo --search-margin` 0.004 (reference spreads) |
+| Specialist share | `specialist_share` in `evaluate.rollout` (and `focal_specialist_share`), `evaluate_closed_loop`, `stage_eval`, `personality_sweep` | 0 until the bridge reports `specialistShare` |
+
+Notes:
+- A welfare-only personality trains identically under both scale rules, because `update` standardises the advantage.
+- Iteration logs also carry `bank_decisions`, the decisions taken in bank worlds.
+- `specialist_share` is the population-weighted mean of the bridge's per-village `specialistShare` over final
+  villages. It reads `v.get("specialistShare", 0.0)`, so it works before the field exists.
+
+Measured reference scales (heuristic, TRAIN 1000-1059, 45-turn rollouts, rows with at least 20 later turns, 37,085
+rows): welfare 59,319; population_years 85,134; trade_utility 26.68; qol_years 43.15. The first build's 25-turn,
+all-rows values (37,864; 50,391; 17.55; 64.0) truncated late returns and are superseded. Tests:
+`tests/test_autonomous_v7_round3.py`, including three bridge smokes and the clip and reservoir tests.
+
 ### Round 3 build: search v2 and critic branch shards (21 October 2026)
 
 Built on `feature/r3-search` from the approved round-3 spec; the design and the label/shard layouts are in

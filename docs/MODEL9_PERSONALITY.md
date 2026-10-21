@@ -48,10 +48,10 @@ This scales:
 - The vector critic's heads estimate each component's value *given* `p`, because behaviour depends on `p`.
 
 **Advantage.** The per-row advantage is `sum_k p_k A_k / s_k`.
-- `s_k` is a running scale of component k's advantage. Population-years are about 100 times larger than QoL-years,
-  so unscaled weights would mean nothing.
-- With the default `p`, the welfare-only advantage is reproduced exactly (`s_welfare` is not applied when `p` is one-hot
-  on welfare).
+- Population-years are about 100 times larger than QoL-years, so unscaled weights would mean nothing.
+- Since round 3, `s_k` is a fixed reference scale (`--personality-scales reference`, the default); see *Stable
+  scales* below. Earlier runs used each component's batch standard deviation (`--personality-scales batch`).
+- With the default `p`, the welfare-only advantage is reproduced exactly under either rule.
 
 **Training distribution** (`--personality`):
 - `default` (welfare one-hot);
@@ -119,6 +119,112 @@ four side routes, and each one pulls personalities toward the default. Two of th
 - In personality runs the same share is charged on every component in its own units. A negative trade utility is
   not enlarged.
 - Default-personality runs keep the costs on welfare only, so earlier runs reproduce exactly.
+
+## Stable scales (round 3, 21 October 2026)
+
+**Why.** The batch rule divided each objective's advantage by its batch standard deviation. The exchange rate
+between objectives then drifted with batch content: the stage, the regime mix and the other personalities in the
+batch. A `[0.5, 0.5, 0, 0]` Elder meant something different in a capability batch than in a mixed batch.
+
+**Rule.** `A = sum_k p_k A_k / s_k_ref`, with `s_k_ref` fixed (`contracts.OBJECTIVE_REFERENCE_SCALES`).
+- `ppo.update` standardises the combined advantage afterwards, so only the ratios between the `s_k_ref` matter.
+- A welfare-only personality therefore reproduces the batch rule's update exactly (tested).
+- **Clip** (`--personality-clip`, default 5, 0 off): each normalised component `A_k / s_k_ref` is clipped to
+  `+/- c` before weighting. Reference scales measure return spread, but advantages also carry critic error. In the
+  first smoke an untrained trade head's advantages were about 1,500 reference spreads wide (`scale_drift`), and with
+  no clip any trade weight made that noise the whole advantage. The clip bounds a component's term by `p_k c`.
+  Each iteration logs the clipped share per objective (`scale_clipped`) next to `scale_drift`. With the clip on, a
+  welfare-only personality matches the batch rule except on rows beyond 5 welfare spreads.
+- `--personality-scales batch` restores the earlier rule (no clip). The choice is saved in checkpoints (`personality_scales`).
+- Each iteration logs `scale_drift`: each objective's batch advantage spread over its reference spread. Unequal
+  drift across objectives is how far the batch rule's exchange rates would have moved that iteration.
+
+**Measurement** (`scale_reference.py`):
+- The native heuristic (no actions submitted) on TRAIN seeds 1000-1059, 45-turn rollouts, Small world, through the
+  bridge.
+- One row per village decision, with the fields `data.reward_components` reads.
+- Per (world, camp) sequence, the discounted return per objective with the `HORIZON_YEARS` discount `ppo.gae` uses.
+- The heuristic has no critic, so returns stop at the rollout end. Only rows with at least 20 later turns (the first
+  25 turns) are kept, so every return covers a full 400-year-equivalent window.
+- `s_k_ref` is the standard deviation of that return over the kept rows.
+
+**Measured values** (21 October 2026; simulator f06e3be, contract 12):
+
+| Objective | `s_k_ref` now (45 turns, full-window rows) | Mean return | First build (25 turns, all rows) |
+| --- | ---: | ---: | ---: |
+| welfare | 59,319 | 136,573 | 37,864 |
+| population_years | 85,134 | 172,285 | 50,391 |
+| trade_utility | 26.68 | 6.35 | 17.55 |
+| qol_years | 43.15 | 259.0 | 64.0 |
+
+- The kept rows are 37,085 of 82,841 (1,390 s on 12 bridges).
+- The first build's all-rows values mixed in truncated late returns. Truncation shrank the three objectives that grow
+  with the village (welfare, population, trade) and widened `qol_years` (short late returns against long early ones).
+- In the new values, one QoL-year of `qol_years` weight is worth about 1,375 person-QoL-years of welfare weight; a
+  unit of `trade_utility` about 2,200.
+
+## Daughter-start bank (round 3, 21 October 2026)
+
+Young daughters are where personalities and fission policy matter most, but an ordinary rollout reaches them late
+and rarely. The bank stores worlds at the moment a daughter is founded, so later runs can start from them.
+
+**Capture** (`ppo --daughter-bank <dir>`):
+- When a village row first appears with `founded` true, it is offered to the world's reservoir sample of 3 over
+  all of that rollout's founded daughters (algorithm R, keyed by the world, so deterministic). A kept daughter's
+  world is captured then (bridge op `capture`; the daughter's first decision state), and the entry it displaces is
+  deleted. Captures therefore spread over the whole episode. The first build kept the first 3, which put most
+  entries at turns 10-12.
+- Each capture is a zlib-compressed snapshot file plus an `index.jsonl` line: id, seed, withheld mask, movement,
+  turn, the daughter's society and camp, and its parent society.
+- The bank keeps at most 500 entries, oldest first out. It persists across iterations and runs.
+- **Held-out family: whole world seeds.** Entries whose root world seed has `seed % 10 == 0` are reserved for
+  `daughter_eval`; training never draws them. (The TRAIN worlds themselves still train; only their daughter captures
+  are reserved.) The first build split by entry id. Daughters of one world and turn share a content-addressed
+  snapshot, so an id split could hand the same state to training and evaluation. `check_partition` asserts that no
+  snapshot hash is in both partitions whenever either is listed, and `daughter_eval` refuses training entries.
+
+**Training.**
+- With a non-empty bank, `world_sampler` makes slot `i % 4 == 0` a bank world; the valley slot stays `i % 4 == 2`.
+  Stage 2 draws only capability-fixture entries. An empty bank changes nothing, the random stream included.
+- `collect` resets a bank world from its snapshot (bridge `reset` with `snapshot`), under the entry's own mask.
+  Regime bookkeeping uses the entry's seed and mask.
+- Personalities: founders in a bank world draw fresh personalities, and daughters (the banked one included) inherit
+  from their parent with drift, whatever the village order.
+- A snapshot holds the world, not the bridge's per-village context. After a restart, no active commitments carry
+  over and no village is reported `founded` on the first step.
+
+**Search** (`search_teacher --daughter-search`, default 1): at a decision point with a young daughter
+(`parentSociety` > 0 and first seen within the last 3 turns, or the banked daughter of a bank start), one of the
+searched villages is a young daughter. Without one, the draw is the earlier uniform one. `--daughter-bank` with
+`--bank-worlds N` also searches the newest N training entries from their snapshots.
+
+**Evaluation** (`daughter_eval.py`): from each held-out snapshot, 5 turns with the checkpoint and with the
+heuristic. Reports the daughter society's survival, population growth (final residents over the daughter camp's
+residents at capture) and population-weighted QoL, paired per entry.
+
+## One utility for PPO and search (22 October 2026)
+
+**Problem.** PPO weighted objectives by reference scales, but the search teacher scored alternatives by relative
+change against the policy's own return, `(R_k(alt) - R_k(pol)) / |R_k(pol)|`. The same personality then expressed
+different trade-offs in the two. A QoL weight counted a 1% QoL change as much as a 1% population change in search,
+while PPO priced them at one QoL-year per 1,375 person-QoL-years.
+
+**Search utility version 2** (`search_teacher.UTILITY_VERSION`):
+- `U_p = sum_k p_k G_k / s_k_ref`, with `contracts.OBJECTIVE_REFERENCE_SCALES` (the 45-turn values). `G_k` is the
+  lineage's discounted return over the branch horizon, plus the critic bootstrap when `--bootstrap 1`.
+- An alternative's score is `U_p(alt) - U_p(policy)`, so the policy scores 0. A missing component gets no weight.
+- This is exactly the weighting `ppo.combine_personal` applies to advantages under reference scales (tested).
+- **Margin.** It is in the same units: reference spreads, so for the welfare personality a fraction of
+  `s_welfare_ref`. The default is 0.004 for both `search_teacher --margin` and `ppo --search-margin`. It is chosen to
+  match the old 0.5% relative margin at a mean village, and is a judgement, not a measurement.
+
+**Old labels.**
+- Label files keep every alternative's return vector (`alt_returns`) and personality. `search_teacher.rescore`
+  recomputes version-1 files on version 2.
+- The stored label stays the version-1 winner. `label_is_best` marks rows where it is still the version-2 winner,
+  and `load_search_labels` drops the others.
+- Files too old to have return vectors keep the relative rule against a legacy margin of 0.005.
+- New files carry `utility_version` 2.
 
 ## Simulator (later, with the game)
 

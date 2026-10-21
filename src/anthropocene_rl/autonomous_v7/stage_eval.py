@@ -73,8 +73,11 @@ def main() -> int:
         row["init"]["ratio_vs_teacher"] = init["welfare"] / max(1e-9, teacher["welfare"])
         report[name] = row
         print(json.dumps({name: {"init_vs_teacher": round(row["init"]["ratio_vs_teacher"], 4),
+                                 "specialist_share": {"teacher": round(teacher["specialist_share"], 4),
+                                                      "init": round(init["specialist_share"], 4)},
                                  **{Path(k).parent.name + "/" + Path(k).stem: {"vs_init": round(v["ratio_vs_init"], 4),
                                     "vs_teacher": round(v["ratio_vs_teacher"], 4), "qol": round(v["qol"], 3),
+                                    "specialist_share": round(v["specialist_share"], 4),
                                     "below_30": v["below_30"], "extinctions": v["extinctions"]}
                                     for k, v in row["candidates"].items()}}}), flush=True)
     # Gate: default welfare at least the init's, no regime more than the tolerance below the init, and no more

@@ -104,9 +104,11 @@ process it. `search_teacher --personality dirichlet:a` now works as follows:
     QoL.
 - **Bootstraps.** The critic's per-objective, FiLM-conditioned end values are recorded as `alt_bootstraps`. They are
   added to the returns only with `--bootstrap 1`.
-- **Score.** The searched village's label is scored for its society's personality `p`:
-  `1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|`. At the default personality this is the welfare ratio to
-  the policy, so earlier labels mean the same.
+- **Score.** The searched village's label is scored for its society's personality `p` on search utility version 2,
+  PPO's own: `U_p(alt) - U_p(policy)` with `U_p = sum_k p_k G_k / s_k_ref` (`contracts.OBJECTIVE_REFERENCE_SCALES`).
+  The policy scores 0, and gains and `--margin` are in reference spreads (default 0.004). Version 1, used before 22
+  October 2026, was `1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|`; see `MODEL9_PERSONALITY.md`, *One
+  utility for PPO and search*.
 - **Imitation.** The label row stores `p`, so the imitation loss conditions the actor on the personality the label was
   scored for. Stored value vectors let labels be rescored for other personalities later.
 
