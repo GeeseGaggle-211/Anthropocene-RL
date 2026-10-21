@@ -58,6 +58,29 @@ def test_reference_combine_uses_fixed_exchange_rates() -> None:
         ppo.combine_personal(adv, p, "other")
 
 
+def test_clip_stops_an_untrained_head_from_dominating() -> None:
+    s = contracts.OBJECTIVE_REFERENCE_SCALES; rng = np.random.default_rng(4)
+    welfare = rng.normal(scale=s["welfare"], size=500)
+    noise = rng.normal(scale=1500 * s["trade_utility"], size=500)  # an untrained trade head: scale_drift ~1500
+    adv = {"welfare": welfare, "population_years": np.zeros(500), "trade_utility": noise, "qol_years": np.zeros(500)}
+    p = np.tile(np.asarray([0.75, 0, 0.25, 0], np.float32), (500, 1))
+    unclipped = ppo.combine_personal(adv, p, "reference")
+    clipped = ppo.combine_personal(adv, p, "reference", clip=5.0)
+    signal = 0.75 * welfare / s["welfare"]
+    assert abs(np.corrcoef(unclipped, signal)[0, 1]) < 0.1        # without the clip the noise is the advantage
+    # With it the welfare signal survives: a saturated head adds at most +/- p_k * clip (here 1.25 against a signal
+    # spread of 0.75), so it is bounded, not removed.
+    assert np.corrcoef(clipped, signal)[0, 1] > 0.4
+    assert np.abs(clipped - signal).max() <= 0.25 * 5.0 + 1e-9     # the trade term is bounded by p_k * clip
+    fractions = ppo.clip_fractions(adv, 5.0)
+    assert fractions["trade_utility"] > 0.99 and fractions["welfare"] < 0.01 and ppo.clip_fractions(adv, 0)["welfare"] == 0
+    assert ppo.Hyper().personality_clip == 5.0
+    # The clip leaves ordinary-sized components untouched.
+    calm = {k: rng.normal(scale=s[k], size=500) for k in contracts.OBJECTIVES}
+    calm = {k: np.clip(v, -4.9 * s[k], 4.9 * s[k]) for k, v in calm.items()}
+    assert np.allclose(ppo.combine_personal(calm, p, "reference", 5.0), ppo.combine_personal(calm, p, "reference"))
+
+
 def test_scale_drift_is_batch_spread_over_reference_spread() -> None:
     adv = advantages()
     drift = ppo.scale_drift(adv)
@@ -76,7 +99,8 @@ def test_scale_reference_returns_are_discounted_per_sequence() -> None:
     gamma = np.exp(-20 / contracts.HORIZON_YEARS)
     assert np.allclose(g, [1 + gamma + gamma ** 2, 1 + gamma, 1, 1])
     report = scale_reference.reference_scales(batch, full_window=2)
-    assert report["rows"] == 4 and report["objectives"]["welfare"]["full_window_rows"] == 1
+    assert list(scale_reference.later_turns(batch)) == [2, 1, 0, 2]
+    assert report["rows"] == 4 and report["objectives"]["welfare"]["full_window_rows"] == 2
     assert report["objectives"]["qol_years"]["mean"] > 0
 
 
@@ -112,6 +136,29 @@ def test_bank_index_rotation_and_held_out_slice(tmp_path) -> None:
     fishing = {contracts.CAPABILITY_MASKS["fishing"]}
     assert all(big.sample(rng, fishing)["mask"] in fishing for _ in range(20))
     assert DaughterBank(tmp_path / "empty").sample(rng) is None
+
+
+def test_reservoir_spreads_captures_over_the_episode(tmp_path) -> None:
+    from anthropocene_rl.autonomous_v7.daughter_bank import Reservoir
+    kept_turns, first_three = [], []
+    for world in range(400):
+        rng = np.random.default_rng(world)
+        foundings = sorted(rng.integers(10, 50, size=int(rng.integers(4, 30))).tolist())  # founding turns, in order
+        reservoir = Reservoir(3, np.random.default_rng([world, 0xDA]))
+        for turn in foundings:
+            reservoir.offer(turn)
+        assert len(reservoir.items) == 3 and reservoir.seen == len(foundings)
+        kept_turns += reservoir.items; first_three += foundings[:3]
+    # Uniform over all foundings (mean founding turn about 30), not the earliest ones.
+    assert abs(np.mean(kept_turns) - 29.5) < 1.5 and np.mean(first_three) < 22
+    again = Reservoir(3, np.random.default_rng([7, 0xDA])); once = Reservoir(3, np.random.default_rng([7, 0xDA]))
+    for t in range(20):
+        assert again.offer(t) == once.offer(t)  # deterministic under the keyed generator
+    bank = DaughterBank(tmp_path / "b")
+    a = bank.add(b"one", seed=1, mask=0, turn=10, society=2, camp=3, parent_society=1)
+    bank.add(b"two", seed=1, mask=0, turn=20, society=4, camp=5, parent_society=1)
+    bank.remove(a["id"]); bank.remove(99)
+    assert [e["turn"] for e in bank.entries()] == [20] and len(list((tmp_path / "b").glob("*.snap"))) == 1
 
 
 def test_world_sampler_puts_bank_worlds_in_slot_zero_and_keeps_the_valley_slot(tmp_path) -> None:

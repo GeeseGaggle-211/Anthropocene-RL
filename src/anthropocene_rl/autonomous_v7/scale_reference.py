@@ -5,10 +5,14 @@ deviation of objective k's discounted return per decision under the native heuri
 the heuristic (no actions submitted) on TRAIN worlds through the bridge, records one row per village decision with the
 fields ``data.reward_components`` and ``data.discount`` read, and computes each (world, camp) sequence's discounted
 return per objective with the physical per-turn discount exp(-years / HORIZON_YEARS) that ``ppo.gae`` uses. Returns are
-truncated at the rollout end (no critic: the heuristic has none). The measured values are stored in
+truncated at the rollout end (no critic: the heuristic has none), so the stored scales use only full-window rows. The
+measured values are stored in
 ``contracts.OBJECTIVE_REFERENCE_SCALES``.
 
-    python -m anthropocene_rl.autonomous_v7.scale_reference --seeds 1000-1059 --turns 25 --out <json>
+    python -m anthropocene_rl.autonomous_v7.scale_reference --seeds 1000-1059 --turns 45 --full-window 20 --out <json>
+
+The stored values are the ``full_window_std`` of that run: only rows with at least 20 later turns (the first 25 turns),
+so no return is cut short by the rollout end. The first measurement (25 turns, all rows) truncated late returns.
 """
 
 from __future__ import annotations
@@ -63,16 +67,22 @@ def discounted_returns(batch: dict[str, np.ndarray], reward: np.ndarray) -> np.n
     return out
 
 
+def later_turns(batch: dict[str, np.ndarray]) -> np.ndarray:
+    """Decision turns left in each row's world rollout after the row (the world's last decision turn minus the row's).
+    A row with ``n`` later turns has a return covering ``n + 1`` turns unless its village ended first, and then the
+    return is complete anyway."""
+    world = np.asarray(batch["world"]); turn = np.asarray(batch["turn"])
+    last = {w: int(turn[world == w].max()) for w in np.unique(world)}
+    return np.asarray([last[w] - t for w, t in zip(world, turn)])
+
+
 def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict[str, Any]:
-    """Each objective's return std and mean over every decision row; ``full_window`` > 0 also reports the rows with
-    at least that many turns of rollout after them (returns truncated less), as a diagnostic."""
+    """Each objective's return std and mean over every decision row; ``full_window`` > 0 also reports the rows with at
+    least that many later turns in their world's rollout (``later_turns``): with 20, every such return covers a full
+    400-year-equivalent window (the stored reference scales, round 3 revision)."""
     components = data.reward_components(batch)
     report: dict[str, Any] = {"rows": int(len(batch["camp"])), "objectives": {}}
-    last = {}
-    for rows in data.sequences(batch):
-        for position, i in enumerate(rows):
-            last[int(i)] = len(rows) - 1 - position
-    remaining = np.asarray([last[i] for i in range(len(batch["camp"]))])
+    remaining = later_turns(batch)
     for name in contracts.OBJECTIVES:
         g = discounted_returns(batch, components[name])
         entry = {"std": float(np.std(g)), "mean": float(np.mean(g))}
@@ -86,10 +96,11 @@ def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--seeds", default="1000-1059", help="TRAIN seed range")
-    parser.add_argument("--turns", type=int, default=25)
+    parser.add_argument("--turns", type=int, default=45)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--full-window", type=int, default=20,
-                        help="diagnostic: also report rows with at least this many later turns (20 turns = 400 years)")
+                        help="also report rows with at least this many later turns (20 turns = 400 years); with "
+                             "--turns 45 these are the first 25 turns, the stored reference scales")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     a, b = (int(x) for x in args.seeds.split("-"))

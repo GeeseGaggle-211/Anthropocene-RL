@@ -21,12 +21,32 @@ from typing import Any
 import numpy as np
 
 CAP = 500
-CAPTURES_PER_WORLD = 3
+CAPTURES_PER_WORLD = 3  # a reservoir sample over each world rollout's founded daughters
 HOLDOUT_EVERY = 10  # entries with id % HOLDOUT_EVERY == 0 are the held-out evaluation slice
 
 
 def held_out(entry: dict[str, Any]) -> bool:
     return int(entry["id"]) % HOLDOUT_EVERY == 0
+
+
+class Reservoir:
+    """Reservoir sample (algorithm R) of ``size`` items over a stream of founded daughters, so a world's captures
+    spread over the whole episode instead of its first foundings. ``offer`` returns the slot the new item takes (or
+    None: not kept) and the item it evicts (or None). The keyed generator makes it deterministic."""
+
+    def __init__(self, size: int, rng: np.random.Generator) -> None:
+        self.size, self.rng, self.seen, self.items = size, rng, 0, []
+
+    def offer(self, item: Any) -> tuple[int | None, Any]:
+        self.seen += 1
+        if len(self.items) < self.size:
+            self.items.append(item)
+            return len(self.items) - 1, None
+        j = int(self.rng.integers(self.seen))
+        if j >= self.size:
+            return None, None
+        evicted, self.items[j] = self.items[j], item
+        return j, evicted
 
 
 class DaughterBank:
@@ -71,6 +91,20 @@ class DaughterBank:
             except FileNotFoundError:
                 pass
         return entry
+
+    def remove(self, entry_id: int) -> None:
+        """Drop one entry (a reservoir eviction) and its file unless another entry shares it. Absent ids are ignored."""
+        entries = self.entries()
+        gone = [e for e in entries if int(e["id"]) == int(entry_id)]
+        if not gone:
+            return
+        entries = [e for e in entries if int(e["id"]) != int(entry_id)]
+        self._write(entries)
+        if gone[0]["file"] not in {e["file"] for e in entries}:
+            try:
+                (self.directory / gone[0]["file"]).unlink()
+            except FileNotFoundError:
+                pass
 
     def snapshot(self, entry: dict[str, Any]) -> bytes:
         return zlib.decompress((self.directory / entry["file"]).read_bytes())

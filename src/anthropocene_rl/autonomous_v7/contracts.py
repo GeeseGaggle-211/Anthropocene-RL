@@ -27,14 +27,16 @@ OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0, 
 PERSONALITY_WIDTH = len(OBJECTIVES)
 # Round 3 stable personality scales (ppo.combine_personal, --personality-scales reference): each objective's reference
 # spread s_k_ref, the standard deviation of its discounted (HORIZON_YEARS) return per decision under the native
-# heuristic. Measured by scale_reference.py: heuristic (no actions), TRAIN seeds 1000-1059, 25 turns, Small world,
-# model9 bridge on native contract 12 (simulator f06e3be, 21 October 2026; 37,085 decision rows). Re-measure when the
-# reward components or the simulator's economy change.
+# heuristic. Measured by scale_reference.py: heuristic (no actions), TRAIN seeds 1000-1059, 45-turn rollouts, keeping
+# only rows with at least 20 later turns (the first 25 turns, 37,085 decision rows), so every return covers a full
+# 400-year-equivalent window; Small world, model9 bridge on native contract 12 (simulator f06e3be, 21 October 2026).
+# The first build's values (25-turn rollouts, all rows, late returns truncated) were welfare 37864, population_years
+# 50391, trade_utility 17.55, qol_years 64.0. Re-measure when the reward components or the simulator's economy change.
 OBJECTIVE_REFERENCE_SCALES: dict[str, float] = {
-    "welfare": 37864.24,          # person-QoL-years (mean return 56338)
-    "population_years": 50390.66, # person-years (mean 70421)
-    "trade_utility": 17.554,      # person-QoL-years of realised trade gain (mean 3.45; the heuristic trades little)
-    "qol_years": 64.018,          # QoL-years (mean 124.6)
+    "welfare": 59318.99,          # person-QoL-years (mean return 136573)
+    "population_years": 85133.98, # person-years (mean 172285)
+    "trade_utility": 26.684,      # person-QoL-years of realised trade gain (mean 6.35; the heuristic trades little)
+    "qol_years": 43.152,          # QoL-years (mean 259.0)
 }
 # Contract 11: the trade_utility weight a --learned-trade run uses unless --objective-weights sets it. Trade gains already
 # reach welfare through the goods; this small extra credit speeds learning for economies whose output they cannot use.

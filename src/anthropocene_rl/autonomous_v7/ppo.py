@@ -36,7 +36,7 @@ import torch
 from torch import nn
 
 from . import contracts, data
-from .daughter_bank import CAPTURES_PER_WORLD, DaughterBank
+from .daughter_bank import CAPTURES_PER_WORLD, DaughterBank, Reservoir
 from .bridge import Model9Bridge, observation_batch
 from .model import (MASKED, Actor, Critic, Normalizer, VectorCritic, condition_mix, mix_soft_cross_entropy, region_code,
                     to_tensors)
@@ -303,7 +303,9 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
     traits: list[dict[int, np.ndarray]] = [{} for _ in seeds]
-    captures = [0] * len(seeds)
+    # Bank captures: per world, a reservoir sample of CAPTURES_PER_WORLD over all founded daughters (keyed by the
+    # world), so captures spread over the episode. Kept daughters are captured on founding; evicted ones are deleted.
+    reservoirs = [Reservoir(CAPTURES_PER_WORLD, np.random.default_rng([s, m, w, b + 1, 0xDA])) for s, m, w, b in full]
 
     def with_personality(batch: dict[str, np.ndarray], villages: list[tuple[int, dict]]) -> dict[str, np.ndarray]:
         if personality is None:
@@ -365,12 +367,16 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                     for v in s["villages"]:
                         new = v["camp"] not in founded[w]
                         founded[w].setdefault(v["camp"], s["turn"])
-                        if (bank is not None and new and v.get("founded") and not v.get("terminated")
-                                and captures[w] < CAPTURES_PER_WORLD):
-                            # A daughter's first sight: its world, before it decides, joins the bank.
-                            captures[w] += 1
-                            bank.add(bridges[w].capture(), seeds[w], worlds[w][1], s["turn"], int(v["society"]),
-                                     int(v["camp"]), int(v["parentSociety"]), movement=stage.bridge_movement)
+                        if bank is not None and new and v.get("founded") and not v.get("terminated"):
+                            # A daughter's first sight: if the reservoir keeps it, its world (before it decides)
+                            # joins the bank, and the daughter it displaces leaves.
+                            slot, evicted = reservoirs[w].offer(None)
+                            if slot is not None:
+                                entry = bank.add(bridges[w].capture(), seeds[w], worlds[w][1], s["turn"], int(v["society"]),
+                                                 int(v["camp"]), int(v["parentSociety"]), movement=stage.bridge_movement)
+                                reservoirs[w].items[slot] = int(entry["id"])
+                                if evicted is not None:
+                                    bank.remove(evicted)
                         k = row_of.get((w, int(v["camp"])))
                         if k is None:
                             continue
@@ -464,14 +470,17 @@ def shape_components(components: dict[str, np.ndarray], share: np.ndarray) -> di
             for name, value in components.items()}
 
 
-def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray, scales: str = "batch") -> np.ndarray:
+def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray, scales: str = "batch",
+                     clip: float = 0.0) -> np.ndarray:
     """Per-row personality weights over contracts.OBJECTIVES on scale-normalised component advantages: components
     differ by orders of magnitude (population-years against QoL-years), so a weight means a share of each component's
     spread. ``scales`` "reference" (round 3; the training default, through Hyper.personality_scales) divides by the
     fixed contracts.OBJECTIVE_REFERENCE_SCALES, A = sum_k p_k A_k / s_k_ref, so the exchange rate between objectives
     never moves with batch content; "batch" (the earlier rule, and this function's default) divides by each
     component's batch std and rescales to the welfare component's spread. ``update`` standardises the result, so the
-    overall scale does not matter and a welfare-only personality updates identically under either rule."""
+    overall scale does not matter and a welfare-only personality updates identically under either rule (exactly with
+    ``clip`` 0). ``clip`` > 0 (reference rule only) clips each normalised component A_k / s_k_ref to +/- clip before
+    weighting, so one component's critic noise (an untrained head's) cannot dominate the sum."""
     if scales == "reference":
         scale = {name: float(contracts.OBJECTIVE_REFERENCE_SCALES[name]) for name in advantages}
     elif scales == "batch":
@@ -481,8 +490,17 @@ def combine_personal(advantages: dict[str, np.ndarray], personality: np.ndarray,
     total = np.zeros(len(personality))
     for k, name in enumerate(contracts.OBJECTIVES):
         if name in advantages:
-            total = total + personality[:, k] * advantages[name] / scale[name]
+            z = advantages[name] / scale[name]
+            if scales == "reference" and clip > 0:
+                z = np.clip(z, -clip, clip)
+            total = total + personality[:, k] * z
     return total * scale.get("welfare", 1.0) if scales == "batch" else total
+
+
+def clip_fractions(advantages: dict[str, np.ndarray], clip: float) -> dict[str, float]:
+    """Each objective's share of rows whose normalised advantage A_k / s_k_ref lies beyond +/- clip (0 when off)."""
+    return {name: float(np.mean(np.abs(a / float(contracts.OBJECTIVE_REFERENCE_SCALES[name])) > clip)) if clip > 0 else 0.0
+            for name, a in advantages.items() if name in contracts.OBJECTIVE_REFERENCE_SCALES}
 
 
 def scale_drift(advantages: dict[str, np.ndarray]) -> dict[str, float]:
@@ -559,6 +577,8 @@ class Hyper:
     # How personality weights exchange objectives (combine_personal): "reference" divides each component advantage by
     # its fixed contracts.OBJECTIVE_REFERENCE_SCALES entry (round 3); "batch" by its batch std (earlier runs).
     personality_scales: str = "reference"
+    # Reference rule: clip each normalised component advantage A_k / s_k_ref to +/- this before weighting; 0 off.
+    personality_clip: float = 5.0
     # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner labels, the
     # relative gain a label must clear, and label rows per minibatch. 0 turns it off.
     search_weight: float = 0.0
@@ -725,7 +745,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     welfare_now = np.maximum(0.0, batch["welfare"].astype(np.float64))
     reward = reward - hyper.mix_change_cost * change * welfare_now - hyper.break_cost * voluntary_break * welfare_now
     rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
-    drift = None
+    drift = clipped = None
     if isinstance(critic, VectorCritic):
         # Each objective component: its own reward, value, bootstrap and GAE; the policy follows their weighted sum.
         components = data.reward_components(batch); components["welfare"] = reward
@@ -744,8 +764,10 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
                 boot[rows] = tails[name][batch["bootstrap_index"][rows]] * head_scale(name, batch["population"][rows])
             advantages[name], target_by[name] = gae(batch, components[name], value_by[name], boot)
         advantage = (combine(advantages, hyper.objective_weights) if "personality" not in batch
-                     else combine_personal(advantages, batch["personality"], hyper.personality_scales))
+                     else combine_personal(advantages, batch["personality"], hyper.personality_scales,
+                                           hyper.personality_clip))
         drift = scale_drift(advantages)
+        clipped = clip_fractions(advantages, hyper.personality_clip if hyper.personality_scales == "reference" else 0.0)
         target = {name: value / head_scale(name, batch["prior_population"]) for name, value in target_by.items()}
     else:
         value = values(critic, batch, normalizer)
@@ -766,7 +788,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         sample = {k: v[:512] for k, v in batch.items()}
         stats["film_max"] = actor.encoder.film_extent(to_tensors(sample, normalizer))
     if drift is not None:
-        stats["scale_drift"] = drift
+        stats["scale_drift"] = drift; stats["scale_clipped"] = clipped
     stats["bank_decisions"] = int((batch["bank"] >= 0).sum()) if "bank" in batch else 0
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
@@ -945,6 +967,8 @@ def main() -> int:
     parser.add_argument("--personality-scales", choices=("reference", "batch"), default="reference",
                         help="personality exchange rates: fixed contracts.OBJECTIVE_REFERENCE_SCALES (round 3) or each "
                              "component's batch std (earlier runs)")
+    parser.add_argument("--personality-clip", type=float, default=5.0,
+                        help="clip each normalised component advantage A_k / s_k_ref to +/- this (reference scales; 0 off)")
     parser.add_argument("--daughter-bank", type=Path, default=None,
                         help="daughter-start bank directory: capture founding daughters and draw a quarter of worlds from it")
     parser.add_argument("--search-labels", default=None,
@@ -1049,6 +1073,7 @@ def main() -> int:
         hyper.personality = args.personality
         personality_sampler(args.personality, rng)  # validate the spec
     hyper.personality_scales = args.personality_scales
+    hyper.personality_clip = args.personality_clip
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     search = None
@@ -1099,7 +1124,7 @@ def main() -> int:
                     "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "learned_trade": stage.trade,
                     "experts": experts, "token": token, "vector_critic": isinstance(critic, VectorCritic),
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
-                    "personality_scales": hyper.personality_scales,
+                    "personality_scales": hyper.personality_scales, "personality_clip": hyper.personality_clip,
                     "daughter_bank": None if bank is None else str(bank.directory),
                     "lagrange": lagrange, "log": log}, path)
 
