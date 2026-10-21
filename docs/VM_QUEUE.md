@@ -74,7 +74,10 @@ Defaults: VM `anthropocene-trainer-60`, zone `us-central1-c`, project `anthropoc
 - `~/queue/jobs/<name>/{job.json,status.json,logs/<phase>.log,logs/checkout.log}`; results in `~/results/<name>/`.
   `status.json` has state, times, per-phase state / exit_code / attempts, and the PROVENANCE text.
 - Resume: a job left `running` by a stopped VM is picked up again by the next runner, skipping phases whose markers exist.
-  The runner uses `KillMode=process`, so restarting the runner alone does not kill phases (they are idempotent anyway).
+  The runner uses `KillMode=process`, so restarting the runner alone leaves phases running; each phase's process-group id,
+  /proc start time and boot id are saved in `status.json`, and the new runner adopts a live process (same boot, same start
+  time) instead of relaunching it, then decides by the done marker. After a reboot or if the process is gone, the phase is
+  relaunched. `cancel` kills an adopted phase's process group too.
 
 ## Install and deploy (main session, on the VM; nothing here has been installed)
 

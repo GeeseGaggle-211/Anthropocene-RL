@@ -135,7 +135,7 @@ class Fake:
         (d / "PROVENANCE").write_text("rl=%s\nsim=%s\n" % (rl, sim))
         return 0
 
-    def execute(self, run, cwd, env, logfile, should_cancel):
+    def execute(self, run, cwd, env, logfile, should_cancel, on_start=None):
         with self.lock:
             self.runs.append((env["JOB"], run, env["OMP_NUM_THREADS"], env["RESULTS"], env["CODE"]))
             self.running += int(env["OMP_NUM_THREADS"])
@@ -253,10 +253,10 @@ def test_resume_after_simulated_restart(tmp_path):
     submit(tmp_path, good("res", phases=phases("one", "two", "three")))
     orig = fake.execute
 
-    def crash_on_two(run, cwd, env, logfile, should_cancel):
+    def crash_on_two(run, cwd, env, logfile, should_cancel, on_start=None):
         if run == "touch two.done":
             raise SystemExit  # simulates the VM dying: thread ends without finishing status
-        return orig(run, cwd, env, logfile, should_cancel)
+        return orig(run, cwd, env, logfile, should_cancel, on_start)
     fake.execute = crash_on_two
     r1.execute = crash_on_two
     r1.tick()
@@ -367,3 +367,112 @@ def test_inline_comments_and_docs_example():
     assert [p["name"] for p in job["phases"]] == ["eval", "compare-cap", "compare-all"]
     assert job["threads"] == 35 and "wait" in job["phases"][0]["run"]
     assert "elderq help" in doc and "pushed commits" in doc
+
+
+class FakeSystem:
+    def __init__(self, boot="boot-1"):
+        self.boot, self.alive, self.killed = boot, {}, []
+
+    def boot_id(self):
+        return self.boot
+
+    def start_time(self, pid):
+        return self.alive.get(pid)
+
+    def kill_group(self, pid):
+        self.killed.append(pid)
+        self.alive.pop(pid, None)
+
+
+def stale_running_job(tmp_path, name, boot="boot-1", pid=4242, start=999):
+    """A job whose runner died while phase 'one' was running (process identity recorded)."""
+    r, _ = make(tmp_path)
+    submit(tmp_path, good(name, phases=phases("one", "two")))
+    r.drain(5)
+    d = tmp_path / "queue" / "jobs" / name
+    for f in (tmp_path / "results" / name).glob("*"):
+        f.unlink()
+    st = json.loads((d / "status.json").read_text())
+    st.update(state="running", ended=None)
+    st["phases"][0].update(state="running", pid=pid, start_time=start, boot_id=boot, attempts=1)
+    st["phases"][1].update(state="pending")
+    (d / "status.json").write_text(json.dumps(st))
+
+
+def resume(tmp_path, system):
+    fake = Fake(tmp_path)
+    r = rq.Runner(str(tmp_path), cap=56, checkout=fake.checkout, execute=fake.execute, poll=0.01,
+                  log=lambda m: None, system=system)
+    return r, fake
+
+
+def test_live_phase_is_adopted_not_relaunched(tmp_path):
+    stale_running_job(tmp_path, "ad")
+    sysm = FakeSystem()
+    sysm.alive[4242] = 999
+    r, fake = resume(tmp_path, sysm)
+    r.tick()
+    time.sleep(0.2)
+    assert fake.runs == [] and status(tmp_path, "ad")["state"] == "running"
+    (tmp_path / "results" / "ad" / "one.done").write_text("x")  # the adopted process finishes its work
+    sysm.alive.pop(4242)
+    assert r.drain(10)
+    st = status(tmp_path, "ad")
+    assert st["state"] == "done" and st["phases"][0]["state"] == "done"
+    assert [x[1] for x in fake.runs] == ["touch two.done"]
+
+
+def test_adopted_exit_without_marker_fails(tmp_path):
+    stale_running_job(tmp_path, "ad2")
+    sysm = FakeSystem()
+    r, fake = resume(tmp_path, sysm)
+    sysm.alive[4242] = 999
+    r.tick()
+    time.sleep(0.1)
+    sysm.alive.pop(4242)
+    assert r.drain(10)
+    assert status(tmp_path, "ad2")["state"] == "failed" and fake.runs == []
+
+
+def test_reboot_relaunches(tmp_path):
+    stale_running_job(tmp_path, "rb", boot="old-boot")
+    sysm = FakeSystem("new-boot")
+    sysm.alive[4242] = 999  # pid reused by something else after the reboot
+    r, fake = resume(tmp_path, sysm)
+    assert r.drain(10)
+    assert [x[1] for x in fake.runs] == ["touch one.done", "touch two.done"]
+    assert status(tmp_path, "rb")["state"] == "done"
+
+
+def test_dead_pid_and_reused_pid_relaunch(tmp_path):
+    stale_running_job(tmp_path, "dp")
+    r, fake = resume(tmp_path, FakeSystem())  # pid not alive
+    assert r.drain(10)
+    assert [x[1] for x in fake.runs][0] == "touch one.done"
+    stale_running_job(tmp_path, "rp")
+    sysm = FakeSystem()
+    sysm.alive[4242] = 1000  # same pid, different start time -> a different process
+    r, fake = resume(tmp_path, sysm)
+    assert r.drain(10)
+    assert [x[1] for x in fake.runs][0] == "touch one.done"
+
+
+def test_cancel_kills_adopted_group(tmp_path):
+    stale_running_job(tmp_path, "ca")
+    sysm = FakeSystem()
+    sysm.alive[4242] = 999
+    r, fake = resume(tmp_path, sysm)
+    r.tick()
+    time.sleep(0.1)
+    rq.cancel_job(rq.Paths(str(tmp_path)), "ca")
+    assert r.drain(10)
+    assert sysm.killed == [4242] and fake.runs == []
+    assert status(tmp_path, "ca")["state"] == "cancelled"
+
+
+def test_start_time_parsing():
+    import os
+    if not os.path.exists("/proc/self/stat"):
+        pytest.skip("needs /proc")
+    s = rq.System()
+    assert isinstance(s.start_time(os.getpid()), int) and s.boot_id()

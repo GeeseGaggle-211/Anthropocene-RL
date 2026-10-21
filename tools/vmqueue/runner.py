@@ -355,11 +355,49 @@ def default_checkout(paths):
     return run
 
 
-def default_execute(run, cwd, env, logfile, should_cancel):
-    """Run a shell command in its own process group; return its exit code (-15 if cancelled)."""
+class System:
+    """Linux process identity helpers (injectable). Returns None where /proc is unavailable."""
+
+    def boot_id(self):
+        try:
+            return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        except OSError:
+            return None
+
+    def start_time(self, pid):
+        """Field 22 of /proc/<pid>/stat (clock ticks since boot); None if the process is gone."""
+        try:
+            stat = Path("/proc/%d/stat" % pid).read_text()
+            fields = stat[stat.rindex(")") + 2:].split()  # after 'pid (comm)'; state is field 3
+            if fields[0] == "Z":
+                return None
+            return int(fields[19])
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def kill_group(self, pid):
+        try:
+            os.killpg(pid, signal.SIGTERM)
+        except (OSError, AttributeError):
+            return
+        for _ in range(200):
+            if self.start_time(pid) is None:
+                return
+            time.sleep(0.1)
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except (OSError, AttributeError):
+            pass
+
+
+def default_execute(run, cwd, env, logfile, should_cancel, on_start=None):
+    """Run a shell command in its own process group; return its exit code (-15 if cancelled).
+    on_start(pgid) is called right after launch so the runner can record the process identity."""
     with open(str(logfile), "ab") as lf:
         proc = subprocess.Popen(["bash", "-c", run], cwd=str(cwd), env=env, stdout=lf, stderr=subprocess.STDOUT,
                                 start_new_session=(os.name != "nt"))
+        if on_start:
+            on_start(proc.pid)
         while True:
             try:
                 return proc.wait(timeout=1.0)
@@ -384,10 +422,12 @@ class Runner:
     """Schedules jobs under a thread cap. `checkout` and `execute` are injectable for tests.
 
     checkout(rl_sha, sim_sha, name, logfile) -> exit code (must create ~/code/<name>/PROVENANCE)
-    execute(run, cwd, env, logfile, should_cancel) -> exit code
+    execute(run, cwd, env, logfile, should_cancel, on_start) -> exit code; on_start(pgid) records the process
+    system: boot_id(), start_time(pid), kill_group(pid); a live phase of the same boot is adopted, not relaunched
     """
 
-    def __init__(self, home=None, cap=None, checkout=None, execute=None, poll=5.0, log=None):
+    def __init__(self, home=None, cap=None, checkout=None, execute=None, poll=5.0, log=None, system=None):
+        self.system = system or System()
         self.paths = Paths(home)
         self.paths.ensure()
         self.default_cap = cap if cap is not None else int(os.environ.get("ELDERQ_CAP", DEFAULT_CAP))
@@ -499,6 +539,23 @@ class Runner:
                 self.log("tick error: %r" % (e,))
             time.sleep(self.poll)
 
+    def _adoptable(self, ps):
+        """True if this phase's recorded process is still alive in the same boot (runner-only restart)."""
+        pid, st, boot = ps.get("pid"), ps.get("start_time"), ps.get("boot_id")
+        if ps.get("state") != "running" or not pid or st is None or not boot:
+            return False
+        return boot == self.system.boot_id() and self.system.start_time(pid) == st
+
+    def _wait_adopted(self, ps, cancelled):
+        """Poll an adopted process group until it exits; kill its group on cancel. Returns -15 or None."""
+        pid, st = ps["pid"], ps["start_time"]
+        while self.system.start_time(pid) == st:
+            if cancelled():
+                self.system.kill_group(pid)
+                return -15
+            time.sleep(min(self.poll, 1.0))
+        return None
+
     def run_job(self, job):
         name = job["name"]
         d = self.paths.job_dir(name)
@@ -550,13 +607,23 @@ class Runner:
                         ps["state"] = "skipped"
                     save()
                     continue
-                ps.update(state="running", started=now_iso(), ended=None, exit_code=None,
-                          attempts=ps.get("attempts", 0) + 1)
-                save()
                 logfile = logs / (spec["name"] + ".log")
-                with open(str(logfile), "ab") as lf:
-                    lf.write(("=== %s phase %s attempt %d\n" % (now_iso(), spec["name"], ps["attempts"])).encode())
-                rc = self.execute(spec["run"], code / "rl", env, logfile, cancelled)
+                if self._adoptable(ps):
+                    self.log("adopting running phase %s of %s (pid %s)" % (spec["name"], name, ps["pid"]))
+                    rc = self._wait_adopted(ps, cancelled)
+                    if rc is None:  # exit code of an adopted process is unknowable; the done marker decides
+                        rc = 0 if (res / spec["done"]).exists() else "unknown (adopted; no done marker)"
+                else:
+                    ps.update(state="running", started=now_iso(), ended=None, exit_code=None,
+                              attempts=ps.get("attempts", 0) + 1, pid=None, start_time=None, boot_id=None)
+                    save()
+                    with open(str(logfile), "ab") as lf:
+                        lf.write(("=== %s phase %s attempt %d\n" % (now_iso(), spec["name"], ps["attempts"])).encode())
+
+                    def started(pid, ps=ps):
+                        ps.update(pid=pid, start_time=self.system.start_time(pid), boot_id=self.system.boot_id())
+                        save()
+                    rc = self.execute(spec["run"], code / "rl", env, logfile, cancelled, started)
                 ps["ended"], ps["exit_code"] = now_iso(), rc
                 if cancelled():
                     ps["state"] = "cancelled"
