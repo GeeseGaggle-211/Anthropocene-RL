@@ -524,6 +524,22 @@ class Hyper:
     # trade heads are new (only welfare is copied). This many extra iterations first train only the critics, so
     # personality advantages are not built on untrained heads. 0 turns it off.
     critic_warmup: int = 5
+    # Round 3 (docs/MODEL9_M7.md, *Round 3 build*): critic-only iterations at the start of every run (a resume past them
+    # does not repeat them; with a fresh-heads warm-up the larger count applies, once).
+    round_start_warmup: int = 0
+    # Share of each critic minibatch drawn from search branch shards (ppo --branch-shards); their targets are
+    # lambda-returns over each branch sequence, recomputed every iteration with the current critic.
+    branch_share: float = 0.25
+    # One extra critic-only epoch on an iteration's batch when its approximate KL exceeded target_kl (the actor stopped
+    # early, so the critic would otherwise see fewer epochs). Off here so programmatic runs reproduce; the CLI turns it
+    # on for new runs (--kl-refit, default on; --no-kl-refit).
+    kl_refit: bool = False
+
+
+def warmup_iterations(fresh_heads: bool, critic_warmup: int, round_start_warmup: int) -> int:
+    """Critic-only iterations at the head of a run: the fresh-heads warm-up and the round-start warm-up overlap (the
+    larger count, once). The loop runs iterations ``[0, warmup)`` critic-only, so a resume past them repeats none."""
+    return max(critic_warmup if fresh_heads else 0, round_start_warmup)
 
 
 def default_personality() -> np.ndarray:
@@ -563,19 +579,43 @@ def load_search_labels(paths: list[Path], margin: float) -> dict[str, np.ndarray
     parts = [p for p in parts if p]
     if not parts:
         return None
+    groups = len(contracts.TRADE_GROUPS)
+    for p in parts:  # round-3 label arrays, absent from earlier label files: no fission or trade label
+        n = len(p["label_kind"])
+        p.setdefault("label_fission", np.full(n, -1))
+        p.setdefault("label_trade_value", np.full((n, groups), np.nan))
+        p.setdefault("label_trade_gate", np.full((n, groups), -1))
+        p.setdefault("label_trade_mask", np.zeros((n, groups), np.int8))
     keys = set.intersection(*(set(p) for p in parts))
-    rows = {k: np.concatenate([p[k] for p in parts]) for k in keys}
+
+    def stack(k: str) -> np.ndarray:
+        # Per-alternative arrays are padded to their file's MAX_ALTERNATIVES; pad to the widest before stacking.
+        arrays = [p[k] for p in parts]
+        if k.startswith("alt_") and len({a.shape[1] for a in arrays}) > 1:
+            width = max(a.shape[1] for a in arrays)
+            fill = -1 if k in ("alt_kind", "alt_slot") else np.nan
+            arrays = [np.concatenate([a, np.full((a.shape[0], width - a.shape[1]) + a.shape[2:], fill, dtype=a.dtype
+                                                 if fill == -1 else np.float64)], axis=1) for a in arrays]
+        return np.concatenate(arrays)
+    rows = {k: stack(k) for k in keys}
     gain = (rows["score_best"] - rows["score_policy"]) / np.maximum(1e-9, np.abs(rows["score_policy"]))
     keep = (gain > margin) & (rows["label_kind"] != POLICY)
     return {k: v[keep] for k, v in rows.items()} if keep.any() else None
 
 
 def search_loss(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], kind: torch.Tensor, slot: torch.Tensor,
-                mix: torch.Tensor) -> torch.Tensor:
+                mix: torch.Tensor, fission: torch.Tensor | None = None, trade_value: torch.Tensor | None = None,
+                trade_gate: torch.Tensor | None = None, trade_mask: torch.Tensor | None = None) -> torch.Tensor:
     """Imitation of search winners: cross-entropy of the region head on region and native labels (native is slot 0),
     and soft cross-entropy of the economy mix on mix labels and on native labels that carry the heuristic's mix. The mix
-    is conditioned on the label's slot for native labels and on the policy's own most likely slot otherwise."""
-    from .search_teacher import NATIVE, REGION
+    is conditioned on the label's slot for native labels and on the policy's own most likely slot otherwise.
+
+    Round 3: cross-entropy of the fission head on fission labels (``fission`` >= 0), and on trade labels, for exactly
+    the groups and components the winning probe changed (``trade_mask`` bits: 1 value, 2 gate), a Gaussian negative
+    log-likelihood pulling the trade value mean toward log(label) (its scale detached, so imitation never narrows the
+    head's exploration) and cross-entropy of that group's gate. Every other trade component is untouched: probes inform
+    the heads and never restrict them. Each label row counts once in the average."""
+    from .search_teacher import NATIVE, REGION, TRADE_GATE_BIT, TRADE_VALUE_BIT
     zero = out["mix_logits"].sum() * 0.0
     loss, count = zero, 0
     on_slot = (kind == REGION) | (kind == NATIVE)
@@ -589,6 +629,23 @@ def search_loss(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], kind: 
         ce, valid = mix_soft_cross_entropy(conditioned["mix_logits"], torch.nan_to_num(mix), t["economy_mix_mask"])
         rows = has_mix & valid
         loss = loss + ce[rows].sum(); count += int(rows.sum())
+    if fission is not None and "fission" in out:
+        on_fission = fission >= 0
+        if on_fission.any():
+            logq = torch.log_softmax(out["fission"], dim=1)
+            loss = loss - logq.gather(1, fission.clamp(min=0).unsqueeze(1)).squeeze(1)[on_fission].sum()
+            count += int(on_fission.sum())
+    if trade_mask is not None and "trade_value_mean" in out and bool((trade_mask > 0).any()):
+        value_on = (trade_mask & TRADE_VALUE_BIT) > 0
+        gate_on = (trade_mask & TRADE_GATE_BIT) > 0
+        target = torch.log(torch.nan_to_num(trade_value, nan=1.0).clamp(min=1e-6))
+        log_std = out["trade_value_log_std"].detach()
+        nll = 0.5 * ((target - out["trade_value_mean"]) / log_std.exp()) ** 2 + log_std
+        gate_lp = torch.log_softmax(out["trade_gate"], dim=2).gather(2, trade_gate.clamp(min=0).unsqueeze(2)).squeeze(2)
+        terms = torch.where(value_on, nll, torch.zeros_like(nll)).sum(dim=1) - torch.where(gate_on, gate_lp, torch.zeros_like(gate_lp)).sum(dim=1)
+        components = (value_on.sum(dim=1) + gate_on.sum(dim=1)).float()
+        rows = components > 0
+        loss = loss + (terms[rows] / components[rows]).sum(); count += int(rows.sum())
     return loss / max(1, count)
 
 
@@ -597,10 +654,44 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
            advantage: np.ndarray, target_u: np.ndarray, cost_adv: np.ndarray, cost_target: np.ndarray,
            lagrange: float, stage: Stage, hyper: Hyper, optimizers: tuple, rng: np.random.Generator,
            regimes: np.ndarray | None = None, search: dict[str, np.ndarray] | None = None,
-           train_actor: bool = True) -> dict[str, float]:
-    """One PPO update. ``train_actor`` False updates only the critics (critic warm-up)."""
+           train_actor: bool = True, branch: tuple[dict[str, np.ndarray], Any] | None = None) -> dict[str, float]:
+    """One PPO update. ``train_actor`` False updates only the critics (critic warm-up). ``branch``: search branch rows
+    and their critic targets (branch_shards.targets); each critic minibatch then draws ``hyper.branch_share`` of its
+    rows from them. With ``hyper.kl_refit``, an update stopped early on approximate KL gets one extra critic-only epoch."""
     actor_opt, critic_opt, cost_opt = optimizers
     n = len(advantage)
+
+    def value_step(t: dict[str, torch.Tensor], index: np.ndarray) -> tuple[torch.Tensor, dict | None]:
+        """One value-critic step on this minibatch (plus its share of branch rows)."""
+        def cross_entropy(logits, target, rows) -> torch.Tensor:
+            return -(critic.two_hot(torch.as_tensor(target[rows], dtype=torch.float32)) * torch.log_softmax(logits, dim=-1)).sum(-1).mean()
+        logits = critic(t)
+        value_by = None
+        if isinstance(target_u, dict):
+            value_by = {name: cross_entropy(logits[name], target_u[name], index) for name in target_u}
+        else:
+            value_loss = cross_entropy(logits, target_u, index)
+        if branch is not None and hyper.branch_share > 0:
+            rows_b, target_b = branch
+            m = len(rows_b["camp"])
+            k = max(1, int(round(len(index) * hyper.branch_share / max(1e-9, 1 - hyper.branch_share))))
+            pick = rng.permutation(m)[:k] if m > k else np.arange(m)
+            logits_b = critic(to_tensors({key: v[pick] for key, v in rows_b.items()}, normalizer))
+            w_on, w_b = len(index) / (len(index) + len(pick)), len(pick) / (len(index) + len(pick))
+            if value_by is not None:
+                value_by = {name: w_on * value_by[name] + w_b * cross_entropy(logits_b[name], target_b[name], pick)
+                            for name in value_by if name in target_b}
+            else:
+                value_loss = w_on * value_loss + w_b * cross_entropy(logits_b, target_b, pick)
+        if value_by is not None:
+            value_loss = sum(value_by.values())
+        critic_opt.zero_grad(); value_loss.backward(); nn.utils.clip_grad_norm_(critic.parameters(), 1.0); critic_opt.step()
+        return value_loss, value_by
+
+    def cost_step(t: dict[str, torch.Tensor], index: np.ndarray) -> torch.Tensor:
+        cost_loss = ((cost_critic(t) - torch.as_tensor(cost_target[index], dtype=torch.float32)) ** 2).mean()
+        cost_opt.zero_grad(); cost_loss.backward(); nn.utils.clip_grad_norm_(cost_critic.parameters(), 1.0); cost_opt.step()
+        return cost_loss
     combined = advantage / max(1e-8, advantage.std()) - lagrange * cost_adv / max(1e-8, cost_adv.std() + 1e-8)
     combined, weight = balance(combined, regimes if hyper.balance_regimes else None, hyper.regime_weight_cap)
     stats: dict[str, float] = {}
@@ -628,23 +719,20 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                 pick = rng.permutation(m)[: hyper.search_batch] if m > hyper.search_batch else np.arange(m)
                 s_obs = {k: v[pick] for k, v in search.items()}
                 ts = to_tensors(s_obs, normalizer)
+                round3 = {}
+                if "label_fission" in s_obs:
+                    round3 = {"fission": torch.as_tensor(s_obs["label_fission"], dtype=torch.long),
+                              "trade_value": torch.as_tensor(s_obs["label_trade_value"], dtype=torch.float32),
+                              "trade_gate": torch.as_tensor(s_obs["label_trade_gate"], dtype=torch.long),
+                              "trade_mask": torch.as_tensor(s_obs["label_trade_mask"].astype(np.int64))}
                 imitation = search_loss(actor(ts), ts, torch.as_tensor(s_obs["label_kind"], dtype=torch.long),
                                         torch.as_tensor(s_obs["label_slot"], dtype=torch.long),
-                                        torch.as_tensor(s_obs["label_mix"], dtype=torch.float32))
+                                        torch.as_tensor(s_obs["label_mix"], dtype=torch.float32), **round3)
                 loss = loss + hyper.search_weight * imitation
             if train_actor:
                 actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
-            logits = critic(t)
-            value_by = None
-            if isinstance(target_u, dict):
-                value_by = {name: -(critic.two_hot(torch.as_tensor(target_u[name][index], dtype=torch.float32)) *
-                                    torch.log_softmax(logits[name], dim=-1)).sum(-1).mean() for name in target_u}
-                value_loss = sum(value_by.values())
-            else:
-                value_loss = -(critic.two_hot(torch.as_tensor(target_u[index], dtype=torch.float32)) * torch.log_softmax(logits, dim=-1)).sum(-1).mean()
-            critic_opt.zero_grad(); value_loss.backward(); nn.utils.clip_grad_norm_(critic.parameters(), 1.0); critic_opt.step()
-            cost_loss = ((cost_critic(t) - torch.as_tensor(cost_target[index], dtype=torch.float32)) ** 2).mean()
-            cost_opt.zero_grad(); cost_loss.backward(); nn.utils.clip_grad_norm_(cost_critic.parameters(), 1.0); cost_opt.step()
+            value_loss, value_by = value_step(t, index)
+            cost_loss = cost_step(t, index)
             approx.append(float((old - lp).mean().detach()))
             stats = {"policy": float(policy.detach()), "teacher_kl": float(kl.detach()), "entropy": float(ent.mean().detach()),
                      "value": float(value_loss.detach()), "cost_value": float(cost_loss.detach())}
@@ -657,14 +745,30 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
         stats["approx_kl"] = float(np.mean(approx)); stats["epochs"] = epoch + 1
         if stats["approx_kl"] > hyper.target_kl:
             break
+    if hyper.kl_refit:
+        refit = kl_refit_due(stats, hyper)
+        if refit:  # one more critic-only epoch on this iteration's batch
+            for start in range(0, n, hyper.batch):
+                index = rng.permutation(n)[: hyper.batch] if n > hyper.batch else np.arange(n)
+                t = to_tensors({k: v[index] for k, v in batch.items()}, normalizer)
+                value_step(t, index); cost_step(t, index)
+                if n <= hyper.batch:
+                    break
+        stats["kl_refit"] = refit
     return stats
+
+
+def kl_refit_due(stats: dict[str, float], hyper: Hyper) -> bool:
+    """The KL refit trigger: the update's approximate KL exceeded target_kl (it stopped early)."""
+    return bool(hyper.kl_refit and stats.get("approx_kl", 0.0) > hyper.target_kl)
 
 
 def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
               seeds: list[int], turns: int, stage: Stage, hyper: Hyper, optimizers: tuple, lagrange: float,
               generator: torch.Generator, rng: np.random.Generator,
               grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None,
-              train_actor: bool = True) -> tuple[float, dict[str, float]]:
+              train_actor: bool = True,
+              branch: tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None] | None = None) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
     inherit = None if sampler is None else (lambda parent: personality_drift(parent, rng, hyper.personality_drift))
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler,
@@ -714,8 +818,15 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     with torch.no_grad():
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
+    branch_targets = None
+    if branch is not None:
+        # Search branch rows (critic only): lambda-returns over each branch sequence, bootstrapped by the current
+        # critic after the last tail turn, recomputed every iteration.
+        from . import branch_shards
+        branch_targets = (branch[0], branch_shards.targets(critic, branch[0], branch[1], normalizer))
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
-                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search, train_actor)
+                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search, train_actor,
+                   branch_targets)
     if "personality" in batch and hasattr(actor.encoder, "film_extent"):  # FiLM instability monitor
         sample = {k: v[:512] for k, v in batch.items()}
         stats["film_max"] = actor.encoder.film_extent(to_tensors(sample, normalizer))
@@ -891,6 +1002,16 @@ def main() -> int:
     parser.add_argument("--critic-warmup", type=int, default=None,
                         help="critic-only iterations before PPO when the vector critic's heads are new (default 5; 0 off)")
     parser.add_argument("--search-margin", type=float, default=None)
+    parser.add_argument("--branch-shards", default=None,
+                        help="comma-separated search branch-shard directories (search_teacher <out>/branch_shards): "
+                             "critic-only rows mixed into every critic minibatch")
+    parser.add_argument("--branch-share", type=float, default=None, help="share of each critic minibatch from branch rows (default 0.25)")
+    parser.add_argument("--round-start-warmup", type=int, default=None,
+                        help="critic-only iterations at the start of every run (not repeated on --resume past them; "
+                             "overlaps the fresh-heads warm-up: the larger count, once)")
+    parser.add_argument("--kl-refit", action=argparse.BooleanOptionalAction, default=None,
+                        help="one extra critic-only epoch after an update stopped on target_kl (default on for new runs; "
+                             "a resumed run keeps its own setting, off for runs saved before the flag)")
     parser.add_argument("--resume", action="store_true",
                         help="continue from <out>/resume.pt when present (preemptible VMs); otherwise start fresh")
     parser.add_argument("--learned-trade", action="store_true",
@@ -1075,16 +1196,31 @@ def main() -> int:
         print(json.dumps({"baseline": baseline}), flush=True)
     if args.critic_warmup is not None:
         hyper.critic_warmup = args.critic_warmup
+    if args.round_start_warmup is not None:
+        hyper.round_start_warmup = args.round_start_warmup
+    if args.branch_share is not None:
+        hyper.branch_share = args.branch_share
+    resumed = args.resume and resume_path.exists()
+    hyper.kl_refit = (args.kl_refit if args.kl_refit is not None
+                      else bool(r.get("kl_refit", False)) if resumed else True)
+    branch = None
+    if args.branch_shards:
+        from . import branch_shards
+        branch = branch_shards.load([Path(p) for p in args.branch_shards.split(",")])
+        print(json.dumps({"branch_rows": int(len(branch[0]["camp"])),
+                          "branch_bootstraps": 0 if branch[1] is None else int(len(branch[1]["core"]))}), flush=True)
     if args.film_bound:
         for net in (actor, teacher, critic, cost_critic):
             if hasattr(net.encoder, "film_extent"):
                 net.encoder.film_bound = args.film_bound
-    warmup = hyper.critic_warmup if fresh_heads else 0  # extra iterations, so the actor still gets --iterations updates
+    # Extra iterations, so the actor still gets --iterations updates.
+    warmup = warmup_iterations(fresh_heads, hyper.critic_warmup, hyper.round_start_warmup)
     for it in range(start, args.iterations + warmup):
         clock = time.time()
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
-                                    optimizers, lagrange, generator, rng, grassland_set, search, train_actor=it >= warmup)
+                                    optimizers, lagrange, generator, rng, grassland_set, search, train_actor=it >= warmup,
+                                    branch=branch)
         stats["critic_warmup"] = it < warmup
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         save(args.out / "latest.pt")
@@ -1113,7 +1249,7 @@ def main() -> int:
         atomic({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                 "optimizers": [o.state_dict() for o in optimizers], "lagrange": lagrange, "best": best, "baseline": baseline,
                 "log": log, "iteration": it, "numpy_rng": rng.bit_generator.state, "generator": generator.get_state(),
-                "torch_rng": torch.get_rng_state()}, resume_path)
+                "torch_rng": torch.get_rng_state(), "kl_refit": hyper.kl_refit}, resume_path)
         print(json.dumps({k: v for k, v in stats.items() if k != "worlds"}), flush=True)
     (args.out / "done").write_text(json.dumps({"iterations": args.iterations}))
     return 0
