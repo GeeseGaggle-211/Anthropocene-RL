@@ -80,6 +80,13 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
     return actions
 
 
+def specialist_share(villages: list[dict[str, Any]]) -> float:
+    """Population-weighted mean of the bridge's per-village ``specialistShare`` (0-1: goods output per resident;
+    herding, farming and fishing count as food, not specialist work). 0 for bridges built before the field existed."""
+    people = sum(v["population"] for v in villages)
+    return float(sum(float(v.get("specialistShare", 0.0)) * v["population"] for v in villages) / max(1, people))
+
+
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
             fission: bool | None = None, trade: bool | None = None, personality: list[float] | None = None,
@@ -165,7 +172,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     focal_people = sum(v["population"] for v in focal_final)
     focal_stats = {"focal_population": focal_people, "focal_settlements": len(focal_final),
                    "focal_qol": sum(v["qol"] * v["population"] for v in focal_final) / max(1, focal_people),
-                   "focal_below_30": sum(1 for v in focal_final if v["population"] < 30)} if focal else {}
+                   "focal_below_30": sum(1 for v in focal_final if v["population"] < 30),
+                   "focal_specialist_share": specialist_share(focal_final)} if focal else {}
     return {
         **focal_stats,
         "seed": seed, "withheld": withheld, "policy": checkpoint is not None, "welfare": welfare, "population": population,
@@ -174,6 +182,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         "clothing": sum(v["clothing"] * v["population"] for v in final) / weight,
         "housing": sum(v["housing"] * v["population"] for v in final) / weight,
         "qol": sum(v["qol"] * v["population"] for v in final) / weight,
+        # Round 3: the population-weighted share of goods (specialist) output per resident in final villages.
+        "specialist_share": specialist_share(final),
         "hungry_share": hungry / max(1, camp_turns),
         "extinctions": sum(1 for v in step["villages"] if v["terminated"]),
         "below_30": sum(1 for v in final if v["population"] < 30),
@@ -213,7 +223,7 @@ def main() -> int:
     def mean(rows: list[dict[str, Any]], key: str) -> float:
         return float(np.mean([r[key] for r in rows]))
 
-    keys = ["welfare", "population", "settlements", "villages_600", "nutrition", "clothing", "housing", "qol",
+    keys = ["welfare", "population", "settlements", "villages_600", "nutrition", "clothing", "housing", "qol", "specialist_share",
             "hungry_share", "extinctions", "below_30", "interventions_per_decision"]
     report = {
         "seeds": args.seeds, "turns": args.turns, "checkpoint": str(args.checkpoint),
