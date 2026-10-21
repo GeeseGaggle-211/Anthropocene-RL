@@ -883,6 +883,44 @@ checkpoints, the reference and S-s55 are re-evaluated with `--grouped-region` on
 - Whatever the result, round 3 proceeds, on the token model (the user: tokens are the definitive next step).
 - If the grouped choice restores evaluation movement and closes the gap to S-s55, round 3 builds the hierarchical
   region head. Otherwise it keeps the flat head and selects actions with the grouped argmax.
+
+### Search teacher round 2: grouped re-evaluation results (21 October 2026)
+
+Run on the VM 08:46-10:42 UTC (one restart), on the same worlds as round 2. Results are in `~/r2g/runs`.
+
+| Comparison, default worlds | Grouped | Plain argmax |
+| --- | --- | --- |
+| S-s55 against the reference | 1.181 [1.126, 1.234] | 1.059 (round 1) |
+| cap against the reference | 1.172 [1.120, 1.226] | 1.039 [0.999, 1.080] |
+| mix against the reference | 1.148 [1.098, 1.200] | 1.016 [0.973, 1.060] |
+| all against the reference | 1.159 [1.107, 1.216] | 1.017 [0.981, 1.053] |
+| cap against S-s55 | 0.993 [0.963, 1.023] | 1.001 [0.961, 1.040] |
+| all against S-s55 | 0.982 [0.953, 1.012] | not run |
+
+- **Move share.** Under the grouped choice: S-s55 0.967, round-2 arms 0.72-0.75. Under plain argmax: 0.287 and about 0.06.
+- **Fishing.** Recovers: cap against S-s55 is 1.030 (plain 0.772).
+- **Herding.** Still below S-s55: cap 0.920 [0.878, 0.964], all 0.929.
+
+**Guard, grouped, default worlds:**
+- QoL is 0.88-0.89 against the reference's 0.841.
+- Residents are 1.17-1.20M against 0.92M.
+- Settlements are 75-80 against 38.7.
+- Settlements below 30 are 3.5-3.7%, against 0.6%. Fishing QoL is 0.66-0.68 against 0.723.
+- Extinction intervals contain 0, except cap against the reference on default worlds (+0.003 [0, +0.019]).
+
+**Pre-registered verdict:** the grouped choice restores movement and closes most of the gap to S-s55, so round 3
+builds the hierarchical region head.
+
+**Flags (to resolve before round 3 launches):**
+1. **Moving almost every turn** (S-s55 at 0.97) may be a simulator artefact rather than good play. Fresh tiles may
+   offer unharvested stocks with too small a cost to leave, and nomadic camps may not pay to move at all.
+   Round 3 gets a movement audit first:
+   - moves per settlement, settled against nomadic;
+   - fixed capital abandoned per move;
+   - welfare decomposed into fresh-stock harvest against steady state.
+2. **Below-30 settlements at about 3.6%** exceed round 2's 2% guard: settlement counts double. The user ruled that this
+   is not gated unless degenerate. This is the case to judge.
+3. **Fishing QoL falls below the reference** under movement, and herding stays below S-s55.
 - T3per and T3lo learn the FiLM weights from zero during PPO; the stage-1 clone is unchanged. Any separation those
   arms show is judged by the same pre-registered rules.
 - **Scope.** T3per and T3lo get the warm-up. T3def keeps the scalar critic, so it is unchanged. Round 2's `all` arm
@@ -1023,8 +1061,49 @@ Notes:
 
 Measured reference scales (heuristic, TRAIN 1000-1059, 45-turn rollouts, rows with at least 20 later turns, 37,085
 rows): welfare 59,319; population_years 85,134; trade_utility 26.68; qol_years 43.15. The first build's 25-turn,
-all-rows values (37,864; 50,391; 17.55; 64.0) truncated late returns and are superseded. Tests: `tests/test_autonomous_v7_round3.py` (13, including three
-bridge smokes) plus the follow-up clip and reservoir tests; the existing 55 still pass.
+all-rows values (37,864; 50,391; 17.55; 64.0) truncated late returns and are superseded. Tests:
+`tests/test_autonomous_v7_round3.py`, including three bridge smokes and the clip and reservoir tests.
+
+### Round 3 build: search v2 and critic branch shards (21 October 2026)
+
+Built on `feature/r3-search` from the approved round-3 spec; the design and the label/shard layouts are in
+`MODEL9_SEARCH_TEACHER.md` (*Round 3*). No training results yet; only unit tests and local smokes.
+
+| Where | Flag or field | Default | What it does |
+| --- | --- | --- | --- |
+| `search_teacher` | `--fission` | 1 | FISSION probes: Encourage (2) and Discourage (1) every horizon turn; `label_fission` |
+| `search_teacher` | `--trade` | 1 | TRADE probes: withhold, stock, make to order, x0.5 and x2 value on the largest-holdings group; `label_trade_value/gate/mask`. Only for villages with trade activity (traded in the last 3 turns, or a trading contact or last-turn trade in the observation); `summary.json` counts `trade_points_probed` and `trade_points_skipped` |
+| `search_teacher` | `--tail` | 4 | pure-policy turns after each horizon, written to `<out>/branch_shards/` (0 off) |
+| `search_teacher` | `--calibration-share`, `--calibration-tail` | 0.1, 12 | a keyed share of branches plays a 12-turn tail; its rows are marked `calibration` 1 |
+| `train` | `--vector-critic` | off | stage-1 VectorCritic, one head per objective, targets from `data.reward_components` in `ppo.head_scale` units; saves `vector_critic: True` |
+| `train` | `--branch-shards a,b` | none | branch rows in critic pretraining only (never the actor) |
+| `ppo` | `--branch-shards a,b` | none | branch rows in every critic minibatch, lambda-return targets recomputed each iteration with the current critic |
+| `ppo` | `--branch-share` | 0.25 | branch share of each critic minibatch |
+| `ppo` | `--round-start-warmup N` | 0 | N critic-only iterations at the start of a run; with the fresh-heads warm-up, the larger count once; not repeated on `--resume` past them |
+| `ppo` | `--kl-refit` / `--no-kl-refit` | on for new runs | one extra critic-only epoch after an update stopped on `target_kl`; logs `kl_refit`. A resumed run keeps its own setting (off for runs saved before the flag); `Hyper.kl_refit` is off for programmatic use |
+| `branch_bias` | `--checkpoint --branch-shards` | | per alternative kind and head, relative bias (mean, median). `calibration`: the critic's implied 8-turn value V(s_0) − Γ_8 V(s_8) against the realised 8-turn return on calibration branches; `pass` at 10% for native, region and mix, on these rows only. `self_consistency` (diagnostic): against the tail return plus bootstrap |
+
+Without the new flags `train` and `ppo` reproduce their previous outputs. `search_teacher` defaults change (the spec
+sets fission, trade and tail on), so a default search now runs up to 7 more branches per point and 4 more turns per
+branch.
+
+Local smokes (pooling checkpoint `ppo10/stage2-span-seed0/best-single.pt`, seed 1000):
+- **Search:** 1 point, horizon 2, tail 2. It ran 15 branches (1.0 s each) and wrote 15 branch shards with 78 rows.
+  Fission probes scored -2.1%; all four trade probes scored exactly the policy's return, because trade is rare on
+  Small worlds.
+- **`branch_bias` on those shards** (scalar critic, entry welfare bias): native -4.8%, region -10.6% (mean), policy
+  +18.6%, from 1 to 7 branches each, so not evidence.
+- **`ppo`:** one iteration with `--branch-shards` and `--search-labels`, then `--vector-critic --round-start-warmup 1`.
+  Both ran; the second ran 1 critic-only and 1 PPO iteration, and `kl_refit` fired.
+- **`train --vector-critic --branch-shards`:** ran on the same shards and saved all four heads.
+- **Calibration and gate** (seeds 1000-1001, 2 villages, horizon 2, tail 2, `--calibration-share 0.5`): 39 branches,
+  of which 19 were calibration branches.
+  - The trade gate skipped all 4 points.
+  - Calibration welfare bias was −0.9% for native (1 branch), −180% median for region (10) and −129% for fission (6),
+    so no pass.
+  - A strongly negative bias means V(s_0) < Γ_8 V(s_8): the scalar critic values the lineage 8 turns on far above
+    its value now, so it understates near-term value on growing lineages.
+  - This is a tiny sample, but it is the kind of miscalibration the self-consistency check cannot see.
 
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 

@@ -1,0 +1,2 @@
+# Alternative to the systemd unit: add with `crontab -e` (one line). flock prevents a second runner.
+@reboot flock -n $HOME/queue/runner.lock /usr/bin/python3 $HOME/queue/bin/runner.py run --cap 56 >> $HOME/queue/runner.log 2>&1

@@ -1,0 +1,15 @@
+# Install as ~/.config/systemd/user/elderq-runner.service (see docs/VM_QUEUE.md).
+[Unit]
+Description=Anthropocene elderq job runner
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/queue/bin/runner.py run --cap 56
+Restart=always
+RestartSec=10
+# Jobs are child processes: stopping the unit must not leave orphans, but a restart of the runner alone should not
+# kill running training. KillMode=process leaves phases running; the new runner then resumes them idempotently.
+KillMode=process
+
+[Install]
+WantedBy=default.target

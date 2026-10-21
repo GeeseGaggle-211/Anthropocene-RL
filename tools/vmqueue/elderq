@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+"""elderq: command-line client for the Anthropocene VM job queue (standard library only)."""
+import json
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import runner as rq  # noqa: E402
+
+HELP = """\
+elderq - queue of PPO/evaluation jobs on the training VM. Jobs run on their own, in order, and survive VM restarts.
+
+SUBCOMMANDS
+  elderq submit <jobfile>          validate the job file and queue it
+      elderq submit ~/jobs/r3.yaml
+  elderq status [job] [--json]     all jobs (one line each), or one job in detail
+      elderq status r3
+  elderq logs <job> [phase] [--tail N]   last N lines (default 40) of a phase log; phase 'checkout' is the code checkout;
+                                   without a phase, shows the running (or latest) phase
+      elderq logs r3 train --tail 100
+  elderq cancel <job>              stop a running job or drop a pending one
+      elderq cancel r3
+  elderq results <job>             list the files under ~/results/<job>/ (add --json for agents)
+      elderq results r3
+  elderq help                      this text
+Add --json to submit, status, results for machine-readable output.
+
+JOB FILE (YAML, or JSON in a .json file)
+  name: r3                          # unique; letters, digits, _ - .  Code goes to ~/code/<name>, results to ~/results/<name>
+  rl_sha: <40-hex RL commit>        # full SHAs, both already PUSHED to origin
+  sim_sha: <40-hex simulation commit>
+  threads: 14                       # thread budget; sets OMP_NUM_THREADS; runner cap (default 56) bounds the running total
+  priority: 0                       # optional, higher runs first; ties go to the earliest submission
+  phases:                           # run in order
+    - name: eval                    # unique within the job
+      run: python -m pkg.module --out $RESULTS/eval.json   # shell command, run in ~/code/<name>/rl
+      done: eval.json               # marker path relative to $RESULTS; the phase is skipped if it already exists
+  Each phase gets env vars RESULTS (~/results/<name>), CODE (~/code/<name>, contains rl/ and sim/) and JOB (the name),
+  plus OMP_NUM_THREADS. Python is ~/m9-bench/venv/bin/python; use PYTHONPATH=$CODE/rl/src when needed.
+  Comments: whole lines starting with #, or ' # text' after a value (not after 'run:', whose command may contain #).
+  A multi-line command uses 'run: |' followed by indented lines.
+
+HOW IT BEHAVES
+  Jobs start by priority while the running jobs' thread budgets sum to <= the cap; a job that does not fit waits (smaller
+  lower-priority jobs do not jump ahead). A phase that exits non-zero, or exits 0 without creating its done marker, marks
+  the job failed and stops it; other jobs continue. After a VM restart the runner resumes each unfinished job at its first
+  phase whose done marker is missing. States: pending, queued, running, done, failed, cancelled.
+
+RULES
+  1. Launch only from pushed commits: both SHAs must exist on origin, because the checkout fetches them.
+  2. Never edit a running job: its code checkout (~/code/<name>) is immutable and its job file is copied on start.
+     To change anything, submit a new job with a new name.
+  3. Every phase must be idempotent: it may be re-run after a restart or crash, so it must resume or overwrite cleanly,
+     write its done marker last, and only after its output is complete.
+"""
+
+
+def out(text):
+    print(text)
+
+
+def fail(msg, code=1):
+    print("error: " + msg, file=sys.stderr)
+    return code
+
+
+def pop_flag(args, flag):
+    if flag in args:
+        args.remove(flag)
+        return True
+    return False
+
+
+def pop_opt(args, flag, default=None):
+    if flag in args:
+        i = args.index(flag)
+        if i + 1 >= len(args):
+            raise rq.JobError("%s needs a value" % flag)
+        v = args[i + 1]
+        del args[i:i + 2]
+        return v
+    return default
+
+
+def fmt_status_line(s):
+    phases = s.get("phases") or []
+    done = sum(1 for p in phases if p["state"] in ("done", "skipped"))
+    cur = next((p["name"] for p in phases if p["state"] == "running"), "-")
+    return "%-24s %-9s threads=%-3s prio=%-3s phases=%d/%d current=%s%s" % (
+        s["name"], s["state"], s.get("threads"), s.get("priority"), done, len(phases), cur,
+        ("  error: " + s["error"]) if s.get("error") else "")
+
+
+def cmd_submit(paths, args):
+    js = pop_flag(args, "--json")
+    if len(args) != 1:
+        return fail("usage: elderq submit <jobfile>")
+    src = Path(args[0]).expanduser()
+    try:
+        job = rq.load_job_file(src)
+    except OSError as e:
+        return fail("cannot read %s: %s" % (src, e))
+    except rq.JobError as e:
+        if js:
+            out(json.dumps({"ok": False, "problems": e.problems}))
+        else:
+            print("job file rejected:", file=sys.stderr)
+            for p in e.problems:
+                print("  - " + p, file=sys.stderr)
+        return 2
+    paths.ensure()
+    name = job["name"]
+    if paths.job_dir(name).exists() or any(f.stem == name for f in rq.pending_files(paths)):
+        return fail("a job named %s already exists; choose a new name (code and results are keyed by name)" % name)
+    dest = paths.pending / (name + (".json" if src.suffix.lower() == ".json" else ".yaml"))
+    tmp = dest.with_name(dest.name + ".part")
+    tmp.write_bytes(src.read_bytes())
+    os.replace(str(tmp), str(dest))
+    if js:
+        out(json.dumps({"ok": True, "name": name, "pending": str(dest)}))
+    else:
+        out("queued %s (threads %d, priority %d, %d phases)" % (name, job["threads"], job["priority"], len(job["phases"])))
+    return 0
+
+
+def cmd_status(paths, args):
+    js = pop_flag(args, "--json")
+    jobs = rq.list_jobs(paths)
+    if args:
+        match = [j for j in jobs if j["name"] == args[0]]
+        if not match:
+            return fail("unknown job: %s" % args[0])
+        s = match[0]
+        if js:
+            out(json.dumps(s, indent=2))
+            return 0
+        out(fmt_status_line(s))
+        for k in ("submitted", "started", "ended", "rl_sha", "sim_sha"):
+            out("  %-9s %s" % (k, s.get(k)))
+        for p in s["phases"]:
+            out("  phase %-16s %-8s start=%s end=%s exit=%s attempts=%s" % (
+                p["name"], p["state"], p["started"], p["ended"], p["exit_code"], p.get("attempts")))
+        if s.get("provenance"):
+            out("  provenance:")
+            for line in s["provenance"].strip().splitlines():
+                out("    " + line)
+        return 0
+    if js:
+        out(json.dumps(jobs, indent=2))
+        return 0
+    if not jobs:
+        out("no jobs")
+    for s in jobs:
+        out(fmt_status_line(s))
+    used = sum(s["threads"] or 0 for s in jobs if s["state"] == "running")
+    out("threads in use: %d / cap %d" % (used, rq.Runner.cap_of(paths)))
+    return 0
+
+
+def tail(path, n):
+    try:
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    return lines[-n:] if n > 0 else lines
+
+
+def cmd_logs(paths, args):
+    try:
+        n = int(pop_opt(args, "--tail", 40))
+    except ValueError:
+        return fail("--tail needs an integer")
+    if not args:
+        return fail("usage: elderq logs <job> [phase] [--tail N]")
+    name = args[0]
+    st = rq.read_json(paths.job_dir(name) / "status.json")
+    if not st:
+        return fail("unknown or not yet started job: %s" % name)
+    logs = paths.job_dir(name) / "logs"
+    if len(args) > 1:
+        phase = args[1]
+    else:
+        running = [p["name"] for p in st["phases"] if p["state"] == "running"]
+        started = [p["name"] for p in st["phases"] if p["started"]]
+        phase = running[0] if running else (started[-1] if started else "checkout")
+    lines = tail(logs / (phase + ".log"), n)
+    if lines is None:
+        avail = sorted(p.stem for p in logs.glob("*.log")) if logs.is_dir() else []
+        return fail("no log for phase %s (available: %s)" % (phase, ", ".join(avail) or "none"))
+    out("--- %s / %s (last %d lines) ---" % (name, phase, len(lines)))
+    for line in lines:
+        out(line)
+    return 0
+
+
+def cmd_cancel(paths, args):
+    if len(args) != 1:
+        return fail("usage: elderq cancel <job>")
+    try:
+        out(rq.cancel_job(paths, args[0]))
+    except rq.JobError as e:
+        return fail(str(e))
+    return 0
+
+
+def cmd_results(paths, args):
+    js = pop_flag(args, "--json")
+    if len(args) != 1:
+        return fail("usage: elderq results <job>")
+    root = paths.results / args[0]
+    if not root.is_dir():
+        return fail("no results directory for %s" % args[0])
+    files = [{"path": str(p.relative_to(root)).replace(os.sep, "/"), "bytes": p.stat().st_size}
+             for p in sorted(root.rglob("*")) if p.is_file()]
+    if js:
+        out(json.dumps({"dir": str(root), "files": files}, indent=2))
+    else:
+        out("%s" % root)
+        for f in files:
+            out("  %10d  %s" % (f["bytes"], f["path"]))
+        if not files:
+            out("  (empty)")
+    return 0
+
+
+def main(argv):
+    args = list(argv)
+    if not args or args[0] in ("help", "-h", "--help"):
+        out(HELP)
+        return 0
+    cmd, rest = args[0], args[1:]
+    paths = rq.Paths()
+    table = {"submit": cmd_submit, "status": cmd_status, "logs": cmd_logs, "cancel": cmd_cancel, "results": cmd_results}
+    if cmd not in table:
+        return fail("unknown subcommand %r; run 'elderq help'" % cmd)
+    try:
+        return table[cmd](paths, rest)
+    except rq.JobError as e:
+        return fail(str(e))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

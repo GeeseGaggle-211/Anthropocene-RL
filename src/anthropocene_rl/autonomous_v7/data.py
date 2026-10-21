@@ -36,7 +36,16 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
     if (directory / "privileged.npy").exists():
         arrays["privileged"] = np.load(directory / "privileged.npy")
     arrays["world"] = np.full(len(arrays["camp"]), int(meta["seed"]), dtype=np.int32)
+    # Search branch shards (branch_shards.py) carry a unique world id per (seed, decision point, alternative), each
+    # row's personality, alternative kind and founding turn, and a bootstrap index into their own bootstrap block.
+    for key in BRANCH_KEYS:
+        if (directory / f"{key}.npy").exists():
+            arrays[key] = np.load(directory / f"{key}.npy")
     return arrays
+
+
+# Optional per-row arrays of search branch shards; "world" replaces the meta seed as the sequence key.
+BRANCH_KEYS = ("world", "personality", "alt_kind", "founded_turn", "bootstrap_index", "calibration")
 
 
 def load(directories: Iterable[Path]) -> dict[str, np.ndarray]:
@@ -55,7 +64,8 @@ def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray
     first_turn: dict[tuple[int, int], int] = {}
     for i in np.argsort(data["turn"], kind="stable"):
         key = (int(data["world"][i]), int(data["camp"][i]))
-        first_turn.setdefault(key, int(data["turn"][i]))
+        # Branch shards start mid-episode, so their settlements carry the turn they were founded on the full path.
+        first_turn.setdefault(key, int(data["founded_turn"][i]) if "founded_turn" in data else int(data["turn"][i]))
     groups: dict[tuple[int, int, int], list[int]] = {}
     for i in range(len(reward)):
         world, camp, turn = int(data["world"][i]), int(data["camp"][i]), int(data["turn"][i])
@@ -99,9 +109,12 @@ def discount(years: np.ndarray) -> np.ndarray:
     return np.exp(-np.asarray(years, dtype=np.float64) / contracts.HORIZON_YEARS)
 
 
-def lambda_returns(data: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray | None, lam: float = 0.95) -> np.ndarray:
+def lambda_returns(data: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray | None, lam: float = 0.95,
+                   bootstrap: np.ndarray | None = None) -> np.ndarray:
     """TD(lambda) returns in raw welfare units. ``value`` (raw units, per row) bootstraps truncated sequences and the
-    lambda mixture; without it the truncated tail bootstraps from a stationary geometric continuation."""
+    lambda mixture; without it the truncated tail bootstraps from a stationary geometric continuation. ``bootstrap``
+    (raw units, per row; NaN where absent) is the value of the observation after a truncated sequence's last row
+    (search branch shards); it replaces the row's own value there whenever ``value`` is given."""
     target = np.zeros(len(reward), dtype=np.float64)
     for rows in sequences(data):
         g_next = 0.0
@@ -113,7 +126,9 @@ def lambda_returns(data: dict[str, np.ndarray], reward: np.ndarray, value: np.nd
             elif position == len(rows) - 1:
                 # Truncated: continue at this turn's reward rate (or the critic's estimate) for the remaining horizon.
                 tail = value[i] if value is not None else reward[i] / max(1e-9, 1 - gamma)
-                g = reward[i] + gamma * (tail if value is None else value[i])
+                if value is not None and bootstrap is not None and np.isfinite(bootstrap[i]):
+                    tail = bootstrap[i]
+                g = reward[i] + gamma * tail
             else:
                 j = rows[position + 1]
                 v_next = value[j] if value is not None else g_next
