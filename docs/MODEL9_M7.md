@@ -883,6 +883,44 @@ checkpoints, the reference and S-s55 are re-evaluated with `--grouped-region` on
 - Whatever the result, round 3 proceeds, on the token model (the user: tokens are the definitive next step).
 - If the grouped choice restores evaluation movement and closes the gap to S-s55, round 3 builds the hierarchical
   region head. Otherwise it keeps the flat head and selects actions with the grouped argmax.
+
+### Search teacher round 2: grouped re-evaluation results (21 October 2026)
+
+Run on the VM 08:46-10:42 UTC (one restart), on the same worlds as round 2. Results are in `~/r2g/runs`.
+
+| Comparison, default worlds | Grouped | Plain argmax |
+| --- | --- | --- |
+| S-s55 against the reference | 1.181 [1.126, 1.234] | 1.059 (round 1) |
+| cap against the reference | 1.172 [1.120, 1.226] | 1.039 [0.999, 1.080] |
+| mix against the reference | 1.148 [1.098, 1.200] | 1.016 [0.973, 1.060] |
+| all against the reference | 1.159 [1.107, 1.216] | 1.017 [0.981, 1.053] |
+| cap against S-s55 | 0.993 [0.963, 1.023] | 1.001 [0.961, 1.040] |
+| all against S-s55 | 0.982 [0.953, 1.012] | not run |
+
+- **Move share.** Under the grouped choice: S-s55 0.967, round-2 arms 0.72-0.75. Under plain argmax: 0.287 and about 0.06.
+- **Fishing.** Recovers: cap against S-s55 is 1.030 (plain 0.772).
+- **Herding.** Still below S-s55: cap 0.920 [0.878, 0.964], all 0.929.
+
+**Guard, grouped, default worlds:**
+- QoL is 0.88-0.89 against the reference's 0.841.
+- Residents are 1.17-1.20M against 0.92M.
+- Settlements are 75-80 against 38.7.
+- Settlements below 30 are 3.5-3.7%, against 0.6%. Fishing QoL is 0.66-0.68 against 0.723.
+- Extinction intervals contain 0, except cap against the reference on default worlds (+0.003 [0, +0.019]).
+
+**Pre-registered verdict:** the grouped choice restores movement and closes most of the gap to S-s55, so round 3
+builds the hierarchical region head.
+
+**Flags (to resolve before round 3 launches):**
+1. **Moving almost every turn** (S-s55 at 0.97) may be a simulator artefact rather than good play. Fresh tiles may
+   offer unharvested stocks with too small a cost to leave, and nomadic camps may not pay to move at all.
+   Round 3 gets a movement audit first:
+   - moves per settlement, settled against nomadic;
+   - fixed capital abandoned per move;
+   - welfare decomposed into fresh-stock harvest against steady state.
+2. **Below-30 settlements at about 3.6%** exceed round 2's 2% guard: settlement counts double. The user ruled that this
+   is not gated unless degenerate. This is the case to judge.
+3. **Fishing QoL falls below the reference** under movement, and herding stays below S-s55.
 - T3per and T3lo learn the FiLM weights from zero during PPO; the stage-1 clone is unchanged. Any separation those
   arms show is judged by the same pre-registered rules.
 - **Scope.** T3per and T3lo get the warm-up. T3def keeps the scalar critic, so it is unchanged. Round 2's `all` arm
