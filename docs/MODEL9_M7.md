@@ -787,6 +787,35 @@ Under the user's direction (push on only through passing gates), this line stops
 - stabilise token cloning (learning-rate warm-up, or initialising from the pooling encoder, then more epochs);
 - rerun the sweep in a mixed-use stage with the welfare-leakage fixes and a weaker anchor.
 
+### Token model round 2: pre-registration (written 21 October 2026, before any result)
+
+**The user's direction (doc comment, 21 October)**: "the token clone is not failing per se, it is making different
+choices with a different reward structure. I don't consider this gating." They asked to:
+- make the personality fixes;
+- take the best checkpoint over more than 3 seeds;
+- accept welfare within ±20% of the heuristic;
+- let the personality "mitigate the welfare calculations".
+
+This replaces the fidelity gate above with a ±20% band. Driver: VM `t2.sh`, alongside r2.
+
+1. **Clones.** Seeds 0-2 from t1 plus seven new seeds 3-9, with the same settings and shards. The best fidelity ratio
+   proceeds. If it is outside [0.80, 1.20], the driver stops.
+2. **Mixed-use stage** from that clone, with native movement, experts, teacher-KL 0.01 and 50 iterations:
+   - **T3per**: Dirichlet(1) personalities, seeds 70-74. The welfare-leakage fixes are active: spread selection of
+     `best.pt`, and shaping costs on every component.
+   - **T3def**: the default personality, seeds 75-79.
+3. **Evaluation.**
+   - At the default personality on the decisive worlds (`latest.pt`).
+   - The personality sweep on both `best.pt` (spread-selected) and `latest.pt` of each T3per seed.
+
+**Decision rules.**
+- **Separation (primary):** in at least 4 of 5 seeds, the qol point reaches higher QoL than the population point, and
+  the population point more residents than the qol point. Each difference must exceed the seed spread. This is
+  judged on `best.pt`; `latest.pt` is reported beside it.
+- **Cost of personality training:** T3per against T3def at the default personality. The default-world ratio must stay
+  within the same ±20% band.
+- **Guard:** no rising extinction interval at the default personality.
+
 ### Search teacher round 1: results (20 October 2026)
 
 Run on the VM 14:02-22:21 UTC, alongside t1. Evidence is in GCS `model9/search-r1`.
