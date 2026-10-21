@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import os
 import subprocess
 import threading
@@ -53,14 +54,23 @@ class Model9Bridge:
                 raise RuntimeError(f"model9 bridge error: {response.get('error')}")
             return response
 
-    def reset(self, seed: int, players: int = 8, movement: bool = False, withheld: int = 0,
-              size: tuple[int, int, int] | None = None) -> dict[str, Any]:
+    def reset(self, seed: int = 0, players: int = 8, movement: bool = False, withheld: int = 0,
+              size: tuple[int, int, int] | None = None, snapshot: bytes | str | None = None) -> dict[str, Any]:
         """withheld: training-only technology mask (1 << Technology) for capability fixtures; 0 is the game.
-        size: optional (width, height, start separation) for scale probes; None keeps the Small training world."""
-        payload = {"op": "reset", "seed": seed, "players": players, "movement": movement, "withheld": withheld}
+        size: optional (width, height, start separation) for scale probes; None keeps the Small training world.
+        snapshot: a captured world (``capture``; raw bytes or base64) to start from instead of generating ``seed``'s
+        opening. Per-village bridge context (active commitments, previous populations) is not part of a snapshot, so
+        the first step after it reports no ``founded`` villages and every commitment starts free."""
+        payload: dict[str, Any] = {"op": "reset", "seed": seed, "players": players, "movement": movement, "withheld": withheld}
+        if snapshot is not None:
+            payload["snapshot"] = snapshot if isinstance(snapshot, str) else base64.b64encode(snapshot).decode("ascii")
         if size is not None:
             payload.update(width=size[0], height=size[1], separation=size[2])
         return self.request(payload)["step"]
+
+    def capture(self) -> str:
+        """The live world as a base64 snapshot (op capture), restartable with ``reset(snapshot=...)``."""
+        return str(self.request({"op": "capture"})["snapshot"])
 
     def step(self, actions: Mapping[int, Mapping[str, Any]]) -> dict[str, Any]:
         return self.request({"op": "step", "actions": {str(k): v for k, v in actions.items()}})["step"]

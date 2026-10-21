@@ -59,6 +59,12 @@ class SearchConfig:
     # its society's personality: 1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|. The policy, the critic and
     # the imitation loss all read that personality, through the same FiLM-conditioned encoder.
     personality: str = "default"
+    # Round 3: when a decision point has a young daughter (parentSociety > 0 and first seen within YOUNG_TURNS turns,
+    # or the daughter of a bank start), one of the searched villages is a young daughter. 0 keeps the uniform draw.
+    daughter_search: bool = True
+
+
+YOUNG_TURNS = 3
 
 
 def load_critic(checkpoint: Path):
@@ -222,8 +228,26 @@ def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int
             "world": world, "native_mix": native_mix}
 
 
-def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config: SearchConfig) -> dict[str, Any]:
-    """One world's main path with the policy, searching at sampled decision points."""
+def choose_villages(live: list[dict[str, Any]], first_seen: dict[int, int], turn: int, rng: np.random.Generator,
+                    count: int, daughter_search: bool = True, known: frozenset = frozenset()) -> list[dict[str, Any]]:
+    """The villages searched at a decision point: a uniform draw of ``count``, except that with ``daughter_search``
+    and a young daughter present, one is a uniformly drawn young daughter and the rest a uniform draw of the others.
+    Young: parentSociety > 0 and first seen at most YOUNG_TURNS turns ago, or a ``known`` (bank) daughter camp.
+    Without a young daughter the draw is the uniform one, so earlier searches reproduce."""
+    young = [i for i, v in enumerate(live)
+             if int(v["camp"]) in known
+             or (int(v.get("parentSociety", 0)) > 0 and turn - first_seen.get(int(v["camp"]), turn) <= YOUNG_TURNS)]
+    if not daughter_search or not young or count <= 0:
+        return [live[i] for i in rng.permutation(len(live))[:count]]
+    first = young[int(rng.integers(len(young)))]
+    rest = [i for i in rng.permutation(len(live)) if i != first][:count - 1]
+    return [live[first]] + [live[i] for i in rest]
+
+
+def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config: SearchConfig,
+                 bank: str | None = None, entry: int = -1) -> dict[str, Any]:
+    """One world's main path with the policy, searching at sampled decision points. ``bank`` and ``entry``: start from
+    that daughter-bank snapshot instead of ``seed``'s opening (its daughter counts as young for selection)."""
     torch.set_num_threads(1)
     actor, normalizer = load(Path(checkpoint)); critic = load_critic(Path(checkpoint))
     movement = bool(getattr(actor, "region_movement", False))
@@ -242,18 +266,28 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
     turns = set(rng.choice(np.arange(config.first_turn, last), size=min(config.points, last - config.first_turn), replace=False).tolist())
     rows: list[dict[str, Any]] = []
     clock = time.perf_counter(); branches = 0
+    known: frozenset = frozenset()
+    first_seen: dict[int, int] = {}
     with Model9Bridge() as bridge:
-        step = bridge.reset(seed, withheld=withheld, movement=True)
+        if entry >= 0:
+            from .daughter_bank import DaughterBank
+            store = DaughterBank(bank); record = store.get(entry)
+            step = bridge.reset(seed, withheld=withheld, movement=True, snapshot=store.snapshot(record))
+            known = frozenset({int(record["camp"])})
+        else:
+            step = bridge.reset(seed, withheld=withheld, movement=True)
         for _ in range(warmup):
             step = bridge.step({})
         for turn in range(config.turns):
+            for v in step["villages"]:
+                first_seen.setdefault(int(v["camp"]), turn)
             assign(step["villages"])
             if turn in turns:
                 fork, decision = bridge.fork()
                 base = policy_actions(actor, normalizer, decision["villages"], movement, personality=personalities)
                 live = [v for v in decision["villages"] if v.get("observation") is not None and not v["terminated"]
                         and int(v["camp"]) in base]
-                for v in [live[i] for i in rng.permutation(len(live))[:config.villages]]:
+                for v in choose_villages(live, first_seen, turn, rng, config.villages, config.daughter_search, known):
                     camp, society = int(v["camp"]), int(v["society"])
                     alts = alternatives(v, base[camp], config)
                     results = [branch(bridge, fork, actor, normalizer, critic, camp, society, a, config.horizon, movement,
@@ -266,7 +300,7 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
             step = bridge.step(policy_actions(actor, normalizer, step["villages"], movement, personality=personalities))
             if not any(not v["terminated"] for v in step["villages"]):
                 break
-    return {"seed": seed, "withheld": withheld, "rows": rows, "seconds": time.perf_counter() - clock, "branches": branches}
+    return {"seed": seed, "withheld": withheld, "entry": entry, "rows": rows, "seconds": time.perf_counter() - clock, "branches": branches}
 
 
 def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
@@ -347,6 +381,9 @@ def main() -> int:
     parser.add_argument("--seeds", default="1000-1011", help="TRAIN seed range (never selection or gate seeds)")
     parser.add_argument("--valley-seeds", type=Path, default=None, help="valley fixture bank (lines 'seed,warmup')")
     parser.add_argument("--withheld", type=int, default=0)
+    parser.add_argument("--daughter-bank", type=Path, default=None, help="daughter-start bank (ppo --daughter-bank)")
+    parser.add_argument("--bank-worlds", type=int, default=0,
+                        help="also search this many training entries of --daughter-bank (newest first), from their snapshots")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--margin", type=float, default=0.005, help="relative gain a label must clear (summary only)")
     parser.add_argument("--out", type=Path, required=True)
@@ -355,14 +392,20 @@ def main() -> int:
     args = parser.parse_args()
     config = SearchConfig(**{k: (bool(getattr(args, k)) if isinstance(v, bool) else getattr(args, k)) for k, v in asdict(SearchConfig()).items()})
     a, b = (int(x) for x in args.seeds.split("-"))
-    worlds = [(s, args.withheld, 0) for s in range(a, b + 1)]
+    worlds = [(s, args.withheld, 0, -1) for s in range(a, b + 1)]
     if args.valley_seeds:
-        worlds += [(int(s), 0, int(w)) for s, w in (line.split(",") for line in args.valley_seeds.read_text().split() if line.strip())]
+        worlds += [(int(s), 0, int(w), -1) for s, w in (line.split(",") for line in args.valley_seeds.read_text().split() if line.strip())]
+    if args.daughter_bank and args.bank_worlds > 0:
+        from .daughter_bank import DaughterBank
+        entries = DaughterBank(args.daughter_bank).training_entries()[::-1][:args.bank_worlds]
+        worlds += [(int(e["seed"]), int(e["mask"]), 0, int(e["id"])) for e in entries]
     args.out.mkdir(parents=True, exist_ok=True)
     clock = time.time()
     with ProcessPoolExecutor(max_workers=min(args.workers, len(worlds))) as pool:
         results = list(pool.map(search_world, [args.checkpoint] * len(worlds), [w[0] for w in worlds], [w[1] for w in worlds],
-                                [w[2] for w in worlds], [config] * len(worlds)))
+                                [w[2] for w in worlds], [config] * len(worlds),
+                                [None if args.daughter_bank is None else str(args.daughter_bank)] * len(worlds),
+                                [w[3] for w in worlds]))
     labels = label_arrays(results)
     if labels:
         np.savez_compressed(args.out / "labels.npz", **labels)

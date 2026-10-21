@@ -1,0 +1,92 @@
+"""Daughter-start bank (docs/MODEL9_PERSONALITY.md, daughter bank): world snapshots captured when a daughter village
+is founded, so training, search and evaluation can start from young daughters instead of waiting for fission.
+
+A bank is a directory of zlib-compressed snapshot files (``<hash>.snap``, the bridge's ``capture`` bytes, named by
+content so daughters founded in the same world and turn share one file) and an
+``index.jsonl`` of entries: id, seed, mask (withheld technologies), movement, turn, the daughter's society and camp and
+its parent society. It keeps at most ``cap`` entries, oldest first out, and persists across iterations and runs. Entries
+whose id falls in the held-out slice (``held_out``) are reserved for ``daughter_eval`` and never drawn for training.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import os
+import zlib
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+CAP = 500
+CAPTURES_PER_WORLD = 3
+HOLDOUT_EVERY = 10  # entries with id % HOLDOUT_EVERY == 0 are the held-out evaluation slice
+
+
+def held_out(entry: dict[str, Any]) -> bool:
+    return int(entry["id"]) % HOLDOUT_EVERY == 0
+
+
+class DaughterBank:
+    def __init__(self, directory: Path | str, cap: int = CAP) -> None:
+        self.directory = Path(directory)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        self.cap = cap
+        self.index = self.directory / "index.jsonl"
+
+    def entries(self) -> list[dict[str, Any]]:
+        if not self.index.exists():
+            return []
+        return [json.loads(line) for line in self.index.read_text().splitlines() if line.strip()]
+
+    def training_entries(self) -> list[dict[str, Any]]:
+        return [e for e in self.entries() if not held_out(e)]
+
+    def evaluation_entries(self) -> list[dict[str, Any]]:
+        return [e for e in self.entries() if held_out(e)]
+
+    def add(self, snapshot: str | bytes, seed: int, mask: int, turn: int, society: int, camp: int, parent_society: int,
+            movement: bool = False) -> dict[str, Any]:
+        """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""
+        raw = base64.b64decode(snapshot) if isinstance(snapshot, str) else bytes(snapshot)
+        entries = self.entries()
+        next_id = max((int(e["id"]) for e in entries), default=-1) + 1
+        name = hashlib.sha1(raw).hexdigest()[:20] + ".snap"
+        if not (self.directory / name).exists():
+            tmp = self.directory / (name + ".tmp")
+            tmp.write_bytes(zlib.compress(raw, 6)); os.replace(tmp, self.directory / name)
+        entry = {"id": next_id, "seed": int(seed), "mask": int(mask), "movement": bool(movement), "turn": int(turn),
+                 "society": int(society), "camp": int(camp), "parent_society": int(parent_society), "file": name}
+        entries.append(entry)
+        dropped, entries = entries[:-self.cap] if len(entries) > self.cap else [], entries[-self.cap:]
+        self._write(entries)
+        kept = {e["file"] for e in entries}
+        for e in dropped:
+            if e["file"] in kept:
+                continue
+            try:
+                (self.directory / e["file"]).unlink()
+            except FileNotFoundError:
+                pass
+        return entry
+
+    def snapshot(self, entry: dict[str, Any]) -> bytes:
+        return zlib.decompress((self.directory / entry["file"]).read_bytes())
+
+    def get(self, entry_id: int) -> dict[str, Any]:
+        for e in self.entries():
+            if int(e["id"]) == int(entry_id):
+                return e
+        raise KeyError(f"daughter bank entry {entry_id} is not in {self.directory}")
+
+    def sample(self, rng: np.random.Generator, masks: set[int] | None = None) -> dict[str, Any] | None:
+        """A uniformly drawn training entry (``masks``: only those withheld masks), or None when there is none."""
+        pool = [e for e in self.training_entries() if masks is None or int(e["mask"]) in masks]
+        return pool[int(rng.integers(len(pool)))] if pool else None
+
+    def _write(self, entries: list[dict[str, Any]]) -> None:
+        tmp = self.index.with_suffix(".jsonl.tmp")
+        tmp.write_text("".join(json.dumps(e) + "\n" for e in entries))
+        os.replace(tmp, self.index)
