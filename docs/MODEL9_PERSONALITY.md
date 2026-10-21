@@ -48,10 +48,10 @@ This scales:
 - The vector critic's heads estimate each component's value *given* `p`, because behaviour depends on `p`.
 
 **Advantage.** The per-row advantage is `sum_k p_k A_k / s_k`.
-- `s_k` is a running scale of component k's advantage. Population-years are about 100 times larger than QoL-years,
-  so unscaled weights would mean nothing.
-- With the default `p`, the welfare-only advantage is reproduced exactly (`s_welfare` is not applied when `p` is one-hot
-  on welfare).
+- Population-years are about 100 times larger than QoL-years, so unscaled weights would mean nothing.
+- Since round 3, `s_k` is a fixed reference scale (`--personality-scales reference`, the default); see *Stable
+  scales* below. Earlier runs used each component's batch standard deviation (`--personality-scales batch`).
+- With the default `p`, the welfare-only advantage is reproduced exactly under either rule.
 
 **Training distribution** (`--personality`):
 - `default` (welfare one-hot);
@@ -119,6 +119,75 @@ four side routes, and each one pulls personalities toward the default. Two of th
 - In personality runs the same share is charged on every component in its own units. A negative trade utility is
   not enlarged.
 - Default-personality runs keep the costs on welfare only, so earlier runs reproduce exactly.
+
+## Stable scales (round 3, 21 October 2026)
+
+**Why.** The batch rule divided each objective's advantage by its batch standard deviation. The exchange rate
+between objectives then drifted with batch content: the stage, the regime mix and the other personalities in the
+batch. A `[0.5, 0.5, 0, 0]` Elder meant something different in a capability batch than in a mixed batch.
+
+**Rule.** `A = sum_k p_k A_k / s_k_ref`, with `s_k_ref` fixed (`contracts.OBJECTIVE_REFERENCE_SCALES`).
+- `ppo.update` standardises the combined advantage afterwards, so only the ratios between the `s_k_ref` matter.
+- A welfare-only personality therefore reproduces the batch rule's update exactly (tested).
+- `--personality-scales batch` restores the earlier rule. The choice is saved in checkpoints (`personality_scales`).
+- Each iteration logs `scale_drift`: each objective's batch advantage spread over its reference spread. Unequal
+  drift across objectives is how far the batch rule's exchange rates would have moved that iteration.
+
+**Measurement** (`scale_reference.py`):
+- The native heuristic (no actions submitted) on TRAIN seeds 1000-1059, 25 turns, Small world, through the bridge.
+- One row per village decision, with the fields `data.reward_components` reads.
+- Per (world, camp) sequence, the discounted return per objective with the `HORIZON_YEARS` discount `ppo.gae` uses.
+  Returns are truncated at the rollout end, since the heuristic has no critic.
+- `s_k_ref` is the standard deviation of that return over all rows.
+
+**Measured values** (21 October 2026; simulator f06e3be, contract 12; 37,085 decision rows; 660 s on 8 bridges):
+
+| Objective | `s_k_ref` (std) | Mean return | Std, rows with 20+ later turns (3,270 rows) |
+| --- | ---: | ---: | ---: |
+| welfare | 37,864 | 56,338 | 37,391 |
+| population_years | 50,391 | 70,421 | 49,840 |
+| trade_utility | 17.55 | 3.45 | 17.48 |
+| qol_years | 64.0 | 124.6 | 42.3 |
+
+The full-window column is a diagnostic: it uses only early rows, whose returns are least truncated. Three objectives
+barely change. `qol_years` falls by a third, because its return is a sum of per-turn QoL, not of a quantity that grows
+with the village, so truncation shortens it more. The stored scale is the all-rows value, as specified.
+
+Exchange rate this implies: one unit of `trade_utility` weight is worth about 2,200 units of welfare weight per unit
+of return. The heuristic trades little, so its trade spread is small.
+
+## Daughter-start bank (round 3, 21 October 2026)
+
+Young daughters are where personalities and fission policy matter most, but an ordinary rollout reaches them late
+and rarely. The bank stores worlds at the moment a daughter is founded, so later runs can start from them.
+
+**Capture** (`ppo --daughter-bank <dir>`):
+- When a village row first appears with `founded` true, `ppo.collect` captures its world (bridge op `capture`).
+  That is the daughter's first decision state.
+- At most 3 captures per world rollout.
+- Each capture is a zlib-compressed snapshot file plus an `index.jsonl` line: id, seed, withheld mask, movement,
+  turn, the daughter's society and camp, and its parent society.
+- The bank keeps at most 500 entries, oldest first out. It persists across iterations and runs.
+- Entries with `id % 10 == 0` are a held-out slice for `daughter_eval`; training never draws them.
+
+**Training.**
+- With a non-empty bank, `world_sampler` makes slot `i % 4 == 0` a bank world; the valley slot stays `i % 4 == 2`.
+  Stage 2 draws only capability-fixture entries. An empty bank changes nothing, the random stream included.
+- `collect` resets a bank world from its snapshot (bridge `reset` with `snapshot`), under the entry's own mask.
+  Regime bookkeeping uses the entry's seed and mask.
+- Personalities: founders in a bank world draw fresh personalities, and daughters (the banked one included) inherit
+  from their parent with drift, whatever the village order.
+- A snapshot holds the world, not the bridge's per-village context. After a restart, no active commitments carry
+  over and no village is reported `founded` on the first step.
+
+**Search** (`search_teacher --daughter-search`, default 1): at a decision point with a young daughter
+(`parentSociety` > 0 and first seen within the last 3 turns, or the banked daughter of a bank start), one of the
+searched villages is a young daughter. Without one, the draw is the earlier uniform one. `--daughter-bank` with
+`--bank-worlds N` also searches the newest N training entries from their snapshots.
+
+**Evaluation** (`daughter_eval.py`): from each held-out snapshot, 5 turns with the checkpoint and with the
+heuristic. Reports the daughter society's survival, population growth (final residents over the daughter camp's
+residents at capture) and population-weighted QoL, paired per entry.
 
 ## Simulator (later, with the game)
 

@@ -998,6 +998,32 @@ is active: 637-1,840 trades per default evaluation.
 argmax over the move-or-native decision before the row. The cheap test is to re-evaluate the round-2 checkpoints
 with that grouped argmax. If they then match or beat S-s55, round 3 proceeds with the hierarchical head.
 
+### Round 3 build: stable scales, daughter bank, specialist reporting
+
+Built 21 October 2026 on `feature/r3-persona`. Design notes are in `docs/MODEL9_PERSONALITY.md` (*Stable scales*,
+*Daughter-start bank*).
+
+| Piece | Flag or tool | Default |
+| --- | --- | --- |
+| Personality exchange rates | `ppo --personality-scales reference\|batch` | `reference` (saved in checkpoints) |
+| Reference scales | `scale_reference.py`; values in `contracts.OBJECTIVE_REFERENCE_SCALES` | measured, below |
+| Scale drift log | trajectory `scale_drift` (vector-critic runs) | always logged |
+| Daughter bank | `ppo --daughter-bank <dir>` | off; cap 500, 3 captures per world, 1 in 10 held out |
+| Bank worlds in training | slot `i % 4 == 0` when the bank is non-empty | on with the bank |
+| Daughter search | `search_teacher --daughter-search 0\|1`; `--daughter-bank`, `--bank-worlds N` | 1; no bank worlds |
+| Daughter evaluation | `daughter_eval.py --checkpoint --bank --turns 5` | held-out slice |
+| Specialist share | `specialist_share` in `evaluate.rollout` (and `focal_specialist_share`), `evaluate_closed_loop`, `stage_eval`, `personality_sweep` | 0 until the bridge reports `specialistShare` |
+
+Notes:
+- A welfare-only personality trains identically under both scale rules, because `update` standardises the advantage.
+- Iteration logs also carry `bank_decisions`, the decisions taken in bank worlds.
+- `specialist_share` is the population-weighted mean of the bridge's per-village `specialistShare` over final
+  villages. It reads `v.get("specialistShare", 0.0)`, so it works before the field exists.
+
+Measured reference scales (heuristic, TRAIN 1000-1059, 25 turns, 37,085 rows): welfare 37,864; population_years
+50,391; trade_utility 17.55; qol_years 64.0. Tests: `tests/test_autonomous_v7_round3.py` (13, including three
+bridge smokes); the existing 55 still pass.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies
