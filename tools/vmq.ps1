@@ -2,6 +2,8 @@
 #   powershell -File Tools\vmq.ps1 status --json
 #   powershell -File Tools\vmq.ps1 submit C:\path\to\job.yaml     (the file is copied up first)
 # The command travels base64-encoded so no quoting survives to the remote shell. See docs/VM_QUEUE.md.
+# Named parameters only, so the subcommand and its arguments (vmq status, vmq logs <job>) all reach $Rest.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Vm = 'anthropocene-trainer-60',
     [string]$Zone = 'us-central1-c',
@@ -14,7 +16,8 @@ function Quote([string]$s) { "'" + $s.Replace("'", "'\''") + "'" }
 
 function Invoke-Remote([string]$script) {
     $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($script))
-    gcloud compute ssh $Vm --project=$Project --zone=$Zone --tunnel-through-iap --strict-host-key-checking=yes --quiet "--command=echo $b64 | base64 -d | bash"
+    # Print the remote output here and return only the exit code (a function's output would otherwise become its value).
+    gcloud compute ssh $Vm --project=$Project --zone=$Zone --tunnel-through-iap --strict-host-key-checking=yes --quiet "--command=echo $b64 | base64 -d | bash" | Out-Host
     return $LASTEXITCODE
 }
 
