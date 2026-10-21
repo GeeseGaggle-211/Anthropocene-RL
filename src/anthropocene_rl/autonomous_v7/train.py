@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import time
 from pathlib import Path
 
@@ -182,7 +183,18 @@ def main() -> int:
         state = torch.load(args.resume, map_location="cpu", weights_only=False)
         actor.load_state_dict(state["actor"]); critic.load_state_dict(state["critic"])
         normalizer = Normalizer.from_state(state["normalizer"]); log = list(state.get("log", []))
-    train_actor(actor, train, dev, normalizer, args.bc_epochs, args.batch, args.lr, log)
+    # Phase checkpoint: cloning is the long phase, so it is saved on its own (atomically) and a rerun with the same
+    # --out skips it. A preempted VM then loses at most the critic pretraining.
+    phase = args.out.with_suffix(".bc.pt")
+    if args.resume is None and phase.exists():
+        saved = torch.load(phase, map_location="cpu", weights_only=False)
+        actor.load_state_dict(saved["actor"]); log = list(saved["log"])
+        print(json.dumps({"resumed_bc": str(phase)}), flush=True)
+    else:
+        train_actor(actor, train, dev, normalizer, args.bc_epochs, args.batch, args.lr, log)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({"actor": actor.state_dict(), "log": log}, phase.with_suffix(".tmp"))
+        os.replace(phase.with_suffix(".tmp"), phase)
     final = train_critic(critic, train, dev, normalizer, args.critic_rounds, args.critic_epochs, args.batch,
                          args.critic_lr or args.lr, log, warm=args.resume is not None)
     args.out.parent.mkdir(parents=True, exist_ok=True)

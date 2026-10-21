@@ -30,7 +30,7 @@ from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
 from .evaluate import load, policy_actions
 from .model import Critic, VectorCritic, mix_shares, to_tensors
-from .ppo import village_batch
+from .ppo import head_scale, personality_sampler, village_batch
 from .upgrade import upgrade
 
 # Alternative kinds (label_kind): the policy's own action, the heuristic, a region move, a pure economy mix.
@@ -53,6 +53,12 @@ class SearchConfig:
     # showed the critic, trained on Elder-acting states, scores native and moved states off-distribution (native
     # branches lost 15% on the bootstrap at equal returns). The bootstrap is always recorded as a diagnostic.
     bootstrap: bool = False
+    # Personalities (docs/MODEL9_PERSONALITY.md): each society is drawn from this distribution ("default", "fixed:..."
+    # or "dirichlet:a", as in ppo --personality) and daughters inherit their parent's draw. Every alternative returns
+    # its lineage's discounted return per objective (contracts.OBJECTIVES), and a decision point's label is scored for
+    # its society's personality: 1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|. The policy, the critic and
+    # the imitation loss all read that personality, through the same FiLM-conditioned encoder.
+    personality: str = "default"
 
 
 def load_critic(checkpoint: Path):
@@ -63,15 +69,63 @@ def load_critic(checkpoint: Path):
     return critic
 
 
-def lineage_value(critic, normalizer, villages: list[dict[str, Any]], lineage: set[int]) -> float:
-    """The critic's value of the lineage's living settlements: u x residents, summed."""
+def lineage_values(critic, normalizer, villages: list[dict[str, Any]], lineage: set[int],
+                   personalities: dict[int, Any] | None = None) -> np.ndarray:
+    """The critic's value of the lineage's living settlements per objective (contracts.OBJECTIVES; a scalar critic
+    fills welfare only, the rest NaN), each head unscaled as ppo.head_scale says, at each settlement's personality."""
+    out_values = np.full(len(contracts.OBJECTIVES), np.nan); out_values[0] = 0.0
     rows = [v for v in villages if v.get("observation") is not None and not v.get("terminated") and v["society"] in lineage]
     if not rows:
-        return 0.0
+        return np.zeros(len(contracts.OBJECTIVES))  # no living settlement: nothing left to value
+    batch = village_batch(rows)
+    if personalities:
+        default = [contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES]
+        batch["personality"] = np.asarray([personalities.get(int(v["society"]), default) for v in rows], np.float32)
+    population = np.asarray([v["population"] for v in rows], dtype=np.float64)
     with torch.no_grad():
-        out = critic(to_tensors(village_batch(rows), normalizer))
-        u = critic.expectation(out["welfare"] if isinstance(out, dict) else out).numpy().astype(np.float64)
-    return float((u * np.maximum(1.0, np.asarray([v["population"] for v in rows], dtype=np.float64))).sum())
+        out = critic(to_tensors(batch, normalizer))
+    heads = out if isinstance(out, dict) else {"welfare": out}
+    for k, name in enumerate(contracts.OBJECTIVES):
+        if name in heads:
+            u = critic.expectation(heads[name]).numpy().astype(np.float64)
+            out_values[k] = float((u * head_scale(name, population)).sum())
+    return out_values
+
+
+def lineage_value(critic, normalizer, villages: list[dict[str, Any]], lineage: set[int]) -> float:
+    """The critic's welfare value of the lineage's living settlements: u x residents, summed."""
+    return float(lineage_values(critic, normalizer, villages, lineage)[0])
+
+
+def component_rewards(villages: list[dict[str, Any]], lineage: set[int]) -> np.ndarray:
+    """This step's lineage reward per objective (contracts.OBJECTIVES order): welfare P x Q x dt and
+    population-years P x dt summed over living settlements, realised trade utility, and QoL-years as the lineage's
+    population-weighted QoL x dt. That last one is one number per lineage, so splitting into more settlements is not
+    rewarded as more QoL."""
+    out = np.zeros(len(contracts.OBJECTIVES))
+    people = weighted = years = 0.0
+    for v in villages:
+        if v["society"] not in lineage:
+            continue
+        alive = not v["terminated"] and v["priorPopulation"] > 0
+        dt = float(v.get("years", 0.0))
+        out[0] += float(v["welfare"])
+        out[2] += float(v.get("tradeUtility", 0.0))
+        if alive:
+            out[1] += float(v["priorPopulation"]) * dt
+            people += float(v["priorPopulation"]); weighted += float(v["priorPopulation"]) * float(v["qol"]); years = dt
+    out[3] = weighted / people * years if people > 0 else 0.0
+    return out
+
+
+def personality_score(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
+    """Scores of a decision point's alternatives (rows of ``returns``, the policy first) for personality ``p``:
+    1 + sum_k p_k (R_k - R_k(policy)) / |R_k(policy)|. The policy scores 1; at the default personality this is the
+    welfare ratio to the policy."""
+    base = returns[0]
+    scale = np.where(np.abs(base) > 1e-9, np.abs(base), 1.0)
+    weights = np.where(np.isnan(returns).any(axis=0), 0.0, p)
+    return 1.0 + (np.nan_to_num(returns - base) / scale * weights).sum(axis=1)
 
 
 def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchConfig) -> list[dict[str, Any]]:
@@ -122,22 +176,37 @@ def override(actions: dict[int, dict[str, Any]], camp: int, alt: dict[str, Any],
     return actions
 
 
+def inherit(personalities: dict[int, Any] | None, villages: list[dict[str, Any]]) -> None:
+    """Daughters founded in a branch take their parent's personality exactly, so every branch of a fork scores under
+    the same personalities (training adds drift; search keeps branches paired)."""
+    if personalities is None:
+        return
+    for v in villages:
+        society, parent = int(v["society"]), int(v.get("parentSociety", 0))
+        if society not in personalities and parent in personalities:
+            personalities[society] = personalities[parent]
+
+
 def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int, society: int, alt: dict[str, Any],
-           horizon: int, movement: bool, use_bootstrap: bool = False) -> dict[str, Any]:
-    """Roll one alternative out from the fork: its lineage score, the whole world's discounted welfare (to tell a
-    lineage gain that only takes from neighbours), and the heuristic's mix on a native branch."""
+           horizon: int, movement: bool, use_bootstrap: bool = False,
+           personalities: dict[int, Any] | None = None) -> dict[str, Any]:
+    """Roll one alternative out from the fork: its lineage's discounted return per objective (and the critic's
+    per-objective bootstrap, added when ``use_bootstrap``), the whole world's discounted welfare (to tell a lineage
+    gain that only takes from neighbours), and the heuristic's mix on a native branch."""
     step = bridge.restore(fork)
+    personalities = None if personalities is None else dict(personalities)
     lineage = {society}
-    score = 0.0; world = 0.0; discount = 1.0; native_mix = None
+    returns = np.zeros(len(contracts.OBJECTIVES)); world = 0.0; discount = 1.0; native_mix = None
     for h in range(horizon):
         by_camp = {int(v["camp"]): v for v in step["villages"]}
-        actions = override(policy_actions(actor, normalizer, step["villages"], movement), camp, alt, by_camp.get(camp), h == 0)
+        actions = override(policy_actions(actor, normalizer, step["villages"], movement, personality=personalities),
+                           camp, alt, by_camp.get(camp), h == 0)
         step = bridge.step(actions)
         for v in step["villages"]:
             if v.get("parentSociety", 0) in lineage:
                 lineage.add(int(v["society"]))
-        reward = sum(float(v["welfare"]) for v in step["villages"] if v["society"] in lineage)
-        score += discount * reward
+        inherit(personalities, step["villages"])
+        returns += discount * component_rewards(step["villages"], lineage)
         world += discount * sum(float(v["welfare"]) for v in step["villages"])
         discount *= float(data.discount(np.asarray([step["years"]]))[0])
         if h == 0 and alt["kind"] == NATIVE:
@@ -147,8 +216,9 @@ def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int
                 native_mix = [(1 - f) * s, (1 - f) * (1 - s), f]
         if not any(not v["terminated"] for v in step["villages"]):
             break
-    bootstrap = discount * lineage_value(critic, normalizer, step["villages"], lineage)
-    return {"score": score + (bootstrap if use_bootstrap else 0.0), "return": score, "bootstrap": bootstrap,
+    bootstraps = discount * lineage_values(critic, normalizer, step["villages"], lineage, personalities)
+    total = returns + (np.nan_to_num(bootstraps) if use_bootstrap else 0.0)
+    return {"returns": total, "return": float(returns[0]), "bootstrap": float(bootstraps[0]), "bootstraps": bootstraps,
             "world": world, "native_mix": native_mix}
 
 
@@ -158,6 +228,16 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
     actor, normalizer = load(Path(checkpoint)); critic = load_critic(Path(checkpoint))
     movement = bool(getattr(actor, "region_movement", False))
     rng = np.random.default_rng([seed, withheld, 9])
+    draw = personality_sampler(config.personality, np.random.default_rng([seed, withheld, 11]))
+    personalities: dict[int, Any] | None = None if config.personality == "default" else {}
+
+    def assign(villages: list[dict[str, Any]]) -> None:  # first sight: inherit from a known parent, else draw
+        if personalities is None:
+            return
+        inherit(personalities, villages)
+        for v in villages:
+            personalities.setdefault(int(v["society"]), draw().tolist())
+
     last = max(config.first_turn + 1, config.turns - config.horizon)
     turns = set(rng.choice(np.arange(config.first_turn, last), size=min(config.points, last - config.first_turn), replace=False).tolist())
     rows: list[dict[str, Any]] = []
@@ -167,21 +247,23 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
         for _ in range(warmup):
             step = bridge.step({})
         for turn in range(config.turns):
+            assign(step["villages"])
             if turn in turns:
                 fork, decision = bridge.fork()
-                base = policy_actions(actor, normalizer, decision["villages"], movement)
+                base = policy_actions(actor, normalizer, decision["villages"], movement, personality=personalities)
                 live = [v for v in decision["villages"] if v.get("observation") is not None and not v["terminated"]
                         and int(v["camp"]) in base]
                 for v in [live[i] for i in rng.permutation(len(live))[:config.villages]]:
-                    camp = int(v["camp"])
+                    camp, society = int(v["camp"]), int(v["society"])
                     alts = alternatives(v, base[camp], config)
-                    results = [branch(bridge, fork, actor, normalizer, critic, camp, int(v["society"]), a, config.horizon, movement,
-                                      config.bootstrap) for a in alts]
+                    results = [branch(bridge, fork, actor, normalizer, critic, camp, society, a, config.horizon, movement,
+                                      config.bootstrap, personalities) for a in alts]
                     branches += len(alts)
-                    rows.append({"village": v, "alternatives": alts, "results": results, "turn": turn})
+                    p = personalities.get(society) if personalities else [contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES]
+                    rows.append({"village": v, "alternatives": alts, "results": results, "turn": turn, "personality": p})
                 step = bridge.restore(fork)
                 bridge.drop(fork)
-            step = bridge.step(policy_actions(actor, normalizer, step["villages"], movement))
+            step = bridge.step(policy_actions(actor, normalizer, step["villages"], movement, personality=personalities))
             if not any(not v["terminated"] for v in step["villages"]):
                 break
     return {"seed": seed, "withheld": withheld, "rows": rows, "seconds": time.perf_counter() - clock, "branches": branches}
@@ -192,10 +274,13 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
     scores, and every alternative's kind, slot and score (padded to MAX_ALTERNATIVES)."""
     villages, extra = [], {k: [] for k in ("seed", "turn", "camp", "label_kind", "label_slot", "label_mix", "score_policy",
                                            "score_best", "alt_kind", "alt_slot", "alt_score", "alt_return", "alt_bootstrap",
-                                           "alt_world")}
+                                           "alt_world", "personality", "alt_returns", "alt_bootstraps")}
+    width = len(contracts.OBJECTIVES)
     for world in worlds:
         for row in world["rows"]:
-            scores = np.asarray([r["score"] for r in row["results"]])
+            p = np.asarray(row["personality"], dtype=np.float64)
+            returns = np.stack([r["returns"] for r in row["results"]])
+            scores = personality_score(returns, p)
             best = int(np.argmax(scores)); alt = row["alternatives"][best]
             mix = alt["mix"] if alt["kind"] == MIX else row["results"][best]["native_mix"] if alt["kind"] == NATIVE else None
             villages.append(row["village"])
@@ -210,6 +295,11 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
             extra["alt_return"].append([r["return"] for r in row["results"]] + [np.nan] * pad)
             extra["alt_bootstrap"].append([r["bootstrap"] for r in row["results"]] + [np.nan] * pad)
             extra["alt_world"].append([r["world"] for r in row["results"]] + [np.nan] * pad)
+            # The value vector of every alternative, so labels can be rescored for any personality later.
+            extra["personality"].append(p.astype(np.float32))
+            extra["alt_returns"].append(np.vstack([returns, np.full((pad, width), np.nan)]))
+            extra["alt_bootstraps"].append(np.vstack([np.stack([r["bootstraps"] for r in row["results"]]),
+                                                      np.full((pad, width), np.nan)]))
     if not villages:
         return {}
     arrays = observation_batch(villages)
@@ -234,7 +324,7 @@ def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
     # (no critic bootstrap), so a gain the critic invents shows as a gap between the two.
     def relative(key: str) -> np.ndarray:
         base = labels[key][:, :1]
-        return (labels[key] - base) / np.maximum(1e-9, np.abs(labels["score_policy"][:, None]))
+        return (labels[key] - base) / np.maximum(1e-9, np.abs(base))
     rel, ret = relative("alt_score"), relative("alt_return")
     if "alt_world" in labels:
         # The winners' effect on the whole world: a lineage gain with a world loss takes from neighbours.

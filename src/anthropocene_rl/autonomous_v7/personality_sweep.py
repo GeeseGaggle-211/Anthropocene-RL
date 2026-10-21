@@ -30,10 +30,14 @@ GRID = {
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", required=True)
-    parser.add_argument("--seeds", default="2000-2019")
+    parser.add_argument("--seeds", default="2000-2059")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--movement", action="store_true")
+    parser.add_argument("--grouped-region", action="store_true", help="hierarchical region choice (model.grouped_region_slot)")
+    parser.add_argument("--focal", action="store_true",
+                        help="only alternate founding lineages take the sweep point; the rest draw Dirichlet(1) as in "
+                             "training, and the focal lineages' outcomes are reported")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     assert len(next(iter(GRID.values()))) == contracts.PERSONALITY_WIDTH
@@ -43,11 +47,22 @@ def main() -> int:
         for name, p in GRID.items():
             n = len(seeds)
             rows = list(pool.map(rollout, seeds, [args.turns] * n, [args.checkpoint] * n, [0] * n, [args.movement] * n,
-                                 [None] * n, [True if args.movement else None] * n, [0] * n, [None] * n, [None] * n, [p] * n))
+                                 [None] * n, [True if args.movement else None] * n, [0] * n, [None] * n, [None] * n, [p] * n,
+                                 [args.grouped_region] * n, [args.focal] * n))
             population = sum(r["population"] for r in rows)
+            settlements = sum(r["settlements"] for r in rows)
             report[name] = {"personality": p, "welfare": sum(r["welfare"] for r in rows), "population": population,
                             "qol": sum(r["qol"] * r["population"] for r in rows) / max(1, population),
-                            "trade_utility": sum(r["trade_utility"] for r in rows), "extinctions": sum(r["extinctions"] for r in rows)}
+                            "trade_utility": sum(r["trade_utility"] for r in rows), "extinctions": sum(r["extinctions"] for r in rows),
+                            # A degenerate split shows as many settlements and a high below-30 share.
+                            "settlements": settlements, "below_30_share": sum(r["below_30"] for r in rows) / max(1, settlements),
+                            "per_seed": [{"seed": s, "population": r["population"], "qol": r["qol"]} for s, r in zip(seeds, rows)]}
+            if args.focal:
+                focal = sum(r["focal_population"] for r in rows)
+                report[name].update({"focal_population": focal,
+                                     "focal_qol": sum(r["focal_qol"] * r["focal_population"] for r in rows) / max(1, focal),
+                                     "focal_settlements": sum(r["focal_settlements"] for r in rows),
+                                     "focal_below_30": sum(r["focal_below_30"] for r in rows)})
             print(json.dumps({name: report[name]}), flush=True)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2))

@@ -41,6 +41,33 @@ def test_override_applies_only_the_alternative() -> None:
     assert actions[7]["strategic"][3] == 1.0  # the input is not modified
 
 
+def test_personality_scores_rank_alternatives_by_the_personalitys_own_objectives() -> None:
+    # Objectives: welfare, population_years, trade_utility, qol_years. Policy first; alt 1 adds people at lower QoL,
+    # alt 2 raises QoL with fewer people.
+    returns = np.array([[100.0, 1000.0, 0.0, 16.0], [104.0, 1200.0, 0.0, 14.0], [99.0, 900.0, 0.0, 18.0]])
+    welfare = st.personality_score(returns, np.array([1.0, 0, 0, 0]))
+    assert np.allclose(welfare, [1.0, 1.04, 0.99])  # the default personality: the welfare ratio to the policy
+    assert int(np.argmax(st.personality_score(returns, np.array([0, 1.0, 0, 0])))) == 1
+    assert int(np.argmax(st.personality_score(returns, np.array([0, 0, 0, 1.0])))) == 2
+    # A zero component (no trade) and a missing head add nothing.
+    with_nan = returns.copy(); with_nan[:, 2] = np.nan
+    assert np.allclose(st.personality_score(with_nan, np.array([0.5, 0, 0.5, 0])), 1 + 0.5 * (returns[:, 0] / 100 - 1))
+
+
+def test_component_rewards_and_daughters_inherit_in_branches() -> None:
+    villages = [{"society": 3, "parentSociety": 0, "terminated": False, "priorPopulation": 50, "population": 55, "years": 20.0,
+                 "welfare": 800.0, "qol": 0.8, "tradeUtility": 2.0},
+                {"society": 9, "parentSociety": 3, "terminated": False, "priorPopulation": 10, "population": 12, "years": 20.0,
+                 "welfare": 140.0, "qol": 0.7, "tradeUtility": 0.0},
+                {"society": 5, "parentSociety": 0, "terminated": False, "priorPopulation": 40, "population": 40, "years": 20.0,
+                 "welfare": 600.0, "qol": 0.75, "tradeUtility": 1.0}]
+    r = st.component_rewards(villages, {3, 9})
+    assert np.allclose(r, [940.0, 1200.0, 2.0, (50 * 0.8 + 10 * 0.7) / 60 * 20])  # QoL: population-weighted, once
+    personalities = {3: [0, 0, 0, 1.0], 5: [1.0, 0, 0, 0]}
+    st.inherit(personalities, villages)
+    assert personalities[9] == [0, 0, 0, 1.0]
+
+
 def test_labels_keep_only_winners_over_the_margin_and_the_loss_moves_toward_them() -> None:
     b = batch(); n = len(b["core"])
     b["region_movement_mask"] = np.ones((n, contracts.REGION_MOVEMENT_SLOTS), dtype=bool)

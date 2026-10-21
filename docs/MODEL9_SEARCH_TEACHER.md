@@ -87,6 +87,29 @@ alternatives.
 - **PPO path.** `ppo --stage mixed --learned-movement --search-labels r1/labels.npz` loads 84 label rows and applies the
   imitation loss (smoke iteration).
 
+## Personality-scored labels (21 October 2026)
+
+The user directed that each search label return the same value vector the critic uses, so every personality can
+process it. `search_teacher --personality dirichlet:a` now works as follows:
+
+- **Personalities.** Each society draws one personality. Founders draw from the distribution. Daughters copy their
+  parent exactly inside branches, so branches stay paired; training adds drift.
+- **Acting.** The policy acts with each village's personality in every branch (FiLM in the token model).
+- **Returns.** Each alternative returns its lineage's discounted return per objective (`alt_returns`), in
+  `contracts.OBJECTIVES` order:
+  - welfare;
+  - population-years;
+  - realised trade utility;
+  - the lineage's population-weighted QoL-years. This is one number per lineage, so splitting is not rewarded as more
+    QoL.
+- **Bootstraps.** The critic's per-objective, FiLM-conditioned end values are recorded as `alt_bootstraps`. They are
+  added to the returns only with `--bootstrap 1`.
+- **Score.** The searched village's label is scored for its society's personality `p`:
+  `1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|`. At the default personality this is the welfare ratio to
+  the policy, so earlier labels mean the same.
+- **Imitation.** The label row stores `p`, so the imitation loss conditions the actor on the personality the label was
+  scored for. Stored value vectors let labels be rescored for other personalities later.
+
 ## Interfaces
 
 - `python -m anthropocene_rl.autonomous_v7.search_teacher --checkpoint <pt> --seeds <train range> [--valley-seeds f]

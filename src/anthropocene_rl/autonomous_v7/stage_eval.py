@@ -42,6 +42,8 @@ def main() -> int:
     parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
     parser.add_argument("--region-movement", action="store_true",
                         help="with --movement: every policy, the init included, moves over contract-10 region rows")
+    parser.add_argument("--grouped-region", action="store_true",
+                        help="candidates choose their region slot hierarchically (native / stay / go first, then where)")
     parser.add_argument("--regime-tolerance", type=float, default=0.03,
                         help="a candidate fails if any regime's welfare falls more than this share below the init")
     parser.add_argument("--out", type=Path, required=True)
@@ -63,7 +65,8 @@ def main() -> int:
         init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement, region=region)
         row = {"teacher": teacher, "init": init, "candidates": {}}
         for candidate in args.candidates.split(","):
-            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement, region=region)
+            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement, region=region,
+                                      grouped=args.grouped_region)
             ev["ratio_vs_init"] = ev["welfare"] / max(1e-9, init["welfare"])
             ev["ratio_vs_teacher"] = ev["welfare"] / max(1e-9, teacher["welfare"])
             row["candidates"][candidate] = ev

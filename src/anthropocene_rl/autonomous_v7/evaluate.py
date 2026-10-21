@@ -41,18 +41,23 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
 
 def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]],
                    movement: bool = False, mixes: dict[int, np.ndarray] | None = None,
-                   personality: list[float] | None = None) -> dict[int, dict[str, Any]]:
+                   personality: list[float] | dict[int, Any] | None = None) -> dict[int, dict[str, Any]]:
     """Deterministic actions; movement stays native unless ``movement`` (curriculum stage 4). ``mixes`` receives each
-    village's economy mix."""
+    village's economy mix. ``personality``: one vector for every village (a sweep point), or a map from society id to
+    vector (societies not in it take the default)."""
     live = [v for v in villages if v.get("observation") is not None and not v.get("terminated")]
     if not live:
         return {}
     region = movement and getattr(actor, "region_movement", False)
     batch = observation_batch(live)
-    if personality is not None:  # every village of the rollout at this personality (a sweep point)
+    if isinstance(personality, dict):
+        default = [contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES]
+        batch["personality"] = np.asarray([personality.get(int(v["society"]), default) for v in live], np.float32)
+    elif personality is not None:  # every village of the rollout at this personality (a sweep point)
         batch["personality"] = np.tile(np.asarray(personality, np.float32), (len(live), 1))
     with torch.no_grad():
-        mode = act_deterministic(actor(to_tensors(batch, normalizer)), region=region)
+        mode = act_deterministic(actor(to_tensors(batch, normalizer)), region=region,
+                                 grouped=getattr(actor, "grouped_region", False))
     if not getattr(actor, "commitments", True):
         mode["span"] = np.full(len(live), contracts.SPAN_SINGLE)
     actions = {}
@@ -77,8 +82,12 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
-            fission: bool | None = None, trade: bool | None = None, personality: list[float] | None = None) -> dict[str, Any]:
+            fission: bool | None = None, trade: bool | None = None, personality: list[float] | None = None,
+            grouped: bool = False, focal: bool = False) -> dict[str, Any]:
     """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
+    ``grouped``: the hierarchical region choice (model.grouped_region_slot) instead of a plain argmax.
+    ``focal`` (with ``personality``): only alternate founding lineages (and their daughters) take ``personality``; the
+    others draw Dirichlet(1) personalities, as in training. The focal lineages' outcomes are reported separately.
     ``warmup``: the heuristic plays that many turns first (selected fixture states, e.g. valley fixtures); they count
     toward neither welfare nor decisions."""
     torch.set_num_threads(1)
@@ -93,19 +102,41 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             actor.learned_fission = fission
         if trade is not None:
             actor.learned_trade = trade
+        actor.grouped_region = grouped
     welfare = 0.0; camp_turns = hungry = interventions = decisions = 0
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     spans: dict[int, int] = {}
     moves = 0
     policies: dict[int, int] = {}
     trade_utility = 0.0; trades = 0
+    traits: dict[int, Any] = {}; focal_set: set[int] = set()
+    focal_rng = np.random.default_rng([seed, 31])
+
+    def assign(villages: list[dict[str, Any]]) -> None:
+        founders = sorted(int(v["society"]) for v in villages
+                          if int(v["society"]) not in traits and int(v.get("parentSociety", 0)) not in traits)
+        for v in villages:  # daughters inherit their parent's personality and focal membership
+            society, parent = int(v["society"]), int(v.get("parentSociety", 0))
+            if society not in traits and parent in traits:
+                traits[society] = traits[parent]
+                if parent in focal_set:
+                    focal_set.add(society)
+        for i, society in enumerate(founders):
+            if i % 2 == 0:
+                traits[society] = list(personality); focal_set.add(society)
+            else:
+                traits[society] = focal_rng.dirichlet(np.ones(contracts.PERSONALITY_WIDTH)).tolist()
+
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=movement)
         for _ in range(warmup):
             step = bridge.step({})
         for _ in range(turns):
             mixes: dict[int, np.ndarray] = {}
-            actions = policy_actions(actor, normalizer, step["villages"], movement, mixes, personality) if actor is not None else {}
+            if focal and personality is not None:
+                assign(step["villages"])
+            chosen = traits if focal and personality is not None else personality
+            actions = policy_actions(actor, normalizer, step["villages"], movement, mixes, chosen) if actor is not None else {}
             for action in actions.values():
                 spans[action.get("commit", 1)] = spans.get(action.get("commit", 1), 0) + 1
                 code = action.get("movement", contracts.NATIVE_MOVEMENT)
@@ -130,7 +161,13 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         final = [v for v in step["villages"] if not v["terminated"] and v["population"] > 0]
     population = sum(v["population"] for v in final)
     weight = max(1, population)
+    focal_final = [v for v in final if int(v["society"]) in focal_set]
+    focal_people = sum(v["population"] for v in focal_final)
+    focal_stats = {"focal_population": focal_people, "focal_settlements": len(focal_final),
+                   "focal_qol": sum(v["qol"] * v["population"] for v in focal_final) / max(1, focal_people),
+                   "focal_below_30": sum(1 for v in focal_final if v["population"] < 30)} if focal else {}
     return {
+        **focal_stats,
         "seed": seed, "withheld": withheld, "policy": checkpoint is not None, "welfare": welfare, "population": population,
         "settlements": len(final), "villages_600": sum(1 for v in final if v["population"] >= 600),
         "nutrition": sum(v["nutrition"] * v["population"] for v in final) / weight,

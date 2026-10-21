@@ -210,9 +210,21 @@ class TokenEncoder(nn.Module):
             if name.startswith("film_") and prefix + name not in state_dict:
                 state_dict[prefix + name] = torch.zeros_like(p)
 
-    @staticmethod
-    def _film(h: torch.Tensor, film: nn.Linear, c: torch.Tensor) -> torch.Tensor:
+    # Optional bound on the FiLM scale and shift (bound x tanh(x / bound)). Off by default because it also dampens
+    # FiLM; ppo --film-bound sets it only if film_max shows instability.
+    film_bound: float | None = None
+
+    def film_extent(self, t: dict[str, torch.Tensor]) -> float:
+        """The largest |scale| or |shift| any FiLM layer applies on this batch (the instability monitor)."""
+        c = t["personality"] - self.default_personality
+        with torch.no_grad():
+            return float(max(f(c).abs().max() for f in [*self.film_tokens, *self.film_trunk]))
+
+    def _film(self, h: torch.Tensor, film: nn.Linear, c: torch.Tensor) -> torch.Tensor:
         scale, shift = film(c).chunk(2, dim=-1)
+        if self.film_bound:
+            scale = self.film_bound * torch.tanh(scale / self.film_bound)
+            shift = self.film_bound * torch.tanh(shift / self.film_bound)
         if h.dim() == 3:
             scale, shift = scale.unsqueeze(1), shift.unsqueeze(1)
         return h * (1 + scale) + shift
@@ -517,10 +529,28 @@ def mix_log_prob(logits: torch.Tensor, log_std: torch.Tensor, mix: torch.Tensor,
     return ((gauss + jacobian) * others).sum(dim=1) + (jacobian * (m - others)).sum(dim=1) * (others.sum(dim=1) > 0).float()
 
 
-def act_deterministic(out: dict[str, torch.Tensor], region: bool = False) -> dict[str, np.ndarray]:
+def grouped_region_slot(logits: torch.Tensor) -> torch.Tensor:
+    """Hierarchical choice over the region head: first the decision (native, stay, or go: keep the intent or a region
+    row 1-7) with the most probability mass, then the most likely slot within it. A plain argmax picks native whenever
+    no single destination outweighs it, even when moving somewhere is more likely than not."""
+    p = torch.softmax(logits, dim=1)
+    go = torch.zeros(p.shape[1], dtype=torch.bool, device=p.device)
+    go[contracts.REGION_KEEP] = True; go[3:] = True  # slot 2 is region row 0, the current tile (stay)
+    masses = torch.stack([p[:, contracts.REGION_NATIVE], p[:, 2], (p * go).sum(dim=1)], dim=1)
+    best_go = torch.where(go, p, torch.full_like(p, -1.0)).argmax(dim=1)
+    group = masses.argmax(dim=1)
+    return torch.where(group == 0, torch.full_like(best_go, contracts.REGION_NATIVE),
+                       torch.where(group == 1, torch.full_like(best_go, 2), best_go))
+
+
+def act_deterministic(out: dict[str, torch.Tensor], region: bool = False, grouped: bool = False) -> dict[str, np.ndarray]:
     """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends). With
-    ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it."""
-    slot = out["region"].argmax(dim=1) if region and "region" in out else torch.zeros(len(out["mix_logits"]), dtype=torch.long)
+    ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it; ``grouped`` makes
+    that choice hierarchical (``grouped_region_slot``)."""
+    if region and "region" in out:
+        slot = grouped_region_slot(out["region"]) if grouped else out["region"].argmax(dim=1)
+    else:
+        slot = torch.zeros(len(out["mix_logits"]), dtype=torch.long)
     if region:
         out = condition_mix(out, slot)
 

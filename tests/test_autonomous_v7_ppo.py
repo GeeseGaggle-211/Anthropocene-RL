@@ -290,6 +290,40 @@ def test_film_is_exact_at_init_inert_at_default_and_conditions_otherwise() -> No
     assert all(float(f.weight.abs().sum()) == 0 for f in [*fresh.film_tokens, *fresh.film_trunk])
 
 
+def test_grouped_region_slot_moves_when_moving_is_the_likelier_decision() -> None:
+    from anthropocene_rl.autonomous_v7.model import grouped_region_slot
+    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: argmax is native, the grouped choice moves to the best row.
+    p = torch.tensor([[0.30, 0.0, 0.05, 0.15, 0.10, 0.10, 0.10, 0.10, 0.05, 0.05]])
+    logits = torch.log(p.clamp(min=1e-9))
+    assert int(logits.argmax(dim=1)) == 0 and int(grouped_region_slot(logits)) == 3
+    q = torch.tensor([[0.60, 0.0, 0.05, 0.10, 0.05, 0.05, 0.05, 0.05, 0.03, 0.02]])
+    assert int(grouped_region_slot(torch.log(q.clamp(min=1e-9)))) == 0
+    r = torch.tensor([[0.10, 0.0, 0.50, 0.10, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]])
+    assert int(grouped_region_slot(torch.log(r.clamp(min=1e-9)))) == 2
+
+
+def test_daughter_drift_stays_near_the_parent_and_film_bound_limits_the_scale() -> None:
+    from anthropocene_rl.autonomous_v7.model import TokenEncoder
+    rng = np.random.default_rng(0)
+    parent = np.array([0.1, 0.2, 0.3, 0.4], np.float32)
+    assert np.array_equal(ppo.personality_drift(parent, rng, 0), parent)
+    kids = np.stack([ppo.personality_drift(parent, rng, 200.0) for _ in range(400)])
+    assert np.allclose(kids.sum(axis=1), 1, atol=1e-5) and np.allclose(kids.mean(axis=0), parent, atol=0.01)
+    assert 0.005 < kids.std(axis=0).mean() < 0.05
+    b = batch(); normalizer = Normalizer.fit(b)
+    encoder = TokenEncoder(b["core"].shape[1]); encoder.eval()
+    t = to_tensors(b, normalizer); t["personality"] = torch.tensor([[0.0, 1.0, 0, 0]] * len(t["core"]))
+    torch.manual_seed(1)
+    with torch.no_grad():  # random weights: a personality offset sums to zero, so equal weights would cancel
+        for film in [*encoder.film_tokens, *encoder.film_trunk]:
+            film.weight.normal_(std=3.0)
+    assert encoder.film_extent(t) > 2.0
+    encoder.film_bound = 0.5
+    with torch.no_grad():
+        out = encoder(t)[0]
+    assert torch.isfinite(out).all()
+
+
 def test_value_heads_scale_by_residents_except_qol_years() -> None:
     population = np.array([0, 10, 400])
     assert np.allclose(ppo.head_scale("welfare", population), [1, 10, 400])

@@ -853,6 +853,36 @@ need attention.
 - **The fix.** The qol_years head now learns the raw return (`ppo.PER_RESIDENT`, `head_scale`). Welfare, population
   and trade stay per resident, so default-personality runs are unchanged.
 - **Scope.** T3per and T3lo get the fix. Round 2's learned-trade arm is unaffected: it carries no QoL weight.
+
+**Addendum 5 (21 October, before any stage-3 result): the user's review of the risks.** Deployed to the t2 tree;
+the drivers take effect from the VM's next restart.
+- **Daughter drift.** A fissioned daughter inherits its parent's personality with a small Dirichlet shift
+  (`personality_drift`, concentration 200), for resilience in a population of Elders.
+- **Wider selection bank.** Selection uses `--eval-seeds 2060-2099`, 40 fresh worlds, with 12 workers. They are
+  disjoint from TRAIN, DEVELOPMENT, valley and CONFIRMATION.
+- **Wider sweeps.** The sweep runs on 2000-2059, in two forms:
+  - every village at the sweep point;
+  - focal mode (`--focal`): alternate founding lineages at the point, the rest Dirichlet(1) as in training, measured
+    on the focal lineages.
+
+  Separation is judged on both forms. Settlement counts and the below-30 share are reported only to flag a degenerate
+  case, not as a gate.
+- **FiLM monitor.** `film_max` is logged every iteration. A tanh bound exists (`--film-bound`) but is off, because it
+  also dampens FiLM. It is used only if `film_max` shows instability.
+- **Resumable cloning.** `train.py` saves the cloned actor (`.bc.pt`) before critic pretraining, so a VM restart costs
+  at most the critic phase.
+- **Cloning instability.** Cloning already uses Adam with gradient-norm clipping 1.0, but the actor runs at a flat
+  learning rate of 3e-4, with no warm-up or schedule. If several of t2's new seeds collapse, the fix is learning-rate
+  warm-up plus a cosine schedule.
+
+### Search teacher round 2: grouped re-evaluation (pre-registered 21 October, before any result)
+
+The user accepts round 2's marginal gate miss and asks to test the grouped argmax first (`r2g.sh`, VM). Round 2's
+checkpoints, the reference and S-s55 are re-evaluated with `--grouped-region` on the same worlds.
+
+- Whatever the result, round 3 proceeds, on the token model (the user: tokens are the definitive next step).
+- If the grouped choice restores evaluation movement and closes the gap to S-s55, round 3 builds the hierarchical
+  region head. Otherwise it keeps the flat head and selects actions with the grouped argmax.
 - T3per and T3lo learn the FiLM weights from zero during PPO; the stage-1 clone is unchanged. Any separation those
   arms show is judged by the same pre-registered rules.
 - **Scope.** T3per and T3lo get the warm-up. T3def keeps the scalar critic, so it is unchanged. Round 2's `all` arm

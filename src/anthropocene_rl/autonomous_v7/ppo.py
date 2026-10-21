@@ -283,10 +283,12 @@ def _cost(v: dict[str, Any], founded_turn: int, turn: int) -> float:
 
 
 def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage: Stage,
-            generator: torch.Generator, workers: int = 6, floor: float = -2.0, personality=None) -> Rollout:
+            generator: torch.Generator, workers: int = 6, floor: float = -2.0, personality=None,
+            inherit=None) -> Rollout:
     """Run every world for ``turns`` steps with the sampled shared policy (worlds step in lockstep). A world is a
     seed or a (seed, withheld-technology mask) pair. ``personality``: a sampler of Elder personalities, drawn per
-    (world, lineage) and inherited by daughters; None keeps the default personality (no input)."""
+    (world, lineage) and inherited by daughters; None keeps the default personality (no input). ``inherit``: a
+    daughter's personality from its parent's (None: an exact copy)."""
     full = [(s, 0, 0) if isinstance(s, int) else (int(s[0]), int(s[1]), int(s[2]) if len(s) > 2 else 0) for s in seeds]
     warmups = [w for _, _, w in full]
     worlds = [(s, m) for s, m, _ in full]
@@ -302,7 +304,10 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
         for w, v in villages:
             society, parent = int(v["society"]), int(v.get("parentSociety", 0))
             if society not in traits[w]:
-                traits[w][society] = traits[w][parent] if parent in traits[w] else personality()
+                if parent in traits[w]:
+                    traits[w][society] = traits[w][parent] if inherit is None else inherit(traits[w][parent])
+                else:
+                    traits[w][society] = personality()
             rows.append(traits[w][society])
         batch["personality"] = np.asarray(rows, dtype=np.float32)
         return batch
@@ -508,6 +513,8 @@ class Hyper:
     # drawn per (world, lineage), inherited by daughters. Non-default personalities weight scale-normalised component
     # advantages per row.
     personality: str = "default"
+    # Daughters inherit the parent's personality with a small Dirichlet shift (personality_drift); 0 copies exactly.
+    personality_drift: float = 200.0
     # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner labels, the
     # relative gain a label must clear, and label rows per minibatch. 0 turns it off.
     search_weight: float = 0.0
@@ -521,6 +528,15 @@ class Hyper:
 
 def default_personality() -> np.ndarray:
     return np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32)
+
+
+def personality_drift(parent: np.ndarray, rng: np.random.Generator, concentration: float) -> np.ndarray:
+    """A daughter's personality: a small random shift of its parent's, Dirichlet(concentration x parent) (mean the
+    parent; spread about sqrt(p (1 - p) / concentration)). Concentration 0 copies the parent exactly. Drift makes
+    lineages diverge, so a population of Elders is not a set of clones (resilience under self-play)."""
+    if concentration <= 0:
+        return parent
+    return rng.dirichlet(np.maximum(np.asarray(parent, np.float64), 1e-4) * concentration).astype(np.float32)
 
 
 def personality_sampler(spec: str, rng: np.random.Generator):
@@ -650,7 +666,9 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
               grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None,
               train_actor: bool = True) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
-    roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler)
+    inherit = None if sampler is None else (lambda parent: personality_drift(parent, rng, hyper.personality_drift))
+    roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler,
+                   inherit=inherit)
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
     regimes = np.asarray([regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])])
@@ -698,6 +716,9 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
                    target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search, train_actor)
+    if "personality" in batch and hasattr(actor.encoder, "film_extent"):  # FiLM instability monitor
+        sample = {k: v[:512] for k, v in batch.items()}
+        stats["film_max"] = actor.encoder.film_extent(to_tensors(sample, normalizer))
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
@@ -784,7 +805,7 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
                          movement: bool = False, commitments: bool | None = None, region: bool | None = None,
                          fission: bool | None = None, trade: bool | None = None,
-                         personality: list[float] | None = None) -> dict[str, float]:
+                         personality: list[float] | None = None, grouped: bool = False) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
     the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn). A world is
     (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns). ``personality`` evaluates every village
@@ -796,7 +817,7 @@ def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]],
                              [None if checkpoint is None else str(checkpoint)] * len(worlds), [w[1] for w in worlds],
                              [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds),
                              [w[2] if len(w) > 2 else 0 for w in worlds], [fission] * len(worlds), [trade] * len(worlds),
-                             [personality] * len(worlds)))
+                             [personality] * len(worlds), [grouped] * len(worlds)))
     population = sum(r["population"] for r in rows)
     return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
@@ -886,6 +907,11 @@ def main() -> int:
     parser.add_argument("--experts", action="store_true",
                         help="add capability-conditioned expert adapters (warm start: identical to --init)")
     parser.add_argument("--eval-turns", type=int, default=25)
+    parser.add_argument("--eval-workers", type=int, default=6,
+                        help="processes for periodic selection evaluation (raise with a wider --eval-seeds bank)")
+    parser.add_argument("--film-bound", type=float, default=None,
+                        help="bound the FiLM scale and shift to +/- this with tanh (off by default: it also dampens FiLM; "
+                             "use only if film_max shows instability)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--teacher-kl", type=float, default=None, help="weight of the teacher KL anchor (default 0.05)")
@@ -1015,7 +1041,8 @@ def main() -> int:
         groups: dict[str, list] = {}
         for seed, mask in eval_worlds:
             groups.setdefault(regime(seed, mask, frozenset()), []).append((seed, mask))
-        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, movement=stage.bridge_movement,
+        result = {name: evaluate_closed_loop(checkpoint, worlds, args.eval_turns, workers=args.eval_workers,
+                                             movement=stage.bridge_movement,
                                              commitments=stage.commitments,
                                              region=stage.region_movement or stage.observe_movement,
                                              fission=stage.fission, trade=stage.trade, personality=personality)
@@ -1048,6 +1075,10 @@ def main() -> int:
         print(json.dumps({"baseline": baseline}), flush=True)
     if args.critic_warmup is not None:
         hyper.critic_warmup = args.critic_warmup
+    if args.film_bound:
+        for net in (actor, teacher, critic, cost_critic):
+            if hasattr(net.encoder, "film_extent"):
+                net.encoder.film_bound = args.film_bound
     warmup = hyper.critic_warmup if fresh_heads else 0  # extra iterations, so the actor still gets --iterations updates
     for it in range(start, args.iterations + warmup):
         clock = time.time()
