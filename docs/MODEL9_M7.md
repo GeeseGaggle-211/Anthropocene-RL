@@ -816,6 +816,20 @@ This replaces the fidelity gate above with a ±20% band. Driver: VM `t2.sh`, alo
   within the same ±20% band.
 - **Guard:** no rising extinction interval at the default personality.
 
+**Addendum (21 October, before any stage-3 result).** The user: "The teacher has biases; its job is to teach the
+model the mechanisms, not to forward its biases. We can't use matching to determine whether an agent was trained
+successfully here." This changes two things:
+
+1. **Matching the teacher is not a success criterion.** Fidelity is only a sanity band for learning the mechanics
+   (±20%). Success is judged by outcomes: against the frozen reference, the no-collapse guard and the personality
+   frontier.
+2. **A weak-anchor arm.** T3lo is T3per with teacher-KL 0.002 instead of 0.01, seeds 80-84, driver `t2lo.sh`. In the
+   mixed stage the anchor covers the service levels only (the mix is never anchored), but it still pulls every
+   personality toward the teacher's service priorities.
+   - T3lo is judged by the same separation rule.
+   - Its cost is T3lo against T3def at the default personality, within the same band.
+   - If T3lo separates and T3per does not, the anchor was forwarding the teacher's bias.
+
 ### Search teacher round 1: results (20 October 2026)
 
 Run on the VM 14:02-22:21 UTC, alongside t1. Evidence is in GCS `model9/search-r1`.
