@@ -1007,8 +1007,9 @@ Built 21 October 2026 on `feature/r3-persona`. Design notes are in `docs/MODEL9_
 | --- | --- | --- |
 | Personality exchange rates | `ppo --personality-scales reference\|batch` | `reference` (saved in checkpoints) |
 | Reference scales | `scale_reference.py`; values in `contracts.OBJECTIVE_REFERENCE_SCALES` | measured, below |
-| Scale drift log | trajectory `scale_drift` (vector-critic runs) | always logged |
-| Daughter bank | `ppo --daughter-bank <dir>` | off; cap 500, 3 captures per world, 1 in 10 held out |
+| Per-component clip | `ppo --personality-clip c` (normalised `A_k / s_k_ref` clipped to `+/- c`) | 5 (0 off) |
+| Scale drift log | trajectory `scale_drift` and `scale_clipped` (vector-critic runs) | always logged |
+| Daughter bank | `ppo --daughter-bank <dir>` | off; cap 500, reservoir of 3 per world, 1 in 10 held out |
 | Bank worlds in training | slot `i % 4 == 0` when the bank is non-empty | on with the bank |
 | Daughter search | `search_teacher --daughter-search 0\|1`; `--daughter-bank`, `--bank-worlds N` | 1; no bank worlds |
 | Daughter evaluation | `daughter_eval.py --checkpoint --bank --turns 5` | held-out slice |
@@ -1020,9 +1021,10 @@ Notes:
 - `specialist_share` is the population-weighted mean of the bridge's per-village `specialistShare` over final
   villages. It reads `v.get("specialistShare", 0.0)`, so it works before the field exists.
 
-Measured reference scales (heuristic, TRAIN 1000-1059, 25 turns, 37,085 rows): welfare 37,864; population_years
-50,391; trade_utility 17.55; qol_years 64.0. Tests: `tests/test_autonomous_v7_round3.py` (13, including three
-bridge smokes); the existing 55 still pass.
+Measured reference scales (heuristic, TRAIN 1000-1059, 45-turn rollouts, rows with at least 20 later turns, 37,085
+rows): welfare 59,319; population_years 85,134; trade_utility 26.68; qol_years 43.15. The first build's 25-turn,
+all-rows values (37,864; 50,391; 17.55; 64.0) truncated late returns and are superseded. Tests: `tests/test_autonomous_v7_round3.py` (13, including three
+bridge smokes) plus the follow-up clip and reservoir tests; the existing 55 still pass.
 
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 

@@ -129,32 +129,39 @@ batch. A `[0.5, 0.5, 0, 0]` Elder meant something different in a capability batc
 **Rule.** `A = sum_k p_k A_k / s_k_ref`, with `s_k_ref` fixed (`contracts.OBJECTIVE_REFERENCE_SCALES`).
 - `ppo.update` standardises the combined advantage afterwards, so only the ratios between the `s_k_ref` matter.
 - A welfare-only personality therefore reproduces the batch rule's update exactly (tested).
-- `--personality-scales batch` restores the earlier rule. The choice is saved in checkpoints (`personality_scales`).
+- **Clip** (`--personality-clip`, default 5, 0 off): each normalised component `A_k / s_k_ref` is clipped to
+  `+/- c` before weighting. Reference scales measure return spread, but advantages also carry critic error. In the
+  first smoke an untrained trade head's advantages were about 1,500 reference spreads wide (`scale_drift`), and with
+  no clip any trade weight made that noise the whole advantage. The clip bounds a component's term by `p_k c`.
+  Each iteration logs the clipped share per objective (`scale_clipped`) next to `scale_drift`. With the clip on, a
+  welfare-only personality matches the batch rule except on rows beyond 5 welfare spreads.
+- `--personality-scales batch` restores the earlier rule (no clip). The choice is saved in checkpoints (`personality_scales`).
 - Each iteration logs `scale_drift`: each objective's batch advantage spread over its reference spread. Unequal
   drift across objectives is how far the batch rule's exchange rates would have moved that iteration.
 
 **Measurement** (`scale_reference.py`):
-- The native heuristic (no actions submitted) on TRAIN seeds 1000-1059, 25 turns, Small world, through the bridge.
+- The native heuristic (no actions submitted) on TRAIN seeds 1000-1059, 45-turn rollouts, Small world, through the
+  bridge.
 - One row per village decision, with the fields `data.reward_components` reads.
 - Per (world, camp) sequence, the discounted return per objective with the `HORIZON_YEARS` discount `ppo.gae` uses.
-  Returns are truncated at the rollout end, since the heuristic has no critic.
-- `s_k_ref` is the standard deviation of that return over all rows.
+- The heuristic has no critic, so returns stop at the rollout end. Only rows with at least 20 later turns (the first
+  25 turns) are kept, so every return covers a full 400-year-equivalent window.
+- `s_k_ref` is the standard deviation of that return over the kept rows.
 
-**Measured values** (21 October 2026; simulator f06e3be, contract 12; 37,085 decision rows; 660 s on 8 bridges):
+**Measured values** (21 October 2026; simulator f06e3be, contract 12):
 
-| Objective | `s_k_ref` (std) | Mean return | Std, rows with 20+ later turns (3,270 rows) |
+| Objective | `s_k_ref` now (45 turns, full-window rows) | Mean return | First build (25 turns, all rows) |
 | --- | ---: | ---: | ---: |
-| welfare | 37,864 | 56,338 | 37,391 |
-| population_years | 50,391 | 70,421 | 49,840 |
-| trade_utility | 17.55 | 3.45 | 17.48 |
-| qol_years | 64.0 | 124.6 | 42.3 |
+| welfare | 59,319 | 136,573 | 37,864 |
+| population_years | 85,134 | 172,285 | 50,391 |
+| trade_utility | 26.68 | 6.35 | 17.55 |
+| qol_years | 43.15 | 259.0 | 64.0 |
 
-The full-window column is a diagnostic: it uses only early rows, whose returns are least truncated. Three objectives
-barely change. `qol_years` falls by a third, because its return is a sum of per-turn QoL, not of a quantity that grows
-with the village, so truncation shortens it more. The stored scale is the all-rows value, as specified.
-
-Exchange rate this implies: one unit of `trade_utility` weight is worth about 2,200 units of welfare weight per unit
-of return. The heuristic trades little, so its trade spread is small.
+- The kept rows are 37,085 of 82,841 (1,390 s on 12 bridges).
+- The first build's all-rows values mixed in truncated late returns. Truncation shrank the three objectives that grow
+  with the village (welfare, population, trade) and widened `qol_years` (short late returns against long early ones).
+- In the new values, one QoL-year of `qol_years` weight is worth about 1,375 person-QoL-years of welfare weight; a
+  unit of `trade_utility` about 2,200.
 
 ## Daughter-start bank (round 3, 21 October 2026)
 
@@ -162,9 +169,11 @@ Young daughters are where personalities and fission policy matter most, but an o
 and rarely. The bank stores worlds at the moment a daughter is founded, so later runs can start from them.
 
 **Capture** (`ppo --daughter-bank <dir>`):
-- When a village row first appears with `founded` true, `ppo.collect` captures its world (bridge op `capture`).
-  That is the daughter's first decision state.
-- At most 3 captures per world rollout.
+- When a village row first appears with `founded` true, it is offered to the world's reservoir sample of 3 over
+  all of that rollout's founded daughters (algorithm R, keyed by the world, so deterministic). A kept daughter's
+  world is captured then (bridge op `capture`; the daughter's first decision state), and the entry it displaces is
+  deleted. Captures therefore spread over the whole episode. The first build kept the first 3, which put most
+  entries at turns 10-12.
 - Each capture is a zlib-compressed snapshot file plus an `index.jsonl` line: id, seed, withheld mask, movement,
   turn, the daughter's society and camp, and its parent society.
 - The bank keeps at most 500 entries, oldest first out. It persists across iterations and runs.
