@@ -177,7 +177,11 @@ and rarely. The bank stores worlds at the moment a daughter is founded, so later
 - Each capture is a zlib-compressed snapshot file plus an `index.jsonl` line: id, seed, withheld mask, movement,
   turn, the daughter's society and camp, and its parent society.
 - The bank keeps at most 500 entries, oldest first out. It persists across iterations and runs.
-- Entries with `id % 10 == 0` are a held-out slice for `daughter_eval`; training never draws them.
+- **Held-out family: whole world seeds.** Entries whose root world seed has `seed % 10 == 0` are reserved for
+  `daughter_eval`; training never draws them. (The TRAIN worlds themselves still train; only their daughter captures
+  are reserved.) The first build split by entry id. Daughters of one world and turn share a content-addressed
+  snapshot, so an id split could hand the same state to training and evaluation. `check_partition` asserts that no
+  snapshot hash is in both partitions whenever either is listed, and `daughter_eval` refuses training entries.
 
 **Training.**
 - With a non-empty bank, `world_sampler` makes slot `i % 4 == 0` a bank world; the valley slot stays `i % 4 == 2`.
@@ -197,6 +201,30 @@ searched villages is a young daughter. Without one, the draw is the earlier unif
 **Evaluation** (`daughter_eval.py`): from each held-out snapshot, 5 turns with the checkpoint and with the
 heuristic. Reports the daughter society's survival, population growth (final residents over the daughter camp's
 residents at capture) and population-weighted QoL, paired per entry.
+
+## One utility for PPO and search (22 October 2026)
+
+**Problem.** PPO weighted objectives by reference scales, but the search teacher scored alternatives by relative
+change against the policy's own return, `(R_k(alt) - R_k(pol)) / |R_k(pol)|`. The same personality then expressed
+different trade-offs in the two. A QoL weight counted a 1% QoL change as much as a 1% population change in search,
+while PPO priced them at one QoL-year per 1,375 person-QoL-years.
+
+**Search utility version 2** (`search_teacher.UTILITY_VERSION`):
+- `U_p = sum_k p_k G_k / s_k_ref`, with `contracts.OBJECTIVE_REFERENCE_SCALES` (the 45-turn values). `G_k` is the
+  lineage's discounted return over the branch horizon, plus the critic bootstrap when `--bootstrap 1`.
+- An alternative's score is `U_p(alt) - U_p(policy)`, so the policy scores 0. A missing component gets no weight.
+- This is exactly the weighting `ppo.combine_personal` applies to advantages under reference scales (tested).
+- **Margin.** It is in the same units: reference spreads, so for the welfare personality a fraction of
+  `s_welfare_ref`. The default is 0.004 for both `search_teacher --margin` and `ppo --search-margin`. It is chosen to
+  match the old 0.5% relative margin at a mean village, and is a judgement, not a measurement.
+
+**Old labels.**
+- Label files keep every alternative's return vector (`alt_returns`) and personality. `search_teacher.rescore`
+  recomputes version-1 files on version 2.
+- The stored label stays the version-1 winner. `label_is_best` marks rows where it is still the version-2 winner,
+  and `load_search_labels` drops the others.
+- Files too old to have return vectors keep the relative rule against a legacy margin of 0.005.
+- New files carry `utility_version` 2.
 
 ## Simulator (later, with the game)
 

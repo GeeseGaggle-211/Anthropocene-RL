@@ -127,12 +127,26 @@ def test_bank_index_rotation_and_held_out_slice(tmp_path) -> None:
     shared.add(b"third", seed=1, mask=0, turn=5, society=11, camp=12, parent_society=6)
     assert len(list((tmp_path / "shared").glob("*.snap"))) == 2
     big = DaughterBank(tmp_path / "big")
-    for i in range(12):
-        big.add(b"x", seed=i, mask=contracts.CAPABILITY_MASKS["fishing"] if i % 2 else 0, turn=0, society=i, camp=i, parent_society=1)
-    assert [e["id"] for e in big.evaluation_entries()] == [0, 10] and all(held_out(e) for e in big.evaluation_entries())
+    for i in range(24):  # two daughters per world seed, sharing their world's snapshot
+        seed = 1000 + i // 2
+        big.add(b"world-%d" % seed, seed=seed, mask=contracts.CAPABILITY_MASKS["fishing"] if seed % 2 else 0, turn=0,
+                society=i, camp=i, parent_society=1)
+    # The held-out family is whole world seeds (seed % 10 == 0): both of seed 1000's and of 1010's daughters.
+    assert [e["seed"] for e in big.evaluation_entries()] == [1000, 1000, 1010, 1010]
+    assert all(held_out(e) for e in big.evaluation_entries())
+    train_files = {e["file"] for e in big.training_entries()}
+    assert train_files.isdisjoint({e["file"] for e in big.evaluation_entries()})  # no snapshot on both sides
     rng = np.random.default_rng(0)
-    draws = [big.sample(rng)["id"] for _ in range(200)]
-    assert 0 not in draws and 10 not in draws and len(set(draws)) == 10  # never the held-out slice
+    draws = [big.sample(rng)["seed"] for _ in range(300)]
+    assert 1000 not in draws and 1010 not in draws and len(set(draws)) == 10  # never the held-out family
+    # An id split would have leaked: a snapshot shared across the partitions is refused.
+    leaky = DaughterBank(tmp_path / "leaky")
+    leaky.add(b"same", seed=1020, mask=0, turn=0, society=1, camp=1, parent_society=0)
+    leaky.add(b"same", seed=1021, mask=0, turn=0, society=2, camp=2, parent_society=0)
+    with pytest.raises(AssertionError, match="leak"):
+        leaky.training_entries()
+    with pytest.raises(ValueError, match="held-out family"):
+        daughter_eval.run_entry(str(tmp_path / "big"), big.training_entries()[0]["id"], None, 1)
     fishing = {contracts.CAPABILITY_MASKS["fishing"]}
     assert all(big.sample(rng, fishing)["mask"] in fishing for _ in range(20))
     assert DaughterBank(tmp_path / "empty").sample(rng) is None
@@ -170,11 +184,11 @@ def test_world_sampler_puts_bank_worlds_in_slot_zero_and_keeps_the_valley_slot(t
     assert plain == empty  # an empty bank changes nothing, the rng included
     bank = DaughterBank(tmp_path / "b")
     for i in range(1, 4):
-        bank.add(b"s", seed=1000 + i, mask=0, turn=12, society=70 + i, camp=80 + i, parent_society=20)
+        bank.add(b"s%d" % i, seed=1000 + i, mask=0, turn=12, society=70 + i, camp=80 + i, parent_society=20)
     worlds = ppo.world_sampler(stage, train, grass, np.random.default_rng(3), valley, bank)(8)
     for i, w in enumerate(worlds):
         if i % 4 == 0:
-            assert len(w) == 4 and w[3] in (1, 2) and w[0] == 1001 + w[3] and w[1] == 0  # id 0 is held out
+            assert len(w) == 4 and w[3] in (0, 1, 2) and w[0] == 1001 + w[3] and w[1] == 0
         else:
             assert len(w) < 4
         if i % 4 == 2:
@@ -183,9 +197,9 @@ def test_world_sampler_puts_bank_worlds_in_slot_zero_and_keeps_the_valley_slot(t
     # Stage 2 draws only capability-fixture entries; with none, its slot is the usual fixture.
     cap = ppo.world_sampler(ppo.STAGES["capability"], train, grass, np.random.default_rng(3), None, bank)(4)
     assert all(len(w) == 2 and w[1] in contracts.CAPABILITY_MASKS.values() for w in cap)
-    bank.add(b"s", seed=1050, mask=contracts.CAPABILITY_MASKS["herding"], turn=12, society=9, camp=9, parent_society=2)
+    bank.add(b"h", seed=1051, mask=contracts.CAPABILITY_MASKS["herding"], turn=12, society=9, camp=9, parent_society=2)
     cap = ppo.world_sampler(ppo.STAGES["capability"], train, grass, np.random.default_rng(3), None, bank)(4)
-    assert cap[0] == (1050, contracts.CAPABILITY_MASKS["herding"], 0, 3)
+    assert cap[0] == (1051, contracts.CAPABILITY_MASKS["herding"], 0, 3)
     assert ppo.regime(cap[0][0], cap[0][1], frozenset()) == "herding"
 
 
@@ -282,3 +296,36 @@ def test_collect_banks_founded_daughters_and_replays_them_with_inherited_persona
     # The daughter evaluation runs from the same snapshot.
     out = daughter_eval.run_entry(str(tmp_path / "bank"), entry["id"], None, 1)
     assert out["initial_population"] > 0 and out["alive"] in (0.0, 1.0)
+
+
+# --------------------------------------------------------------------------------------------- one utility
+def test_search_scores_on_ppos_reference_utility_and_rescores_old_labels(tmp_path) -> None:
+    from test_autonomous_v7 import batch
+    s = contracts.OBJECTIVE_REFERENCE_SCALES
+    returns = np.array([[1000.0, 2000.0, 0.0, 30.0], [1300.0, 1800.0, 0.0, 30.0], [1000.0, 2000.0, 0.0, 40.0]])
+    p = np.array([0.5, 0, 0, 0.5])
+    u = search_teacher.personality_utility(returns, p)
+    assert np.allclose(u, 0.5 * returns[:, 0] / s["welfare"] + 0.5 * returns[:, 3] / s["qol_years"])
+    assert np.allclose(search_teacher.personality_score(returns, p), u - u[0])
+    # The same personality ranks alternatives as PPO's combine_personal would weight their returns.
+    adv = {k: returns[:, i] - returns[0, i] for i, k in enumerate(contracts.OBJECTIVES)}
+    assert np.allclose(ppo.combine_personal(adv, np.tile(p, (3, 1)), "reference"), u - u[0])
+    # A version-1 file (relative scores) with return vectors is rescored; its label (the old argmax, alternative 1)
+    # stays only where it is still the version-2 best.
+    b = batch(2); n = 2
+    old_scores = np.array([[1.0, 1.15, 1.10], [1.0, 1.15, 1.10]])  # v1: alternative 1 won both rows
+    alt_returns = np.stack([returns, returns])
+    personality = np.array([[1.0, 0, 0, 0], [0, 0, 0, 1.0]])  # row 0: welfare (alt 1 best); row 1: QoL (alt 2 best)
+    v1 = dict(b, label_kind=np.full(n, search_teacher.REGION), label_slot=np.full(n, 4),
+              label_mix=np.full((n, 3), np.nan), score_policy=np.ones(n), score_best=np.full(n, 1.15),
+              alt_kind=np.array([[0, 2, 2]] * n), alt_slot=np.array([[-1, 4, 5]] * n), alt_score=old_scores,
+              alt_returns=alt_returns, personality=personality, alt_return=alt_returns[:, :, 0])
+    rescored = search_teacher.rescore(v1)
+    assert rescored["utility_version"].tolist() == [2, 2] and rescored["label_is_best"].tolist() == [True, False]
+    assert rescored["score_best"][0] == pytest.approx(300 / s["welfare"]) and (rescored["score_policy"] == 0).all()
+    np.savez(tmp_path / "v1.npz", **v1)
+    kept = ppo.load_search_labels([tmp_path / "v1.npz"], margin=0.004)
+    assert kept is not None and len(kept["label_kind"]) == 1 and kept["personality"][0][0] == 1.0  # 300 / s_w > 0.004
+    assert ppo.load_search_labels([tmp_path / "v1.npz"], margin=0.01) is None                     # in s_welfare_ref units
+    summary = search_teacher.summarize(v1, 0.004)
+    assert summary["utility_version"] == 2 and summary["beats_policy_share"] == 0.5

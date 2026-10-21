@@ -1047,10 +1047,11 @@ Built 21 October 2026 on `feature/r3-persona`. Design notes are in `docs/MODEL9_
 | Reference scales | `scale_reference.py`; values in `contracts.OBJECTIVE_REFERENCE_SCALES` | measured, below |
 | Per-component clip | `ppo --personality-clip c` (normalised `A_k / s_k_ref` clipped to `+/- c`) | 5 (0 off) |
 | Scale drift log | trajectory `scale_drift` and `scale_clipped` (vector-critic runs) | always logged |
-| Daughter bank | `ppo --daughter-bank <dir>` | off; cap 500, reservoir of 3 per world, 1 in 10 held out |
+| Daughter bank | `ppo --daughter-bank <dir>` | off; cap 500, reservoir of 3 per world, world seeds `% 10 == 0` held out |
 | Bank worlds in training | slot `i % 4 == 0` when the bank is non-empty | on with the bank |
 | Daughter search | `search_teacher --daughter-search 0\|1`; `--daughter-bank`, `--bank-worlds N` | 1; no bank worlds |
-| Daughter evaluation | `daughter_eval.py --checkpoint --bank --turns 5` | held-out slice |
+| Daughter evaluation | `daughter_eval.py --checkpoint --bank --turns 5` | held-out seed family only |
+| Search utility v2 | `search_teacher` scores `U_p(alt) - U_p(policy)`, `U_p = sum_k p_k G_k / s_k_ref`; old labels rescored | `--margin` / `ppo --search-margin` 0.004 (reference spreads) |
 | Specialist share | `specialist_share` in `evaluate.rollout` (and `focal_specialist_share`), `evaluate_closed_loop`, `stage_eval`, `personality_sweep` | 0 until the bridge reports `specialistShare` |
 
 Notes:
