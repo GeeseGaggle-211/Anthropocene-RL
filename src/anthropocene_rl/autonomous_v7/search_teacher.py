@@ -33,10 +33,20 @@ from .model import Critic, VectorCritic, mix_shares, to_tensors
 from .ppo import head_scale, personality_sampler, village_batch
 from .upgrade import upgrade
 
-# Alternative kinds (label_kind): the policy's own action, the heuristic, a region move, a pure economy mix.
-POLICY, NATIVE, REGION, MIX = 0, 1, 2, 3
-KINDS = ("policy", "native", "region", "mix")
-MAX_ALTERNATIVES = 2 + contracts.REGION_ROWS - 1 + len(contracts.ECONOMY_MIX)
+# Alternative kinds (label_kind): the policy's own action, the heuristic, a region move, a pure economy mix, a fission
+# policy held for the horizon, a trade posture held for the horizon.
+POLICY, NATIVE, REGION, MIX, FISSION, TRADE = 0, 1, 2, 3, 4, 5
+KINDS = ("policy", "native", "region", "mix", "fission", "trade")
+# Fission probes: the bridge's fission codes (Neutral 0, Discourage 1, Encourage 2).
+FISSION_PROBES = (2, 1)
+# Trade probes (slot = probe id): every gate withheld, offered from stock, made to order; the value of the group with
+# the largest holdings halved and doubled.
+TRADE_PROBES = ("withhold", "stock", "make", "value_half", "value_double")
+TRADE_SET = [name for name, _, _ in contracts.SETS].index("trade")
+TRADE_HELD = 0  # ElderModel9Encoder.TradeFeatureNames()[0] == "held" (bridge schema tradeFeatures)
+# label_trade_mask bits per group: which posture components the winning probe changed.
+TRADE_VALUE_BIT, TRADE_GATE_BIT = 1, 2
+MAX_ALTERNATIVES = 2 + contracts.REGION_ROWS - 1 + len(contracts.ECONOMY_MIX) + len(FISSION_PROBES) + len(TRADE_PROBES)
 
 
 @dataclass
@@ -59,6 +69,12 @@ class SearchConfig:
     # its society's personality: 1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|. The policy, the critic and
     # the imitation loss all read that personality, through the same FiLM-conditioned encoder.
     personality: str = "default"
+    # Round 3 (docs/MODEL9_SEARCH_TEACHER.md, *Probes*): fission probes (Encourage and Discourage submitted every turn of
+    # the horizon) and trade-posture probes (TRADE_PROBES, a full posture every turn of the horizon).
+    fission: bool = True
+    trade: bool = True
+    # Pure-policy turns after each branch's horizon, written as critic branch shards (<out>/branch_shards); 0 off.
+    tail: int = 4
 
 
 def load_critic(checkpoint: Path):
@@ -128,8 +144,58 @@ def personality_score(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
     return 1.0 + (np.nan_to_num(returns - base) / scale * weights).sum(axis=1)
 
 
-def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchConfig) -> list[dict[str, Any]]:
-    """The alternatives searched for one village at a fork, the policy first."""
+def base_posture(action: dict[str, Any] | None, teacher: dict[str, Any] | None) -> dict[str, Any]:
+    """The trade posture probes perturb: the policy's own when it learns trade (its action carries one), else the
+    heuristic's teacher label (the main-path step whose observation is the fork's), else the native posture (values
+    1, every gate make-to-order, the configuration's export share: tradeShare -1)."""
+    groups = len(contracts.TRADE_GROUPS)
+    for source in (action, teacher):
+        if source and source.get("tradeValue") is not None and source.get("tradeGate") is not None:
+            share = source.get("tradeShare")
+            return {"value": [float(x) for x in source["tradeValue"]], "gate": [int(g) for g in source["tradeGate"]],
+                    "share": float(share) if share is not None and share >= 0 else -1.0}
+    return {"value": [1.0] * groups, "gate": [contracts.TRADE_MAKE] * groups, "share": -1.0}
+
+
+def trade_probes(village: dict[str, Any], posture: dict[str, Any]) -> list[dict[str, Any]]:
+    """TRADE alternatives for one village: each a full posture (every group's value and gate, and the share) and the
+    mask of the groups and components it changes from ``posture`` (TRADE_VALUE_BIT, TRADE_GATE_BIT). Only groups
+    present in the village's trade-set observation count as changed; a village with no trade row gets no probe, and a
+    probe that changes nothing (say make-to-order on the native posture) is skipped."""
+    obs = village.get("observation") or {}
+    sets, present = obs.get("sets"), obs.get("rowPresent")
+    if not sets or not present or len(sets) <= TRADE_SET:
+        return []
+    _, rows, width = contracts.SETS[TRADE_SET]
+    active = np.asarray(present[TRADE_SET], bool)[:rows]
+    if not active.any():
+        return []
+    table = np.asarray(sets[TRADE_SET], np.float64).reshape(rows, width)
+    value, gate = list(posture["value"]), list(posture["gate"])
+    out = []
+
+    def probe(slot: int, new_value: list[float], new_gate: list[int]) -> None:
+        mask = np.zeros(rows, np.int8)
+        mask |= ((np.asarray(new_value) != np.asarray(value)) & active).astype(np.int8) * TRADE_VALUE_BIT
+        mask |= ((np.asarray(new_gate) != np.asarray(gate)) & active).astype(np.int8) * TRADE_GATE_BIT
+        if mask.any():
+            out.append({"kind": TRADE, "slot": slot, "mix": None,
+                        "trade": {"value": new_value, "gate": new_gate, "share": float(posture["share"]), "mask": mask}})
+
+    for code in range(contracts.TRADE_GATES):  # withhold, stock, make
+        probe(code, value, [code] * rows)
+    largest = int(np.argmax(np.where(active, table[:, TRADE_HELD], -np.inf)))
+    lo, hi = contracts.TRADE_VALUE_RANGE
+    for slot, factor in ((3, 0.5), (4, 2.0)):
+        tilted = list(value); tilted[largest] = float(np.clip(value[largest] * factor, lo, hi))
+        probe(slot, tilted, gate)
+    return out
+
+
+def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchConfig,
+                 posture: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """The alternatives searched for one village at a fork, the policy first. ``posture``: the trade posture probes
+    perturb (base_posture; None takes the policy's own or the native one)."""
     obs = village["observation"]
     out = [{"kind": POLICY, "slot": -1, "mix": None}]
     if config.native:
@@ -149,6 +215,12 @@ def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchCo
                 vertex = np.eye(len(contracts.ECONOMY_MIX))[j]
                 if 0.5 * np.abs(vertex - policy_mix).sum() > 0.05:
                     out.append({"kind": MIX, "slot": -1, "mix": vertex})
+    if config.fission:
+        for code in FISSION_PROBES:
+            if int(base.get("fission", -1)) != code:  # the policy's own learned choice is the policy branch
+                out.append({"kind": FISSION, "slot": code, "mix": None, "fission": code})
+    if config.trade:
+        out.extend(trade_probes(village, posture if posture is not None else base_posture(base, None)))
     return out
 
 
@@ -172,6 +244,15 @@ def override(actions: dict[int, dict[str, Any]], camp: int, alt: dict[str, Any],
         s, f = mix_shares(alt["mix"][None, :])
         strategic = list(action["strategic"]); strategic[3] = float(s[0]); strategic[4] = float(f[0])
         action["strategic"] = strategic
+    elif alt["kind"] == FISSION:  # every turn of the horizon
+        action["fission"] = int(alt["fission"])
+    elif alt["kind"] == TRADE:
+        # Always a full posture (every group's value and gate): ElderTrade.From fills an absent vector with the native
+        # values or gates, so a partial posture would silently mix the probe with native trade.
+        posture = alt["trade"]
+        action["tradeValue"] = [float(x) for x in posture["value"]]
+        action["tradeGate"] = [int(g) for g in posture["gate"]]
+        action["tradeShare"] = float(posture["share"])
     actions[camp] = action
     return actions
 
@@ -187,14 +268,68 @@ def inherit(personalities: dict[int, Any] | None, villages: list[dict[str, Any]]
             personalities[society] = personalities[parent]
 
 
+def note_founded(founded: dict[int, int] | None, step: dict[str, Any]) -> None:
+    """Each settlement's founding turn: the turn of the step it first appears in (its first decision turn)."""
+    if founded is not None:
+        for v in step["villages"]:
+            founded.setdefault(int(v["camp"]), int(step["turn"]))
+
+
+def default_vector() -> list[float]:
+    return [contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES]
+
+
+def policy_tail(bridge: Model9Bridge, step: dict[str, Any], actor, normalizer, movement: bool, turns: int,
+                lineage: set[int], personalities: dict[int, Any] | None, founded: dict[int, int]) -> dict[str, Any]:
+    """``turns`` more turns of pure policy after a branch's horizon. Rows: every lineage settlement's tail decision
+    (observation at the decision, outcome after it, the personality it acted at, its founding turn), plus each living
+    settlement's observation after the last tail turn as its bootstrap. Daughters founded in the tail join the
+    lineage (they appear as rows from their first decision)."""
+    rows: list[dict[str, Any]] = []
+    final_turn = None
+    for _ in range(turns):
+        if not any(not v["terminated"] for v in step["villages"]):
+            break
+        decision = step; final_turn = int(decision["turn"])
+        acting = [v for v in decision["villages"] if v.get("observation") is not None and not v.get("terminated")]
+        step = bridge.step(policy_actions(actor, normalizer, decision["villages"], movement, personality=personalities))
+        for v in step["villages"]:
+            if v.get("parentSociety", 0) in lineage:
+                lineage.add(int(v["society"]))
+        inherit(personalities, step["villages"])
+        note_founded(founded, step)
+        outcome = {int(v["camp"]): v for v in step["villages"]}
+        for v in acting:
+            society, out = int(v["society"]), outcome.get(int(v["camp"]))
+            if out is None or society not in lineage:
+                continue
+            rows.append({"decision": v, "outcome": out, "turn": int(decision["turn"]),
+                         "personality": (personalities or {}).get(society, default_vector()),
+                         "founded_turn": founded.get(int(v["camp"]), int(decision["turn"]))})
+    last = {int(r["outcome"]["camp"]): i for i, r in enumerate(rows)}
+    bootstrap = []
+    for v in step["villages"]:
+        i = last.get(int(v["camp"]))
+        # Only a sequence that reaches the last tail turn alive is truncated (and bootstrapped).
+        if i is None or v.get("observation") is None or v.get("terminated") or rows[i]["outcome"]["terminated"] \
+                or rows[i]["turn"] != final_turn:
+            continue
+        rows[i]["bootstrap_index"] = len(bootstrap)
+        bootstrap.append({"village": v, "personality": (personalities or {}).get(int(v["society"]), default_vector())})
+    return {"rows": rows, "bootstrap": bootstrap}
+
+
 def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int, society: int, alt: dict[str, Any],
            horizon: int, movement: bool, use_bootstrap: bool = False,
-           personalities: dict[int, Any] | None = None) -> dict[str, Any]:
+           personalities: dict[int, Any] | None = None, tail: int = 0,
+           founded: dict[int, int] | None = None) -> dict[str, Any]:
     """Roll one alternative out from the fork: its lineage's discounted return per objective (and the critic's
     per-objective bootstrap, added when ``use_bootstrap``), the whole world's discounted welfare (to tell a lineage
-    gain that only takes from neighbours), and the heuristic's mix on a native branch."""
+    gain that only takes from neighbours), and the heuristic's mix on a native branch. ``tail`` > 0 then plays that
+    many turns of pure policy and returns them as ``tail`` (policy_tail; never part of the score)."""
     step = bridge.restore(fork)
     personalities = None if personalities is None else dict(personalities)
+    founded = dict(founded or {})
     lineage = {society}
     returns = np.zeros(len(contracts.OBJECTIVES)); world = 0.0; discount = 1.0; native_mix = None
     for h in range(horizon):
@@ -206,6 +341,7 @@ def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int
             if v.get("parentSociety", 0) in lineage:
                 lineage.add(int(v["society"]))
         inherit(personalities, step["villages"])
+        note_founded(founded, step)
         returns += discount * component_rewards(step["villages"], lineage)
         world += discount * sum(float(v["welfare"]) for v in step["villages"])
         discount *= float(data.discount(np.asarray([step["years"]]))[0])
@@ -218,8 +354,11 @@ def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int
             break
     bootstraps = discount * lineage_values(critic, normalizer, step["villages"], lineage, personalities)
     total = returns + (np.nan_to_num(bootstraps) if use_bootstrap else 0.0)
-    return {"returns": total, "return": float(returns[0]), "bootstrap": float(bootstraps[0]), "bootstraps": bootstraps,
-            "world": world, "native_mix": native_mix}
+    result = {"returns": total, "return": float(returns[0]), "bootstrap": float(bootstraps[0]), "bootstraps": bootstraps,
+              "world": world, "native_mix": native_mix}
+    if tail > 0:
+        result["tail"] = policy_tail(bridge, step, actor, normalizer, movement, tail, lineage, personalities, founded)
+    return result
 
 
 def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config: SearchConfig) -> dict[str, Any]:
@@ -242,31 +381,39 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
     turns = set(rng.choice(np.arange(config.first_turn, last), size=min(config.points, last - config.first_turn), replace=False).tolist())
     rows: list[dict[str, Any]] = []
     clock = time.perf_counter(); branches = 0
+    founded: dict[int, int] = {}
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=True)
+        note_founded(founded, step)
         for _ in range(warmup):
             step = bridge.step({})
+            note_founded(founded, step)
         for turn in range(config.turns):
             assign(step["villages"])
             if turn in turns:
+                # The heuristic's trade labels on the main-path step whose observation the fork restores (a restored
+                # step carries none).
+                teachers = {int(v["camp"]): v.get("teacher") for v in step["villages"]}
                 fork, decision = bridge.fork()
                 base = policy_actions(actor, normalizer, decision["villages"], movement, personality=personalities)
                 live = [v for v in decision["villages"] if v.get("observation") is not None and not v["terminated"]
                         and int(v["camp"]) in base]
                 for v in [live[i] for i in rng.permutation(len(live))[:config.villages]]:
                     camp, society = int(v["camp"]), int(v["society"])
-                    alts = alternatives(v, base[camp], config)
+                    alts = alternatives(v, base[camp], config, base_posture(base[camp], teachers.get(camp)))
                     results = [branch(bridge, fork, actor, normalizer, critic, camp, society, a, config.horizon, movement,
-                                      config.bootstrap, personalities) for a in alts]
+                                      config.bootstrap, personalities, config.tail, founded) for a in alts]
                     branches += len(alts)
                     p = personalities.get(society) if personalities else [contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES]
                     rows.append({"village": v, "alternatives": alts, "results": results, "turn": turn, "personality": p})
                 step = bridge.restore(fork)
                 bridge.drop(fork)
             step = bridge.step(policy_actions(actor, normalizer, step["villages"], movement, personality=personalities))
+            note_founded(founded, step)
             if not any(not v["terminated"] for v in step["villages"]):
                 break
-    return {"seed": seed, "withheld": withheld, "rows": rows, "seconds": time.perf_counter() - clock, "branches": branches}
+    return {"seed": seed, "withheld": withheld, "warmup": warmup, "rows": rows, "seconds": time.perf_counter() - clock,
+            "branches": branches}
 
 
 def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
@@ -274,8 +421,9 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
     scores, and every alternative's kind, slot and score (padded to MAX_ALTERNATIVES)."""
     villages, extra = [], {k: [] for k in ("seed", "turn", "camp", "label_kind", "label_slot", "label_mix", "score_policy",
                                            "score_best", "alt_kind", "alt_slot", "alt_score", "alt_return", "alt_bootstrap",
-                                           "alt_world", "personality", "alt_returns", "alt_bootstraps")}
-    width = len(contracts.OBJECTIVES)
+                                           "alt_world", "personality", "alt_returns", "alt_bootstraps", "label_fission",
+                                           "label_trade_value", "label_trade_gate", "label_trade_mask")}
+    width = len(contracts.OBJECTIVES); groups = len(contracts.TRADE_GROUPS)
     for world in worlds:
         for row in world["rows"]:
             p = np.asarray(row["personality"], dtype=np.float64)
@@ -287,6 +435,12 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
             extra["seed"].append(world["seed"]); extra["turn"].append(row["turn"]); extra["camp"].append(int(row["village"]["camp"]))
             extra["label_kind"].append(alt["kind"]); extra["label_slot"].append(alt["slot"])
             extra["label_mix"].append(np.full(3, np.nan) if mix is None else np.asarray(mix, dtype=np.float64))
+            # Fission and trade labels: the winning probe's code, or its full posture and the mask of what it changed.
+            extra["label_fission"].append(int(alt["fission"]) if alt["kind"] == FISSION else -1)
+            trade = alt.get("trade") if alt["kind"] == TRADE else None
+            extra["label_trade_value"].append(np.full(groups, np.nan) if trade is None else np.asarray(trade["value"], np.float64))
+            extra["label_trade_gate"].append(np.full(groups, -1) if trade is None else np.asarray(trade["gate"], np.int64))
+            extra["label_trade_mask"].append(np.zeros(groups, np.int8) if trade is None else np.asarray(trade["mask"], np.int8))
             extra["score_policy"].append(scores[0]); extra["score_best"].append(scores[best])
             pad = MAX_ALTERNATIVES - len(scores)
             extra["alt_kind"].append([a["kind"] for a in row["alternatives"]] + [-1] * pad)
@@ -305,6 +459,26 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
     arrays = observation_batch(villages)
     arrays.update({k: np.asarray(v) for k, v in extra.items()})
     return arrays
+
+
+def write_branch_shards(worlds: list[dict[str, Any]], root: Path) -> dict[str, Any]:
+    """Every branch's policy tail as one critic shard (branch_shards.write), keyed by (seed, decision point,
+    alternative); returns shard and row counts per alternative kind."""
+    from . import branch_shards
+    counts = {name: 0 for name in KINDS}; shards = 0
+    for world in worlds:
+        seed, withheld, warmup = int(world["seed"]), int(world["withheld"]), int(world.get("warmup", 0))
+        for point, row in enumerate(world["rows"]):
+            for a, (alt, result) in enumerate(zip(row["alternatives"], row["results"])):
+                tail = result.get("tail")
+                if not tail or not tail["rows"]:
+                    continue
+                meta = {"seed": seed, "withheld": withheld, "warmup": warmup, "point": point, "alternative": a,
+                        "kind": int(alt["kind"]), "fork_turn": int(row["turn"]), "camp": int(row["village"]["camp"]),
+                        "world_id": branch_shards.world_id(seed, withheld, warmup, point, a)}
+                counts[KINDS[alt["kind"]]] += branch_shards.write(root / f"{seed}_{withheld}_{warmup}_{point:03d}_{a:02d}", tail, meta)
+                shards += 1
+    return {"branch_shards": shards, "branch_rows": counts}
 
 
 def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
@@ -366,8 +540,9 @@ def main() -> int:
     labels = label_arrays(results)
     if labels:
         np.savez_compressed(args.out / "labels.npz", **labels)
+    tails = write_branch_shards(results, args.out / "branch_shards") if config.tail > 0 else {}
     summary = {"checkpoint": args.checkpoint, "config": asdict(config), "worlds": len(worlds), "seconds": time.time() - clock,
-               "branches": sum(r["branches"] for r in results),
+               "branches": sum(r["branches"] for r in results), **tails,
                "seconds_per_branch": sum(r["seconds"] for r in results) / max(1, sum(r["branches"] for r in results)),
                **summarize(labels, args.margin)}
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1))
