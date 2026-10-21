@@ -135,6 +135,19 @@ namespace Anthropocene.RLBridge
                     if (environment.Forked) throw new InvalidOperationException("replay verification is unavailable after a search fork");
                     ElderModel9Environment.VerifyReplay(environment.Replay);
                     return new { ok = true, op, steps = environment.Replay.Steps.Count };
+                case "inspect":
+                {
+                    // Audit-only, read-only (docs/MODEL9_MOVEMENT_AUDIT.md): per-camp location, lifestyle, capital, last
+                    // turn's food by source and the harvest-footprint stock via the pure LazyEcology.ProjectEcology read.
+                    // Never MaterializeEcology; the fingerprint is taken before and after and must match.
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    string before = SaveCodec.Fingerprint(environment.World);
+                    int[] extra = root.TryGetProperty("tiles", out var tl) && tl.ValueKind == JsonValueKind.Array ? tl.Deserialize<int[]>(Json) : new int[0];
+                    var report = Inspect(environment.World, extra);
+                    string after = SaveCodec.Fingerprint(environment.World);
+                    if (before != after) throw new InvalidOperationException("inspect changed the world fingerprint");
+                    return new { ok = true, op, fingerprint = after, inspect = report };
+                }
                 case "capture":
                     if (environment == null) throw new InvalidOperationException("reset required");
                     return new { ok = true, op, snapshot = Convert.ToBase64String(SaveCodec.Save(environment.World)) };
@@ -201,6 +214,73 @@ namespace Anthropocene.RLBridge
                 }
             }).ToArray()
         };
+
+        // Footprint stock of a camp standing on `tile`: accessible human food now (pure projection) and its
+        // season-mean capacity, separately for land and aquatic tiles of the gather radius.
+        private static object Footprint(WorldState w, int tile)
+        {
+            double land = 0, landCap = 0, aqua = 0, aquaCap = 0; int shallows = 0, landTiles = 0;
+            foreach (int n in w.Map.Radius(tile, w.Config.GatherRadius))
+            {
+                var t = w.Tiles[n];
+                if (t.Terrain == Terrain.Ocean || t.ElevationLevel >= 10) continue;
+                var view = LazyEcology.ProjectEcology(w, n, w.Days);
+                double cap = 0;
+                for (int s = 0; s < 4; s++) cap += new EcologyCapacity(w, t, view, s).Food / 4;
+                if (t.TraversableLand) { land += Math.Max(0, view.Food); landCap += cap; landTiles++; }
+                else if (t.Aquatic) { aqua += Math.Max(0, view.Food); aquaCap += cap; if (t.Environment == EnvironmentKind.Shallows) shallows++; }
+            }
+            return new { tile, land, landCap, aqua, aquaCap, shallows, landTiles };
+        }
+
+        private static object Inspect(WorldState w, int[] extra)
+        {
+            var n = w.Config.Neolithic;
+            var last = w.History.Count > 0 ? w.History[w.History.Count - 1] : null;
+            var demo = last?.Demographics?.GroupBy(d => d.Camp).ToDictionary(g => g.Key, g => g.Last()) ?? new Dictionary<int, DemographicReport>();
+            var camps = w.Camps.Where(c => c.Population > 0).OrderBy(c => c.Id).Select(c =>
+            {
+                var shelter = NeolithicProduction.HousingCapacity(w, c, w.Days);
+                double e = c.RudimentaryExpectation;
+                double cloth = c.ClothPerCapita, house = c.HousingPerCapita;
+                double gear = n.RudimentaryWeightClothing * (1 - e * (1 - cloth)) + n.RudimentaryWeightHousing * (1 - e * (1 - house));
+                double gearSettled = n.RudimentaryWeightClothing * cloth + n.RudimentaryWeightHousing * house;
+                double cohesion = NeolithicProduction.SocialCohesion(n, NeolithicProduction.HousingShare(n, shelter, c.Population), c.Population);
+                var owned = (w.FixedHousing ?? new List<FixedHousingStock>()).Where(s => s.CampId == c.Id).Select(s => s.Tile).Distinct().OrderBy(t => t)
+                    .Select(t => new { tile = t, units = NeolithicProduction.FixedHousingAt(w, c.Id, t, w.Days) }).ToArray();
+                var fields = Enumerable.Range(0, w.Tiles.Length).Where(i => w.Tiles[i].CultivationOperator == c.Id).ToArray();
+                double fieldCapital = fields.Sum(i => LazyEcology.ProjectEcology(w, i, w.Days).CultivationCapital);
+                double localCapital = w.Map.Radius(c.Tile, 1).Sum(i => Math.Max(0, LazyEcology.ProjectEcology(w, i, w.Days).CultivationCapital));
+                demo.TryGetValue(c.Id, out var d);
+                var memory = c.ElderMemory;
+                return new
+                {
+                    camp = c.Id, society = c.SocietyId, player = c.Player, tile = c.Tile, elevation = w.Tiles[c.Tile].ElevationLevel,
+                    population = c.Population, isVillage = c.IsVillage, villageTurns = c.VillageTurns, moves = c.Moves,
+                    stationaryTurns = c.StationaryTurns, stationaryYears = c.StationaryYears, expectation = e,
+                    hasIntent = memory != null && memory.HasIntent, intentTile = memory != null && memory.HasIntent ? memory.IntentTile : -1,
+                    cultivation = CultivationEconomy.Enabled(c), husbandry = CultivationEconomy.HusbandryEnabled(c),
+                    qol = c.QoL, food = c.FoodNeedsMetRatio, water = c.WaterNeedsMetRatio, cloth, house, gear, gearSettled, cohesion,
+                    fixedHere = NeolithicProduction.FixedHousingAt(w, c, w.Days), fixedOwned = owned,
+                    lightUnits = c.Inventory?.LightHousingUnits ?? 0, shelterFixed = shelter.Fixed, shelterLight = shelter.Light,
+                    fieldTiles = fields.Length, fieldCapital, localCapital,
+                    stores = c.Food, pots = c.Inventory?.Pots ?? 0,
+                    harvest = d == null ? null : new
+                    {
+                        start = d.StartingPopulation, produced = d.FoodProduced, terrestrial = d.TerrestrialFood, marine = d.MarineFood,
+                        lake = d.LakeFood, hunt = d.HuntFood, fish = d.FishFood, forage = d.ForageFood, animal = d.AnimalFood,
+                        slaughter = d.SlaughterFood, consumed = d.FoodConsumed, required = d.FoodRequired, split = d.SplitOff,
+                        emigrated = d.Emigrated, immigrated = d.Immigrated, births = d.GrossBirths, deaths = d.GrossDeaths
+                    },
+                    footprint = Footprint(w, c.Tile),
+                    neighbours = w.Map.Neighbors(c.Tile).OrderBy(t => t).Select(t => Footprint(w, t)).ToArray()
+                };
+            }).ToArray();
+            var fissions = last?.Fissions?.Select(f => new { parent = f.ParentCamp, daughter = f.DaughterCamp, parentSociety = f.ParentSociety,
+                daughterSociety = f.DaughterSociety, tile = f.Tile, people = f.Daughter, trigger = f.Trigger.ToString() }).ToArray();
+            return new { turn = w.Turn, days = w.Days, camps, fissions, migrations = last?.Migrations?.Count ?? 0,
+                tiles = extra.Distinct().OrderBy(t => t).Select(t => Footprint(w, t)).ToArray() };
+        }
 
         private static void Write(object value)
         {
