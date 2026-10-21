@@ -503,6 +503,10 @@ class Hyper:
     search_weight: float = 0.0
     search_margin: float = 0.005
     search_batch: int = 256
+    # Critic warm-up: when a run starts by converting a scalar critic into the vector critic, its population, QoL and
+    # trade heads are new (only welfare is copied). This many extra iterations first train only the critics, so
+    # personality advantages are not built on untrained heads. 0 turns it off.
+    critic_warmup: int = 5
 
 
 def default_personality() -> np.ndarray:
@@ -566,7 +570,9 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
            batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor], old_logp: np.ndarray,
            advantage: np.ndarray, target_u: np.ndarray, cost_adv: np.ndarray, cost_target: np.ndarray,
            lagrange: float, stage: Stage, hyper: Hyper, optimizers: tuple, rng: np.random.Generator,
-           regimes: np.ndarray | None = None, search: dict[str, np.ndarray] | None = None) -> dict[str, float]:
+           regimes: np.ndarray | None = None, search: dict[str, np.ndarray] | None = None,
+           train_actor: bool = True) -> dict[str, float]:
+    """One PPO update. ``train_actor`` False updates only the critics (critic warm-up)."""
     actor_opt, critic_opt, cost_opt = optimizers
     n = len(advantage)
     combined = advantage / max(1e-8, advantage.std()) - lagrange * cost_adv / max(1e-8, cost_adv.std() + 1e-8)
@@ -591,7 +597,7 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             kl = teacher_kl(out, anchor, stage.anchor_strategic, stage.anchor_routes, stage.fission, stage.trade).mean()
             loss = policy - hyper.entropy * ent.mean() + hyper.teacher_kl * kl
             imitation = None
-            if search is not None and hyper.search_weight > 0:
+            if train_actor and search is not None and hyper.search_weight > 0:
                 m = len(search["label_kind"])
                 pick = rng.permutation(m)[: hyper.search_batch] if m > hyper.search_batch else np.arange(m)
                 s_obs = {k: v[pick] for k, v in search.items()}
@@ -600,11 +606,14 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                                         torch.as_tensor(s_obs["label_slot"], dtype=torch.long),
                                         torch.as_tensor(s_obs["label_mix"], dtype=torch.float32))
                 loss = loss + hyper.search_weight * imitation
-            actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
+            if train_actor:
+                actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
             logits = critic(t)
+            value_by = None
             if isinstance(target_u, dict):
-                value_loss = sum(-(critic.two_hot(torch.as_tensor(target_u[name][index], dtype=torch.float32)) *
-                                   torch.log_softmax(logits[name], dim=-1)).sum(-1).mean() for name in target_u)
+                value_by = {name: -(critic.two_hot(torch.as_tensor(target_u[name][index], dtype=torch.float32)) *
+                                    torch.log_softmax(logits[name], dim=-1)).sum(-1).mean() for name in target_u}
+                value_loss = sum(value_by.values())
             else:
                 value_loss = -(critic.two_hot(torch.as_tensor(target_u[index], dtype=torch.float32)) * torch.log_softmax(logits, dim=-1)).sum(-1).mean()
             critic_opt.zero_grad(); value_loss.backward(); nn.utils.clip_grad_norm_(critic.parameters(), 1.0); critic_opt.step()
@@ -615,6 +624,8 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                      "value": float(value_loss.detach()), "cost_value": float(cost_loss.detach())}
             if imitation is not None:
                 stats["search"] = float(imitation.detach())
+            if value_by is not None:  # per-objective value loss: are the personality heads learning?
+                stats["value_by"] = {name: float(v.detach()) for name, v in value_by.items()}
             if n <= hyper.batch:
                 break
         stats["approx_kl"] = float(np.mean(approx)); stats["epochs"] = epoch + 1
@@ -626,7 +637,8 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
 def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor, normalizer: Normalizer,
               seeds: list[int], turns: int, stage: Stage, hyper: Hyper, optimizers: tuple, lagrange: float,
               generator: torch.Generator, rng: np.random.Generator,
-              grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None) -> tuple[float, dict[str, float]]:
+              grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None,
+              train_actor: bool = True) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler)
     batch, draws, old_logp = flatten(roll)
@@ -675,7 +687,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
-                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search)
+                   target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search, train_actor)
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
@@ -845,6 +857,8 @@ def main() -> int:
     parser.add_argument("--search-labels", default=None,
                         help="comma-separated search_teacher labels.npz files: imitate search winners (expert iteration)")
     parser.add_argument("--search-weight", type=float, default=0.5)
+    parser.add_argument("--critic-warmup", type=int, default=None,
+                        help="critic-only iterations before PPO when the vector critic's heads are new (default 5; 0 off)")
     parser.add_argument("--search-margin", type=float, default=None)
     parser.add_argument("--resume", action="store_true",
                         help="continue from <out>/resume.pt when present (preemptible VMs); otherwise start fresh")
@@ -883,11 +897,13 @@ def main() -> int:
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
     # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised trade utility).
+    fresh_heads = False
     if args.vector_critic or state.get("vector_critic") or args.learned_trade or args.personality != "default":
         if state.get("vector_critic"):
             vector = VectorCritic(core_width, privileged_width=privileged, token=token); vector.load_state_dict(state["critic"]); critic = vector
         else:
             critic.load_state_dict(state["critic"]); critic = VectorCritic.from_scalar(critic, core_width, privileged)
+            fresh_heads = True
     else:
         critic.load_state_dict(state["critic"])
     anchor = upgrade(torch.load(args.teacher, map_location="cpu", weights_only=False)) if args.teacher else state
@@ -1020,11 +1036,15 @@ def main() -> int:
         with trajectory.open("w") as f:
             f.write(json.dumps({"baseline": baseline, "eval_worlds": eval_worlds}) + "\n")
         print(json.dumps({"baseline": baseline}), flush=True)
-    for it in range(start, args.iterations):
+    if args.critic_warmup is not None:
+        hyper.critic_warmup = args.critic_warmup
+    warmup = hyper.critic_warmup if fresh_heads else 0  # extra iterations, so the actor still gets --iterations updates
+    for it in range(start, args.iterations + warmup):
         clock = time.time()
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
-                                    optimizers, lagrange, generator, rng, grassland_set, search)
+                                    optimizers, lagrange, generator, rng, grassland_set, search, train_actor=it >= warmup)
+        stats["critic_warmup"] = it < warmup
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         save(args.out / "latest.pt")
         if args.eval_every > 0 and (it + 1) % args.eval_every == 0:

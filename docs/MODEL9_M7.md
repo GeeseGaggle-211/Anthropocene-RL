@@ -830,6 +830,17 @@ successfully here." This changes two things:
    - Its cost is T3lo against T3def at the default personality, within the same band.
    - If T3lo separates and T3per does not, the anchor was forwarding the teacher's bias.
 
+**Addendum 2 (21 October, before any stage-3 result): critic warm-up.**
+- **The gap.** A personality run converts the clone's scalar critic into the vector critic. Only the welfare head is
+  copied; the population, QoL and trade heads start untrained. A smoke run measured their value loss at about 5.5,
+  against 2.9 for the copied welfare head. In t1's T2per, three quarters of each sampled personality's advantage
+  therefore rested on untrained baselines early on. That is unbiased but high-variance, and a plausible contributor to
+  the missing separation.
+- **The fix.** `ppo` now runs 5 critic-only iterations (`--critic-warmup`, actor frozen) whenever it creates new
+  heads, before the 50 PPO iterations. It also logs per-objective value losses (`value_by`).
+- **Scope.** T3per and T3lo get the warm-up. T3def keeps the scalar critic, so it is unchanged. Round 2's `all` arm
+  (learned trade) started before this change and runs without it.
+
 ### Search teacher round 1: results (20 October 2026)
 
 Run on the VM 14:02-22:21 UTC, alongside t1. Evidence is in GCS `model9/search-r1`.
