@@ -175,7 +175,7 @@ namespace Anthropocene.RLBridge
                 priorPopulation = v.PriorPopulation, population = v.Population, qol = v.QoL, nutrition = v.Nutrition,
                 clothing = v.Clothing, housing = v.Housing, years = v.Years, welfare = v.Welfare,
                 terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length, privileged = v.Privileged,
-                tradeUtility = v.TradeUtility,
+                tradeUtility = v.TradeUtility, specialistShare = v.SpecialistShare, goodsOutput = v.GoodsOutput,
                 observation = v.Observation == null ? null : new
                 {
                     core = v.Observation.Core, corePresent = v.Observation.CorePresent,
