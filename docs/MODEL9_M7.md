@@ -998,6 +998,38 @@ is active: 637-1,840 trades per default evaluation.
 argmax over the move-or-native decision before the row. The cheap test is to re-evaluate the round-2 checkpoints
 with that grouped argmax. If they then match or beat S-s55, round 3 proceeds with the hierarchical head.
 
+### Round 3 build: search v2 and critic branch shards (21 October 2026)
+
+Built on `feature/r3-search` from the approved round-3 spec; the design and the label/shard layouts are in
+`MODEL9_SEARCH_TEACHER.md` (*Round 3*). No training results yet; only unit tests and local smokes.
+
+| Where | Flag or field | Default | What it does |
+| --- | --- | --- | --- |
+| `search_teacher` | `--fission` | 1 | FISSION probes: Encourage (2) and Discourage (1) every horizon turn; `label_fission` |
+| `search_teacher` | `--trade` | 1 | TRADE probes: withhold, stock, make to order, x0.5 and x2 value on the largest-holdings group; `label_trade_value/gate/mask` |
+| `search_teacher` | `--tail` | 4 | pure-policy turns after each horizon, written to `<out>/branch_shards/` (0 off) |
+| `train` | `--vector-critic` | off | stage-1 VectorCritic, one head per objective, targets from `data.reward_components` in `ppo.head_scale` units; saves `vector_critic: True` |
+| `train` | `--branch-shards a,b` | none | branch rows in critic pretraining only (never the actor) |
+| `ppo` | `--branch-shards a,b` | none | branch rows in every critic minibatch, lambda-return targets recomputed each iteration with the current critic |
+| `ppo` | `--branch-share` | 0.25 | branch share of each critic minibatch |
+| `ppo` | `--round-start-warmup N` | 0 | N critic-only iterations at the start of a run; with the fresh-heads warm-up, the larger count once; not repeated on `--resume` past them |
+| `ppo` | `--kl-refit` / `--no-kl-refit` | on for new runs | one extra critic-only epoch after an update stopped on `target_kl`; logs `kl_refit`. A resumed run keeps its own setting (off for runs saved before the flag); `Hyper.kl_refit` is off for programmatic use |
+| `branch_bias` | `--checkpoint --branch-shards` | | per alternative kind and head: relative bias of the critic against the realised tail return plus bootstrap (mean, median; per branch entry and per row); `pass` at 10% for native, region and mix |
+
+Without the new flags `train` and `ppo` reproduce their previous outputs. `search_teacher` defaults change (the spec
+sets fission, trade and tail on), so a default search now runs up to 7 more branches per point and 4 more turns per
+branch.
+
+Local smokes (pooling checkpoint `ppo10/stage2-span-seed0/best-single.pt`, seed 1000):
+- **Search:** 1 point, horizon 2, tail 2. It ran 15 branches (1.0 s each) and wrote 15 branch shards with 78 rows.
+  Fission probes scored -2.1%; all four trade probes scored exactly the policy's return, because trade is rare on
+  Small worlds.
+- **`branch_bias` on those shards** (scalar critic, entry welfare bias): native -4.8%, region -10.6% (mean), policy
+  +18.6%, from 1 to 7 branches each, so not evidence.
+- **`ppo`:** one iteration with `--branch-shards` and `--search-labels`, then `--vector-critic --round-start-warmup 1`.
+  Both ran; the second ran 1 critic-only and 1 PPO iteration, and `kl_refit` fired.
+- **`train --vector-critic --branch-shards`:** ran on the same shards and saved all four heads.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies

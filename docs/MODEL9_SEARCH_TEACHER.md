@@ -110,6 +110,86 @@ process it. `search_teacher --personality dirichlet:a` now works as follows:
 - **Imitation.** The label row stores `p`, so the imitation loss conditions the actor on the personality the label was
   scored for. Stored value vectors let labels be rescored for other personalities later.
 
+## Round 3: probes, policy tails and critic branch shards (21 October 2026)
+
+Built from the approved round-3 spec (`MODEL9_M7.md`, *Round 3 build*, lists the flags).
+
+**Fission probes** (kind 4, `--fission 1`). The searched village submits `fission` Encourage (2) or Discourage (1)
+on every turn of the horizon; daughters follow the policy. A probe equal to the policy's own learned code is not run
+(it is the policy branch). The label stores `label_fission` (-1 on other rows), and the imitation loss adds
+cross-entropy on the actor's `fission` logits for those rows.
+
+**Trade probes** (kind 5, `--trade 1`; slot = probe id):
+- 0 withhold (gate 0 every group), 1 offer stock (gate 1), 2 make to order (gate 2);
+- 3 and 4: the relative value of the trade group with the largest holdings (`held`, the first of the bridge
+  schema's `tradeFeatures`) times 0.5 and times 2, clamped to `TRADE_VALUE_RANGE`.
+
+The base posture is the policy's own when it learns trade. Otherwise it is the heuristic's teacher label (tradeValue,
+tradeGate, tradeShare) on the main-path step whose observation the fork restores; a restored step carries no teacher
+labels, so the main path's is used. Without a label it is the native posture: values 1, every gate make-to-order,
+share -1 (the configuration's share).
+
+Every probe submits a **full posture** every horizon turn: `ElderTrade.From` fills an absent value or gate vector
+with native values (1, make), and the bridge treats an absent share as native. A partial posture would silently mix
+the probe with native trade.
+
+Only groups present in the village's trade-set observation count as changed. A village with no trade row gets no
+probe, and a probe that changes nothing is skipped. On the heuristic's native posture, that drops make-to-order, so
+four trade probes run.
+
+**Trade labels.**
+- `label_trade_value` [7] and `label_trade_gate` [7] hold the winning probe's full posture.
+- `label_trade_mask` [7] holds, per group, bit 1 if the probe changed its value and bit 2 if it changed its gate.
+- The imitation loss touches only the masked components:
+  - a Gaussian negative log-likelihood pulls `trade_value_mean` toward log(label). Its scale is detached, so imitation
+    never narrows exploration;
+  - cross-entropy on that group's gate.
+- Probes inform the heads and never restrict them: unmasked groups, the export share and every scale get no
+  gradient.
+
+Earlier label files load beside new ones (missing round-3 arrays mean no fission or trade label; per-alternative
+arrays are padded to the widest file).
+
+**Policy tails** (`--tail 4`, 0 off). After each branch's horizon, the branch plays `tail` more turns of pure policy.
+The tail never enters the score. Its turns become critic **branch shards** under `<out>/branch_shards/`, one directory
+per branch (`<seed>_<withheld>_<warmup>_<point>_<alternative>`), in the teacher-shard layout `data.load` reads.
+
+Each row is one lineage settlement's tail decision. It carries:
+- the observation arrays, the privileged block and the personality it acted at;
+- the outcome keys `data.reward_components` needs;
+- label arrays with every mask false (the actor never trains on them);
+- `world.npy`: a unique int64 world id per (seed, withheld, warm-up, point, alternative), above 2^56, so branch
+  sequences never collide with each other or with teacher shards;
+- `alt_kind.npy` (for validation);
+- `founded_turn.npy`: the turn each settlement was founded on the full path. `data.lineage_rewards` uses it, so the
+  daughter-sharing window is not restarted by a shard starting mid-episode;
+- `bootstrap_index.npy` into the branch's `bootstrap/` block: the observation after the last tail turn of each living
+  settlement.
+
+Rows inside the held horizon are not policy rows and are not written. `branch_shards.load` concatenates directories
+and rebases the bootstrap indices.
+
+**Critic mixing.**
+- `train --vector-critic` pretrains one head per objective. `--branch-shards` adds branch rows to that pretraining
+  (critic only), with lambda-returns bootstrapped by the critic after each branch's last tail turn
+  (`data.lambda_returns(..., bootstrap=)`; MC with the stationary continuation in the first round, as for teacher
+  rows).
+- `ppo --branch-shards` draws `--branch-share` (0.25) of each critic minibatch from branch rows. Their targets are
+  recomputed every iteration with the current critic (`branch_shards.targets`).
+
+**Validation** (`branch_bias.py`). On held-out branch shards, the tool compares the critic's prediction with the
+realised tail return plus the discounted bootstrap (a lambda = 1 return). It reports relative bias per alternative kind
+and head:
+- per branch entry: the lineage's summed value at the first tail turn, the state the search scores;
+- per row.
+
+The spec's target is within 10% for native, region and mix.
+
+The two numbers are not the same quantity. With a 4-turn tail, about 0.82 of the realised target is the critic's own
+discounted bootstrap. This check therefore measures the critic's consistency over 80 years on search-reached states,
+not its absolute calibration. The round-1 "5.7x" was the bootstrap's size relative to a 6-turn return, which is
+expected to be large.
+
 ## Interfaces
 
 - `python -m anthropocene_rl.autonomous_v7.search_teacher --checkpoint <pt> --seeds <train range> [--valley-seeds f]
@@ -122,6 +202,9 @@ process it. `search_teacher --personality dirichlet:a` now works as follows:
 
 - Scores use welfare at the default personality. Personality-weighted search needs the vector critic's
   per-objective bootstrap. The horizon returns could be re-weighted from stored components; this is not built.
-- Alternatives cover movement, the mix and native. Fission, trade posture and capital levels are not searched yet.
+- Alternatives cover movement, the mix, native, fission policy and trade posture (round 3). Capital levels are not
+  searched yet.
+- Trade is rare on Small worlds (2 trades in 10 turns world-wide on seed 1000 under the heuristic), so most trade
+  probes score exactly the policy's return. They cost up to 4 branches per point.
 - The critic bootstrap may be miscalibrated off-distribution, for example right after a move. The summary therefore
   reports the return-only gain beside the scored gain.
