@@ -396,12 +396,22 @@ def values(critic: Critic, batch: dict[str, np.ndarray], normalizer: Normalizer)
     return u * np.maximum(1.0, batch["prior_population"].astype(np.float64))
 
 
+# Objective components that scale with the settlement's residents: their value heads learn a per-resident return
+# (u = G / P). qol_years is QoL x years regardless of headcount, so its head learns the raw return; dividing it by P
+# would make its target fall as 1/P and blur it across village sizes.
+PER_RESIDENT = frozenset({"welfare", "population_years", "trade_utility"})
+
+
+def head_scale(name: str, population: np.ndarray) -> np.ndarray:
+    return np.maximum(1.0, population.astype(np.float64)) if name in PER_RESIDENT else np.ones(len(population))
+
+
 def vector_values(critic: VectorCritic, batch: dict[str, np.ndarray], normalizer: Normalizer) -> dict[str, np.ndarray]:
     """Raw-unit state values per objective component."""
     with torch.no_grad():
         logits = critic(to_tensors(batch, normalizer))
-    scale = np.maximum(1.0, batch["prior_population"].astype(np.float64))
-    return {name: critic.expectation(value).numpy().astype(np.float64) * scale for name, value in logits.items()}
+    return {name: critic.expectation(value).numpy().astype(np.float64) * head_scale(name, batch["prior_population"])
+            for name, value in logits.items()}
 
 
 def region_groups(draws: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
@@ -668,11 +678,11 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         for name in critic.heads:
             boot = np.zeros(len(reward))
             if name in tails:
-                boot[rows] = tails[name][batch["bootstrap_index"][rows]] * np.maximum(1.0, batch["population"][rows])
+                boot[rows] = tails[name][batch["bootstrap_index"][rows]] * head_scale(name, batch["population"][rows])
             advantages[name], target_by[name] = gae(batch, components[name], value_by[name], boot)
         advantage = (combine(advantages, hyper.objective_weights) if "personality" not in batch
                      else combine_personal(advantages, batch["personality"]))
-        target = {name: data.scale_free(value, batch) for name, value in target_by.items()}
+        target = {name: value / head_scale(name, batch["prior_population"]) for name, value in target_by.items()}
     else:
         value = values(critic, batch, normalizer)
         bootstrap = np.zeros(len(reward))

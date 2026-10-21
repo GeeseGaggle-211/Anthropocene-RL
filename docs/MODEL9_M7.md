@@ -846,6 +846,13 @@ need attention.
   after each trunk layer. Both come from the personality's offset from the default personality.
 - The weights are bias-free and zero-initialised. FiLM is the identity in every existing checkpoint and exactly inert
   at the default personality, so T3def is unaffected. Tests check equality with the pre-FiLM network.
+
+**Addendum 4 (21 October, before any stage-3 result): the QoL head's value scale.**
+- **The problem.** Every vector-critic head learned a per-resident return, u = G / P. But qol_years is QoL × years per
+  settlement, not per resident, so its target fell as 1/P and was blurred across village sizes.
+- **The fix.** The qol_years head now learns the raw return (`ppo.PER_RESIDENT`, `head_scale`). Welfare, population
+  and trade stay per resident, so default-personality runs are unchanged.
+- **Scope.** T3per and T3lo get the fix. Round 2's learned-trade arm is unaffected: it carries no QoL weight.
 - T3per and T3lo learn the FiLM weights from zero during PPO; the stage-1 clone is unchanged. Any separation those
   arms show is judged by the same pre-registered rules.
 - **Scope.** T3per and T3lo get the warm-up. T3def keeps the scalar critic, so it is unchanged. Round 2's `all` arm

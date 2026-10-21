@@ -290,6 +290,14 @@ def test_film_is_exact_at_init_inert_at_default_and_conditions_otherwise() -> No
     assert all(float(f.weight.abs().sum()) == 0 for f in [*fresh.film_tokens, *fresh.film_trunk])
 
 
+def test_value_heads_scale_by_residents_except_qol_years() -> None:
+    population = np.array([0, 10, 400])
+    assert np.allclose(ppo.head_scale("welfare", population), [1, 10, 400])
+    assert np.allclose(ppo.head_scale("population_years", population), [1, 10, 400])
+    assert np.allclose(ppo.head_scale("qol_years", population), [1, 1, 1])
+    assert set(contracts.OBJECTIVES) - ppo.PER_RESIDENT == {"qol_years"}
+
+
 def test_personality_shaping_costs_reach_every_component() -> None:
     components = {"welfare": np.array([10.0, 10.0]), "population_years": np.array([200.0, 200.0]),
                   "trade_utility": np.array([-1.0, 2.0]), "qol_years": np.array([16.0, 16.0])}
