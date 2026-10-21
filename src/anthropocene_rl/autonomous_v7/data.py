@@ -45,7 +45,7 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
 
 
 # Optional per-row arrays of search branch shards; "world" replaces the meta seed as the sequence key.
-BRANCH_KEYS = ("world", "personality", "alt_kind", "founded_turn", "bootstrap_index")
+BRANCH_KEYS = ("world", "personality", "alt_kind", "founded_turn", "bootstrap_index", "calibration")
 
 
 def load(directories: Iterable[Path]) -> dict[str, np.ndarray]:

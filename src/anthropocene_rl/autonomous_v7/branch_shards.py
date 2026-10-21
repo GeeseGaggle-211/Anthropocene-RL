@@ -76,6 +76,8 @@ def write(directory: Path, tail: dict[str, Any], meta: dict[str, Any]) -> int:
         "alt_kind": np.full(n, int(meta["kind"]), np.int32),
         "founded_turn": np.asarray([r["founded_turn"] for r in rows], np.int32),
         "bootstrap_index": np.asarray([r.get("bootstrap_index", -1) for r in rows], np.int32),
+        # 1 on a calibration tail (SearchConfig.calibration_tail turns), checked by branch_bias against realised turns.
+        "calibration": np.full(n, int(meta.get("calibration", 0)), np.int8),
     })
     for key, value in arrays.items():
         np.save(directory / f"{key}.npy", value)
@@ -109,6 +111,7 @@ def load(roots: Iterable[Path]) -> tuple[dict[str, np.ndarray], dict[str, np.nda
         w = data.load_world(d)
         if len(w["camp"]) == 0:
             continue
+        w.setdefault("calibration", np.zeros(len(w["camp"]), np.int8))  # shards written before calibration tails
         index = w["bootstrap_index"].astype(np.int64)
         if (d / "bootstrap" / "core.npy").exists():
             b = {p.stem: np.load(p) for p in sorted((d / "bootstrap").glob("*.npy"))}

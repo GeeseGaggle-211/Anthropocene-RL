@@ -137,6 +137,14 @@ Only groups present in the village's trade-set observation count as changed. A v
 probe, and a probe that changes nothing is skipped. On the heuristic's native posture, that drops make-to-order, so
 four trade probes run.
 
+**Activity gate** (`trade_active`). Trade probes run only for a village that shows trade activity:
+- it traded in the last 3 main-path turns (non-zero `tradeUtility`); or
+- a present contacts row shows recent trade utility or trade flow (contacts columns 3-4); or
+- a present trade-set row shows last turn's imports, exports or realised utility (trade columns 6-8).
+
+A present trade row alone does not count, because nearly every eligible village has one. Otherwise the point gets no
+TRADE alternatives. `summary.json` reports `trade_points_probed` and `trade_points_skipped`.
+
 **Trade labels.**
 - `label_trade_value` [7] and `label_trade_gate` [7] hold the winning probe's full posture.
 - `label_trade_mask` [7] holds, per group, bit 1 if the probe changed its value and bit 2 if it changed its gate.
@@ -169,6 +177,11 @@ Each row is one lineage settlement's tail decision. It carries:
 Rows inside the held horizon are not policy rows and are not written. `branch_shards.load` concatenates directories
 and rebases the bootstrap indices.
 
+**Calibration tails** (`--calibration-share 0.1`, `--calibration-tail 12`). A keyed draw per branch
+(`calibration_branch`: seed, withheld, warm-up, fork turn, camp, alternative) gives that share of branches a 12-turn
+tail instead of `tail`. Their rows carry `calibration.npy` = 1. They run only when `tail` > 0. Shards written before
+this have no calibration array and load as 0.
+
 **Critic mixing.**
 - `train --vector-critic` pretrains one head per objective. `--branch-shards` adds branch rows to that pretraining
   (critic only), with lambda-returns bootstrapped by the critic after each branch's last tail turn
@@ -177,18 +190,25 @@ and rebases the bootstrap indices.
 - `ppo --branch-shards` draws `--branch-share` (0.25) of each critic minibatch from branch rows. Their targets are
   recomputed every iteration with the current critic (`branch_shards.targets`).
 
-**Validation** (`branch_bias.py`). On held-out branch shards, the tool compares the critic's prediction with the
-realised tail return plus the discounted bootstrap (a lambda = 1 return). It reports relative bias per alternative kind
-and head:
-- per branch entry: the lineage's summed value at the first tail turn, the state the search scores;
-- per row.
+**Validation** (`branch_bias.py`). On held-out branch shards, relative bias (prediction − realised) / |realised| per
+alternative kind and head, mean and median, in two reports.
 
-The spec's target is within 10% for native, region and mix.
+- **`calibration` (the gate).** Calibration branches only. For each branch:
+  - the prediction is the critic's implied 8-turn lineage value, V(s_0) − Γ_8 V(s_8): the lineage's summed value at
+    the first tail turn minus its discounted summed value 8 turns later;
+  - the target is the realised discounted 8-turn lineage return, with no bootstrap;
+  - a lineage that dies sooner has V(s_8) = 0 and is compared over its whole return. A branch whose tail stopped
+    short with the lineage alive is counted as `short` and skipped.
 
-The two numbers are not the same quantity. With a 4-turn tail, about 0.82 of the realised target is the critic's own
-discounted bootstrap. This check therefore measures the critic's consistency over 80 years on search-reached states,
-not its absolute calibration. The round-1 "5.7x" was the bootstrap's size relative to a 6-turn return, which is
-expected to be large.
+  `pass` requires welfare mean and median within 10% for native, region and mix.
+- **`self_consistency` (diagnostic).** Every branch: the critic's value against the tail return plus its own
+  discounted bootstrap (lambda = 1), per branch entry and per row. With a 4-turn tail, about 0.82 of that target is
+  the bootstrap. It therefore measures consistency, not calibration. The round-1 "5.7x" was the bootstrap's size
+  relative to a 6-turn return, a different quantity.
+
+Of the two calibration forms offered, I chose the critic-implied 8-turn value against the realised 8-turn return. Both
+sides are then an 8-turn quantity, the target is purely realised, and the critic enters only the prediction. The other
+form puts realised turns 9-12 into the prediction, which mixes the two.
 
 ## Interfaces
 
@@ -205,6 +225,6 @@ expected to be large.
 - Alternatives cover movement, the mix, native, fission policy and trade posture (round 3). Capital levels are not
   searched yet.
 - Trade is rare on Small worlds (2 trades in 10 turns world-wide on seed 1000 under the heuristic), so most trade
-  probes score exactly the policy's return. They cost up to 4 branches per point.
+  probes score exactly the policy's return. The activity gate skips them where nothing is traded.
 - The critic bootstrap may be miscalibrated off-distribution, for example right after a move. The summary therefore
   reports the return-only gain beside the scored gain.

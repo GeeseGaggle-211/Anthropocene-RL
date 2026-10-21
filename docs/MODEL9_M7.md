@@ -1006,15 +1006,16 @@ Built on `feature/r3-search` from the approved round-3 spec; the design and the 
 | Where | Flag or field | Default | What it does |
 | --- | --- | --- | --- |
 | `search_teacher` | `--fission` | 1 | FISSION probes: Encourage (2) and Discourage (1) every horizon turn; `label_fission` |
-| `search_teacher` | `--trade` | 1 | TRADE probes: withhold, stock, make to order, x0.5 and x2 value on the largest-holdings group; `label_trade_value/gate/mask` |
+| `search_teacher` | `--trade` | 1 | TRADE probes: withhold, stock, make to order, x0.5 and x2 value on the largest-holdings group; `label_trade_value/gate/mask`. Only for villages with trade activity (traded in the last 3 turns, or a trading contact or last-turn trade in the observation); `summary.json` counts `trade_points_probed` and `trade_points_skipped` |
 | `search_teacher` | `--tail` | 4 | pure-policy turns after each horizon, written to `<out>/branch_shards/` (0 off) |
+| `search_teacher` | `--calibration-share`, `--calibration-tail` | 0.1, 12 | a keyed share of branches plays a 12-turn tail; its rows are marked `calibration` 1 |
 | `train` | `--vector-critic` | off | stage-1 VectorCritic, one head per objective, targets from `data.reward_components` in `ppo.head_scale` units; saves `vector_critic: True` |
 | `train` | `--branch-shards a,b` | none | branch rows in critic pretraining only (never the actor) |
 | `ppo` | `--branch-shards a,b` | none | branch rows in every critic minibatch, lambda-return targets recomputed each iteration with the current critic |
 | `ppo` | `--branch-share` | 0.25 | branch share of each critic minibatch |
 | `ppo` | `--round-start-warmup N` | 0 | N critic-only iterations at the start of a run; with the fresh-heads warm-up, the larger count once; not repeated on `--resume` past them |
 | `ppo` | `--kl-refit` / `--no-kl-refit` | on for new runs | one extra critic-only epoch after an update stopped on `target_kl`; logs `kl_refit`. A resumed run keeps its own setting (off for runs saved before the flag); `Hyper.kl_refit` is off for programmatic use |
-| `branch_bias` | `--checkpoint --branch-shards` | | per alternative kind and head: relative bias of the critic against the realised tail return plus bootstrap (mean, median; per branch entry and per row); `pass` at 10% for native, region and mix |
+| `branch_bias` | `--checkpoint --branch-shards` | | per alternative kind and head, relative bias (mean, median). `calibration`: the critic's implied 8-turn value V(s_0) − Γ_8 V(s_8) against the realised 8-turn return on calibration branches; `pass` at 10% for native, region and mix, on these rows only. `self_consistency` (diagnostic): against the tail return plus bootstrap |
 
 Without the new flags `train` and `ppo` reproduce their previous outputs. `search_teacher` defaults change (the spec
 sets fission, trade and tail on), so a default search now runs up to 7 more branches per point and 4 more turns per
@@ -1029,6 +1030,14 @@ Local smokes (pooling checkpoint `ppo10/stage2-span-seed0/best-single.pt`, seed 
 - **`ppo`:** one iteration with `--branch-shards` and `--search-labels`, then `--vector-critic --round-start-warmup 1`.
   Both ran; the second ran 1 critic-only and 1 PPO iteration, and `kl_refit` fired.
 - **`train --vector-critic --branch-shards`:** ran on the same shards and saved all four heads.
+- **Calibration and gate** (seeds 1000-1001, 2 villages, horizon 2, tail 2, `--calibration-share 0.5`): 39 branches,
+  of which 19 were calibration branches.
+  - The trade gate skipped all 4 points.
+  - Calibration welfare bias was −0.9% for native (1 branch), −180% median for region (10) and −129% for fission (6),
+    so no pass.
+  - A strongly negative bias means V(s_0) < Γ_8 V(s_8): the scalar critic values the lineage 8 turns on far above
+    its value now, so it understates near-term value on growing lineages.
+  - This is a tiny sample, but it is the kind of miscalibration the self-consistency check cannot see.
 
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 

@@ -189,7 +189,7 @@ def write_two(tmp_path):
     root = tmp_path / "branch_shards"
     for a, kind in ((0, st.POLICY), (1, st.REGION)):
         meta = {"seed": 1001, "withheld": 0, "warmup": 0, "point": 0, "alternative": a, "kind": kind,
-                "world_id": branch_shards.world_id(1001, 0, 0, 0, a)}
+                "world_id": branch_shards.world_id(1001, 0, 0, 0, a), "calibration": a}
         branch_shards.write(root / f"b{a}", fake_tail(a, terminate_last=a == 1), meta)
     return root
 
@@ -202,6 +202,7 @@ def test_branch_shards_round_trip_through_data_load(tmp_path) -> None:
     assert not rows["strategic_mask"].any() and not rows["movement_label_mask"].any()  # never actor rows
     assert len(set(rows["world"].tolist())) == 2 and rows["world"].min() >= branch_shards.BRANCH_WORLD_BASE
     assert rows["alt_kind"].tolist() == [st.POLICY] * 4 + [st.REGION] * 4
+    assert rows["calibration"].tolist() == [0] * 4 + [1] * 4
     assert rows["personality"].shape == (8, contracts.PERSONALITY_WIDTH) and rows["privileged"].shape == (8, 3)
     assert len(data.sequences(rows)) == 4  # (world, camp): branches never share a sequence
     components = data.reward_components(rows)
@@ -249,7 +250,90 @@ def test_lambda_returns_bootstrap_after_the_last_tail_turn(tmp_path) -> None:
     pred, real = branch_bias.realised(critic, rows, bootstrap, normalizer)
     report = branch_bias.report(pred, real, rows)
     assert set(report["kinds"]) == {"policy", "region"} and report["kinds"]["region"]["welfare"]["branches"] == 1
-    json.dumps(report)
+    full = branch_bias.evaluate(pred, real, rows)
+    # The calibration shard's 2-turn tail ends with its lineage alive: too short for an 8-turn check, so no pass.
+    assert full["calibration"]["short"] == 1 and full["calibration"]["branches"] == 0 and full["pass"] is False
+    json.dumps(full)
+
+
+def calibration_rows(turns: int = 10, die_at: int | None = None) -> dict[str, np.ndarray]:
+    """One calibration branch, one settlement, reward 100 per turn (welfare = P x Q x dt = 10 x 0.5 x 20)."""
+    t = np.arange(turns)
+    terminated = np.zeros(turns, bool)
+    if die_at is not None:
+        t = t[:die_at + 1]; terminated = np.zeros(len(t), bool); terminated[-1] = True
+    n = len(t)
+    return {"world": np.full(n, 77), "camp": np.zeros(n, int), "turn": t, "society": np.ones(n, int),
+            "parent_society": np.zeros(n, int), "prior_population": np.full(n, 10), "population": np.full(n, 10),
+            "qol": np.full(n, 0.5), "years": np.full(n, 20.0), "terminated": terminated,
+            "welfare": np.full(n, 100.0), "alt_kind": np.full(n, st.NATIVE), "calibration": np.ones(n, np.int8)}
+
+
+def test_calibration_compares_the_implied_8_turn_value_with_8_realised_turns() -> None:
+    rows = calibration_rows()
+    g = float(data.discount(np.array([20.0]))[0])
+    realised = sum(100 * g ** k for k in range(8))
+    full = 100 / (1 - g)  # a perfectly calibrated stationary value
+    pred = {"welfare": np.full(len(rows["camp"]), full)}
+    cal = branch_bias.calibration(pred, rows)
+    assert cal["branches"] == 1
+    assert abs(cal["kinds"]["native"]["welfare"]["mean"]) < 1e-9  # V0 - g^8 V8 is exactly the 8-turn return
+    assert np.isclose(full - g ** 8 * full, realised)
+    biased = branch_bias.calibration({"welfare": pred["welfare"] * 1.2}, rows)
+    assert np.isclose(biased["kinds"]["native"]["welfare"]["median"], 0.2)
+    real = {"welfare": np.zeros(len(rows["camp"]))}
+    assert branch_bias.evaluate(pred, real, rows)["pass"] is True
+    assert branch_bias.evaluate({"welfare": pred["welfare"] * 1.2}, real, rows)["pass"] is False
+    # A lineage that dies before turn 8: its whole realised return against V0 (nothing left to subtract).
+    dead = calibration_rows(die_at=3)
+    dead["welfare"][-1] = 0.0
+    cal = branch_bias.calibration({"welfare": np.full(4, 100.0 * (1 + g + g * g))}, dead)
+    assert cal["branches"] == 1 and abs(cal["kinds"]["native"]["welfare"]["mean"]) < 1e-9
+    assert branch_bias.calibration(pred, dict(rows, calibration=np.zeros(10, np.int8)))["branches"] == 0
+
+
+def test_calibration_branches_are_keyed_and_take_the_configured_share() -> None:
+    draws = [st.calibration_branch(1000, 0, 0, turn, camp, a, 0.1) for turn in range(10) for camp in range(10) for a in range(10)]
+    assert draws == [st.calibration_branch(1000, 0, 0, turn, camp, a, 0.1) for turn in range(10) for camp in range(10) for a in range(10)]
+    assert 0.06 < np.mean(draws) < 0.14
+    assert not any(st.calibration_branch(1000, 0, 0, 1, 2, a, 0.0) for a in range(50))
+    assert st.SearchConfig().calibration_share == 0.1 and st.SearchConfig().calibration_tail == 12
+
+
+def quiet(v: dict) -> dict:
+    """The village with no trade activity in its contacts or trade rows."""
+    obs = v["observation"]
+    for index, columns in ((st.CONTACT_SET, st.CONTACT_TRADE), (st.TRADE_SET, st.TRADE_ACTIVITY)):
+        _, rows, width = contracts.SETS[index]
+        table = np.asarray(obs["sets"][index]).reshape(rows, width)
+        table[:, list(columns)] = 0.0
+        obs["sets"][index] = table.reshape(-1).tolist()
+    return v
+
+
+def test_trade_probes_run_only_for_villages_with_recent_trade() -> None:
+    v = quiet(village())
+    assert not st.trade_active(v, [0.0, 0.0, 0.0]) and not st.trade_active(v, None)
+    assert st.trade_active(v, [0.0, 0.3, 0.0])
+    history: dict = {}
+    for u in (0.5, 0.0, 0.0, 0.0):
+        st.note_trade(history, {"villages": [{"camp": 7, "tradeUtility": u}]})
+    assert history[7] == [0.0, 0.0, 0.0] and not st.trade_active(v, history[7])  # the trade 4 turns ago has aged out
+    contact = quiet(village())
+    _, rows, width = contracts.SETS[st.CONTACT_SET]
+    table = np.asarray(contact["observation"]["sets"][st.CONTACT_SET]).reshape(rows, width)
+    present = contact["observation"]["rowPresent"][st.CONTACT_SET]
+    present[:] = [False] * rows; present[2] = True; table[2, 4] = 0.01  # one known contact with trade flow
+    contact["observation"]["sets"][st.CONTACT_SET] = table.reshape(-1).tolist()
+    assert st.trade_active(contact, None)
+    traded = quiet(village())
+    _, rows, width = contracts.SETS[st.TRADE_SET]
+    table = np.asarray(traded["observation"]["sets"][st.TRADE_SET]).reshape(rows, width)
+    table[3, 6] = 2.0  # imported last turn on a present trade row
+    traded["observation"]["sets"][st.TRADE_SET] = table.reshape(-1).tolist()
+    assert st.trade_active(traded, None)
+    kinds = [a["kind"] for a in st.alternatives(v, BASE, st.SearchConfig(), trade_ok=False)]
+    assert st.TRADE not in kinds and st.FISSION in kinds
 
 
 # ------------------------------------------------------------------------------------------------ PPO critic

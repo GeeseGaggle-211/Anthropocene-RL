@@ -75,6 +75,11 @@ class SearchConfig:
     trade: bool = True
     # Pure-policy turns after each branch's horizon, written as critic branch shards (<out>/branch_shards); 0 off.
     tail: int = 4
+    # Calibration tails: this share of branches (a keyed draw per branch, calibration_branch) plays calibration_tail
+    # turns instead, and its shard rows are marked calibration = 1, so branch_bias can test the critic against 8
+    # realised turns rather than against its own bootstrap. Only when tail > 0.
+    calibration_share: float = 0.1
+    calibration_tail: int = 12
 
 
 def load_critic(checkpoint: Path):
@@ -192,10 +197,55 @@ def trade_probes(village: dict[str, Any], posture: dict[str, Any]) -> list[dict[
     return out
 
 
+TRADE_RECENT_TURNS = 3
+CONTACT_SET = [name for name, _, _ in contracts.SETS].index("contacts")
+CONTACT_TRADE = (3, 4)      # contacts row: recent trade utility and trade flow per capita-year (ElderObservationSchema)
+TRADE_ACTIVITY = (6, 7, 8)  # trade row: imported, exported, realised utility (TradeFeatureNames)
+
+
+def note_trade(history: dict[int, list[float]], step: dict[str, Any]) -> None:
+    """Each settlement's realised trade utility on the last TRADE_RECENT_TURNS main-path steps."""
+    for v in step["villages"]:
+        recent = history.setdefault(int(v["camp"]), [])
+        recent.append(float(v.get("tradeUtility", 0.0) or 0.0))
+        del recent[:-TRADE_RECENT_TURNS]
+
+
+def trade_active(village: dict[str, Any], recent: list[float] | None) -> bool:
+    """Whether trade probes are worth running for this village: it traded in the last TRADE_RECENT_TURNS main-path
+    turns (non-zero tradeUtility), or its observation shows a known trading contact (a present contacts row with
+    recent trade utility or flow) or last turn's trade in a present trade-set row (imported, exported or realised
+    utility). A present trade row alone is not enough: nearly every eligible village has one."""
+    if recent and any(abs(float(x)) > 0 for x in recent[-TRADE_RECENT_TURNS:]):
+        return True
+    obs = village.get("observation") or {}
+    sets, present = obs.get("sets"), obs.get("rowPresent")
+    if not sets or not present:
+        return False
+    for index, columns in ((CONTACT_SET, CONTACT_TRADE), (TRADE_SET, TRADE_ACTIVITY)):
+        if index >= len(sets):
+            continue
+        _, rows, width = contracts.SETS[index]
+        table = np.asarray(sets[index], np.float64).reshape(rows, width)
+        live = np.asarray(present[index], bool)[:rows]
+        if (np.abs(table[live][:, list(columns)]) > 0).any():
+            return True
+    return False
+
+
+def calibration_branch(seed: int, withheld: int, warmup: int, turn: int, camp: int, alternative: int,
+                       share: float) -> bool:
+    """A keyed, deterministic draw: whether this branch plays a calibration tail."""
+    if share <= 0:
+        return False
+    return bool(np.random.default_rng([seed, withheld, warmup, 17, turn, camp, alternative]).random() < share)
+
+
 def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchConfig,
-                 posture: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                 posture: dict[str, Any] | None = None, trade_ok: bool = True) -> list[dict[str, Any]]:
     """The alternatives searched for one village at a fork, the policy first. ``posture``: the trade posture probes
-    perturb (base_posture; None takes the policy's own or the native one)."""
+    perturb (base_posture; None takes the policy's own or the native one). ``trade_ok`` False (trade_active) skips
+    the trade probes."""
     obs = village["observation"]
     out = [{"kind": POLICY, "slot": -1, "mix": None}]
     if config.native:
@@ -219,7 +269,7 @@ def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchCo
         for code in FISSION_PROBES:
             if int(base.get("fission", -1)) != code:  # the policy's own learned choice is the policy branch
                 out.append({"kind": FISSION, "slot": code, "mix": None, "fission": code})
-    if config.trade:
+    if config.trade and trade_ok:
         out.extend(trade_probes(village, posture if posture is not None else base_posture(base, None)))
     return out
 
@@ -382,12 +432,13 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
     rows: list[dict[str, Any]] = []
     clock = time.perf_counter(); branches = 0
     founded: dict[int, int] = {}
+    traded: dict[int, list[float]] = {}; trade_points = {"trade_points_probed": 0, "trade_points_skipped": 0}
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld, movement=True)
         note_founded(founded, step)
         for _ in range(warmup):
             step = bridge.step({})
-            note_founded(founded, step)
+            note_founded(founded, step); note_trade(traded, step)
         for turn in range(config.turns):
             assign(step["villages"])
             if turn in turns:
@@ -400,20 +451,28 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
                         and int(v["camp"]) in base]
                 for v in [live[i] for i in rng.permutation(len(live))[:config.villages]]:
                     camp, society = int(v["camp"]), int(v["society"])
-                    alts = alternatives(v, base[camp], config, base_posture(base[camp], teachers.get(camp)))
+                    trade_ok = trade_active(v, traded.get(camp))
+                    if config.trade:
+                        trade_points["trade_points_probed" if trade_ok else "trade_points_skipped"] += 1
+                    alts = alternatives(v, base[camp], config, base_posture(base[camp], teachers.get(camp)), trade_ok)
+                    calibrated = [config.tail > 0 and calibration_branch(seed, withheld, warmup, turn, camp, i,
+                                                                          config.calibration_share) for i in range(len(alts))]
                     results = [branch(bridge, fork, actor, normalizer, critic, camp, society, a, config.horizon, movement,
-                                      config.bootstrap, personalities, config.tail, founded) for a in alts]
+                                      config.bootstrap, personalities, config.calibration_tail if c else config.tail,
+                                      founded) for a, c in zip(alts, calibrated)]
+                    for r, c in zip(results, calibrated):
+                        r["calibration"] = bool(c)
                     branches += len(alts)
                     p = personalities.get(society) if personalities else [contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES]
                     rows.append({"village": v, "alternatives": alts, "results": results, "turn": turn, "personality": p})
                 step = bridge.restore(fork)
                 bridge.drop(fork)
             step = bridge.step(policy_actions(actor, normalizer, step["villages"], movement, personality=personalities))
-            note_founded(founded, step)
+            note_founded(founded, step); note_trade(traded, step)
             if not any(not v["terminated"] for v in step["villages"]):
                 break
     return {"seed": seed, "withheld": withheld, "warmup": warmup, "rows": rows, "seconds": time.perf_counter() - clock,
-            "branches": branches}
+            "branches": branches, **trade_points}
 
 
 def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
@@ -465,7 +524,7 @@ def write_branch_shards(worlds: list[dict[str, Any]], root: Path) -> dict[str, A
     """Every branch's policy tail as one critic shard (branch_shards.write), keyed by (seed, decision point,
     alternative); returns shard and row counts per alternative kind."""
     from . import branch_shards
-    counts = {name: 0 for name in KINDS}; shards = 0
+    counts = {name: 0 for name in KINDS}; shards = calibration = 0
     for world in worlds:
         seed, withheld, warmup = int(world["seed"]), int(world["withheld"]), int(world.get("warmup", 0))
         for point, row in enumerate(world["rows"]):
@@ -475,10 +534,11 @@ def write_branch_shards(worlds: list[dict[str, Any]], root: Path) -> dict[str, A
                     continue
                 meta = {"seed": seed, "withheld": withheld, "warmup": warmup, "point": point, "alternative": a,
                         "kind": int(alt["kind"]), "fork_turn": int(row["turn"]), "camp": int(row["village"]["camp"]),
-                        "world_id": branch_shards.world_id(seed, withheld, warmup, point, a)}
+                        "world_id": branch_shards.world_id(seed, withheld, warmup, point, a),
+                        "calibration": int(bool(result.get("calibration", False)))}
                 counts[KINDS[alt["kind"]]] += branch_shards.write(root / f"{seed}_{withheld}_{warmup}_{point:03d}_{a:02d}", tail, meta)
-                shards += 1
-    return {"branch_shards": shards, "branch_rows": counts}
+                shards += 1; calibration += meta["calibration"]
+    return {"branch_shards": shards, "branch_rows": counts, "calibration_shards": calibration}
 
 
 def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
@@ -543,6 +603,8 @@ def main() -> int:
     tails = write_branch_shards(results, args.out / "branch_shards") if config.tail > 0 else {}
     summary = {"checkpoint": args.checkpoint, "config": asdict(config), "worlds": len(worlds), "seconds": time.time() - clock,
                "branches": sum(r["branches"] for r in results), **tails,
+               # Trade-probe gate (trade_active): decision points whose village was probed or skipped.
+               **{key: sum(r.get(key, 0) for r in results) for key in ("trade_points_probed", "trade_points_skipped")},
                "seconds_per_branch": sum(r["seconds"] for r in results) / max(1, sum(r["branches"] for r in results)),
                **summarize(labels, args.margin)}
     (args.out / "summary.json").write_text(json.dumps(summary, indent=1))
