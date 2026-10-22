@@ -37,28 +37,40 @@ class Normalizer:
     set_std: dict[str, np.ndarray] = field(default_factory=dict)
     privileged_mean: np.ndarray | None = None
     privileged_std: np.ndarray | None = None
+    # Input guard (docs/MODEL9_TOKENS.md, "Cloning stability"): None keeps the original affine exactly. Otherwise
+    # inputs that were constant in the fitting data (``dead``: "core", set names, "privileged") are dropped, since the
+    # 1e-3 std floor would turn any other value into a |z| of hundreds through weights that never received a gradient,
+    # and every other normalized input is clipped to [-guard, guard].
+    guard: float | None = None
+    dead: dict[str, np.ndarray] = field(default_factory=dict)
 
     @staticmethod
-    def fit(batch: dict[str, np.ndarray]) -> "Normalizer":
-        def moments(x: np.ndarray, present: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def fit(batch: dict[str, np.ndarray], guard: float | None = None) -> "Normalizer":
+        dead: dict[str, np.ndarray] = {}
+
+        def moments(x: np.ndarray, present: np.ndarray, key: str) -> tuple[np.ndarray, np.ndarray]:
             x = np.sign(x) * np.log1p(np.abs(x))
             w = present.astype(np.float64)
             n = np.maximum(1.0, w.sum(axis=0))
             mean = (x * w).sum(axis=0) / n
             var = (((x - mean) ** 2) * w).sum(axis=0) / n
+            dead[key] = np.sqrt(var) < DEAD_STD
             return mean.astype(np.float32), np.maximum(np.sqrt(var), 1e-3).astype(np.float32)
 
-        core_mean, core_std = moments(batch["core"], batch["core_present"])
+        core_mean, core_std = moments(batch["core"], batch["core_present"], "core")
         normalizer = Normalizer(core_mean, core_std)
         for name, rows, width in contracts.SETS:
             if name not in batch:  # shards written before the set existed (contract 10 regions): identity moments
                 normalizer.set_mean[name], normalizer.set_std[name] = np.zeros(width, np.float32), np.ones(width, np.float32)
+                dead[name] = np.zeros(width, bool)  # absent rows are masked anyway; a later set keeps its full input
                 continue
             x = batch[name].reshape(-1, width)
             present = np.repeat(batch[name + "_present"].reshape(-1, 1), width, axis=1)
-            normalizer.set_mean[name], normalizer.set_std[name] = moments(x, present)
+            normalizer.set_mean[name], normalizer.set_std[name] = moments(x, present, name)
         if "privileged" in batch:
-            normalizer.privileged_mean, normalizer.privileged_std = moments(batch["privileged"], np.ones_like(batch["privileged"], bool))
+            normalizer.privileged_mean, normalizer.privileged_std = moments(batch["privileged"], np.ones_like(batch["privileged"], bool), "privileged")
+        if guard is not None:
+            normalizer.guard, normalizer.dead = float(guard), dead
         return normalizer
 
     def state_dict(self) -> dict[str, list[float]]:
@@ -68,6 +80,10 @@ class Normalizer:
             out[name + "_std"] = self.set_std[name].tolist()
         if self.privileged_mean is not None:
             out["privileged_mean"] = self.privileged_mean.tolist(); out["privileged_std"] = self.privileged_std.tolist()
+        if self.guard is not None:  # absent in unguarded checkpoints, so they load (and normalize) exactly as before
+            out["guard"] = self.guard
+            for key, value in self.dead.items():
+                out[key + "_dead"] = value.tolist()
         return out
 
     @staticmethod
@@ -79,22 +95,39 @@ class Normalizer:
         if "privileged_mean" in state:
             n.privileged_mean = np.asarray(state["privileged_mean"], np.float32)
             n.privileged_std = np.asarray(state["privileged_std"], np.float32)
+        if state.get("guard") is not None:
+            n.guard = float(state["guard"])
+            n.dead = {key[:-len("_dead")]: np.asarray(value, bool) for key, value in state.items() if key.endswith("_dead")}
         return n
+
+    def dead_names(self) -> dict[str, list[int]]:
+        """Indices of the dropped inputs per block (for the training log)."""
+        return {key: np.flatnonzero(value).tolist() for key, value in self.dead.items() if value.any()}
+
+
+# A normalized input whose fitting-data std (after symlog) is below this is constant there: the guard drops it.
+DEAD_STD = 1e-3
 
 
 def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str = "cpu") -> dict[str, torch.Tensor]:
-    def norm(x: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
-        return ((np.sign(x) * np.log1p(np.abs(x))) - mean) / std
+    def norm(x: np.ndarray, mean: np.ndarray, std: np.ndarray, key: str) -> np.ndarray:
+        z = ((np.sign(x) * np.log1p(np.abs(x))) - mean) / std
+        if normalizer.guard is not None:
+            z = np.clip(z, -normalizer.guard, normalizer.guard)
+            dead = normalizer.dead.get(key)
+            if dead is not None and dead.any():
+                z = np.where(dead, 0.0, z).astype(z.dtype)
+        return z
 
     present = batch["core_present"].astype(np.float32)
-    core = norm(batch["core"], normalizer.core_mean, normalizer.core_std) * present
+    core = norm(batch["core"], normalizer.core_mean, normalizer.core_std, "core") * present
     out = {"core": torch.as_tensor(np.concatenate([core, present], axis=1), dtype=torch.float32, device=device)}
     for name, rows, width in contracts.SETS:
         if name not in batch:  # a set the shard predates: every row absent
             out[name] = torch.zeros(len(batch["core"]), rows, width, dtype=torch.float32, device=device)
             out[name + "_present"] = torch.zeros(len(batch["core"]), rows, dtype=torch.bool, device=device)
             continue
-        x = norm(batch[name], normalizer.set_mean[name], normalizer.set_std[name])
+        x = norm(batch[name], normalizer.set_mean[name], normalizer.set_std[name], name)
         mask = batch[name + "_present"]
         x = x * mask[..., None]
         out[name] = torch.as_tensor(x, dtype=torch.float32, device=device)
@@ -119,7 +152,7 @@ def to_tensors(batch: dict[str, np.ndarray], normalizer: Normalizer, device: str
         personality = np.tile(np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32), (len(batch["core"]), 1))
     out["personality"] = torch.as_tensor(personality, dtype=torch.float32, device=device)
     if "privileged" in batch and normalizer.privileged_mean is not None:
-        out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std),
+        out["privileged"] = torch.as_tensor(norm(batch["privileged"], normalizer.privileged_mean, normalizer.privileged_std, "privileged"),
                                             dtype=torch.float32, device=device)
     return out
 

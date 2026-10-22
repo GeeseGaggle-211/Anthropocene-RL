@@ -22,8 +22,8 @@ import torch
 from torch import nn
 
 from . import contracts, data
-from .model import (Actor, Critic, Normalizer, VectorCritic, logistic_normal_nll, mix_soft_cross_entropy, mix_target,
-                    to_tensors)
+from .model import (Actor, Critic, Normalizer, VectorCritic, act_deterministic, logistic_normal_nll,
+                    mix_soft_cross_entropy, mix_target, to_tensors)
 
 
 def subset(batch: dict[str, np.ndarray], index: np.ndarray) -> dict[str, np.ndarray]:
@@ -66,10 +66,62 @@ def label_tensors(batch: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
     return out
 
 
+def mode_agreement(out: dict[str, torch.Tensor], labels: dict[str, torch.Tensor]) -> dict[str, float]:
+    """Fast fidelity proxy: the deterministic (closed-loop evaluation) action against the teacher's, per head: mean
+    absolute error of each service level and of the unit strategic controls (after the 0/1 snapping), and agreement
+    of the routes. The logistic-normal NLL weights boundary labels by 1 / std^2, so it can move by nats while the mode
+    the evaluation plays is unchanged, or the reverse."""
+    mode = act_deterministic(out)
+    result: dict[str, float] = {}
+    vm = labels["service_mask"].numpy().astype(bool)
+    err = np.abs(mode["service"] - labels["service_levels"].numpy())
+    for j, name in enumerate(contracts.SERVICES):
+        if vm[:, j].any():
+            result["service_" + name] = float(err[vm[:, j], j].mean())
+    u = contracts.UNIT_STRATEGIC
+    sm = labels["strategic_mask"].numpy().astype(bool)[:, :u]
+    serr = np.abs(mode["strategic"][:, :u] - labels["strategic"].numpy()[:, :u])
+    if sm.any():
+        result["strategic"] = float(serr[sm].mean())
+    for head, label, mask in (("clothing", "clothing_route", "clothing_route_label_mask"),
+                              ("shelter", "shelter_route", "shelter_route_label_mask")):
+        m = labels[mask].numpy().astype(bool)
+        if m.any():
+            result[head + "_route"] = float((mode[head][m] == labels[label].numpy()[m]).mean())
+    return result
+
+
+def lr_factor(step: int, total: int, warmup: float, final: float | None) -> float:
+    """Learning-rate multiplier: linear warm-up over the first ``warmup`` share of steps, then cosine decay to
+    ``final`` of the peak at the last step; ``final`` None keeps the peak after warm-up (the original flat rate)."""
+    warm = int(round(warmup * total))
+    if step < warm:
+        return (step + 1) / warm
+    if final is None:
+        return 1.0
+    progress = (step - warm) / max(1, total - 1 - warm)
+    return final + (1.0 - final) * 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+
+
 def train_actor(actor: Actor, train: dict[str, np.ndarray], dev: dict[str, np.ndarray], normalizer: Normalizer,
-                epochs: int, batch_size: int, lr: float, log: list) -> None:
-    optimizer = torch.optim.Adam(actor.parameters(), lr=lr)
+                epochs: int, batch_size: int, lr: float, log: list, warmup: float = 0.0, final_lr: float | None = None,
+                encoder_lr_scale: float = 1.0, grad_clip: float = 1.0) -> None:
+    """Behaviour cloning. The defaults are the original optimiser (Adam at a flat ``lr``, gradient clip 1.0); ``main``
+    turns the schedule on for ``--token`` (docs/MODEL9_TOKENS.md, "Cloning stability"). ``encoder_lr_scale`` sets the
+    encoder's peak rate relative to the heads' rate."""
+    if encoder_lr_scale == 1.0:
+        groups = [{"params": list(actor.parameters()), "peak": lr}]  # one group: the original optimiser layout
+    else:
+        encoder = list(actor.encoder.parameters())
+        ids = {id(p) for p in encoder}
+        groups = [{"params": [p for p in actor.parameters() if id(p) not in ids], "peak": lr},
+                  {"params": encoder, "peak": lr * encoder_lr_scale}]
+    for group in groups:
+        group["lr"] = group["peak"]
+    optimizer = torch.optim.Adam(groups, lr=lr)
     n = len(train["camp"])
+    total = epochs * math.ceil(n / batch_size)
+    step = 0
     dev_t, dev_l = to_tensors(dev, normalizer), label_tensors(dev)
     for epoch in range(epochs):
         actor.train()
@@ -78,16 +130,21 @@ def train_actor(actor: Actor, train: dict[str, np.ndarray], dev: dict[str, np.nd
         for start in range(0, n, batch_size):
             index = order[start:start + batch_size]
             b = subset(train, index)
+            factor = lr_factor(step, total, warmup, final_lr)
+            for group in optimizer.param_groups:
+                group["lr"] = group["peak"] * factor
             loss, parts = bc_loss(actor, to_tensors(b, normalizer), label_tensors(b))
             optimizer.zero_grad(); loss.backward()
-            nn.utils.clip_grad_norm_(actor.parameters(), 1.0)
-            optimizer.step()
+            nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
+            optimizer.step(); step += 1
             for k, v in parts.items():
                 totals[k] = totals.get(k, 0.0) + v * len(index)
         actor.eval()
         with torch.no_grad():
             _, dev_parts = bc_loss(actor, dev_t, dev_l)
-        entry = {"epoch": epoch, "train": {k: v / n for k, v in totals.items()}, "dev": dev_parts}
+            dev_mode = mode_agreement(actor(dev_t), dev_l)
+        entry = {"epoch": epoch, "train": {k: v / n for k, v in totals.items()}, "dev": dev_parts, "dev_mode": dev_mode,
+                 "lr": lr * lr_factor(step - 1, total, warmup, final_lr)}
         log.append(entry)
         print(json.dumps({"bc": entry}), flush=True)
 
@@ -266,6 +323,14 @@ def main() -> int:
     parser.add_argument("--token", action="store_true", help="contract 12 token model (docs/MODEL9_TOKENS.md)")
     parser.add_argument("--vector-critic", action="store_true",
                         help="pretrain a VectorCritic: one head per contracts.OBJECTIVES (saved vector_critic: True)")
+    # Cloning stability (docs/MODEL9_TOKENS.md): each defaults on for --token and to the original behaviour otherwise.
+    parser.add_argument("--lr-warmup", type=float, default=None, help="share of BC steps in linear warm-up (token 0.05, else 0)")
+    parser.add_argument("--lr-final", type=float, default=None,
+                        help="cosine-decay BC to this share of the peak lr (token 0.05); negative keeps the flat lr (else)")
+    parser.add_argument("--encoder-lr-scale", type=float, default=1.0, help="encoder peak lr relative to the heads (BC only)")
+    parser.add_argument("--grad-clip", type=float, default=1.0, help="BC gradient-norm clip")
+    parser.add_argument("--input-guard", type=float, default=None,
+                        help="normalizer guard: drop inputs constant in TRAIN, clip the rest to +-this (token 10, else 0 = off)")
     parser.add_argument("--branch-shards", default=None,
                         help="comma-separated search branch-shard directories added to critic pretraining only")
     args = parser.parse_args()
@@ -274,7 +339,14 @@ def main() -> int:
     train = data.load(p for p in args.train.iterdir() if p.is_dir())
     dev = data.load(p for p in args.dev.iterdir() if p.is_dir())
     print(json.dumps({"train": data.summary(train), "dev": data.summary(dev)}), flush=True)
-    normalizer = Normalizer.fit(train)
+    warmup = args.lr_warmup if args.lr_warmup is not None else (0.05 if args.token else 0.0)
+    final_lr = args.lr_final if args.lr_final is not None else (0.05 if args.token else -1.0)
+    final_lr = None if final_lr < 0 else final_lr
+    guard = args.input_guard if args.input_guard is not None else (10.0 if args.token else 0.0)
+    bc_config = {"lr": args.lr, "warmup": warmup, "final_lr": final_lr, "encoder_lr_scale": args.encoder_lr_scale,
+                 "grad_clip": args.grad_clip, "input_guard": guard or None}
+    normalizer = Normalizer.fit(train, guard=guard or None)
+    print(json.dumps({"bc_config": bc_config, "dropped_inputs": normalizer.dead_names()}), flush=True)
     core_width = train["core"].shape[1]
     privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
     actor = Actor(core_width, token=args.token)
@@ -295,11 +367,17 @@ def main() -> int:
     if args.resume is None and phase.exists():
         saved = torch.load(phase, map_location="cpu", weights_only=False)
         actor.load_state_dict(saved["actor"]); log = list(saved["log"])
-        print(json.dumps({"resumed_bc": str(phase)}), flush=True)
+        # The actor was cloned against this normalizer (phase files written before the guard carry none: refit).
+        if "normalizer" in saved:
+            normalizer = Normalizer.from_state(saved["normalizer"])
+        bc_config = saved.get("bc_config", {"phase": "unrecorded"})
+        print(json.dumps({"resumed_bc": str(phase), "bc_config": bc_config}), flush=True)
     else:
-        train_actor(actor, train, dev, normalizer, args.bc_epochs, args.batch, args.lr, log)
+        train_actor(actor, train, dev, normalizer, args.bc_epochs, args.batch, args.lr, log, warmup=warmup,
+                    final_lr=final_lr, encoder_lr_scale=args.encoder_lr_scale, grad_clip=args.grad_clip)
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"actor": actor.state_dict(), "log": log}, phase.with_suffix(".tmp"))
+        torch.save({"actor": actor.state_dict(), "log": log, "normalizer": normalizer.state_dict(), "bc_config": bc_config},
+                   phase.with_suffix(".tmp"))
         os.replace(phase.with_suffix(".tmp"), phase)
     if args.vector_critic or branch is not None:
         final = train_critic_heads(critic, train, dev, normalizer, args.critic_rounds, args.critic_epochs, args.batch,
@@ -311,7 +389,7 @@ def main() -> int:
     extra = {"vector_critic": True} if args.vector_critic else {}
     torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
                 "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "token": args.token,
-                "seed": args.seed, "log": log,
+                "seed": args.seed, "log": log, "bc_config": bc_config,
                 "critic_dev": final, **extra}, args.out)
     print(json.dumps({"saved": str(args.out), "seconds": time.time() - clock, "critic_dev": final}), flush=True)
     return 0

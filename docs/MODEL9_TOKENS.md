@@ -87,3 +87,97 @@ observation (per the disaster decision):
 They are keyed to the episode seed, so they are deterministic and replayable. They give a first resilience curriculum
 and a shock suite in the gates, before disasters exist as game features. It is optional; it is scheduled after the
 token model's stage 2.
+
+## Cloning stability
+
+Status: 22 October 2026, branch `feature/r3-clone-stability`.
+
+### Symptom
+
+Stage-1 clones of the token model across 10 seeds scored closed-loop welfare ratios of 0.40, 0.89, 0.12, 0.94, 0.92,
+0.05, 0.95, 0.89, 0.88 and 0.07. The collapsed seeds lose clothing coverage (0.17-0.41 against the teacher's 0.99),
+and seeds 2, 5 and 9 also lose housing. Their BC logs look like the healthy seeds' logs: every head converges, and
+the final train and dev losses do not rank the seeds. Seed 0 has the best final train loss of seeds 0-2 and still
+collapsed.
+
+### Cause: a train/evaluation input shift, not optimisation
+
+- **The shifted input.** Core feature `v2-480` is `Mask.Movement`, the flag that says whether movement is a legal
+  decision.
+  - Teacher shards (`--model9-teacher`) are written with `Reset(snapshot, movementEnabled: true)`, so the flag is 1 in
+    every training row.
+  - `evaluate.py` runs the bridge with `movement=False` (native movement), so the flag is 0 in every evaluated
+    decision.
+  - Its symlog std in TRAIN is 0, which the normalizer floors at 1e-3. The evaluated input is therefore
+    z = -0.693 / 1e-3 = -693 on the village token, at every decision.
+- **Why the result depends on the seed.** The normalized flag is about 0 in every training row, so its column of the
+  village projection never receives a gradient and stays at its random initialisation. At evaluation, -693 times that
+  random column dominates the village token, so the cloned policy is replaced by a direction set by the seed.
+  The pooling encoder has the same exposure in principle. The pooling comparator (1.003) was a different, earlier
+  checkpoint (`t1/inputs/stage1-seed2.pt`), so it is not evidence on the same data.
+
+Evidence. All of it uses the local Model9 bridge, which reproduces the VM gate exactly: s0 on worlds 2000-2003 gives
+0.367 locally and 0.367 from the VM's per-world numbers.
+
+| Check | s0 | s1 | s2 |
+| --- | --- | --- | --- |
+| Deterministic service-level MAE vs teacher, in distribution (movement on, `--model9-teacher` rows) | 0.060 | 0.083 | 0.069 |
+| Same, on the evaluation regime's teacher states (movement off) | 0.377 | 0.278 | 0.761 |
+| VM closed-loop welfare ratio, 20 worlds | 0.40 | 0.89 | 0.12 |
+| Same checkpoints, input guard added to the normalizer only (no retraining) | **1.085** | **1.154** | **1.070** |
+
+In distribution, all three VM checkpoints clone equally well, with per-head losses matching their VM dev logs.
+With the guard, clothing recovers to 0.985-0.991 and housing to 0.95. Dropping the flag is lossless for these
+checkpoints because it was about 0 in all of their training inputs.
+
+Other hypotheses were checked and rejected:
+- **Services snapping to 0/1.** It happens, but identically across seeds in distribution.
+- **Head divergence or a log-std floor.** None appears in the logs. The logistic-normal NLL swings by nats between
+  epochs, from rows at the -5 log-std floor, while the deterministic mode barely moves. That makes it a poor fidelity
+  proxy, but it is not the cause of the collapse.
+
+### Fix (`train.py`, `model.py`)
+
+Every flag defaults on for `--token` and to the original behaviour otherwise. Pooling runs reproduce bitwise; a test
+checks this against the original loop.
+
+| Flag | Token default | Otherwise | Effect |
+| --- | --- | --- | --- |
+| `--input-guard G` | 10 | 0 (off) | The normalizer drops inputs constant in TRAIN (symlog std < 1e-3) and clips the others to ±G. This is the fix. It is stored in the normalizer state (`guard`, `*_dead`), so evaluation, PPO and search apply it. Unguarded checkpoints load unchanged. |
+| `--lr-warmup F` | 0.05 | 0 | Linear BC warm-up over the first F of the steps. |
+| `--lr-final F` | 0.05 | flat | Cosine decay to F of the peak. |
+| `--encoder-lr-scale` | 1.0 | 1.0 | Encoder peak learning rate relative to the heads' rate. |
+| `--grad-clip` | 1.0 | 1.0 | Gradient-norm clip value. |
+
+The BC log adds `dev_mode` each epoch: the deterministic action's per-service MAE, the strategic MAE and route
+agreement against the teacher. It is a fast fidelity proxy.
+
+The `.bc.pt` phase file now also stores the normalizer and `bc_config`. A resumed run reuses that normalizer.
+Phase files written before this change carry no normalizer, so they refit as before.
+
+### Seed-robustness check (local, reduced)
+
+- **Data.** 80 TRAIN worlds (1000-1079) and 10 DEVELOPMENT worlds (2000-2009) from the local `--model9-teacher`
+  (48.7k rows).
+- **Training.** 6 BC epochs, seeds 0-3.
+- **Evaluation.** The proxy is measured in distribution and on teacher states collected in the evaluation regime
+  (bridge, movement off). Closed-loop fidelity uses worlds 2000-2005.
+
+| Config | In-dist service MAE | Eval-regime service MAE (s0/s1/s2/s3) | Closed-loop ratio (s0/s1/s2/s3) |
+| --- | --- | --- | --- |
+| base (original) | 0.094-0.099 | 0.458 / 0.235 / 0.602 / 0.238 | 0.44 / 0.59 / 0.37 / 0.81 |
+| schedule only | 0.099-0.100 | 0.414 / 0.235 / 0.603 / 0.246 | not run |
+| guard only | 0.093-0.101 | 0.102 / 0.101 / 0.099 / 0.101 | not run |
+| full (token defaults) | 0.099-0.101 | 0.103 / 0.103 / 0.101 / 0.106 | 0.95 / 0.95 / 0.85 / 0.97 |
+
+The schedule neither causes nor cures the collapse, but it is kept as the token default; the guard alone removes the
+seed spread. The clones are smaller than the VM's, so these ratios are relative, not gate values.
+
+### Still open
+
+- A full VM re-clone at the token defaults (10 seeds, 660 worlds, 12 epochs) and the 20-world gate.
+- Generating teacher data in the evaluation regime, or evaluating with movement enabled, removes the shift at its
+  source. The other movement inputs (`v2-481` to `v2-489`) still differ between the regimes; they vary in TRAIN, so
+  the guard only clips them.
+- PPO stages that run with movement off inherit the guarded normalizer from stage 1. The flag stays dropped, which is
+  harmless while it is constant within a stage.
