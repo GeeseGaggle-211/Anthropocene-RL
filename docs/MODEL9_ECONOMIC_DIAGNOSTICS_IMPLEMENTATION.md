@@ -46,6 +46,16 @@ cover optimizer/world seed, capability regime, personality, population, QoL,
 turn and intervention status. Values used only as finite encodings for
 unbounded planner returns are excluded from statistics.
 
+Each transition also retains the already validated authoritative action
+diagnostic masks. Action alignment excludes inactive heads and derives a
+head-specific intervention numerator from comparable requested-to-accepted or
+accepted-to-realised changes. Continuous actions use Pearson correlation;
+route, movement, fission, commitment and trade-gate choices are categorical and
+are reported as category-mean differences. Constraint reasons are attached only
+where a direct economic-funnel mapping exists. Conservation coverage is emitted
+separately from non-zero residuals, and each report carries an execution-authority
+cohort classification so a local sample cannot appear experimentally sufficient.
+
 ## Boundaries and limitations
 
 Population reports retain linked-population semantics. Resident and party

@@ -408,6 +408,10 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                 steps = list(pool.map(lambda pair: pair[0].step(pair[1]), zip(bridges, per_world)))
                 for bridge in bridges:
                     roll.diagnostics.extend(getattr(bridge, "decision_diagnostics", []))
+                action_diagnostics = [
+                    {int(record["campId"]): record for record in bridge.decision_diagnostics}
+                    for bridge in bridges
+                ]
                 row_of = {}
                 for k, (w, v) in enumerate(live):
                     row_of[(w, int(v["camp"]))] = k
@@ -436,7 +440,11 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                             economic = bridges[w].economic_diagnostics.get(int(v["camp"]))
                             if economic is None:
                                 raise ValueError("missing prospective economic decision row")
+                            action_diagnostic = action_diagnostics[w].get(int(v["camp"]))
+                            if action_diagnostic is None:
+                                raise ValueError("missing prospective action decision row")
                             roll.economic_rows.append({"economicDiagnostics": copy.deepcopy(economic),
+                                "actionDiagnostics": copy.deepcopy(action_diagnostic),
                                 "actorDistribution": {name: values[k].detach().cpu().tolist() for name, values in out.items()
                                                       if isinstance(values, torch.Tensor) and values.ndim > 0 and len(values) == len(live)},
                                 "sampledAction": actions[k], "provenance": {

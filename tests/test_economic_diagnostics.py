@@ -12,6 +12,27 @@ from anthropocene_rl.autonomous_v7 import economic_diagnostics as diagnostics
 
 def transition(seed: int = 70, arm: str = "base", world: int = 2000, turn: int = 1) -> dict:
     identity = f"run:{arm}:{seed}:{world}:{turn}:7"
+    head_widths = {
+        "strategic": 5,
+        "service": 6,
+        "clothingRoute": 1,
+        "shelterRoute": 1,
+        "movement": 1,
+        "intentTile": 1,
+        "fission": 1,
+        "commit": 1,
+        "tradeValue": 7,
+        "tradeGate": 7,
+        "tradeShare": 1,
+    }
+    requested = {name: [0.0] * width for name, width in head_widths.items()}
+    accepted = {name: [0.0] * width for name, width in head_widths.items()}
+    realised = {name: [0.0] * width for name, width in head_widths.items()}
+    requested["strategic"][0] = 0.8
+    accepted["strategic"][0] = realised["strategic"][0] = 0.7
+    active_mask = {name: [False] * width for name, width in head_widths.items()}
+    active_mask["strategic"][0] = True
+    available_mask = {name: list(values) for name, values in active_mask.items()}
     economic = {
         "schemaVersion": 1,
         "transitionId": identity,
@@ -109,6 +130,19 @@ def transition(seed: int = 70, arm: str = "base", world: int = 2000, turn: int =
         "terminated": False,
         "truncated": False,
         "economicDiagnostics": economic,
+        "actionDiagnostics": {
+            "schemaVersion": 1,
+            "trajectoryId": economic["trajectoryId"],
+            "decisionTurn": turn,
+            "campId": 7,
+            "requested": requested,
+            "accepted": accepted,
+            "realised": realised,
+            "requestedMask": available_mask,
+            "acceptedMask": available_mask,
+            "realisedMask": available_mask,
+            "activeMask": active_mask,
+        },
         "objectives": {
             "welfare": {
                 "reward": 10.0 + candidate_bonus,
@@ -126,7 +160,7 @@ def transition(seed: int = 70, arm: str = "base", world: int = 2000, turn: int =
         },
         "finalPolicyAdvantage": -0.5,
         "cost": {"prediction": 0.2, "bootstrap": 0.1, "target": 0.3, "advantage": -0.1},
-        "sampledAction": {"field": 0.8},
+        "sampledAction": {"strategic": [0.8, 0.0, 0.0, 0.0, 0.0]},
         "personality": [1.0, 0.0, 0.0, 0.0],
         "capabilityRegime": "mixed",
         "provenance": {"binarySha256": "a" * 64, "checkpointSha256": "b" * 64},
@@ -290,7 +324,10 @@ def test_complete_trace_writes_deterministic_physical_and_critic_reports(tmp_pat
         for row in calibration
     )
     alignment = read_csv(output / "action_alignment.csv")
-    assert all(row["head"] == "field" and row["count"] == "12" for row in alignment)
+    assert all(row["head"] == "strategic[0]" and row["count"] == "12" for row in alignment)
+    assert all(row["activeOnly"] == "True" for row in alignment)
+    assert all(row["interventionRate"] == "1.0" for row in alignment)
+    assert all(row["interventionDenominator"] == "12" for row in alignment)
     assert {
         "descriptive_action_to_final_policy_advantage",
         "descriptive_action_to_objective_advantage",
@@ -311,6 +348,43 @@ def test_complete_trace_writes_deterministic_physical_and_critic_reports(tmp_pat
         if field["field"] == "economicDiagnostics.goods[0].output"
     )
     assert goods_output["units"] == ["good_units"]
+
+
+def test_action_alignment_filters_inactive_heads_and_treats_routes_as_categories() -> None:
+    rows = []
+    for index in range(6):
+        row = transition(turn=index + 1)
+        category = index % 2
+        row["sampledAction"]["clothingRoute"] = category
+        diagnostic = row["actionDiagnostics"]
+        diagnostic["activeMask"]["clothingRoute"][0] = True
+        for phase in ("requestedMask", "acceptedMask", "realisedMask"):
+            diagnostic[phase]["clothingRoute"][0] = True
+        for phase in ("requested", "accepted", "realised"):
+            diagnostic[phase]["clothingRoute"][0] = category
+        row["finalPolicyAdvantage"] = -1.0 if category == 0 else 1.0
+        rows.append(row)
+    rows[0]["actionDiagnostics"]["activeMask"]["strategic"][0] = False
+
+    alignment = diagnostics.action_alignment(rows)
+    strategic = next(
+        row
+        for row in alignment
+        if row["head"] == "strategic[0]"
+        and row["relationship"] == "descriptive_action_to_final_policy_advantage"
+    )
+    assert strategic["count"] == 5
+    assert strategic["inactiveRowsExcluded"] == 1
+    routes = [
+        row
+        for row in alignment
+        if row["head"] == "clothingRoute"
+        and row["relationship"] == "descriptive_action_to_final_policy_advantage"
+    ]
+    assert {row["category"] for row in routes} == {0, 1}
+    assert all(row["associationMethod"] == "category-mean-difference" for row in routes)
+    assert all(row["pearson"] is None for row in routes)
+    assert {row["meanDifference"] for row in routes} == {-1.0, 1.0}
 
 
 def test_optimizer_boundaries_join_to_exact_preupdate_rows(tmp_path: Path) -> None:

@@ -152,8 +152,9 @@ Transition rows are written after targets and final PPO advantages are computed 
 - `field_dictionary.json`: canonical field order, source object/phase, unit, sign/range, denominator, missingness and schema;
 - `decision_rows.csv`: the flattened join;
 - `domain_summary.csv`: requested-to-granted, granted-to-realised and productivity funnels by arm/domain/regime;
+- `conservation_coverage.csv`: availability, missingness and non-zero counts for every declared conservation residual, so zero detected failures cannot be mistaken for complete closure;
 - `critic_calibration.csv`: optimization-target fit and independent-return calibration as separate target classes, with count, target/prediction means, signed bias, MAE, RMSE, explained variance, slope/intercept and residual quantiles;
-- `action_alignment.csv`: explicitly descriptive action/advantage, action/work and action/realisation associations, intervention rates and sign disagreements;
+- `action_alignment.csv`: explicitly descriptive active-head-only action/advantage, action/work and action/realisation associations; continuous heads use Pearson correlation, categorical heads use category means, and intervention rates come from that head's own requested/accepted/realised phases;
 - `optimizer_updates.csv`: one validated row for every start/complete optimizer event, bound to the exact transition batch and parameter hashes;
 - `optimizer_mutations.csv`: paired before/after optimizer mutations with losses, clipping, gradient/update norms and whether the relevant parameter set changed;
 - `optimizer_update_summary.csv`: per-batch critic prediction, target, TD/advantage and mutation summaries for detecting a critic that was wrong, clipped or simply did not update;

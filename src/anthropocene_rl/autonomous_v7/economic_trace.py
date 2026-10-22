@@ -365,6 +365,7 @@ def emit_rollout(
                 f"{roll.economic_rows[successor]['economicDiagnostics']['transitionId']}"
             ),
             "economicDiagnostics": economic,
+            "actionDiagnostics": captured.get("actionDiagnostics"),
             "objectives": output_objectives,
             "finalPolicyAdvantage": float(combined[i]),
             "balanceWeight": float(weights[i]),

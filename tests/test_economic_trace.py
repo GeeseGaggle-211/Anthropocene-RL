@@ -132,6 +132,7 @@ def test_preupdate_trace_and_mutation_metrics_are_joined(tmp_path):
     roll.economic_rows = [
         {
             "economicDiagnostics": transition(turn=i + 1)["economicDiagnostics"],
+            "actionDiagnostics": transition(turn=i + 1)["actionDiagnostics"],
             "actorDistribution": {},
             "sampledAction": {},
             "provenance": {},
@@ -182,6 +183,7 @@ def test_preupdate_trace_and_mutation_metrics_are_joined(tmp_path):
     )
     writer.close()
     _, transitions, updates = economic_diagnostics.load_artifact(tmp_path / "run")
+    assert transitions[0]["actionDiagnostics"]["activeMask"]["strategic"][0] is True
     assert transitions[0]["objectives"]["welfare"]["bootstrap"] == 6.0
     assert transitions[1]["objectives"]["welfare"]["bootstrap"] == 0.0
     assert transitions[0]["policyVersion"] == 0

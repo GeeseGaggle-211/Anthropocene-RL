@@ -57,6 +57,40 @@ UPDATE_EVENTS = {
     "critic-refit-complete",
     "iteration-summary",
 }
+ACTION_HEAD_WIDTHS = {
+    "strategic": 5,
+    "service": 6,
+    "clothingRoute": 1,
+    "shelterRoute": 1,
+    "movement": 1,
+    "intentTile": 1,
+    "fission": 1,
+    "commit": 1,
+    "tradeValue": 7,
+    "tradeGate": 7,
+    "tradeShare": 1,
+}
+CATEGORICAL_ACTION_HEADS = {
+    "clothingRoute",
+    "shelterRoute",
+    "movement",
+    "intentTile",
+    "fission",
+    "commit",
+    "tradeGate",
+}
+HEAD_FUNNEL_MAP = {
+    "strategic[0]": (("cultivation", "retainedFieldOperation"),),
+    "strategic[1]": (("herding", "retainedHerdFraction"),),
+    "service[0]": (("manufacturing", "food"),),
+    "service[1]": (("manufacturing", "clothing"),),
+    "service[2]": (("manufacturing", "shelter"),),
+    "service[3]": (("manufacturing", "tools"),),
+    "service[4]": (("manufacturing", "storage"),),
+    "service[5]": (("manufacturing", "materials"),),
+    "clothingRoute": (("manufacturing", "clothing"),),
+    "shelterRoute": (("manufacturing", "shelter"),),
+}
 
 
 def canonical_bytes(value: Any) -> bytes:
@@ -220,6 +254,42 @@ def _null_paths(value: Any, path: str = "") -> Iterator[str]:
             yield from _null_paths(child, f"{path}[{index}]")
 
 
+def _validate_action_diagnostics(row: dict[str, Any]) -> None:
+    diagnostic = row.get("actionDiagnostics")
+    if diagnostic is None:
+        return
+    if not isinstance(diagnostic, dict) or diagnostic.get("schemaVersion") != 1:
+        raise ValueError("unsupported action diagnostic schema")
+    for name in ("trajectoryId", "decisionTurn", "campId"):
+        if diagnostic.get(name) != row[name]:
+            raise ValueError(f"action diagnostic identity differs: {name}")
+    for phase in (
+        "requested",
+        "accepted",
+        "realised",
+        "requestedMask",
+        "acceptedMask",
+        "realisedMask",
+        "activeMask",
+    ):
+        values = diagnostic.get(phase)
+        if not isinstance(values, dict):
+            raise ValueError(f"action diagnostic missing {phase}")
+        for head, width in ACTION_HEAD_WIDTHS.items():
+            vector = values.get(head)
+            if not isinstance(vector, list) or len(vector) != width:
+                raise ValueError(f"action diagnostic {phase}/{head} layout mismatch")
+            if phase.endswith("Mask") and any(not isinstance(value, bool) for value in vector):
+                raise ValueError(f"action diagnostic {phase}/{head} must be boolean")
+            if not phase.endswith("Mask"):
+                mask = diagnostic.get(f"{phase}Mask", {}).get(head, [])
+                for index, value in enumerate(vector):
+                    if index < len(mask) and mask[index] and _number(value) is None:
+                        raise ValueError(
+                            f"action diagnostic {phase}/{head}[{index}] is not finite"
+                        )
+
+
 def validate_transition(row: dict[str, Any]) -> None:
     required = {
         "schemaVersion": int,
@@ -260,6 +330,7 @@ def validate_transition(row: dict[str, Any]) -> None:
             raise ValueError(f"economic sidecar identity differs: {name}")
     if economic.get("schemaVersion") != SCHEMA_VERSION:
         raise ValueError("unsupported economic sidecar schema")
+    _validate_action_diagnostics(row)
     for _path, _value in _finite_numbers(row):
         pass
     for path in _null_paths(economic, "economicDiagnostics"):
@@ -1176,44 +1247,191 @@ def _alignment_outcomes(row: dict[str, Any]) -> Iterator[tuple[str, str, str, fl
                 )
 
 
+def _action_component(container: Any, head: str) -> Any:
+    if not isinstance(container, dict):
+        return None
+    match = re.fullmatch(r"([^\[]+)(?:\[(\d+)\])?", head)
+    if match is None:
+        return None
+    name, raw_index = match.groups()
+    vector = container.get(name)
+    if not isinstance(vector, list):
+        return None
+    index = int(raw_index) if raw_index is not None else 0
+    return vector[index] if 0 <= index < len(vector) else None
+
+
+def _action_status(row: dict[str, Any], head: str) -> tuple[bool, bool | None] | None:
+    """Return active and whether that specific head was changed by an authoritative phase."""
+    diagnostic = row.get("actionDiagnostics")
+    if not isinstance(diagnostic, dict):
+        return None
+    active = _action_component(diagnostic.get("activeMask"), head)
+    if not isinstance(active, bool):
+        return None
+    if not active:
+        return False, None
+    available = False
+    changed = False
+    for before, after in (("requested", "accepted"), ("accepted", "realised")):
+        before_mask = _action_component(diagnostic.get(f"{before}Mask"), head)
+        after_mask = _action_component(diagnostic.get(f"{after}Mask"), head)
+        if before_mask is not True or after_mask is not True:
+            continue
+        before_value = _number(_action_component(diagnostic.get(before), head))
+        after_value = _number(_action_component(diagnostic.get(after), head))
+        if before_value is None or after_value is None:
+            continue
+        available = True
+        changed = changed or abs(after_value - before_value) > 1e-7
+    return True, changed if available else None
+
+
+def _head_constraint_reasons(row: dict[str, Any], head: str) -> tuple[str, ...] | None:
+    targets = HEAD_FUNNEL_MAP.get(head)
+    if targets is None:
+        return None
+    reasons: set[str] = set()
+    for funnel in _row_funnels(row):
+        if (str(funnel.get("domain")), str(funnel.get("metric"))) not in targets:
+            continue
+        raw = funnel.get("constraintReasons", [])
+        if isinstance(raw, list):
+            reasons.update(str(reason) for reason in raw if str(reason))
+    return tuple(sorted(reasons))
+
+
+def _alignment_record(
+    evidence: str,
+    arm: str,
+    head: str,
+    relationship: str,
+    domain: str,
+    metric: str,
+    records: Sequence[tuple[dict[str, Any], float, float, bool | None, tuple[str, ...] | None]],
+    inactive: int,
+    missing_mask: int,
+) -> dict[str, Any]:
+    seeds = {item[0]["optimizerSeed"] for item in records}
+    interventions = [item[3] for item in records if item[3] is not None]
+    mapped_reasons = [item[4] for item in records if item[4] is not None]
+    reasons = sorted({reason for item in mapped_reasons for reason in item})
+    reason_rows = sum(bool(item) for item in mapped_reasons)
+    return {
+        "evidenceClass": evidence,
+        "arm": arm,
+        "head": head,
+        "relationship": f"descriptive_action_to_{relationship}",
+        "outcomeDomain": domain,
+        "outcomeMetric": metric,
+        "count": len(records),
+        "optimizerSeedCount": len(seeds),
+        "activeOnly": True,
+        "inactiveRowsExcluded": inactive,
+        "missingActiveMaskRowsExcluded": missing_mask,
+        "interventionCount": sum(interventions),
+        "interventionDenominator": len(interventions),
+        "interventionRate": float(np.mean(interventions)) if interventions else None,
+        "interventionUndefinedReason": None
+        if interventions
+        else "no-comparable-request-accept-realise-phase",
+        "affectedConstraintReasons": ";".join(reasons),
+        "constraintReasonRows": reason_rows,
+        "constraintReasonDenominator": len(mapped_reasons),
+        "constraintReasonCoverage": reason_rows / len(mapped_reasons)
+        if mapped_reasons
+        else None,
+        "constraintReasonSource": "economic-funnel-map"
+        if head in HEAD_FUNNEL_MAP
+        else "unavailable-no-direct-funnel-map",
+        "causal": False,
+        "insufficient": len(records) < 30 or len(seeds) < 3,
+    }
+
+
 def action_alignment(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     groups: dict[
-        tuple[str, str, str, str, str, str], list[tuple[dict[str, Any], float, float]]
+        tuple[str, str, str, str, str, str],
+        list[tuple[dict[str, Any], float, float, bool | None, tuple[str, ...] | None]],
     ] = defaultdict(list)
+    inactive: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
+    missing_mask: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
     for row in rows:
         for head, action in _actor_values(row):
             for relationship, domain, metric, outcome in _alignment_outcomes(row):
-                groups[
-                    (row["evidenceClass"], row["arm"], head, relationship, domain, metric)
-                ].append((row, action, outcome))
+                key = (row["evidenceClass"], row["arm"], head, relationship, domain, metric)
+                status = _action_status(row, head)
+                if status is None:
+                    missing_mask[key] += 1
+                    continue
+                active, intervened = status
+                if not active:
+                    inactive[key] += 1
+                    continue
+                groups[key].append(
+                    (row, action, outcome, intervened, _head_constraint_reasons(row, head))
+                )
     output = []
     for (evidence, arm, head, relationship, domain, metric), records in sorted(
         groups.items()
     ):
-        action = np.asarray([item[1] for item in records])
+        key = (evidence, arm, head, relationship, domain, metric)
+        base = _alignment_record(
+            evidence,
+            arm,
+            head,
+            relationship,
+            domain,
+            metric,
+            records,
+            inactive[key],
+            missing_mask[key],
+        )
+        head_name = head.split("[", 1)[0]
         outcome = np.asarray([item[2] for item in records])
+        if head_name in CATEGORICAL_ACTION_HEADS:
+            overall = float(outcome.mean())
+            for category in sorted({item[1] for item in records}):
+                selected = [item for item in records if item[1] == category]
+                category_record = _alignment_record(
+                    evidence,
+                    arm,
+                    head,
+                    relationship,
+                    domain,
+                    metric,
+                    selected,
+                    inactive[key],
+                    missing_mask[key],
+                )
+                category_mean = float(np.mean([item[2] for item in selected]))
+                category_record.update(
+                    {
+                        "associationMethod": "category-mean-difference",
+                        "category": int(category) if float(category).is_integer() else category,
+                        "outcomeMean": category_mean,
+                        "overallOutcomeMean": overall,
+                        "meanDifference": category_mean - overall,
+                        "pearson": None,
+                    }
+                )
+                output.append(category_record)
+            continue
+        action = np.asarray([item[1] for item in records])
         correlation = None
         if len(records) > 1 and action.var() > 0 and outcome.var() > 0:
             correlation = float(np.corrcoef(action, outcome)[0, 1])
-        seeds = {item[0]["optimizerSeed"] for item in records}
-        output.append(
+        base.update(
             {
-                "evidenceClass": evidence,
-                "arm": arm,
-                "head": head,
-                "relationship": f"descriptive_action_to_{relationship}",
-                "outcomeDomain": domain,
-                "outcomeMetric": metric,
-                "count": len(records),
-                "optimizerSeedCount": len(seeds),
+                "associationMethod": "pearson",
+                "category": None,
+                "outcomeMean": float(outcome.mean()),
+                "overallOutcomeMean": float(outcome.mean()),
+                "meanDifference": None,
                 "pearson": correlation,
-                "interventionRate": float(
-                    np.mean([bool(_constraint_reasons(item[0])) for item in records])
-                ),
-                "causal": False,
-                "insufficient": len(records) < 30 or len(seeds) < 3,
             }
         )
+        output.append(base)
     return output
 
 
@@ -1421,6 +1639,71 @@ def _conservation_failures(
     return failures
 
 
+def _conservation_coverage(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    names = sorted(
+        {
+            name
+            for row in rows
+            for name in (_nested(row, "economicDiagnostics", "conservation") or {})
+            if name.endswith("Residual")
+        }
+    )
+    output = []
+    for name in names:
+        values = [
+            _number((_nested(row, "economicDiagnostics", "conservation") or {}).get(name))
+            for row in rows
+        ]
+        available = [value for value in values if value is not None]
+        output.append(
+            {
+                "field": name,
+                "available": len(available),
+                "unavailable": len(values) - len(available),
+                "total": len(values),
+                "availabilityRate": len(available) / len(values) if values else None,
+                "nonzero": sum(abs(value) > 1e-8 for value in available),
+            }
+        )
+    return output
+
+
+def _cohort_status(
+    manifests: Sequence[dict[str, Any]], rows: Sequence[dict[str, Any]]
+) -> dict[str, Any]:
+    authorities = [manifest.get("executionAuthority", {}) for manifest in manifests]
+    executions = [
+        authority.get("execution", {}) if isinstance(authority, dict) else {}
+        for authority in authorities
+    ]
+    local = bool(executions) and all(execution.get("tier") == "local" for execution in executions)
+    nonqualifying = bool(manifests) and all(
+        manifest.get("nonqualifying") is True
+        and isinstance(authority, dict)
+        and authority.get("nonqualifying") is True
+        for manifest, authority in zip(manifests, authorities, strict=True)
+    )
+    selects_arm = any(execution.get("selects_arm") is True for execution in executions)
+    readiness = any(execution.get("readiness_bearing") is True for execution in executions)
+    return {
+        "classification": "nonqualifying-local-stability"
+        if local and nonqualifying and not selects_arm and not readiness
+        else "other",
+        "tier": "local" if local else "mixed-or-nonlocal",
+        "purposes": sorted(
+            {str(execution.get("purpose")) for execution in executions if execution.get("purpose")}
+        ),
+        "arms": sorted({str(row["arm"]) for row in rows}),
+        "optimizerSeedCount": len({row["optimizerSeed"] for row in rows}),
+        "worldSeedCount": len({row["worldSeed"] for row in rows}),
+        "selectsArm": selects_arm,
+        "readinessBearing": readiness,
+        "nonqualifying": nonqualifying,
+        "supportsArmSelection": False if local and nonqualifying else None,
+        "supportsReadiness": False if local and nonqualifying else None,
+    }
+
+
 def _missing_capabilities(
     manifests: Sequence[dict[str, Any]],
     rows: Sequence[dict[str, Any]],
@@ -1454,13 +1737,20 @@ def _missing_capabilities(
 
 
 def _markdown(report: dict[str, Any]) -> str:
+    available_conservation = sum(item["available"] for item in report["conservationCoverage"])
+    unavailable_conservation = sum(item["unavailable"] for item in report["conservationCoverage"])
     lines = [
         "# Economic diagnostic report",
         "",
         f"Complete trace rows: {report['transitions']}; update rows: {report['updates']}; "
         f"joined mutations: {report['counts']['optimizerMutations']}.",
         f"Evidence classes: {', '.join(sorted(report['evidenceClasses'])) or 'none'}.",
-        f"Conservation failures: {len(report['conservationFailures'])}.",
+        f"Available conservation checks with non-zero residuals: "
+        f"{len(report['conservationFailures'])}; available values: {available_conservation}; "
+        f"unavailable values: {unavailable_conservation}.",
+        f"Cohort classification: {report['cohortStatus']['classification']}; "
+        f"supports arm selection: {report['cohortStatus']['supportsArmSelection']}; "
+        f"supports readiness: {report['cohortStatus']['supportsReadiness']}.",
         "",
         "## Interpretation boundary",
         "",
@@ -1500,6 +1790,7 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
     mutation_rows = optimizer_update_rows(transitions, updates)
     mutation_rollup = optimizer_update_rollup(mutation_rows)
     failures = _conservation_failures(transitions)
+    conservation_coverage = _conservation_coverage(transitions)
 
     (destination / "field_dictionary.json").write_text(
         json.dumps(dictionary, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -1509,6 +1800,7 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
     _write_csv(destination / "optimizer_mutations.csv", mutation_rows)
     _write_csv(destination / "optimizer_update_summary.csv", mutation_rollup)
     _write_csv(destination / "domain_summary.csv", domains)
+    _write_csv(destination / "conservation_coverage.csv", conservation_coverage)
     _write_csv(destination / "critic_calibration.csv", calibration)
     _write_csv(destination / "action_alignment.csv", alignment)
     _write_csv(
@@ -1559,11 +1851,17 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
 
     flags = []
     for item in domains:
+        if item.get("slice") != "overall" or item.get("sliceValue") != "all":
+            continue
         for name, value in item.items():
             if name.endswith("LossAbove10Percent") and value is True:
                 flags.append(f"{item['arm']}/{item['domain']}/{item['metric']}: {name}")
     for item in calibration:
-        if item.get("absoluteBiasAbove10Percent") is True:
+        if (
+            item.get("slice") == "overall"
+            and item.get("sliceValue") == "all"
+            and item.get("absoluteBiasAbove10Percent") is True
+        ):
             flags.append(
                 f"{item['arm']}/{item['objective']}/{item['targetClass']}/"
                 f"{item['slice']}={item['sliceValue']}: "
@@ -1599,11 +1897,14 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
             row["evidenceClass"] == "original_training_trace" for row in transitions
         ),
         "conservationFailures": failures,
+        "conservationCoverage": conservation_coverage,
+        "cohortStatus": _cohort_status(manifests, transitions),
         "missingCapabilities": _missing_capabilities(
             manifests, transitions, calibration, forks, contrasts, latency, mutation_rows
         ),
         "counts": {
             "domainSummary": len(domains),
+            "conservationCoverage": len(conservation_coverage),
             "criticCalibration": len(calibration),
             "actionAlignment": len(alignment),
             "matchedForkEffects": len(forks),
