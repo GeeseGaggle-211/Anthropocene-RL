@@ -1282,8 +1282,15 @@ def main() -> int:
         lagrange, best, baseline, log, start = r["lagrange"], r["best"], r["baseline"], r["log"], r["iteration"] + 1
         rng.bit_generator.state = r["numpy_rng"]; generator.set_state(r["generator"]); torch.set_rng_state(r["torch_rng"])
         # Keep the trajectory consistent with the resumed state: the baseline and iterations up to the saved one.
-        lines = trajectory.read_text().splitlines() if trajectory.exists() else []
-        kept = [line for line in lines if "baseline" in json.loads(line) or json.loads(line).get("iteration", -1) < start]
+        # A preempted VM can leave a partial or zero-filled last line: unreadable lines are dropped, never fatal.
+        lines = trajectory.read_text(errors="replace").splitlines() if trajectory.exists() else []
+        parsed = []
+        for line in lines:
+            try:
+                parsed.append((line, json.loads(line)))
+            except ValueError:
+                continue
+        kept = [line for line, d in parsed if "baseline" in d or d.get("iteration", -1) < start]
         trajectory.write_text("".join(line + "\n" for line in kept))
         print(json.dumps({"resumed_at": start}), flush=True)
     elif args.eval_every > 0:
