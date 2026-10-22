@@ -13,7 +13,7 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from . import contracts
-from .evaluate import rollout
+from .evaluate import evaluation_movement, rollout
 
 # welfare, population_years, trade_utility, qol_years
 GRID = {
@@ -33,7 +33,9 @@ def main() -> int:
     parser.add_argument("--seeds", default="2000-2059")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=10)
-    parser.add_argument("--movement", action="store_true")
+    parser.add_argument("--movement", action=argparse.BooleanOptionalAction, default=None,
+                        help="bridge movement (default: the contract-12 checkpoint's training regime, else off); an "
+                             "explicit --movement also forces contract-10 region movement")
     parser.add_argument("--grouped-region", action="store_true", help="hierarchical region choice (model.grouped_region_slot)")
     parser.add_argument("--focal", action="store_true",
                         help="only alternate founding lineages take the sweep point; the rest draw Dirichlet(1) as in "
@@ -42,16 +44,18 @@ def main() -> int:
     args = parser.parse_args()
     assert len(next(iter(GRID.values()))) == contracts.PERSONALITY_WIDTH
     a, b = (int(x) for x in args.seeds.split("-")); seeds = list(range(a, b + 1))
+    movement = evaluation_movement(args.movement, [args.checkpoint])
+    region = True if args.movement else None  # an implicit default keeps the checkpoint's own movement head
     report = {}
     with ProcessPoolExecutor(args.workers) as pool:
         for name, p in GRID.items():
             n = len(seeds)
-            rows = list(pool.map(rollout, seeds, [args.turns] * n, [args.checkpoint] * n, [0] * n, [args.movement] * n,
-                                 [None] * n, [True if args.movement else None] * n, [0] * n, [None] * n, [None] * n, [p] * n,
+            rows = list(pool.map(rollout, seeds, [args.turns] * n, [args.checkpoint] * n, [0] * n, [movement] * n,
+                                 [None] * n, [region] * n, [0] * n, [None] * n, [None] * n, [p] * n,
                                  [args.grouped_region] * n, [args.focal] * n))
             population = sum(r["population"] for r in rows)
             settlements = sum(r["settlements"] for r in rows)
-            report[name] = {"personality": p, "welfare": sum(r["welfare"] for r in rows), "population": population,
+            report[name] = {"personality": p, "movement": movement, "welfare": sum(r["welfare"] for r in rows), "population": population,
                             "qol": sum(r["qol"] * r["population"] for r in rows) / max(1, population),
                             "specialist_share": sum(r.get("specialist_share", 0.0) * r["population"] for r in rows) / max(1, population),
                             "trade_utility": sum(r["trade_utility"] for r in rows), "extinctions": sum(r["extinctions"] for r in rows),

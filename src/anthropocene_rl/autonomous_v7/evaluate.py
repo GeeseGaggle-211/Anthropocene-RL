@@ -3,8 +3,15 @@
     python -m anthropocene_rl.autonomous_v7.evaluate --checkpoint <pt> --seeds 2000-2019 --turns 25 --out <json>
 
 Each held-out world runs twice from the same opening: the native heuristic for every village (teacher) and the
-cloned policy for every village. Stages 1-3 keep movement and fission native. Welfare is realized population x
-QoL x years summed over every settlement (lineage welfare summed over lineages), zero after extinction.
+cloned policy for every village. Welfare is realized population x QoL x years summed over every settlement (lineage
+welfare summed over lineages), zero after extinction.
+
+Movement regime (docs/MODEL9_TOKENS.md, "Evaluating with movement on"). A contract-12 (token) checkpoint is evaluated
+in the movement regime it was trained in (``trained_movement``): stage-1 clones and learned-movement PPO stages with
+the bridge's movement enabled (the teacher shards are written that way), PPO stages that ran with native movement with
+it disabled. Pre-contract-12 checkpoints keep the historical default (movement off). ``--movement`` / ``--no-movement``
+override. The native heuristic reference runs under the same setting; its own play does not depend on it (the bridge
+flag only adds movement inputs to observations and lets submitted directives move).
 """
 
 from __future__ import annotations
@@ -33,10 +40,45 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results reproduce.
     actor.commitments = bool(state.get("commitments", True))
     # Contract 10: a policy trained with learned movement moves over region rows; others keep the contract-8 pointer.
-    actor.region_movement = bool(state.get("region_movement", False))
+    # A --observe-movement arm trained with the bridge's movement on and every decision native through the region head
+    # (its argmax stays native), as its in-training evaluation ran it.
+    actor.region_movement = bool(state.get("region_movement", False) or state.get("observe_movement", False))
     actor.learned_fission = bool(state.get("learned_fission", False))
     actor.learned_trade = bool(state.get("learned_trade", False))
     return actor, Normalizer.from_state(state["normalizer"])
+
+
+def trained_movement(state: dict[str, Any]) -> bool | None:
+    """The bridge movement setting a checkpoint was trained under, for contract-12 (token) checkpoints; None for older
+    ones (no default: they keep the historical movement-off evaluation). Stage-1 clones learn from ``--model9-teacher``
+    shards, written with movement enabled; a PPO stage ran with it enabled when it learned or observed movement."""
+    if not state.get("token", False):
+        return None
+    if "stage" not in state:  # a stage-1 behaviour clone
+        return True
+    from .ppo import STAGES
+    stage = STAGES.get(str(state["stage"]))
+    return bool(state.get("region_movement", False) or state.get("observe_movement", False)
+                or (stage is not None and stage.movement))
+
+
+def evaluation_movement(flag: bool | None, checkpoints: list[str | Path | None]) -> bool:
+    """Resolve ``--movement`` / ``--no-movement`` (``flag``) or, when neither is given, the default: on when the
+    evaluated contract-12 checkpoints were trained with movement enabled, off when they were not (and for older
+    checkpoints). Checkpoints that disagree need an explicit flag, since every policy and the reference of one
+    evaluation share one setting."""
+    if flag is not None:
+        return bool(flag)
+    regimes = set()
+    for checkpoint in checkpoints:
+        if checkpoint is None:
+            continue
+        regime = trained_movement(torch.load(Path(checkpoint), map_location="cpu", weights_only=False))
+        if regime is not None:
+            regimes.add(regime)
+    if len(regimes) > 1:
+        raise SystemExit("checkpoints were trained in different movement regimes; pass --movement or --no-movement")
+    return regimes.pop() if regimes else False
 
 
 def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]],
@@ -114,6 +156,7 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     previous: dict[int, np.ndarray] = {}; changes: list[float] = []
     spans: dict[int, int] = {}
     moves = 0
+    legal = site_moves = 0
     policies: dict[int, int] = {}
     trade_utility = 0.0; trades = 0
     traits: dict[int, Any] = {}; focal_set: set[int] = set()
@@ -148,12 +191,15 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                 spans[action.get("commit", 1)] = spans.get(action.get("commit", 1), 0) + 1
                 code = action.get("movement", contracts.NATIVE_MOVEMENT)
                 moves += int(code == contracts.KEEP_INTENT or code > contracts.REGION_BASE)
+                site_moves += int(0 <= code < contracts.REGION_BASE)  # contract-8 pointer: a move to a site row
                 policies[action.get("fission", -1)] = policies.get(action.get("fission", -1), 0) + 1
             for camp, mix in mixes.items():
                 if camp in previous:
                     changes.append(0.5 * float(np.abs(mix - previous[camp]).sum()))
                 previous[camp] = mix
             decisions += len(actions)
+            legal += sum(1 for v in step["villages"] if int(v["camp"]) in actions
+                         and any(v["observation"]["movementMask"][1:]))
             step = bridge.step(actions)
             for v in step["villages"]:
                 if v["priorPopulation"] <= 0:
@@ -196,6 +242,10 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         "commit_share": sum(v for k, v in spans.items() if k >= 2) / max(1, sum(spans.values())),
         # Contract 10: share of decisions that chose a region row other than the current tile, or kept an intent.
         "region_move_share": moves / max(1, sum(spans.values())),
+        # The movement regime: the bridge setting, the share of policy decisions where a site move was legal and the
+        # share where the policy's contract-8 pointer chose one (both 0 with movement off).
+        "movement": bool(movement), "movement_legal_share": legal / max(1, decisions),
+        "site_move_share": site_moves / max(1, decisions),
         # Learned fission: share of decisions setting Discourage (1) and Encourage (2); -1 is native.
         "fission_discourage_share": policies.get(1, 0) / max(1, sum(policies.values())),
         "fission_encourage_share": policies.get(2, 0) / max(1, sum(policies.values())),
@@ -210,14 +260,19 @@ def main() -> int:
     parser.add_argument("--seeds", default="2000-2019")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--movement", action=argparse.BooleanOptionalAction, default=None,
+                        help="bridge movement for the policy and the reference (default: the checkpoint's training "
+                             "regime; contract-12 clones on, older checkpoints off)")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     a, b = (int(x) for x in args.seeds.split("-"))
     seeds = list(range(a, b + 1))
+    movement = evaluation_movement(args.movement, [args.checkpoint])
+    n = len(seeds)
     clock = time.time()
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        teacher = list(pool.map(rollout, seeds, [args.turns] * len(seeds), [None] * len(seeds)))
-        policy = list(pool.map(rollout, seeds, [args.turns] * len(seeds), [str(args.checkpoint)] * len(seeds)))
+        teacher = list(pool.map(rollout, seeds, [args.turns] * n, [None] * n, [0] * n, [movement] * n))
+        policy = list(pool.map(rollout, seeds, [args.turns] * n, [str(args.checkpoint)] * n, [0] * n, [movement] * n))
     ratio = [p["welfare"] / max(1e-9, t["welfare"]) for p, t in zip(policy, teacher)]
 
     def mean(rows: list[dict[str, Any]], key: str) -> float:
@@ -226,7 +281,9 @@ def main() -> int:
     keys = ["welfare", "population", "settlements", "villages_600", "nutrition", "clothing", "housing", "qol", "specialist_share",
             "hungry_share", "extinctions", "below_30", "interventions_per_decision"]
     report = {
-        "seeds": args.seeds, "turns": args.turns, "checkpoint": str(args.checkpoint),
+        "seeds": args.seeds, "turns": args.turns, "checkpoint": str(args.checkpoint), "movement": movement,
+        "policy_movement_legal_share": mean(policy, "movement_legal_share"),
+        "policy_site_move_share": mean(policy, "site_move_share"),
         "welfare_ratio_total": sum(p["welfare"] for p in policy) / max(1e-9, sum(t["welfare"] for t in teacher)),
         "welfare_ratio_median": float(np.median(ratio)), "welfare_ratio_min": float(np.min(ratio)),
         "teacher": {k: mean(teacher, k) for k in keys}, "policy": {k: mean(policy, k) for k in keys},
@@ -236,7 +293,7 @@ def main() -> int:
     }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2))
-    print(json.dumps({k: report[k] for k in ("welfare_ratio_total", "welfare_ratio_median", "welfare_ratio_min", "teacher", "policy", "seconds")}))
+    print(json.dumps({k: report[k] for k in ("movement", "policy_site_move_share", "welfare_ratio_total", "welfare_ratio_median", "welfare_ratio_min", "teacher", "policy", "seconds")}))
     return 0
 
 

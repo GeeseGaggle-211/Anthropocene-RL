@@ -15,21 +15,21 @@ import numpy as np
 import torch
 
 from .bridge import Model9Bridge
-from .evaluate import load, policy_actions
+from .evaluate import evaluation_movement, load, policy_actions
 
 
-def trace(seed: int, turns: int, checkpoint: Path | None) -> list[dict]:
+def trace(seed: int, turns: int, checkpoint: Path | None, movement: bool = False) -> list[dict]:
     actor = normalizer = None
     if checkpoint is not None:
         actor, normalizer = load(checkpoint)
     history: dict[int, dict] = {}
     with Model9Bridge() as bridge:
-        step = bridge.reset(seed)
+        step = bridge.reset(seed, movement=movement)
         start = step["turn"]
         for v in step["villages"]:
             history.setdefault(v["camp"], {"founded": start, "parent": v["parentSociety"], "path": []})
         for _ in range(turns):
-            actions = policy_actions(actor, normalizer, step["villages"]) if actor is not None else {}
+            actions = policy_actions(actor, normalizer, step["villages"], movement) if actor is not None else {}
             step = bridge.step(actions)
             for v in step["villages"]:
                 h = history.setdefault(v["camp"], {"founded": step["turn"], "parent": v["parentSociety"], "path": []})
@@ -58,14 +58,17 @@ def main() -> int:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--seeds", default="2000-2019")
     parser.add_argument("--turns", type=int, default=25)
+    parser.add_argument("--movement", action=argparse.BooleanOptionalAction, default=None,
+                        help="bridge movement for both runs (default: the contract-12 checkpoint's training regime, else off)")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     torch.set_num_threads(2)
+    movement = evaluation_movement(args.movement, [args.checkpoint])
     a, b = (int(x) for x in args.seeds.split("-"))
     report = {"policy": [], "teacher": []}
     for seed in range(a, b + 1):
-        report["policy"] += trace(seed, args.turns, args.checkpoint)
-        report["teacher"] += trace(seed, args.turns, None)
+        report["policy"] += trace(seed, args.turns, args.checkpoint, movement)
+        report["teacher"] += trace(seed, args.turns, None, movement)
     args.out.write_text(json.dumps(report, indent=1))
     for key in ("policy", "teacher"):
         rows = report[key]

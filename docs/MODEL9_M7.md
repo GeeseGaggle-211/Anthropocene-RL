@@ -828,6 +828,14 @@ successfully here." This changes two things:
    personality toward the teacher's service priorities.
    - T3lo is judged by the same separation rule.
    - Its cost is T3lo against T3def at the default personality, within the same band.
+
+**Evaluation setting (22 October, `feature/r3-eval-movement`).** The fidelity numbers above were measured with
+movement off. Contract-12 checkpoints are now evaluated by default in the movement regime they were trained in:
+- stage-1 clones with movement on, like the teacher shards;
+- PPO stages with native movement with it off.
+
+The heuristic reference is identical under both settings. `--no-movement` reproduces the earlier numbers. See
+`MODEL9_TOKENS.md`, "Evaluating with movement on".
    - If T3lo separates and T3per does not, the anchor was forwarding the teacher's bias.
 
 **Addendum 2 (21 October, before any stage-3 result): critic warm-up.**

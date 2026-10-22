@@ -4,7 +4,8 @@
 
 Categories are ordinary DEVELOPMENT worlds and the three capability fixtures (same seeds, withheld-technology
 masks), and optionally grassland-rich openings. Each candidate is compared with the init policy and the native
-teacher on the same worlds.
+teacher on the same worlds, all under one bridge movement setting (evaluate.evaluation_movement: by default the
+contract-12 checkpoints' training regime, else off; ``--movement`` / ``--no-movement`` override).
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import json
 from pathlib import Path
 
 from . import contracts
+from .evaluate import evaluation_movement
 from .ppo import evaluate_closed_loop
 
 
@@ -39,7 +41,9 @@ def main() -> int:
     parser.add_argument("--valley-strict", type=Path, default=None, help="strict valley fixtures (competition and a valley)")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
-    parser.add_argument("--movement", action="store_true", help="policies choose movement (stage 4); teacher stays native")
+    parser.add_argument("--movement", action=argparse.BooleanOptionalAction, default=None,
+                        help="bridge movement for every policy and the teacher; policies then choose movement, the "
+                             "teacher stays native (default: the contract-12 checkpoints' training regime, else off)")
     parser.add_argument("--region-movement", action="store_true",
                         help="with --movement: every policy, the init included, moves over contract-10 region rows")
     parser.add_argument("--grouped-region", action="store_true",
@@ -48,6 +52,8 @@ def main() -> int:
                         help="a candidate fails if any regime's welfare falls more than this share below the init")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    movement = evaluation_movement(args.movement, [args.init, *args.candidates.split(",")])
+    print(json.dumps({"movement": movement}), flush=True)
     categories = {"default": [(s, 0) for s in seed_list(args.default_seeds)]}
     for name, mask in contracts.CAPABILITY_MASKS.items():
         categories[name] = [(s, mask) for s in seed_list(args.fixture_seeds)]
@@ -60,12 +66,12 @@ def main() -> int:
             categories[name] = [(int(s), 0, int(w)) for s, w in pairs]
     report = {}
     for name, worlds in categories.items():
-        teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers)
+        teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers, movement=movement)
         region = True if args.region_movement else None
-        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement, region=region)
-        row = {"teacher": teacher, "init": init, "candidates": {}}
+        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=movement, region=region)
+        row = {"teacher": teacher, "init": init, "candidates": {}, "movement": movement}
         for candidate in args.candidates.split(","):
-            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement, region=region,
+            ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=movement, region=region,
                                       grouped=args.grouped_region)
             ev["ratio_vs_init"] = ev["welfare"] / max(1e-9, init["welfare"])
             ev["ratio_vs_teacher"] = ev["welfare"] / max(1e-9, teacher["welfare"])

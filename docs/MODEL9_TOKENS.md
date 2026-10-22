@@ -175,9 +175,103 @@ seed spread. The clones are smaller than the VM's, so these ratios are relative,
 
 ### Still open
 
-- A full VM re-clone at the token defaults (10 seeds, 660 worlds, 12 epochs) and the 20-world gate.
-- Generating teacher data in the evaluation regime, or evaluating with movement enabled, removes the shift at its
-  source. The other movement inputs (`v2-481` to `v2-489`) still differ between the regimes; they vary in TRAIN, so
-  the guard only clips them.
+- A full VM re-clone at the token defaults (10 seeds, 660 worlds, 12 epochs) and the 20-world gate, now evaluated with
+  movement on (below).
 - PPO stages that run with movement off inherit the guarded normalizer from stage 1. The flag stays dropped, which is
-  harmless while it is constant within a stage.
+  harmless while it is constant within a stage. Their checkpoints default to movement-off evaluation (below).
+
+## Evaluating with movement on
+
+Status: 22 October 2026, branch `feature/r3-eval-movement`. The user's decision: remove the `v2-480` shift at its
+source by evaluating in the regime the teacher data was written in, which is also round 3's learned-movement regime.
+
+### Change
+
+- **Default.** A contract-12 (token) checkpoint is evaluated in the movement regime it was trained in
+  (`evaluate.trained_movement`):
+  - stage-1 clones (no `stage` key): movement **on**, as the `--model9-teacher` shards;
+  - PPO checkpoints: on when they learned movement (`region_movement`, stage `movement`) or observed it
+    (`observe_movement`), off for stages that ran with native movement (capability, mixed).
+  - Pre-contract-12 checkpoints keep the historical default, off.
+- **Opt-out.** `--movement` / `--no-movement` override the default in `evaluate`, `stage_eval`, `personality_sweep`,
+  `daughter_eval` and `diagnose_small`. `--no-movement` reproduces every earlier number.
+- **One setting per evaluation.** `evaluate.evaluation_movement` resolves one setting for all checkpoints of a run
+  (for example the legacy init and the token candidates of a `stage_eval`). Checkpoints trained in different regimes
+  need an explicit flag. The reference runs under the same setting. Reports record it:
+  - `evaluate`: `movement`, `policy_movement_legal_share`, `policy_site_move_share`;
+  - `stage_eval`: each regime row's `movement`. `paired_compare` refuses to merge reports with different settings.
+- **Movement head.** With movement on, a stage-1 clone moves through its cloned contract-8 head (stay or a site row).
+  `--observe-movement` arms keep every decision native through the region head, as in their in-training evaluation.
+  In `daughter_eval`, a contract-12 policy now chooses movement whenever the bridge has movement on, as in
+  `evaluate.rollout`. Older policies move only through region movement, as before.
+- **Unchanged.**
+  - PPO's in-training evaluation follows the stage's own bridge setting.
+  - `scale_probe` and `scale_reference` (timing and heuristic-only) keep movement off.
+  - `search_teacher` already runs with movement on.
+
+### The reference is the same under both settings
+
+The native heuristic's play does not depend on the bridge flag. The flag only does two things:
+- it adds the movement inputs to observations;
+- it lets *submitted* directives move (`ElderModel9Environment.Step` resets a submitted directive to native movement
+  when the flag is off).
+
+The heuristic submits nothing. Its welfare on worlds 2000-2005 is bitwise identical with movement on and off, so
+the ratio's denominator does not change. Under both settings the heuristic moves with its own native orders.
+
+With movement on, the policy chooses movement where it used to borrow the heuristic's. **The movement-on ratio
+therefore also scores the clone's own movement.**
+
+### Input check (`input_shift.py`)
+
+`python -m anthropocene_rl.autonomous_v7.input_shift --train <teacher>/train [--checkpoint <pt>] --seeds 2000-2002
+--turns 12 --out <json>` compares TRAIN inputs with closed-loop evaluation inputs under both settings. It flags inputs
+that are constant in TRAIN and differ at evaluation, and inputs more than 10 TRAIN standard deviations out.
+
+Run: local TRAIN of 80 worlds (48.7k rows), policy `full-s0` playing worlds 2000-2002 for 12 turns.
+
+| Input | TRAIN | Eval, movement on | Eval, movement off |
+| --- | --- | --- | --- |
+| `v2-480` movement legal | 1 (constant) | 1 | **0 (z = 693)** |
+| `v2-481` legal-candidate count | 2-15 | 5-15 | **1 (z = 7.3)** |
+| `v2-482`, `v2-483` | constant 1, 0 | 1, 0 | 1, 0 |
+| `v2-484`-`v2-489` candidate flags | 0-1 | 0-1 | 0 |
+
+With movement on, every movement input is inside its TRAIN range.
+
+**A second shift remains, and it is not about movement.** Two input groups differ between TRAIN and evaluation under
+*both* settings, and only when a policy plays (heuristic play shows neither):
+- **`v2-40`-`v2-55` (previous-decision block).** These are never present in a teacher row, because the heuristic
+  submits no Elder directive. They are present at every policy decision, with |z| up to about 3000.
+- **`v2-114`-`v2-116` (institutional-memory traces).** Constant 0 in TRAIN, nonzero under policy play.
+
+Evaluating with movement on cannot remove this shift; it is inherent to closed-loop play. The input guard still drops
+these inputs, so it stays required.
+
+Other flagged inputs are rare (<2% of rows), more than 10 standard deviations out but inside or near the TRAIN range,
+and the same under both settings.
+
+### Measured effect (local, reduced)
+
+Clones from the seed-robustness check above: `base` (original), `guard` (guard only) and `full` (token defaults).
+Closed-loop welfare ratio against the heuristic on worlds 2000-2005, 25 turns. "Moves" is the share of policy
+decisions that moved (a move was legal at 99-100% of them). In the teacher shards, the heuristic moves at 15.4% of
+rows.
+
+| Clone | Ratio, movement off (s0/s1/s2/s3) | Ratio, movement on (s0/s1/s2/s3) | Moves, on |
+| --- | --- | --- | --- |
+| base (guard off) | 0.44 / 0.59 / 0.37 / 0.81 | 0.44 / 0.43 / 0.41 / 0.69 | 0.93 / 0.09 / 0.92 / 0.11 |
+| guard only | 0.98 / 1.07 / 0.99 / 0.97 | 0.83 / 1.06 / 0.81 / 0.84 | 0.12 / 0.16 / 0.13 / 0.09 |
+| full (token defaults) | 0.95 / 0.95 / 0.85 / 0.97 | 0.88 / 0.93 / 0.84 / 0.93 | 0.11 / 0.12 / 0.13 / 0.11 |
+
+- **Without the guard, movement on does not cure the collapse.** The previous-decision inputs still reach |z| in
+  the hundreds. Seeds 0 and 2 also move at 92-93% of decisions and leave 18 settlements below 30.
+- **With the guard, the movement head is exercised at about the teacher's rate.** Guarded clones move at 9-16% of
+  decisions.
+- **Movement on lowers the guarded ratios.** Means: guard-only 1.00 to 0.88, full 0.93 to 0.90. The cloned movement
+  head is worse than the heuristic's own movement, which the clone borrowed when movement was off.
+  - The full clones stay within the ±20% sanity band (0.84-0.93).
+  - Clothing (0.98-0.99) and housing (0.94-0.95) are unchanged, so this is not the collapse mode.
+- These are small clones (80 worlds, 6 epochs) on 6 worlds, so the ratios are relative, not gate values.
+- Script and raw rows: scratch `evalmove/measure.py`. The movement-off column reproduces the earlier reports exactly
+  (`full-s0` 0.947, `base-s0` 0.441).

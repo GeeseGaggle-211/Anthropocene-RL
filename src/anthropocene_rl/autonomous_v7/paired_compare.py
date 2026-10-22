@@ -84,6 +84,8 @@ def merge(reports: list[dict]) -> dict:
                 continue
             if [w[:2] for w in row["teacher"]["worlds"]] != [w[:2] for w in out[name]["teacher"]["worlds"]]:
                 raise ValueError(f"{name}: reports cover different worlds")
+            if row.get("movement", False) != out[name].get("movement", False):
+                raise ValueError(f"{name}: reports use different movement settings")
             out[name]["candidates"].update(row["candidates"])
     return out
 

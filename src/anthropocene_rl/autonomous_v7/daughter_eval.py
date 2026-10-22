@@ -24,7 +24,7 @@ import torch
 
 from .bridge import Model9Bridge
 from .daughter_bank import DaughterBank, held_out
-from .evaluate import load, policy_actions
+from .evaluate import evaluation_movement, load, policy_actions
 
 
 def daughter_outcome(villages: list[dict[str, Any]], society: int) -> dict[str, float]:
@@ -36,7 +36,9 @@ def daughter_outcome(villages: list[dict[str, Any]], society: int) -> dict[str, 
 
 def run_entry(bank: str, entry_id: int, checkpoint: str | None, turns: int, movement: bool | None = None,
               personality: list[float] | None = None) -> dict[str, Any]:
-    """One start, played by ``checkpoint`` (None: the heuristic) for ``turns`` turns."""
+    """One start, played by ``checkpoint`` (None: the heuristic) for ``turns`` turns. ``movement`` None: the setting
+    recorded with the entry. With movement on, a contract-12 policy chooses movement as in evaluate.rollout; older
+    policies move only through contract-10 region movement (their recorded behaviour)."""
     torch.set_num_threads(1)
     store = DaughterBank(bank); entry = store.get(entry_id)
     if not held_out(entry):
@@ -51,14 +53,19 @@ def run_entry(bank: str, entry_id: int, checkpoint: str | None, turns: int, move
         start = next((v for v in step["villages"] if int(v["camp"]) == camp), None)
         initial = float(start["population"]) if start is not None else 0.0
         for _ in range(turns):
-            actions = (policy_actions(actor, normalizer, step["villages"], move and getattr(actor, "region_movement", False),
-                                      personality=personality) if actor is not None else {})
+            chooses = move and (actor.token or getattr(actor, "region_movement", False)) if actor is not None else False
+            actions = (policy_actions(actor, normalizer, step["villages"], chooses, personality=personality)
+                       if actor is not None else {})
             step = bridge.step(actions)
             if not any(not v["terminated"] for v in step["villages"]):
                 break
     out = daughter_outcome(step["villages"], society)
     out.update({"id": int(entry_id), "initial_population": initial, "growth": out["population"] / max(1.0, initial)})
     return out
+
+
+def evaluate_token(checkpoint: str) -> bool:
+    return bool(torch.load(Path(checkpoint), map_location="cpu", weights_only=False).get("token", False))
 
 
 def paired(policy: list[dict[str, Any]], heuristic: list[dict[str, Any]]) -> dict[str, Any]:
@@ -83,8 +90,13 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0, help="evaluate at most this many held-out entries (0: all)")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--personality", default=None, help="w,w,w,w for every village (personality checkpoints)")
+    parser.add_argument("--movement", action=argparse.BooleanOptionalAction, default=None,
+                        help="bridge movement for the policy and the heuristic (default: the contract-12 checkpoint's "
+                             "training regime; older checkpoints keep each entry's recorded setting)")
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    movement = evaluation_movement(args.movement, [args.checkpoint]) if (
+        args.movement is not None or evaluate_token(args.checkpoint)) else None
     entries = DaughterBank(args.bank).evaluation_entries()  # held-out family only (asserts the partition)
     if args.limit > 0:
         entries = entries[:args.limit]
@@ -92,9 +104,9 @@ def main() -> int:
     p = [float(x) for x in args.personality.split(",")] if args.personality else None
     n = len(ids); clock = time.time()
     with ProcessPoolExecutor(max_workers=max(1, min(args.workers, n))) as pool:
-        policy = list(pool.map(run_entry, [str(args.bank)] * n, ids, [args.checkpoint] * n, [args.turns] * n, [None] * n, [p] * n))
-        heuristic = list(pool.map(run_entry, [str(args.bank)] * n, ids, [None] * n, [args.turns] * n))
-    report = {"checkpoint": args.checkpoint, "bank": str(args.bank), "turns": args.turns, **paired(policy, heuristic),
+        policy = list(pool.map(run_entry, [str(args.bank)] * n, ids, [args.checkpoint] * n, [args.turns] * n, [movement] * n, [p] * n))
+        heuristic = list(pool.map(run_entry, [str(args.bank)] * n, ids, [None] * n, [args.turns] * n, [movement] * n))
+    report = {"checkpoint": args.checkpoint, "bank": str(args.bank), "turns": args.turns, "movement": movement, **paired(policy, heuristic),
               "per_entry": [{"id": i, "policy": a, "heuristic": b} for i, a, b in zip(ids, policy, heuristic)],
               "seconds": time.time() - clock}
     args.out.parent.mkdir(parents=True, exist_ok=True)
