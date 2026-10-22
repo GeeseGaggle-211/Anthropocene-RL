@@ -554,6 +554,18 @@ class CostCritic(nn.Module):
         return self.head(h).squeeze(1)
 
 
+def cost_bootstrap(cost_critic: "CostCritic", roll: Rollout, batch: dict[str, np.ndarray], normalizer: Normalizer,
+                   rows: np.ndarray) -> np.ndarray:
+    """The guard cost critic's value of each truncated living village's next observation (0 elsewhere): the GAE
+    bootstrap of the cost sequence. Guard cost is a per-settlement indicator, so the value is not scaled by residents."""
+    boot = np.zeros(len(batch["cost"]))
+    if roll.bootstrap_obs and len(rows):
+        with torch.no_grad():
+            tail = cost_critic(to_tensors(roll.bootstrap_obs[0], normalizer)).numpy().astype(np.float64)
+        boot[rows] = tail[batch["bootstrap_index"][rows]]
+    return boot
+
+
 # --------------------------------------------------------------------------------------------- update
 @dataclass
 class Hyper:
@@ -605,6 +617,11 @@ class Hyper:
     # early, so the critic would otherwise see fewer epochs). Off here so programmatic runs reproduce; the CLI turns it
     # on for new runs (--kl-refit, default on; --no-kl-refit).
     kl_refit: bool = False
+    # Round 3 (review 5.5(1)): the guard cost critic's GAE bootstraps every living village truncated at the rollout
+    # horizon from the cost critic's value of its next observation, as the value critics do. Off is the earlier
+    # return-only target (truncated villages counted as if the guard cost stopped at the horizon). The CLI keeps a resumed
+    # run's own setting (off for runs saved before the flag).
+    cost_bootstrap: bool = True
 
 
 def warmup_iterations(fresh_heads: bool, critic_warmup: int, round_start_warmup: int) -> int:
@@ -898,7 +915,8 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         target = data.scale_free(target, batch)
     with torch.no_grad():
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
-    cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, np.zeros(len(reward)))
+    cost_boot = cost_bootstrap(cost_critic, roll, batch, normalizer, rows) if hyper.cost_bootstrap else np.zeros(len(reward))
+    cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, cost_boot)
     branch_targets = None
     if branch is not None:
         # Search branch rows (critic only): lambda-returns over each branch sequence, bootstrapped by the current
@@ -914,6 +932,9 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     if drift is not None:
         stats["scale_drift"] = drift; stats["scale_clipped"] = clipped
     stats["bank_decisions"] = int((batch["bank"] >= 0).sum()) if "bank" in batch else 0
+    # Guard cost bootstrap (round 3): whether it is on and the mean bootstrapped cost value of truncated villages.
+    stats["cost_bootstrap"] = bool(hyper.cost_bootstrap)
+    stats["cost_bootstrap_mean"] = float(cost_boot[rows].mean()) if len(rows) else 0.0
     mean_cost = float(batch["cost"].mean())
     lagrange = max(0.0, lagrange + hyper.lagrange_lr * (mean_cost - hyper.cost_budget))
     stats.update({"decisions": float(len(reward)), "welfare": float(batch["welfare"].sum()),
@@ -1111,6 +1132,9 @@ def main() -> int:
     parser.add_argument("--kl-refit", action=argparse.BooleanOptionalAction, default=None,
                         help="one extra critic-only epoch after an update stopped on target_kl (default on for new runs; "
                              "a resumed run keeps its own setting, off for runs saved before the flag)")
+    parser.add_argument("--cost-bootstrap", action=argparse.BooleanOptionalAction, default=None,
+                        help="bootstrap truncated living villages in the guard cost critic from its own value (round 3; "
+                             "default on for new runs, a resumed run keeps its own setting, off for runs saved before)")
     parser.add_argument("--resume", action="store_true",
                         help="continue from <out>/resume.pt when present (preemptible VMs); otherwise start fresh")
     parser.add_argument("--learned-trade", action="store_true",
@@ -1322,6 +1346,8 @@ def main() -> int:
     resumed = args.resume and resume_path.exists()
     hyper.kl_refit = (args.kl_refit if args.kl_refit is not None
                       else bool(r.get("kl_refit", False)) if resumed else True)
+    hyper.cost_bootstrap = (args.cost_bootstrap if args.cost_bootstrap is not None
+                            else bool(r.get("cost_bootstrap", False)) if resumed else True)
     branch = None
     if args.branch_shards:
         from . import branch_shards
@@ -1368,7 +1394,8 @@ def main() -> int:
         atomic({"actor": actor.state_dict(), "critic": critic.state_dict(), "cost_critic": cost_critic.state_dict(),
                 "optimizers": [o.state_dict() for o in optimizers], "lagrange": lagrange, "best": best, "baseline": baseline,
                 "log": log, "iteration": it, "numpy_rng": rng.bit_generator.state, "generator": generator.get_state(),
-                "torch_rng": torch.get_rng_state(), "kl_refit": hyper.kl_refit}, resume_path)
+                "torch_rng": torch.get_rng_state(), "kl_refit": hyper.kl_refit,
+                "cost_bootstrap": hyper.cost_bootstrap}, resume_path)
         print(json.dumps({k: v for k, v in stats.items() if k != "worlds"}), flush=True)
     (args.out / "done").write_text(json.dumps({"iterations": args.iterations}))
     return 0

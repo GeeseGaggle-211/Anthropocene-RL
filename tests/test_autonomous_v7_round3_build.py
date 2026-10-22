@@ -145,3 +145,28 @@ def test_search_labels_supervise_both_levels() -> None:
         o = actor(t)
         expected = -o["region_logp"].gather(1, slot.unsqueeze(1)).squeeze(1).mean()
         assert torch.allclose(ppo.search_loss(o, t, kind, slot, torch.full((n, 3), float("nan"))), expected, atol=1e-5)
+
+
+# ------------------------------------------------------------------------------------------- 3. cost bootstrap
+def test_guard_cost_critic_bootstraps_truncated_living_villages() -> None:
+    b = batch()
+    normalizer = Normalizer.fit(b)
+    torch.manual_seed(0)
+    cost_critic = ppo.CostCritic(b["core"].shape[1])
+    with torch.no_grad():
+        cost_critic.head.bias.fill_(0.5); cost_critic.head.weight.zero_()        # V_cost = 0.5 everywhere
+    roll = ppo.Rollout(); roll.bootstrap_obs.append({k: v[:2] for k, v in b.items()})
+    # Two villages, two turns each; village 7 is truncated alive at the horizon, village 8 terminated.
+    rows = {"world": np.array([0, 0, 0, 0]), "camp": np.array([7, 8, 7, 8]), "turn": np.array([1, 1, 2, 2]),
+            "years": np.full(4, 20.0), "terminated": np.array([False, False, False, True]),
+            "cost": np.array([1.0, 1.0, 1.0, 1.0]), "bootstrap_index": np.array([-1, -1, 0, -1])}
+    truncated = np.flatnonzero(rows["bootstrap_index"] >= 0)
+    boot = ppo.cost_bootstrap(cost_critic, roll, rows, normalizer, truncated)
+    assert np.allclose(boot, [0, 0, 0.5, 0])
+    value = np.full(4, 0.5)
+    _, with_boot = ppo.gae(rows, rows["cost"], value, boot)
+    _, without = ppo.gae(rows, rows["cost"], value, np.zeros(4))
+    gamma = float(ppo.data.discount(np.asarray([20.0]))[0])
+    assert with_boot[2] == pytest.approx(1.0 + gamma * 0.5) and without[2] == pytest.approx(1.0)
+    assert with_boot[3] == pytest.approx(without[3])                           # a terminated village is not bootstrapped
+    assert ppo.Hyper().cost_bootstrap
