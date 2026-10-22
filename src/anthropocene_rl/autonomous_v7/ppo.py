@@ -39,7 +39,7 @@ from . import contracts, data
 from .daughter_bank import CAPTURES_PER_WORLD, DaughterBank, Reservoir
 from .bridge import Model9Bridge, observation_batch
 from .model import (MASKED, Actor, Critic, Normalizer, VectorCritic, condition_mix, mix_soft_cross_entropy, region_code,
-                    to_tensors)
+                    region_mode, to_tensors)
 
 SMALL_SETTLEMENT = 30
 YOUNG_DAUGHTER_TURNS = 3
@@ -138,7 +138,8 @@ def sample(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], stage: Stag
 
     mask = t["economy_mix_mask"]
     # Contract 10: the region slot is drawn first and the mix given it.
-    region = categorical(out["region"]) if stage.region_movement else torch.full((len(mask),), contracts.REGION_NATIVE, dtype=torch.long)
+    # Round 3: the region slot is drawn from the head's joint distribution (hierarchical by default: group, then slot).
+    region = categorical(out[region_key(out)]) if stage.region_movement else torch.full((len(mask),), contracts.REGION_NATIVE, dtype=torch.long)
     if stage.region_movement:
         out = condition_mix(out, region)
     mu, free, _ = _mix_parts(out, mask)
@@ -180,8 +181,8 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     lp = _normal_logp(draw["service_z"], out["service_mean"], out["service_log_std"]).sum(dim=1)
     entropy = (out["service_log_std"] + half_log_2pie).sum(dim=1)
 
-    def categorical(head: str) -> tuple[torch.Tensor, torch.Tensor]:
-        logq = torch.log_softmax(out[head], dim=1)
+    def categorical(head: str, key: str | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+        logq = torch.log_softmax(out[key or head], dim=1)
         return logq.gather(1, draw[head].clamp(min=0).unsqueeze(1)).squeeze(1), -(logq.exp() * logq).sum(dim=1)
 
     if stage.routes:
@@ -196,7 +197,7 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
         capital_lp = capital_lp + logq.gather(2, draw["trade_gate"].clamp(min=0).unsqueeze(2)).squeeze(2).sum(dim=1)
         capital_ent = capital_ent - (logq.exp() * logq).sum(dim=(1, 2))
     if stage.region_movement:
-        a, b = categorical("region"); lp = lp + a; entropy = entropy + b
+        a, b = categorical("region", region_key(out)); lp = lp + a; entropy = entropy + b
     elif stage.movement:
         a, b = categorical("movement"); lp = lp + a; entropy = entropy + b
     if stage.fission:
@@ -206,6 +207,12 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
         a, b = categorical("span"); lp = lp + a; entropy = entropy + b
         decided = (draw["span"] != contracts.SPAN_HOLD).float()
     return lp + decided * capital_lp, entropy + decided * capital_ent
+
+
+def region_key(out: dict[str, torch.Tensor]) -> str:
+    """The region head's distribution: the joint log-probabilities (hierarchical or flat, model.Actor) when present,
+    else the raw flat logits (outputs built before round 3)."""
+    return "region_logp" if "region_logp" in out else "region"
 
 
 def teacher_kl(out: dict[str, torch.Tensor], teacher: dict[str, torch.Tensor], strategic: bool = True,
@@ -687,11 +694,13 @@ def search_loss(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], kind: 
     loss, count = zero, 0
     on_slot = (kind == REGION) | (kind == NATIVE)
     if on_slot.any() and "region" in out:
-        logq = torch.log_softmax(out["region"], dim=1)
+        # Round 3: the hierarchical head's joint log-probability is log p(group) + log p(slot | group), so one
+        # cross-entropy supervises both levels (a native label teaches the group only).
+        logq = torch.log_softmax(out[region_key(out)], dim=1)
         loss = loss - logq.gather(1, slot.clamp(min=0).unsqueeze(1)).squeeze(1)[on_slot].sum(); count += int(on_slot.sum())
     has_mix = ~torch.isnan(mix).any(dim=1)
     if has_mix.any():
-        own = out["region"].argmax(dim=1) if "region" in out else torch.zeros_like(slot)
+        own = region_mode(out) if "region" in out else torch.zeros_like(slot)
         conditioned = condition_mix(out, torch.where(kind == NATIVE, slot.clamp(min=0), own))
         ce, valid = mix_soft_cross_entropy(conditioned["mix_logits"], torch.nan_to_num(mix), t["economy_mix_mask"])
         rows = has_mix & valid
@@ -1123,6 +1132,9 @@ def main() -> int:
     parser.add_argument("--film-bound", type=float, default=None,
                         help="bound the FiLM scale and shift to +/- this with tanh (off by default: it also dampens FiLM; "
                              "use only if film_max shows instability)")
+    parser.add_argument("--region-head", choices=("hierarchical", "flat"), default=None,
+                        help="region-movement head (round 3): hierarchical (native / stay / go, then where) or the earlier "
+                             "flat head. Default: the checkpoint's own (hierarchical for checkpoints saved before the head)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--teacher-kl", type=float, default=None, help="weight of the teacher KL anchor (default 0.05)")
@@ -1155,6 +1167,8 @@ def main() -> int:
         critic.load_state_dict(state["critic"])
     anchor = upgrade(torch.load(args.teacher, map_location="cpu", weights_only=False)) if args.teacher else state
     teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
+    if args.region_head is not None:
+        actor.set_region_head(args.region_head); teacher.set_region_head(args.region_head)
     cost_critic = CostCritic(core_width, token=token)
     if "cost_critic" in state:
         cost_critic.load_state_dict(state["cost_critic"])
@@ -1248,6 +1262,7 @@ def main() -> int:
                     "commitments": stage.commitments, "region_movement": stage.region_movement,
                     "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "learned_trade": stage.trade,
                     "experts": experts, "token": token, "vector_critic": isinstance(critic, VectorCritic),
+                    "region_head": actor.region_head,
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "personality_scales": hyper.personality_scales, "personality_clip": hyper.personality_clip,
                     "daughter_bank": None if bank is None else str(bank.directory),

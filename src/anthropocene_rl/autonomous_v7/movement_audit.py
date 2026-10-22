@@ -37,6 +37,9 @@ def audit_rollout(seed: int, turns: int, checkpoint: str, policy: str, out: str,
     movement = policy in ("grouped", "argmax", "stay")
     actor.region_movement = movement
     actor.grouped_region = policy in ("grouped", "stay")
+    # "argmax" and "stay" act on the flat head (a plain argmax, and the forced-stay counterfactual below); "grouped" on
+    # the hierarchical head, whose deterministic choice is the grouped one.
+    actor.set_region_head("hierarchical" if policy == "grouped" else "flat")
     if policy == "stay":
         # Counterfactual: the same checkpoint with its region slot forced to row 0 (stay on the current tile); the mix is
         # conditioned on that slot exactly as for a learned stay.

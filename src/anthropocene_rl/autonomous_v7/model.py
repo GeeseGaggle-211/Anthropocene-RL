@@ -318,12 +318,65 @@ def init_span_head(layer: nn.Linear) -> None:
 NATIVE_START = 0.8
 
 
+# Round 3 hierarchical region head (docs/MODEL9_M7.md, *Round 3 build: hierarchical region head*): one distribution
+# for sampling, likelihood, search labels, selection and inference. First a 3-way decision (native, stay, go), then a
+# pointer over the go slots (keep the intent, region rows 1-7). The group logits are the log-mass the flat logits give
+# each group plus a learned offset (``Actor.region_group``, zero-initialised), so an untrained offset (and any checkpoint
+# saved before the head) is exactly the flat distribution; only the deterministic choice differs (group first). The
+# offset lets the policy move the go mass without moving any destination's relative odds.
+REGION_GROUP_NATIVE, REGION_GROUP_STAY, REGION_GROUP_GO = 0, 1, 2
+REGION_GROUPS = ("native", "stay", "go")
+REGION_STAY = 2  # region row 0, the current tile
+_FILL = -1e4     # stands for an excluded slot inside the group reductions (finite, so gradients stay finite)
+
+
+def region_group_index(slots: int = contracts.REGION_MOVEMENT_SLOTS) -> torch.Tensor:
+    """Group of every region-movement slot: native, keep (go), stay (row 0), rows 1-7 (go)."""
+    index = torch.full((slots,), REGION_GROUP_GO, dtype=torch.long)
+    index[contracts.REGION_NATIVE] = REGION_GROUP_NATIVE
+    index[REGION_STAY] = REGION_GROUP_STAY
+    return index
+
+
+def default_region_flat() -> bool:
+    """The head a checkpoint saved before the hierarchical head loads with: hierarchical, unless the environment sets
+    ANTHROPOCENE_REGION_HEAD=flat (to reproduce earlier flat-argmax evaluations of old checkpoints exactly)."""
+    import os
+    return os.environ.get("ANTHROPOCENE_REGION_HEAD", "hierarchical").strip().lower() == "flat"
+
+
+def hierarchical_region(region: torch.Tensor, legal: torch.Tensor, offset: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Group logits (B, 3) and the joint log-probability of every slot (B, S) of the hierarchical region head.
+    ``region``: masked flat logits; ``legal``: the region-movement mask; ``offset``: the learned group offset. A group with
+    no legal slot gets the MASKED logit; an illegal slot gets log-probability _FILL."""
+    index = region_group_index(region.shape[1]).to(region.device)
+    member = nn.functional.one_hot(index, len(REGION_GROUPS)).bool().unsqueeze(0) & legal.unsqueeze(2)   # B, S, 3
+    lse = torch.logsumexp(region.unsqueeze(2).masked_fill(~member, _FILL), dim=1)                      # B, 3
+    any_legal = member.any(dim=1)
+    group = torch.where(any_legal, lse + offset, torch.full_like(lse, MASKED))
+    within = region - lse.gather(1, index.unsqueeze(0).expand(len(region), -1))
+    joint = torch.log_softmax(group, dim=1).gather(1, index.unsqueeze(0).expand(len(region), -1)) + within
+    return group, torch.where(legal, joint, torch.full_like(joint, _FILL))
+
+
+def region_mode(out: dict[str, torch.Tensor], grouped: bool = False) -> torch.Tensor:
+    """The deterministic region slot. The hierarchical head (``region_group`` in ``out``): the most likely group, then
+    its most likely slot, whatever ``grouped`` says. The flat head (``Actor.region_flat``): a plain argmax, or
+    ``grouped_region_slot`` when ``grouped`` (the evaluation option that preceded the hierarchical head)."""
+    if "region_group" in out:
+        index = region_group_index(out["region"].shape[1]).to(out["region"].device)
+        group = out["region_group"].argmax(dim=1)
+        within = out["region_logp"].masked_fill(index.unsqueeze(0) != group.unsqueeze(1), -float("inf"))
+        return within.argmax(dim=1)
+    return grouped_region_slot(out["region"]) if grouped else out["region"].argmax(dim=1)
+
+
 def init_region_heads(actor: "Actor") -> None:
     """Zero weights everywhere; the native logit's bias sets NATIVE_START. The mix offset starts at zero, so the mix
     given any destination equals the unconditioned mix."""
     others = contracts.REGION_MOVEMENT_SLOTS - 1
     with torch.no_grad():
-        for layer in (actor.region_native, actor.region_keep, actor.region_query, actor.mix_region):
+        for layer in (actor.region_native, actor.region_keep, actor.region_query, actor.mix_region, actor.region_group):
             layer.weight.zero_(); layer.bias.zero_()
         actor.region_native.bias.fill_(float(np.log(NATIVE_START / (1 - NATIVE_START) * others)))
 
@@ -371,8 +424,15 @@ class Actor(nn.Module):
     herding and fishing, masked categorical routes and fission policy, and a pointer over site rows for movement
     (stay is slot 0). With ``experts`` the strategic, mix and service heads read capability-conditioned features."""
 
-    def __init__(self, core_width: int, width: int = 256, experts: bool = False, token: bool = False) -> None:
+    def __init__(self, core_width: int, width: int = 256, experts: bool = False, token: bool = False,
+                 region_head: str | None = None) -> None:
         super().__init__()
+        # Round 3: the hierarchical region head is the default; "flat" reproduces the earlier flat softmax and argmax.
+        # Saved as a buffer, so every loader (evaluation included) restores the checkpoint's own head.
+        if region_head not in (None, "hierarchical", "flat"):
+            raise ValueError(f"unknown region head {region_head!r}")
+        flat = default_region_flat() if region_head is None else region_head == "flat"
+        self.register_buffer("region_flat", torch.tensor(flat))
         # Contract 12: the token model reads the economy mix from activity tokens and the trade posture from trade
         # tokens, so new activities and trade groups are rows, not heads.
         self.token = token
@@ -397,7 +457,9 @@ class Actor(nn.Module):
         self.region_keep = nn.Linear(width, 1)
         self.region_query = nn.Linear(width, hidden)
         self.mix_region = nn.Linear(hidden, len(contracts.ECONOMY_MIX))
+        self.region_group = nn.Linear(width, len(REGION_GROUPS))  # hierarchical head: learned group offset
         init_region_heads(self)
+        self._register_load_state_dict_pre_hook(self._region_defaults)
         # Contract 11 trade posture: relative value per group, offer gate per group, export labour share.
         groups = len(contracts.TRADE_GROUPS)
         self.trade_value = nn.Linear(width, 2 * groups)
@@ -411,6 +473,24 @@ class Actor(nn.Module):
                 self.trade_token.weight.zero_(); self.trade_token.bias.zero_()
                 self.trade_token.bias[1] = TRADE_LOG_STD_START
                 self.trade_token.bias[2 + contracts.TRADE_MAKE] = float(np.log(TRADE_GATE_START / (1 - TRADE_GATE_START) * (contracts.TRADE_GATES - 1)))
+
+    def _region_defaults(self, state_dict, prefix, *args) -> None:
+        """Checkpoints saved before the hierarchical head: a zero group offset (exactly the flat distribution) and the
+        default head (default_region_flat)."""
+        for name in ("region_group.weight", "region_group.bias"):
+            if prefix + name not in state_dict:
+                state_dict[prefix + name] = torch.zeros_like(dict(self.named_parameters())[name])
+        if prefix + "region_flat" not in state_dict:
+            state_dict[prefix + "region_flat"] = torch.tensor(default_region_flat())
+
+    @property
+    def region_head(self) -> str:
+        return "flat" if bool(self.region_flat) else "hierarchical"
+
+    def set_region_head(self, head: str) -> None:
+        if head not in ("hierarchical", "flat"):
+            raise ValueError(f"unknown region head {head!r}")
+        self.region_flat.fill_(head == "flat")
 
     def forward(self, t: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         h, rows = self.encoder(t)
@@ -435,11 +515,19 @@ class Actor(nn.Module):
         else:
             trade_value = self.trade_value(e).view(-1, 2, groups)
             trade_gate = self.trade_gate(e).view(-1, groups, contracts.TRADE_GATES)
+        legal = t["region_movement_mask"]
+        region = region.masked_fill(~legal, MASKED)
+        extra: dict[str, torch.Tensor] = {}
+        if bool(self.region_flat):
+            extra["region_logp"] = torch.log_softmax(region, dim=1)
+        else:
+            extra["region_group"], extra["region_logp"] = hierarchical_region(region, legal, self.region_group(h))
         return {
+            **extra,
             "trade_value_mean": trade_value[:, 0], "trade_value_log_std": trade_value[:, 1].clamp(-5, 1),
             "trade_gate": trade_gate,
             "trade_share_mean": trade_share[:, 0], "trade_share_log_std": trade_share[:, 1].clamp(-5, 1),
-            "region": region.masked_fill(~t["region_movement_mask"], MASKED),
+            "region": region,
             "mix_offset": mix_offset,
             "strategic_mean": strategic[..., 0], "strategic_log_std": strategic[..., 1].clamp(-5, 1),
             "mix_logits": mix[..., 0].masked_fill(~t["economy_mix_mask"], MASKED),
@@ -578,10 +666,10 @@ def grouped_region_slot(logits: torch.Tensor) -> torch.Tensor:
 
 def act_deterministic(out: dict[str, torch.Tensor], region: bool = False, grouped: bool = False) -> dict[str, np.ndarray]:
     """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends). With
-    ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it; ``grouped`` makes
-    that choice hierarchical (``grouped_region_slot``)."""
+    ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it: the hierarchical
+    head's own choice (region_mode); on a flat head ``grouped`` makes it grouped_region_slot."""
     if region and "region" in out:
-        slot = grouped_region_slot(out["region"]) if grouped else out["region"].argmax(dim=1)
+        slot = region_mode(out, grouped)
     else:
         slot = torch.zeros(len(out["mix_logits"]), dtype=torch.long)
     if region:

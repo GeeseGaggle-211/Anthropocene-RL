@@ -331,6 +331,8 @@ def main() -> int:
     parser.add_argument("--grad-clip", type=float, default=1.0, help="BC gradient-norm clip")
     parser.add_argument("--input-guard", type=float, default=None,
                         help="normalizer guard: drop inputs constant in TRAIN, clip the rest to +-this (token 10, else 0 = off)")
+    parser.add_argument("--region-head", choices=("hierarchical", "flat"), default="hierarchical",
+                        help="region-movement head: hierarchical (native / stay / go, then where; round 3) or the earlier flat head")
     parser.add_argument("--branch-shards", default=None,
                         help="comma-separated search branch-shard directories added to critic pretraining only")
     args = parser.parse_args()
@@ -349,7 +351,9 @@ def main() -> int:
     print(json.dumps({"bc_config": bc_config, "dropped_inputs": normalizer.dead_names()}), flush=True)
     core_width = train["core"].shape[1]
     privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
-    actor = Actor(core_width, token=args.token)
+    # Round 3: the hierarchical region head by default (model.Actor; saved in the actor state); --region-head flat keeps
+    # the earlier flat head. Teacher shards carry no region label, so cloning never trains the region head either way.
+    actor = Actor(core_width, token=args.token, region_head=args.region_head)
     critic = (VectorCritic if args.vector_critic else Critic)(core_width, privileged_width=privileged_width, token=args.token)
     branch = None
     if args.branch_shards:
@@ -389,7 +393,7 @@ def main() -> int:
     extra = {"vector_critic": True} if args.vector_critic else {}
     torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
                 "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "token": args.token,
-                "seed": args.seed, "log": log, "bc_config": bc_config,
+                "seed": args.seed, "log": log, "bc_config": bc_config, "region_head": actor.region_head,
                 "critic_dev": final, **extra}, args.out)
     print(json.dumps({"saved": str(args.out), "seconds": time.time() - clock, "critic_dev": final}), flush=True)
     return 0
