@@ -282,13 +282,14 @@ def test_calibration_compares_the_implied_8_turn_value_with_8_realised_turns() -
     biased = branch_bias.calibration({"welfare": pred["welfare"] * 1.2}, rows)
     assert np.isclose(biased["kinds"]["native"]["welfare"]["median"], 0.2)
     real = {"welfare": np.zeros(len(rows["camp"]))}
-    assert branch_bias.evaluate(pred, real, rows)["pass"] is True
+    # One native branch proves the formula, not mandatory native/region/mix coverage or held-out provenance.
+    assert branch_bias.evaluate(pred, real, rows)["pass"] is False
     assert branch_bias.evaluate({"welfare": pred["welfare"] * 1.2}, real, rows)["pass"] is False
     # A lineage that dies before turn 8: its whole realised return against V0 (nothing left to subtract).
     dead = calibration_rows(die_at=3)
     dead["welfare"][-1] = 0.0
     cal = branch_bias.calibration({"welfare": np.full(4, 100.0 * (1 + g + g * g))}, dead)
-    assert cal["branches"] == 1 and abs(cal["kinds"]["native"]["welfare"]["mean"]) < 1e-9
+    assert cal["branches"] == 1 and abs(cal["kinds"]["native"]["welfare"]["fixed_mean"]) < 1e-9
     assert branch_bias.calibration(pred, dict(rows, calibration=np.zeros(10, np.int8)))["branches"] == 0
 
 

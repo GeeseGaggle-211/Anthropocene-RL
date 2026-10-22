@@ -101,7 +101,8 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=2000)
     parser.add_argument("--turns", type=int, default=10)
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     report = []
     for item in args.configs.split(","):
         size, players = item.split(":")

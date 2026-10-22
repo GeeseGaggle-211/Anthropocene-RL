@@ -1106,6 +1106,206 @@ Local smokes (pooling checkpoint `ppo10/stage2-span-seed0/best-single.pt`, seed 
     its value now, so it understates near-term value on growing lineages.
   - This is a tiny sample, but it is the kind of miscalibration the self-consistency check cannot see.
 
+### T3 personality result (22 October 2026)
+
+All 40 expected all-village/focal sweep artifacts for development roots 2000-2059 were present and seed identities
+were checked. Neither personality arm demonstrated the registered frontier:
+
+| Arm / checkpoint | All-village directional successes | Focal directional successes |
+| --- | ---: | ---: |
+| T3per `best.pt` | 1/5 | 1/5 |
+| T3per `latest.pt` | 2/5 | 3/5 |
+| T3lo `best.pt` | 0/5 | 2/5 |
+| T3lo `latest.pt` | 1/5 | 0/5 |
+
+A success here requires the same optimizer seed to show both higher QoL at the QoL personality point and more
+residents at the population point. Under the stricter across-seed sample-SD sensitivity check, every one of these
+eight arm/checkpoint/sweep cells falls to **0/5**. T3per and T3lo therefore both **FAIL personality separation**;
+the weaker teacher anchor did not expose a reliable frontier.
+
+Default-personality cost was preserved. The paired pooled welfare ratios and 95% intervals were
+T3per/T3def `1.004357 [0.987061, 1.021640]`, T3lo/T3def
+`0.999560 [0.981194, 1.018899]`, and the reported T3lo/T3per comparison was
+`0.995223 [0.975776, 1.015652]`. Both registered comparisons to T3def pass the inclusive `[0.80, 1.20]` band.
+The default-personality extinction difference was zero with interval `[0, 0]`.
+
+The focal `per_seed` payloads contain whole-world aggregates rather than complete per-world focal evidence, so focal
+uncertainty cannot be reconstructed under the stricter Round-3 reporting contract. This is an evidence limitation,
+not permission to infer a pass. Cost preservation and extinction neutrality do not substitute for the failed
+personality criterion.
+
+The audited latest-checkpoint default-development welfare comparison to `stage1-seed2`, pooled over five optimizer
+seeds, was T3def `0.940798637` (-5.920%; paired-bootstrap 95% CI `[0.903673327, 0.980380063]`),
+T3per `0.944897566` (-5.510%; `[0.906914899, 0.984346703]`), and T3lo `0.940384249`
+(-5.962%; `[0.901085656, 0.980990574]`). The selected token clone was already `0.947682051` of that prior;
+relative to this immediate initialization the three arms were -0.726%, -0.294%, and -0.770%, respectively.
+Training-selection iteration-49 means had looked +0.081%, +0.310%, and +0.764% versus the immediate initialization,
+but reversed on held-out worlds: this is selection optimism, not evidence of improvement. Do not promote or continue
+T3. Round 4 must start with a fresh, repaired lineage.
+
+### Round 3 pre-launch protocol amendment (22 October 2026; ARCHITECTURE REVIEWED)
+
+Raw-material machinery is latent only: native fallback currently commits every residual worker, so correct normal
+Prepare authorizes zero. Positive synthetic settlement tests cover the kernel, not useful positive full-turn
+gathering. That behavior is deferred pending a separately reviewed/adopted workforce-idleness contract; Round 3
+keeps raw OFF and must not claim the mechanic complete.
+
+**Status: Astra architecture review passed on 22 October 2026.** This remains a prospective protocol, not a result,
+implementation claim, simulator-green verdict or authorization to submit. `MODEL9_ROUND3_BUILD_ARCHITECTURE.md`
+sections 4-9 contain the
+canonical detailed source/promotion, calibration, curriculum and statistical requirements. For this experiment they
+supersede older t1/t2m initialization assumptions, the four-slot curriculum, qualitative personality spread rules and
+the old 2% below-30 threshold. Historical results above remain historical evidence; do not rewrite their verdicts.
+
+**Cross-repository architecture amendment:** Astra's focused ruling rejects Prepare-time endpoint-Wood prediction.
+The reviewed replacement freezes only a conditional authorization and genuinely unused labour, preserves the
+ordinary authoritative baseline path, and settles optional raw receipts once at a global barrier after every camp's
+production/needs; receipts are next-turn inventory. The raw-material flag is **OFF** for the experiment, including
+qualification/search/evaluation. Flag-on tests are implementation evidence only; enabling the feature is a separate
+treatment and requires a new pre-registration.
+
+#### Source, clones and promotion
+
+Regenerate the native teacher bank through the exact clean production Model9 bridge binary, not the separate
+Headless assembly. Freeze full learner/simulator commits, bridge SHA-256/buildHash, exact rules/statics, contract and
+schema versions, all generation options, per-world seed/mask/warm-up/turns/players and initial fingerprint/configuration
+hash/snapshot hash. Publish metadata last, after per-array SHA-256/dtype/shape/row manifests and canonical
+source-run/dataset digests are complete. Loaders validate before normalization/fitting, reject unattributed, legacy,
+dirty, mutated, incompatible or undeclared mixed inputs, reject duplicates, and rebase distinct same-seed/mask
+trajectories instead of merging their return sequences. **No metadata migration of the old t1 bank.**
+
+Rerun guarded clone optimizer seeds **0-9** under lineage schema 2. A random root needs validated teacher-source
+proofs, not only declared families/file hashes. Old t2m is comparator-only. Freeze all resolved clone settings and
+critic configuration before fitting; four-objective calibration requires a four-head candidate before auditing.
+
+The deterministic promotion utility validates all ten candidates and every evaluation report, derives actual
+selection families from report contents, and records all candidate/report/input hashes and lineage closures. On
+movement-on worlds 2160-2179, eligible clones have total welfare/paired-heuristic welfare in [0.80, 1.20]; matching
+teacher actions is diagnostic only. Choose the eligible maximum ratio, breaking exact ties by lower optimizer seed,
+then full checkpoint SHA-256 lexical order. No eligible clone means failure. The promoted checkpoint preserves the
+winner's model/normalizer semantics bit-identically and is non-training/non-resumable; new runs initialize from its
+weights with fresh optimizers. Its recursively checked provenance includes the selected parent, every losing
+candidate's closure and all inspected selection families. It cannot launder an unverified ancestor.
+
+#### Seed roles and inventory gate
+
+All roles are conditional on an automated prior-use inventory that traces actual sources/ancestors/reports and
+snapshot content, not just filenames. Missing exposure evidence or incompatible prior use blocks qualification.
+
+| Role | Roots |
+| --- | --- |
+| Teacher TRAIN | 1000-1599 plus all enumerated training grassland/valley/daughter roots and snapshots |
+| Teacher DEV | 2100-2159 |
+| Clone promotion selection | 2160-2179 |
+| PPO checkpoint selection | 2060-2099 |
+| Development reports / sweeps | 2000-2059 |
+| Calibration | 10000-10099 and frozen daughter snapshots from those roots only |
+| Confirmation | 3000-3059 denied everywhere in this protocol |
+
+Freeze the expanded fixture lists, masks, warm-ups, bank indexes and full decompressed snapshot hashes. Calibration
+daughter snapshots are captured without training, selected by a predeclared deterministic rule, and frozen before
+any clone fitting. No calibration family may enter teacher/dev, actor/critic training, clone promotion or PPO
+selection, including through inherited losing candidates. The old daughter `%10` holdout does not make a previously
+trained root a calibration family. Training/selection role lists are exclusion evidence; exact intentional source
+mixes use `source_manifest.source_runs`. Retuning or reselection from development reports is forbidden.
+
+#### Matched arms and curriculum
+
+All arms start from the same promoted guarded clone, with paired optimizer seeds **170-174**:
+
+| Arm | Personality | Teacher KL | Training search cohort |
+| --- | --- | --- | --- |
+| R3def | default welfare-only | 0.01 | default |
+| R3per | Dirichlet(1) | 0.01 | shared Dirichlet(1) |
+| R3lo | Dirichlet(1) | 0.002 | exactly the same shared Dirichlet(1) |
+
+Common: token, hierarchical region head, mixed-use stage, learned movement/fission/trade, experts, vector critic for
+all arms, cost bootstrap on, reference scales, clip 5, daughter drift concentration 200, branch share 0.25, KL refit
+on, FiLM bound off and single-turn/no capital commitments. Explicitly freeze the base objective vector
+`welfare=1,population_years=0,trade_utility=0,qol_years=0` rather than inherit automatic extra trade credit; personality
+preferences are the registered treatment. Every run has **5 critic-only + 50 actor iterations, 12 worlds/iteration,
+25 turns/world**. The maximum applicable warm-up is five, not two additive warm-ups, and is not repeated on resume.
+All other resolved hyperparameters/defaults, architectures, RNG seeds, shaping, selection and search settings must be
+written to the frozen manifest; omission is not permission to inherit a different legacy default.
+
+`r3-balanced-v1` has this ordered 12-slot cycle:
+`default,daughter,grassland,valley,fixture,default,daughter,grassland,valley,fixture,default,daughter`.
+It supplies three mandatory fresh defaults, three daughters, two grassland, two valley and two capability fixtures.
+Missing/ineligible optional streams fall back to default; they never displace a mandatory default. Save/restore a
+global slot cursor, separate herding/farming/fishing mask cursor and RNG; log requested/realized source kinds
+independently of economic regime. Each arm/seed has a private bank initialized from the identical frozen bank image,
+never a shared evolving bank. Legacy resumes retain the legacy schedule; a schedule change is a new run.
+
+#### Search, calibration and decisions
+
+Two frozen training cohorts each use the same **60 TRAIN openings + 60 frozen TRAIN daughter snapshots**. R3def
+uses default-personality labels; R3per/R3lo share identical Dirichlet(1) labels/branches. Main paths of 25 turns,
+first searched turn one, four points, two villages, horizon six, tail four, bootstrap off, daughter search on,
+utility version 2, imitation margin 0.004/weight 0.5 and all current alternatives are frozen.
+Training-cohort calibration share/forced-calibration minimum are zero, so every training tail is four turns.
+Freeze full source records, exact lists, imitation settings and the current **19-alternative maximum** before use.
+
+Calibration is separately generated once on **100 calibration roots + up to 100 pre-frozen calibration daughter
+snapshots**, with 25-turn main paths, first searched turn one, four points, two villages, horizon six, bootstrap off,
+tail twelve, calibration share one and one
+forced available alternative per kind/world at first availability. Freeze the actual snapshot count/list and
+personality/scoring context before clone fitting. It is a pass/fail audit of the already promoted candidate, never
+clone/checkpoint selection, tuning or training. No adaptive top-up, refit or waiver change follows errors or sparse
+coverage. **`waivers: []` is frozen before results.** Native/region/mix welfare each need at least 20 evaluable and
+20 non-near-zero branches; all kind/objective and population-band coverage gates must pass. Every nonempty near-zero
+subset gates on fixed-scale error. For a non-mandatory cell, zero non-near rows makes relative error not applicable,
+1-19 is `insufficient_calibration` and fails, and at least 20 gates on mean and median relative error. A living
+eight-turn window needs its endpoint observation. Calibration labels/branches never enter actor/critic fitting or
+selection.
+
+For each personality arm, evaluate `best.pt` and fixed-budget `latest.pt` on both all-village and focal sweeps over
+2000-2059, using the frozen seven-point grid. Require complete focal per-world quantities and denominators. Within
+each seed/form, compute same-world paired mean QoL(qol)-QoL(population) and residents(population)-residents(qol).
+Across five optimizer seeds, calculate the sample SD (`ddof=1`) of each difference. A seed succeeds only if both
+desired differences strictly exceed their respective across-seed SD. Require **>=4/5 in every one of the four
+best/latest x all/focal cells**, separately for R3per and R3lo. Missing best/focal evidence fails the cell.
+
+At the default personality, R3per/R3def and R3lo/R3def must each have their **full paired 95% welfare-ratio CI inside
+[0.80, 1.20]**, on both checkpoint forms. Report paired R3lo/R3per as well. Ratios use arm totals, not averaged
+world-level ratios. Freeze 4,000 percentile-bootstrap draws and RNG seed zero; resample matched optimizer seeds and
+shared root worlds jointly across arms, preserving fixture/focal associations. For the registered extinction
+comparisons, including per-minus-def and lo-minus-def on both checkpoint forms/regimes and each arm's global
+no-collapse comparisons against the frozen promoted reference, require the extinction-difference upper CI <=0.
+Report population/QoL splits and specialist share. Below-30/settlement count is diagnostic unless the movement audit
+judges it degenerate, not an automatic reinstatement of the old 2% gate.
+
+#### Gates, integration evidence and compute budget
+
+Keep distinct **protocol, source, clone, search, calibration, movement/integration and submission gates**, with hashed
+receipts for each. Protocol approval precedes qualification; qualification may precede the final experiment freeze.
+The final 15-run training submission is immutable. Preflight verifies all comparator evidence, actual binary hashes,
+complete manifests/seed roles/denylist, promotion closure, queue-phase receipts and complete outputs behind done
+markers. Both repos must be clean, reviewed and pushed; neither a test pass nor this document authorizes a VM start.
+
+The local/VM sampling boundary is persistent: local training work is limited to at most three validation/stability
+seeds and is never a selection or readiness verdict. Readiness-bearing training tests run on the VM at the full T3
+scale--three matched arms and five paired optimizer seeds per arm--so a convenient local sample cannot filter or bias
+the evaluated cohort. Any smaller VM design requires a separately reviewed pre-registration.
+
+Before submission, audit the promoted movement-on clone on settled/nomadic physical moves, capital abandoned/reused,
+fresh-stock versus steady-state harvest/welfare and MOVE/STAY controls; record an explicit nondegeneracy judgment.
+Record t2/t2lo/T3def historical comparisons on both checkpoint/sweep forms, with insufficient evidence marked as
+such, and retain old t2m solely as a comparator. Head/raw-material sidecars must remain outside observations/rewards;
+replay, fork/restore, cost bootstrap, flat compatibility, strict sources/promotion and curriculum resume need regression
+coverage. The reviewed late-settlement amendment and its cross-repository tests must replace the provisional
+Prepare-time baseline plan before the simulator can pass this gate.
+
+The nominal PPO collection ceiling is `3*5*(5+50)*12*25 = 247,500` post-reset world-turn resolves (22,500 critic-only;
+225,000 actor). Training search is at most `2*120*4*2*19 = 36,480` branches and `36,480*(6+4) = 364,800`
+branch resolves, plus 6,000 main-path resolves at 25 turns. With `N_c<=100` calibration snapshots, calibration is
+at most `(100+N_c)*4*2*19*(6+12)` branch resolves, plus `(100+N_c)*25` main-path resolves: 547,200+5,000 at
+`N_c=100`. The two personality arms' best/latest x all/focal seven-point sweeps cost
+`2*5*2*2*7*60*25 = 420,000` world-turn resolves. Teacher collection adds `(N_train+N_dev)*teacher_turns`;
+ten clones add `10*epochs*ceil(teacher_rows/batch_size)` actor batches plus frozen critic pretraining compute. Itemize
+opening generation, fixture warm-ups, other regime/clone/movement/daughter evaluation, replay and retries separately.
+These are accounting formulas, not timings or village-decision counts. **Runtime, memory, monetary cost and Spot
+overhead are unknown until measured.** Budget formulas grant no spending authority.
+
 ### Curriculum stability: is the world chaotic? (first probe, 19 October 2026)
 
 `--model9-divergence` (simulator 48e531b) runs two copies of a world under the heuristic and, at turn 2, multiplies

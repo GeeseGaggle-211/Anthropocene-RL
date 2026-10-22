@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import os
 import subprocess
 import threading
@@ -38,6 +39,14 @@ class Model9Bridge:
         self._stderr: deque[str] = deque(maxlen=200)
         threading.Thread(target=self._drain, daemon=True).start()
         self.schema = contracts.verify_schema(self.request({"op": "schema"}))
+        self.decision_diagnostics: list[dict] = []
+        self.raw_material_diagnostics: dict[str, dict] = {}
+        self.diagnostic_schema_version = 0
+        self.diagnostic_trajectory_id = None
+        self._turn = None
+        self._trajectory = None
+        self._fork_diagnostics: dict[int, dict] = {}
+        self._last_step = None
 
     def request(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         with self._lock:
@@ -61,32 +70,115 @@ class Model9Bridge:
         snapshot: a captured world (``capture``; raw bytes or base64) to start from instead of generating ``seed``'s
         opening. Per-village bridge context (active commitments, previous populations) is not part of a snapshot, so
         the first step after it reports no ``founded`` villages and every commitment starts free."""
+        from .protocol import seeds
+        seeds([seed], "bridge reset")
+        self._check_expected_producer()
+        expected_world = getattr(self, "_expected_world_contract", None)
+        if expected_world is not None:
+            import hashlib
+            from .provenance import ProvenanceError
+            raw = base64.b64decode(snapshot) if isinstance(snapshot, str) else bytes(snapshot) if snapshot is not None else None
+            actual_sha = hashlib.sha256(raw).hexdigest() if raw is not None else ""
+            if (seed != expected_world["seed"] or withheld != expected_world["withheld"] or players != expected_world["players"]
+                    or movement != expected_world["movement"] or size is not None
+                    or actual_sha != expected_world["snapshot_sha256"]):
+                raise ProvenanceError("actual Reset arguments differ from immutable world/cohort contract")
         payload: dict[str, Any] = {"op": "reset", "seed": seed, "players": players, "movement": movement, "withheld": withheld}
         if snapshot is not None:
             payload["snapshot"] = snapshot if isinstance(snapshot, str) else base64.b64encode(snapshot).decode("ascii")
+            checked = self.request({"op": "validate_snapshot", "snapshot": payload["snapshot"]})
+            seeds([checked["sourceSeed"]], "snapshot root before reset")
+            if checked["sourceSeed"] != seed: raise ValueError("snapshot root differs from declared seed before reset")
         if size is not None:
             payload.update(width=size[0], height=size[1], separation=size[2])
-        return self.request(payload)["step"]
+        response = self.request(payload)
+        self.last_reset_identity = {k: response.get(k) for k in ("configurationHash", "fingerprint", "buildHash", "rawMaterialsEnabled", "sourceSeed")}
+        self._raw_materials_enabled = response.get("rawMaterialsEnabled")
+        if response.get("sourceSeed") is not None:
+            seeds([response["sourceSeed"]], "snapshot root")
+            if response["sourceSeed"] != seed: raise ValueError("snapshot root differs from declared seed")
+        step = response["step"]
+        self._turn = int(step["turn"]); self._trajectory = None; self.decision_diagnostics = []
+        self._fork_diagnostics.clear(); self._last_step = step
+        if any(v.get("decisionDiagnostics") is not None for v in step["villages"]):
+            raise ValueError("initial reset must not carry preceding decision diagnostics")
+        self._read_physical_diagnostics(step, initial=True)
+        return step
 
     def capture(self) -> str:
         """The live world as a base64 snapshot (op capture), restartable with ``reset(snapshot=...)``."""
+        self._check_expected_producer()
         return str(self.request({"op": "capture"})["snapshot"])
 
     def step(self, actions: Mapping[int, Mapping[str, Any]]) -> dict[str, Any]:
-        return self.request({"op": "step", "actions": {str(k): v for k, v in actions.items()}})["step"]
+        self._check_expected_producer()
+        from .diagnostics import validate
+        step = self.request({"op": "step", "actions": {str(k): v for k, v in actions.items()}})["step"]
+        self.decision_diagnostics = validate(step, self._turn, actions,
+                                             required=self.schema.decision_diagnostics_schema >= 1,
+                                             trajectory=self._trajectory)
+        if self.decision_diagnostics:
+            self._trajectory = self.decision_diagnostics[0]["trajectoryId"]
+        self._read_physical_diagnostics(step)
+        self._turn = int(step["turn"])
+        self._last_step = step
+        return step
 
     def fork(self) -> tuple[int, dict[str, Any]]:
         """A search branch point: its id and the decision step. Every restore replays from it exactly."""
+        self._check_expected_producer()
         response = self.request({"op": "fork"})
+        self._check_alignment(response["step"], self._last_step)
+        self._fork_diagnostics[int(response["fork"])] = {"step": response["step"],
+                                                        "public": copy.deepcopy(self.decision_diagnostics)}
+        # The returned sidecar belongs to the saved main path; the next action begins a branch trajectory.
+        self._trajectory = None
         return int(response["fork"]), response["step"]
 
     def restore(self, fork: int) -> dict[str, Any]:
-        return self.request({"op": "restore", "fork": fork})["step"]
+        self._check_expected_producer()
+        step = self.request({"op": "restore", "fork": fork})["step"]
+        self._check_alignment(step, self._fork_diagnostics[fork]["step"])
+        self._turn = int(step["turn"]); self._trajectory = None
+        self._last_step = step
+        # Public diagnostics refer to exactly the submitted action set, not implicit/native decisions at other camps.
+        self.decision_diagnostics = copy.deepcopy(self._fork_diagnostics[fork]["public"])
+        # Native-teacher actions can have physical receipts without any submitted-decision head sidecars.
+        self._read_physical_diagnostics(step, initial=step.get("diagnosticSchemaVersion", 0) == 0)
+        return step
+
+    def _check_expected_producer(self):
+        expected = getattr(self, "_expected_worker_contract", None)
+        if expected is not None:
+            from .worker_contract import checked, observe
+            from .provenance import ProvenanceError
+            if observe(self) != checked(expected):
+                raise ProvenanceError("bound worker producer changed before Reset/Step/fork/restore")
+
+    def _read_physical_diagnostics(self, step: dict, *, initial: bool = False) -> None:
+        from .diagnostics import validate_raw_materials
+        self.raw_material_diagnostics = validate_raw_materials(step, int(step["turn"]) - 1,
+            required=getattr(self.schema, "raw_material_diagnostics_schema", 0) >= 1, initial=initial,
+            raw_enabled=getattr(self, "_raw_materials_enabled", None))
+        self.diagnostic_schema_version = int(step.get("diagnosticSchemaVersion", 0))
+        self.diagnostic_trajectory_id = step.get("trajectoryId")
+
+    def _check_alignment(self, actual: dict, saved: dict) -> None:
+        def sidecars(s):
+            return {int(v["camp"]): v.get("decisionDiagnostics") for v in s["villages"]}
+        if (self.schema.decision_diagnostics_schema >= 1
+                and (int(actual["turn"]) != int(saved["turn"]) or sidecars(actual) != sidecars(saved))):
+            raise ValueError("fork/restore changed decision diagnostics alignment")
+        if getattr(self.schema, "raw_material_diagnostics_schema", 0) >= 1 and any(
+                actual.get(key) != saved.get(key) for key in ("diagnosticSchemaVersion", "trajectoryId", "rawMaterialDiagnostics")):
+            raise ValueError("fork/restore changed physical diagnostics alignment")
 
     def drop(self, fork: int) -> None:
         self.request({"op": "drop", "fork": fork})
+        self._fork_diagnostics.pop(fork, None)
 
     def verify_replay(self) -> int:
+        self._check_expected_producer()
         return int(self.request({"op": "verify_replay"})["steps"])
 
     def close(self) -> None:

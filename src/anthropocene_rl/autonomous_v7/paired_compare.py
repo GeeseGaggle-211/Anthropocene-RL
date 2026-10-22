@@ -96,7 +96,8 @@ def main() -> int:
     parser.add_argument("--reference", default=None)
     parser.add_argument("--draws", type=int, default=4000)
     parser.add_argument("--out", type=Path, default=None)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     report = merge([json.loads(p.read_text()) for p in args.report])
     result = compare(report, args.a.split(","), args.b.split(","), args.reference, args.draws)
     for name, e in result.items():

@@ -35,7 +35,7 @@ def daughter_outcome(villages: list[dict[str, Any]], society: int) -> dict[str, 
 
 
 def run_entry(bank: str, entry_id: int, checkpoint: str | None, turns: int, movement: bool | None = None,
-              personality: list[float] | None = None) -> dict[str, Any]:
+              personality: list[float] | None = None, expected_producer=None, world_contract=None) -> dict[str, Any]:
     """One start, played by ``checkpoint`` (None: the heuristic) for ``turns`` turns."""
     torch.set_num_threads(1)
     store = DaughterBank(bank); entry = store.get(entry_id)
@@ -47,7 +47,13 @@ def run_entry(bank: str, entry_id: int, checkpoint: str | None, turns: int, move
         actor, normalizer = load(Path(checkpoint))
     society, camp = int(entry["society"]), int(entry["camp"])
     with Model9Bridge() as bridge:
-        step = bridge.reset(int(entry["seed"]), withheld=int(entry["mask"]), movement=move, snapshot=store.snapshot(entry))
+        from .worker_contract import validate, world
+        snapshot = store.snapshot(entry)
+        descriptor = world_contract or world(entry["seed"], entry["mask"], snapshot_sha256=entry["snapshot_sha256"],
+                                               turn=entry["turn"], movement=move, head=getattr(actor, "region_head", None))
+        worker = validate(bridge, expected_producer or getattr(actor, "worker_contract", None), descriptor,
+                          snapshot=snapshot, head=getattr(actor, "region_head", None))
+        step = bridge.reset(int(entry["seed"]), withheld=int(entry["mask"]), movement=move, snapshot=snapshot)
         start = next((v for v in step["villages"] if int(v["camp"]) == camp), None)
         initial = float(start["population"]) if start is not None else 0.0
         for _ in range(turns):
@@ -58,6 +64,8 @@ def run_entry(bank: str, entry_id: int, checkpoint: str | None, turns: int, move
                 break
     out = daughter_outcome(step["villages"], society)
     out.update({"id": int(entry_id), "initial_population": initial, "growth": out["population"] / max(1.0, initial)})
+    out["worker_contract"] = worker
+    out["world_contract"] = descriptor
     return out
 
 
@@ -84,16 +92,30 @@ def main() -> int:
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--personality", default=None, help="w,w,w,w for every village (personality checkpoints)")
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     entries = DaughterBank(args.bank).evaluation_entries()  # held-out family only (asserts the partition)
     if args.limit > 0:
         entries = entries[:args.limit]
     ids = [int(e["id"]) for e in entries]
     p = [float(x) for x in args.personality.split(",")] if args.personality else None
     n = len(ids); clock = time.time()
+    from .worker_contract import from_state, world
+    saved = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    expected = from_state(saved)
+    descriptors = [world(e["seed"], e["mask"], snapshot_sha256=e["snapshot_sha256"], turn=e["turn"],
+                         movement=bool(e.get("movement", False)), head=saved.get("region_head", "hierarchical")) for e in entries]
     with ProcessPoolExecutor(max_workers=max(1, min(args.workers, n))) as pool:
-        policy = list(pool.map(run_entry, [str(args.bank)] * n, ids, [args.checkpoint] * n, [args.turns] * n, [None] * n, [p] * n))
-        heuristic = list(pool.map(run_entry, [str(args.bank)] * n, ids, [None] * n, [args.turns] * n))
+        policy = list(pool.map(run_entry, [str(args.bank)] * n, ids, [args.checkpoint] * n, [args.turns] * n, [None] * n, [p] * n,
+                               [expected] * n, descriptors))
+        native_descriptors = [world(e["seed"], e["mask"], snapshot_sha256=e["snapshot_sha256"], turn=e["turn"], movement=bool(e.get("movement", False))) for e in entries]
+        heuristic = list(pool.map(run_entry, [str(args.bank)] * n, ids, [None] * n, [args.turns] * n, [None] * n, [None] * n,
+                                  [expected] * n, native_descriptors))
+    if expected is not None and any(row.get("worker_contract") != expected for row in policy + heuristic):
+        raise ValueError("daughter workers differ from frozen pre-execution producer")
+    if (len(policy) != n or len(heuristic) != n
+            or any(row.get("world_contract") != descriptor for row, descriptor in zip(policy + heuristic, descriptors + native_descriptors))):
+        raise ValueError("daughter workers differ from frozen snapshot/world contract")
     report = {"checkpoint": args.checkpoint, "bank": str(args.bank), "turns": args.turns, **paired(policy, heuristic),
               "per_entry": [{"id": i, "policy": a, "heuristic": b} for i, a, b in zip(ids, policy, heuristic)],
               "seconds": time.time() - clock}

@@ -56,11 +56,13 @@ def main() -> int:
     parser.add_argument("--tolerance", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     torch.manual_seed(args.seed); torch.set_num_threads(6)
     state = upgrade(torch.load(args.init, map_location="cpu", weights_only=False))
     normalizer = Normalizer.from_state(state["normalizer"])
-    actor = Actor(int(state["core_width"])); actor.load_state_dict(state["actor"])
+    from .evaluate import load
+    actor, _ = load(args.init)
     load = lambda root: span_labels.extend(data.load(p for p in sorted(root.iterdir()) if p.is_dir()), args.tolerance)
     train, dev = load(args.train), load(args.dev)
     dev_t, dev_l, dev_span = to_tensors(dev, normalizer), label_tensors(dev), dev["span_label"]

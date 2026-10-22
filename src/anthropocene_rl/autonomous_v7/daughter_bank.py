@@ -73,7 +73,10 @@ class DaughterBank:
     def entries(self) -> list[dict[str, Any]]:
         if not self.index.exists():
             return []
-        return [json.loads(line) for line in self.index.read_text().splitlines() if line.strip()]
+        entries = [json.loads(line) for line in self.index.read_text().splitlines() if line.strip()]
+        from .protocol import seeds
+        seeds([entry["seed"] for entry in entries], "daughter bank index")
+        return entries
 
     def training_entries(self) -> list[dict[str, Any]]:
         entries = self.entries(); check_partition(entries)
@@ -86,6 +89,8 @@ class DaughterBank:
     def add(self, snapshot: str | bytes, seed: int, mask: int, turn: int, society: int, camp: int, parent_society: int,
             movement: bool = False) -> dict[str, Any]:
         """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""
+        from .protocol import seeds
+        seeds([seed], "daughter capture")
         raw = base64.b64decode(snapshot) if isinstance(snapshot, str) else bytes(snapshot)
         entries = self.entries()
         next_id = max((int(e["id"]) for e in entries), default=-1) + 1
@@ -94,12 +99,13 @@ class DaughterBank:
             tmp = self.directory / (name + ".tmp")
             tmp.write_bytes(zlib.compress(raw, 6)); os.replace(tmp, self.directory / name)
         entry = {"id": next_id, "seed": int(seed), "mask": int(mask), "movement": bool(movement), "turn": int(turn),
-                 "society": int(society), "camp": int(camp), "parent_society": int(parent_society), "file": name}
+                 "society": int(society), "camp": int(camp), "parent_society": int(parent_society), "file": name,
+                 "snapshot_sha256": hashlib.sha256(raw).hexdigest()}
         entries.append(entry)
         dropped, entries = entries[:-self.cap] if len(entries) > self.cap else [], entries[-self.cap:]
         self._write(entries)
         kept = {e["file"] for e in entries}
-        for e in dropped:
+        for e in ([] if getattr(self, "retain_snapshots", False) else dropped):
             if e["file"] in kept:
                 continue
             try:
@@ -116,7 +122,7 @@ class DaughterBank:
             return
         entries = [e for e in entries if int(e["id"]) != int(entry_id)]
         self._write(entries)
-        if gone[0]["file"] not in {e["file"] for e in entries}:
+        if not getattr(self, "retain_snapshots", False) and gone[0]["file"] not in {e["file"] for e in entries}:
             try:
                 (self.directory / gone[0]["file"]).unlink()
             except FileNotFoundError:

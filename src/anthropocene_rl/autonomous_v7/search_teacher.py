@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict, dataclass
@@ -83,6 +84,11 @@ class SearchConfig:
     # realised turns rather than against its own bootstrap. Only when tail > 0.
     calibration_share: float = 0.1
     calibration_tail: int = 12
+    # Round 3 (review 5.5(3)): coverage. Each world calibrates at least this many branches of every alternative kind it
+    # searches (from a keyed decision point per kind on, one of that kind's alternatives by a keyed draw), on top of
+    # the keyed share, so rare kinds (fission, trade) are never absent from calibration. 0 off.
+    calibration_min_per_kind: int = 1
+    calibration_manifest: str = ""
 
 
 YOUNG_TURNS = 3
@@ -285,6 +291,51 @@ def calibration_branch(seed: int, withheld: int, warmup: int, turn: int, camp: i
     return bool(np.random.default_rng([seed, withheld, warmup, 17, turn, camp, alternative]).random() < share)
 
 
+def force_from_points(seed: int, withheld: int, warmup: int, points: list[int]) -> dict[int, int]:
+    """Per alternative kind, the keyed decision point from which a world forces that kind's calibration coverage."""
+    if not points:
+        return {}
+    return {k: points[int(np.random.default_rng([seed, withheld, warmup, 23, k]).integers(len(points)))]
+            for k in range(len(KINDS))}
+
+
+def ensure_kind_coverage(alts: list[dict[str, Any]], calibrated: list[bool], counts: dict[int, int], turn: int,
+                         force_from: dict[int, int], minimum: int, key: list[int]) -> list[bool]:
+    """Calibration flags with coverage forced: a kind present among ``alts`` whose world count (``counts``) is still
+    below ``minimum``, at or after its forcing point, and with no calibrated alternative here, gets one (a keyed draw
+    among its alternatives). Pure; the caller updates ``counts``."""
+    out = list(calibrated)
+    if minimum <= 0:
+        return out
+    for k in sorted({int(a["kind"]) for a in alts}):
+        members = [i for i, a in enumerate(alts) if int(a["kind"]) == k]
+        if counts.get(k, 0) >= minimum or any(out[i] for i in members):
+            continue
+        pick = members[int(np.random.default_rng([*key, 29, k]).integers(len(members)))]
+        out[pick] = True
+    return out
+
+
+def calibration_coverage(worlds: list[dict[str, Any]]) -> dict[str, Any]:
+    """Calibration branches per alternative kind, and per kind and objective the branches whose horizon return on that
+    objective is non-zero (a zero return cannot calibrate its head). The full kind x objective x population-band check
+    on the written shards is branch_bias.coverage."""
+    branches = {name: 0 for name in KINDS}
+    by_objective = {name: {o: 0 for o in contracts.OBJECTIVES} for name in KINDS}
+    for world in worlds:
+        for row in world["rows"]:
+            for alt, result in zip(row["alternatives"], row["results"]):
+                if not result.get("calibration"):
+                    continue
+                name = KINDS[int(alt["kind"])]
+                branches[name] += 1
+                for k, o in enumerate(contracts.OBJECTIVES):
+                    if abs(float(np.nan_to_num(result["returns"][k]))) > 1e-9:
+                        by_objective[name][o] += 1
+    return {"branches": branches, "nonzero_objective": by_objective,
+            "missing_kinds": [name for name, n in branches.items() if n == 0]}
+
+
 def alternatives(village: dict[str, Any], base: dict[str, Any], config: SearchConfig,
                  posture: dict[str, Any] | None = None, trade_ok: bool = True) -> list[dict[str, Any]]:
     """The alternatives searched for one village at a fork, the policy first. ``posture``: the trade posture probes
@@ -405,12 +456,12 @@ def policy_tail(bridge: Model9Bridge, step: dict[str, Any], actor, normalizer, m
     for v in step["villages"]:
         i = last.get(int(v["camp"]))
         # Only a sequence that reaches the last tail turn alive is truncated (and bootstrapped).
-        if i is None or v.get("observation") is None or v.get("terminated") or rows[i]["outcome"]["terminated"] \
-                or rows[i]["turn"] != final_turn:
+        if v.get("observation") is None or v.get("terminated") or int(v["society"]) not in lineage:
             continue
-        rows[i]["bootstrap_index"] = len(bootstrap)
+        if i is not None and not rows[i]["outcome"]["terminated"] and rows[i]["turn"] == final_turn:
+            rows[i]["bootstrap_index"] = len(bootstrap)
         bootstrap.append({"village": v, "personality": (personalities or {}).get(int(v["society"]), default_vector())})
-    return {"rows": rows, "bootstrap": bootstrap}
+    return {"rows": rows, "bootstrap": bootstrap, "endpoint_turn": int(step["turn"])}
 
 
 def branch(bridge: Model9Bridge, fork: int, actor, normalizer, critic, camp: int, society: int, alt: dict[str, Any],
@@ -472,7 +523,7 @@ def choose_villages(live: list[dict[str, Any]], first_seen: dict[int, int], turn
 
 
 def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config: SearchConfig,
-                 bank: str | None = None, entry: int = -1) -> dict[str, Any]:
+                 bank: str | None = None, entry: int = -1, expected_producer=None, world_contract=None) -> dict[str, Any]:
     """One world's main path with the policy, searching at sampled decision points. ``bank`` and ``entry``: start from
     that daughter-bank snapshot instead of ``seed``'s opening (its daughter counts as young for selection)."""
     torch.set_num_threads(1)
@@ -497,14 +548,28 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
     first_seen: dict[int, int] = {}  # main-path turn index each camp was first seen at (daughter selection)
     founded: dict[int, int] = {}
     traded: dict[int, list[float]] = {}; trade_points = {"trade_points_probed": 0, "trade_points_skipped": 0}
+    force_from = force_from_points(seed, withheld, warmup, sorted(turns))
+    calibrated_kinds: dict[int, int] = {}
+    snapshot_hash = None
     with Model9Bridge() as bridge:
+        from .provenance import simulator_identity
+        simulator = simulator_identity(bridge.schema)
+        from .worker_contract import validate, world
+        snapshot = None
         if entry >= 0:
             from .daughter_bank import DaughterBank
             store = DaughterBank(bank); record = store.get(entry)
-            step = bridge.reset(seed, withheld=withheld, movement=True, snapshot=store.snapshot(record))
+            snapshot = store.snapshot(record)
+            import hashlib
+            snapshot_hash = hashlib.sha256(snapshot).hexdigest()
             known = frozenset({int(record["camp"])})
-        else:
-            step = bridge.reset(seed, withheld=withheld, movement=True)
+        world_contract = world_contract or world(seed, withheld, snapshot_sha256=snapshot_hash or "",
+                                                 turn=record["turn"] if entry >= 0 else None, movement=True, head=actor.region_head)
+        worker = validate(bridge, expected_producer or getattr(actor, "worker_contract", None), world_contract,
+                          snapshot=snapshot, head=actor.region_head)
+        step = bridge.reset(seed, withheld=withheld, movement=True, snapshot=snapshot)
+        from .evaluate import producer_identity
+        producer = producer_identity(bridge)
         note_founded(founded, step)
         for _ in range(warmup):
             step = bridge.step({})
@@ -529,6 +594,11 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
                     alts = alternatives(v, base[camp], config, base_posture(base[camp], teachers.get(camp)), trade_ok)
                     calibrated = [config.tail > 0 and calibration_branch(seed, withheld, warmup, turn, camp, i,
                                                                           config.calibration_share) for i in range(len(alts))]
+                    if config.tail > 0:
+                        calibrated = ensure_kind_coverage(alts, calibrated, calibrated_kinds, turn, force_from,
+                                                          config.calibration_min_per_kind, [seed, withheld, warmup, turn, camp])
+                        for alt_i, c in zip(alts, calibrated):
+                            calibrated_kinds[int(alt_i["kind"])] = calibrated_kinds.get(int(alt_i["kind"]), 0) + int(c)
                     results = [branch(bridge, fork, actor, normalizer, critic, camp, society, a, config.horizon, movement,
                                       config.bootstrap, personalities, config.calibration_tail if c else config.tail,
                                       founded) for a, c in zip(alts, calibrated)]
@@ -543,18 +613,43 @@ def search_world(checkpoint: str, seed: int, withheld: int, warmup: int, config:
             note_founded(founded, step); note_trade(traded, step)
             if not any(not v["terminated"] for v in step["villages"]):
                 break
-    return {"seed": seed, "withheld": withheld, "warmup": warmup, "entry": entry, "rows": rows,
+        from .teacher_data import binary_identity
+        if binary_identity()["sha256"] != producer["bridge_sha256"]:
+            raise ValueError("search worker bridge changed during collection")
+    return {"seed": seed, "withheld": withheld, "warmup": warmup, "entry": entry, "snapshot_hash": snapshot_hash,
+            "simulator": simulator, "producer": producer, "worker_contract": worker, "world_contract": world_contract,
+            "region_head": actor.region_head, "rows": rows,
             "seconds": time.perf_counter() - clock, "branches": branches, **trade_points}
 
 
-def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
+def validate_producers(worlds, expected):
+    if not worlds or any(world.get("producer") != expected for world in worlds):
+        raise ValueError("registered search workers used different actual bridge/flags or enabled raw materials")
+
+
+def validate_registered_head(actor):
+    if actor.region_head != "hierarchical":
+        from .provenance import ProvenanceError
+        raise ProvenanceError("registered search/calibration requires hierarchical region inference")
+
+
+def label_arrays(worlds: list[dict[str, Any]], source: dict[str, Any] | None = None) -> dict[str, np.ndarray]:
     """Label rows in the shard layout: observation arrays plus label_kind, label_slot, label_mix, the policy's and best
-    scores, and every alternative's kind, slot and score (padded to MAX_ALTERNATIVES)."""
+    scores, and every alternative's kind, slot and score (padded to MAX_ALTERNATIVES).
+
+    Round 3 provenance (provenance.py): every row also carries its world (seed, withheld, warmup), the source
+    checkpoint hash and code commit (``source``, provenance.source; absent: unknown), the provenance version, and each
+    alternative's calibration flag (alt_calibration). The turn, kinds and personality are already per row."""
+    from .provenance import UNKNOWN
+    source = source or {}
     villages, extra = [], {k: [] for k in ("seed", "turn", "camp", "label_kind", "label_slot", "label_mix", "score_policy",
                                            "score_best", "alt_kind", "alt_slot", "alt_score", "alt_return", "alt_bootstrap",
                                            "alt_world", "personality", "alt_returns", "alt_bootstraps", "label_fission",
                                            "label_trade_value", "label_trade_gate", "label_trade_mask",
-                                           "utility_version", "label_is_best")}
+                                           "utility_version", "label_is_best", "withheld", "warmup", "alt_calibration",
+                                           "source_checkpoint", "code_commit", "provenance_version", "source_run", "source_record",
+                                           "bank_entry", "snapshot_hash", "heldout_calibration", "calibration_manifest_digest",
+                                           "trajectory_id", "decision_id")}
     width = len(contracts.OBJECTIVES); groups = len(contracts.TRADE_GROUPS)
     for world in worlds:
         for row in world["rows"]:
@@ -587,6 +682,25 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
             extra["alt_returns"].append(np.vstack([returns, np.full((pad, width), np.nan)]))
             extra["alt_bootstraps"].append(np.vstack([np.stack([r["bootstraps"] for r in row["results"]]),
                                                       np.full((pad, width), np.nan)]))
+            extra["withheld"].append(int(world.get("withheld", 0))); extra["warmup"].append(int(world.get("warmup", 0)))
+            extra["alt_calibration"].append([int(bool(r.get("calibration", False))) for r in row["results"]] + [-1] * pad)
+            extra["source_checkpoint"].append(str(source.get("source_checkpoint", UNKNOWN)))
+            extra["code_commit"].append(str(source.get("code_commit", UNKNOWN)))
+            extra["provenance_version"].append(int(source.get("provenance_version", 0)))
+            extra["source_run"].append(str(source.get("source_run", UNKNOWN)))
+            extra["source_record"].append(json.dumps(source, sort_keys=True))
+            extra["bank_entry"].append(int(world.get("entry", -1)))
+            extra["snapshot_hash"].append(str(world.get("snapshot_hash") or ""))
+            from .calibration import held_out
+            held = source.get("search_config", {}).get("calibration_manifest") or {}
+            extra["heldout_calibration"].append(held_out(held, int(world["seed"]), world.get("snapshot_hash")))
+            extra["calibration_manifest_digest"].append(held.get("manifest_digest", ""))
+            from .provenance import label_identity
+            trajectory, identity = label_identity({"source_run": source.get("source_run", UNKNOWN), "seed": int(world["seed"]),
+                "withheld": int(world.get("withheld", 0)), "warmup": int(world.get("warmup", 0)),
+                "bank_entry": int(world.get("entry", -1)), "snapshot_hash": str(world.get("snapshot_hash") or ""),
+                "turn": int(row["turn"]), "camp": int(row["village"]["camp"])})
+            extra["trajectory_id"].append(trajectory); extra["decision_id"].append(identity)
     if not villages:
         return {}
     arrays = observation_batch(villages)
@@ -594,9 +708,10 @@ def label_arrays(worlds: list[dict[str, Any]]) -> dict[str, np.ndarray]:
     return arrays
 
 
-def write_branch_shards(worlds: list[dict[str, Any]], root: Path) -> dict[str, Any]:
+def write_branch_shards(worlds: list[dict[str, Any]], root: Path, source: dict[str, Any] | None = None) -> dict[str, Any]:
     """Every branch's policy tail as one critic shard (branch_shards.write), keyed by (seed, decision point,
-    alternative); returns shard and row counts per alternative kind."""
+    alternative); returns shard and row counts per alternative kind. ``source`` (provenance.source) is recorded in
+    every shard's meta with the searched village's personality."""
     from . import branch_shards
     counts = {name: 0 for name in KINDS}; shards = calibration = 0
     for world in worlds:
@@ -607,10 +722,20 @@ def write_branch_shards(worlds: list[dict[str, Any]], root: Path) -> dict[str, A
                 if not tail or not tail["rows"]:
                     continue
                 meta = {"seed": seed, "withheld": withheld, "warmup": warmup, "point": point, "alternative": a,
-                        "kind": int(alt["kind"]), "fork_turn": int(row["turn"]), "camp": int(row["village"]["camp"]),
+                        "kind": int(alt["kind"]), "slot": int(alt.get("slot", -1)),
+                        "fork_turn": int(row["turn"]), "camp": int(row["village"]["camp"]),
                         "world_id": branch_shards.world_id(seed, withheld, warmup, point, a),
-                        "calibration": int(bool(result.get("calibration", False)))}
-                counts[KINDS[alt["kind"]]] += branch_shards.write(root / f"{seed}_{withheld}_{warmup}_{point:03d}_{a:02d}", tail, meta)
+                        "calibration": int(bool(result.get("calibration", False))),
+                        "personality": [float(x) for x in row["personality"]], **(source or {}),
+                        "source_record": source or {}, "bank_entry": int(world.get("entry", -1)),
+                        "snapshot_hash": world.get("snapshot_hash")}
+                from .calibration import held_out
+                held = (source or {}).get("search_config", {}).get("calibration_manifest") or {}
+                meta["heldout_calibration"] = held_out(held, seed, world.get("snapshot_hash"))
+                meta["calibration_manifest_digest"] = held.get("manifest_digest", "")
+                identity = branch_shards.trajectory_id(meta)
+                meta["trajectory_id"] = identity
+                counts[KINDS[alt["kind"]]] += branch_shards.write(root / identity, tail, meta)
                 shards += 1; calibration += meta["calibration"]
     return {"branch_shards": shards, "branch_rows": counts, "calibration_shards": calibration}
 
@@ -672,6 +797,7 @@ def main() -> int:
     parser.add_argument("--valley-seeds", type=Path, default=None, help="valley fixture bank (lines 'seed,warmup')")
     parser.add_argument("--withheld", type=int, default=0)
     parser.add_argument("--daughter-bank", type=Path, default=None, help="daughter-start bank (ppo --daughter-bank)")
+    parser.add_argument("--worlds-manifest", type=Path, default=None, help="immutable reviewed exact search/calibration cohort")
     parser.add_argument("--bank-worlds", type=int, default=0,
                         help="also search this many training entries of --daughter-bank (newest first), from their snapshots")
     parser.add_argument("--workers", type=int, default=6)
@@ -681,7 +807,8 @@ def main() -> int:
     parser.add_argument("--out", type=Path, required=True)
     for name, value in asdict(SearchConfig()).items():
         parser.add_argument("--" + name.replace("_", "-"), type=type(value) if not isinstance(value, bool) else int, default=value)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     config = SearchConfig(**{k: (bool(getattr(args, k)) if isinstance(v, bool) else getattr(args, k)) for k, v in asdict(SearchConfig()).items()})
     a, b = (int(x) for x in args.seeds.split("-"))
     worlds = [(s, args.withheld, 0, -1) for s in range(a, b + 1)]
@@ -691,18 +818,99 @@ def main() -> int:
         from .daughter_bank import DaughterBank
         entries = DaughterBank(args.daughter_bank).training_entries()[::-1][:args.bank_worlds]
         worlds += [(int(e["seed"]), int(e["mask"]), 0, int(e["id"])) for e in entries]
+    cohort = None
+    if args.worlds_manifest:
+        from .protocol import search_cohort
+        from .calibration import manifest
+        from .daughter_bank import DaughterBank
+        if not config.calibration_manifest: raise ValueError("frozen cohort requires exclusion manifest")
+        cohort, worlds = search_cohort(args.worlds_manifest,
+            DaughterBank(args.daughter_bank) if args.daughter_bank else None, config, manifest(Path(config.calibration_manifest)))
+        if args.bank_worlds or args.valley_seeds: raise ValueError("frozen cohort forbids dynamic additional worlds")
+        if args.out.exists(): raise ValueError("one-shot frozen search output already exists; cannot top up or overwrite")
+    elif config.calibration_manifest:
+        raise ValueError("qualification search requires --worlds-manifest exact frozen cohort")
     args.out.mkdir(parents=True, exist_ok=True)
     clock = time.time()
+    # Freeze identities before any worker reads the checkpoint or forks a world.
+    from .provenance import source as provenance_source, checkpoint_hash, code_commit
+    configuration = asdict(config)
+    if cohort is not None: configuration["worlds_manifest"] = cohort
+    configuration["sim_rules"] = os.environ.get("ANTHROPOCENE_SIM_RULES", "")
+    configuration["sim_statics"] = os.environ.get("ANTHROPOCENE_SIM_STATICS", "")
+    from .teacher_data import binary_identity
+    configuration["bridge_sha256"] = binary_identity()["sha256"]
+    actor, _ = load(Path(args.checkpoint))
+    if cohort is not None: validate_registered_head(actor)
+    configuration["region_head"] = actor.region_head
+    if config.calibration_manifest:
+        from .calibration import manifest
+        configuration["calibration_manifest"] = manifest(Path(config.calibration_manifest))
+    with Model9Bridge() as probe:
+        from .provenance import simulator_identity
+        simulator = simulator_identity(probe.schema)
+        from .worker_contract import observe, world, from_state
+        expected_worker = observe(probe)
+    source = provenance_source(args.checkpoint, configuration, simulator)
+    if cohort is not None:
+        from .lineage import checkpoint_evidence
+        from .provenance import ProvenanceError
+        state = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        if from_state(state, required=True) != expected_worker:
+            raise ProvenanceError("registered search probe differs from checkpoint worker contract before collection")
+        held = configuration["calibration_manifest"]
+        if state.get("artifact_kind") != "promotion" or not checkpoint_evidence(state, held)["verified"]:
+            raise ProvenanceError("registered search/calibration requires the already-promoted verified candidate")
+        if len(source["code_commit"]) != 40 or not simulator.get("clean"):
+            raise ProvenanceError("registered search requires clean immutable learner/simulator identities")
+    descriptors = []
+    for seed, mask, warm, entry_id in worlds:
+        frozen = next((row for row in cohort["worlds"] if (row["seed"], row["withheld"], row["warmup"], row.get("bank_entry", -1))
+                       == (seed, mask, warm, entry_id)), None) if cohort else None
+        bank_entry = None
+        if entry_id >= 0:
+            from .daughter_bank import DaughterBank
+            bank_entry = DaughterBank(args.daughter_bank).get(entry_id)
+        descriptors.append(world(seed, mask, snapshot_sha256=frozen.get("snapshot_sha256", "") if frozen else (bank_entry or {}).get("snapshot_sha256", ""),
+                                 turn=bank_entry["turn"] if bank_entry else None, movement=True, head=actor.region_head,
+                                 cohort_digest=cohort["digest"] if cohort else ""))
     with ProcessPoolExecutor(max_workers=min(args.workers, len(worlds))) as pool:
         results = list(pool.map(search_world, [args.checkpoint] * len(worlds), [w[0] for w in worlds], [w[1] for w in worlds],
                                 [w[2] for w in worlds], [config] * len(worlds),
                                 [None if args.daughter_bank is None else str(args.daughter_bank)] * len(worlds),
-                                [w[3] for w in worlds]))
-    labels = label_arrays(results)
+                                [w[3] for w in worlds], [expected_worker] * len(worlds), descriptors))
+    simulators = {json.dumps(w["simulator"], sort_keys=True) for w in results}
+    if simulators != {json.dumps(simulator, sort_keys=True)}:
+        raise ValueError("search workers used different simulator builds")
+    expected_producer = {"simulator": simulator, "bridge_sha256": configuration["bridge_sha256"],
+                         "flags": {key: configuration[key] for key in ("sim_rules", "sim_statics")}, "raw_materials": False}
+    if cohort is not None: validate_producers(results, expected_producer)
+    if any(result.get("worker_contract") != expected_worker for result in results):
+        raise ValueError("search worker pre-execution contract differs from frozen producer")
+    if len(results) != len(descriptors) or any(result.get("world_contract") != descriptor for result, descriptor in zip(results, descriptors)):
+        raise ValueError("search worker world/cohort contract differs from frozen descriptor")
+    heads = {w["region_head"] for w in results}
+    if heads != {configuration["region_head"]}:
+        raise ValueError("search workers resolved different region heads")
+    if cohort is not None:
+        expected = {(r["seed"], r["withheld"], r["warmup"], r.get("bank_entry", -1), r.get("snapshot_sha256") or None)
+                    for r in cohort["worlds"]}
+        actual = {(r["seed"], r["withheld"], r["warmup"], r["entry"], r.get("snapshot_hash")) for r in results}
+        if actual != expected: raise ValueError("search workers did not consume the exact frozen snapshot cohort")
+    if checkpoint_hash(args.checkpoint) != source["source_checkpoint"] or code_commit() != source["code_commit"]:
+        raise ValueError("source code or checkpoint changed during search")
+    labels = label_arrays(results, source)
     if labels:
         np.savez_compressed(args.out / "labels.npz", **labels)
-    tails = write_branch_shards(results, args.out / "branch_shards") if config.tail > 0 else {}
-    summary = {"checkpoint": args.checkpoint, "config": asdict(config), "worlds": len(worlds), "seconds": time.time() - clock,
+    tails = write_branch_shards(results, args.out / "branch_shards", source) if config.tail > 0 else {}
+    if cohort is not None and cohort["role"] == "calibration":
+        from .calibration_audit import freeze
+        frozen_inputs = freeze([args.out / "branch_shards"], source["source_checkpoint"], configuration["calibration_manifest"], cohort)
+        (args.out / "calibration-inputs.json").write_text(json.dumps(frozen_inputs, sort_keys=True))
+    effective_config = asdict(config)
+    if configuration.get("calibration_manifest"): effective_config["calibration_manifest"] = configuration["calibration_manifest"]
+    summary = {"checkpoint": args.checkpoint, "provenance": source, "config": effective_config, "worlds": len(worlds),
+               "seconds": time.time() - clock, "calibration_coverage": calibration_coverage(results),
                "branches": sum(r["branches"] for r in results), **tails,
                # Trade-probe gate (trade_active): decision points whose village was probed or skipped.
                **{key: sum(r.get(key, 0) for r in results) for key in ("trade_points_probed", "trade_points_skipped")},

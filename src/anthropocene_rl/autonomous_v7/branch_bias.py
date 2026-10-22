@@ -8,6 +8,11 @@ alternative kind and objective head, as relative bias (prediction - realised) / 
 * ``calibration`` (the gate): calibration branches (12-turn tails). Per branch, the critic's implied 8-turn lineage
   value V(s_0) - Gamma_8 V(s_8) against the realised discounted 8-turn lineage return, with no bootstrap in the
   target. ``pass``: within 10% (mean and median, welfare head) for native, region and mix.
+* ``coverage``: evaluable calibration branches, including zero-return targets, per kind/objective and population
+  band. Held-out manifests, sufficient mandatory welfare coverage, independent near-zero/relative-error gates and
+  declared nonmandatory waivers are required for a passing verdict (MODEL9_ROUND3_BUILD_ARCHITECTURE.md).
+* ``saturation`` (round 3): per objective head, the share of rows whose value expectation sits within 1% of the
+  two-hot bin range's ends (a saturated head cannot express larger or smaller values).
 * ``self_consistency`` (diagnostic): every branch; the critic's value against the tail return plus its own
   discounted bootstrap after the last tail turn (lambda = 1). With a 4-turn tail most of that target is the
   bootstrap, so it measures consistency, not calibration. ``entry`` is one number per branch (lineage sums at the
@@ -31,6 +36,12 @@ from .model import Normalizer
 TARGET = 0.10
 GATED = (NATIVE, REGION, MIX)
 CALIBRATION_TURNS = 8
+# Coverage minimums (review 5.5(3)): calibration branches per kind x objective cell, and per kind x population band.
+MIN_CELL = 20
+MIN_BAND = 5
+# Lineage population at the fork's first tail turn: [lower, upper) bounds of each band.
+POPULATION_BANDS = ((0, 30), (30, 100), (100, 300), (300, 10 ** 9))
+SATURATION_EDGE = 0.01
 
 
 def relative(pred: np.ndarray, real: np.ndarray) -> np.ndarray:
@@ -70,54 +81,30 @@ def report(pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[
     return out
 
 
-def calibration(pred: dict[str, np.ndarray], rows: dict[str, np.ndarray], turns: int = CALIBRATION_TURNS) -> dict:
-    """Calibration branches (rows with ``calibration`` 1): per branch, the critic's implied ``turns``-turn lineage
-    value, V(s_0) - Gamma_turns V(s_turns) (the lineage's summed value at the first tail turn minus its discounted
-    summed value ``turns`` turns later), against the realised discounted lineage return over those turns, with no
-    bootstrap. A lineage that dies sooner has V(s_turns) = 0 and its whole realised return; a branch whose tail
-    stopped short with the lineage alive is skipped (``short``)."""
-    cal = np.asarray(rows.get("calibration", np.zeros(len(rows["camp"]))), dtype=bool)
-    out: dict = {"turns": turns, "target": TARGET, "branches": 0, "short": 0, "kinds": {}}
-    if not cal.any():
-        return out
-    components = data.reward_components(rows)
-    world, turn = rows["world"], rows["turn"]
-    found: dict[int, dict[str, list[float]]] = {}
-    for w in sorted(set(world[cal].tolist())):
-        m = world == w
-        ts = sorted(set(turn[m].tolist()))
-        if len(ts) > turns:
-            window, end = ts[:turns], ts[turns]
-        elif rows["terminated"][m & (turn == ts[-1])].all():
-            window, end = ts, None
-        else:
-            out["short"] += 1
-            continue
-        kind = int(rows["alt_kind"][m][0])
-        biases = found.setdefault(kind, {name: [] for name in pred})
-        for name in pred:
-            gamma, real = 1.0, 0.0
-            for t in window:
-                at = m & (turn == t)
-                real += gamma * float(components[name][at].sum())
-                gamma *= float(data.discount(rows["years"][at][:1])[0])
-            v0 = float(pred[name][m & (turn == ts[0])].sum())
-            v_end = float(pred[name][m & (turn == end)].sum()) if end is not None else 0.0
-            biases[name].append(float(relative(np.asarray([v0 - gamma * v_end]), np.asarray([real]))[0]))
-        out["branches"] += 1
-    for kind, by_head in sorted(found.items()):
-        out["kinds"][KINDS[kind] if 0 <= kind < len(KINDS) else str(kind)] = {
-            name: {"mean": float(np.mean(b)), "median": float(np.median(b)), "branches": len(b)} for name, b in by_head.items()}
+from .calibration import calibration, coverage, verdict, manifest, held_out
+
+
+def saturation(u: dict[str, np.ndarray], edge: float = SATURATION_EDGE) -> dict[str, float]:
+    """Per head, the share of value expectations (in the head's own two-hot units: per resident, qol_years raw) whose
+    symlog lies within ``edge`` of the bin range's ends."""
+    from .model import BIN_HIGH, BIN_LOW
+    margin = edge * (BIN_HIGH - BIN_LOW)
+    out = {}
+    for name, x in u.items():
+        y = np.sign(x) * np.log1p(np.abs(x))
+        out[name] = float(np.mean((y >= BIN_HIGH - margin) | (y <= BIN_LOW + margin))) if len(y) else 0.0
     return out
 
 
-def evaluate(pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[str, np.ndarray]) -> dict:
-    """Both reports. ``pass`` reads the calibration branches only: welfare mean and median within TARGET for native,
-    region and mix (each present); the self-consistency report is a diagnostic."""
-    cal = calibration(pred, rows)
-    gated = [cal["kinds"][KINDS[k]]["welfare"] for k in GATED if KINDS[k] in cal["kinds"]]
-    passed = bool(gated) and all(abs(h["mean"]) <= TARGET and abs(h["median"]) <= TARGET for h in gated)
-    return {"pass": passed, "calibration": cal, "self_consistency": report(pred, real, rows)}
+def evaluate(pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[str, np.ndarray],
+             endpoints: dict | None = None, manifest_verified: bool = False, waivers=()) -> dict:
+    cal = calibration(pred, rows, endpoints=endpoints)
+    cov = coverage(rows)
+    gate = verdict(cal, cov, waivers)
+    if not manifest_verified:
+        gate["pass"] = False
+        gate["failures"].append("held-out calibration manifest not verified")
+    return {**gate, "calibration": cal, "coverage": cov, "self_consistency": report(pred, real, rows)}
 
 
 def main() -> int:
@@ -125,14 +112,61 @@ def main() -> int:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--branch-shards", required=True, help="comma-separated held-out branch-shard directories")
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument("--provenance", choices=("reject", "flag", "allow"), default="flag",
+                        help="held-out shards that mix sources or hold shards of unknown source (default: flag)")
+    parser.add_argument("--calibration-manifest", type=Path, default=None)
+    parser.add_argument("--calibration-inputs", type=Path, default=None,
+                        help="full frozen calibration cohort/branch payload inventory")
     args = parser.parse_args()
     torch.set_num_threads(4)
     state = upgrade(torch.load(args.checkpoint, map_location="cpu", weights_only=False))
+    held = manifest(args.calibration_manifest) if args.calibration_manifest else None
+    if held:
+        from .lineage import checkpoint_evidence
+        from .provenance import ProvenanceError, checkpoint_hash
+        if (held.get("waivers", []) != [] or state.get("artifact_kind") != "promotion"
+                or not state.get("vector_critic") or not checkpoint_evidence(state, held)["verified"]):
+            raise ProvenanceError("one-shot Round-3 calibration requires an already-promoted four-head candidate and no waivers")
+        if args.provenance != "reject" or args.out is None:
+            raise ProvenanceError("qualification calibration requires reject provenance and a new output path")
+        if args.calibration_inputs is None: raise ProvenanceError("calibration requires exact frozen --calibration-inputs")
+        from .calibration_audit import inventory, claim
+        binding = inventory([Path(p) for p in args.branch_shards.split(",")], checkpoint_hash(args.checkpoint), held,
+                            json.loads(args.calibration_inputs.read_text()))
+        prechecked = {}
+        preloaded = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], "reject", prechecked, purpose="analysis")
+        audit_claim = claim(held, binding)
     normalizer = Normalizer.from_state(state["normalizer"])
     critic = load_critic(args.checkpoint)
-    rows, boot = branch_shards.load([Path(p) for p in args.branch_shards.split(",")])
+    provenance: dict = {}
+    if held:
+        rows, boot = preloaded; provenance.update(prechecked)
+    else:
+        rows, boot = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], args.provenance, provenance, purpose="analysis")
     pred, real = realised(critic, rows, boot, normalizer)
-    result = {"checkpoint": str(args.checkpoint), **evaluate(pred, real, rows)}
+    endpoints = branch_shards.endpoint_values(critic, boot, normalizer)
+    from .lineage import checkpoint_evidence
+    from .provenance import compatible_sources, ProvenanceError
+    checkpoint_check = checkpoint_evidence(state, held) if held else {"verified": False, "failures": ["no exclusion manifest"]}
+    source_check = {"compatible": False}
+    if checkpoint_check["verified"]:
+        try:
+            frozen = state["run_manifest"]
+            source_check = compatible_sources(provenance.get("records", []), frozen["simulator"],
+                                              frozen.get("simulator_compatibility", []),
+                                              {k: frozen[k] for k in ("sim_rules", "sim_statics")})
+        except ProvenanceError as error:
+            source_check = {"compatible": False, "failure": str(error)}
+    verified = bool(held) and checkpoint_check["verified"] and source_check["compatible"] and provenance["identity_valid"] and provenance["ok"] and all(held_out(held, int(m["seed"]), m.get("snapshot_hash"))
+                                 and m.get("calibration_manifest_digest") == held["manifest_digest"]
+                                 for m in provenance["branches"])
+    u = {name: v / branch_shards.head_scale(name, rows["prior_population"]) for name, v in pred.items()}
+    result = {"checkpoint": str(args.checkpoint), "provenance": provenance,
+              "audit_binding": binding if held else None, "audit_claim": audit_claim if held else None,
+              "calibration_inputs": str(args.calibration_inputs) if args.calibration_inputs else None,
+              "checkpoint_evidence": checkpoint_check, "source_compatibility": source_check,
+              **evaluate(pred, real, rows, endpoints, verified, (held or {}).get("waivers", [])),
+              "saturation": saturation(u)}
     text = json.dumps(result, indent=1)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

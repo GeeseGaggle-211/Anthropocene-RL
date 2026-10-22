@@ -457,7 +457,9 @@ class Actor(nn.Module):
         self.region_keep = nn.Linear(width, 1)
         self.region_query = nn.Linear(width, hidden)
         self.mix_region = nn.Linear(hidden, len(contracts.ECONOMY_MIX))
-        self.region_group = nn.Linear(width, len(REGION_GROUPS))  # hierarchical head: learned group offset
+        # A dormant new head must not change any later head/critic initialization in flat compatibility mode.
+        with torch.random.fork_rng():
+            self.region_group = nn.Linear(width, len(REGION_GROUPS))
         init_region_heads(self)
         self._register_load_state_dict_pre_hook(self._region_defaults)
         # Contract 11 trade posture: relative value per group, offer gate per group, export labour share.
@@ -520,8 +522,10 @@ class Actor(nn.Module):
         extra: dict[str, torch.Tensor] = {}
         if bool(self.region_flat):
             extra["region_logp"] = torch.log_softmax(region, dim=1)
+            extra["region_probs"] = torch.softmax(region, dim=1)
         else:
             extra["region_group"], extra["region_logp"] = hierarchical_region(region, legal, self.region_group(h))
+            extra["region_probs"] = extra["region_logp"].exp()
         return {
             **extra,
             "trade_value_mean": trade_value[:, 0], "trade_value_log_std": trade_value[:, 1].clamp(-5, 1),
@@ -664,12 +668,20 @@ def grouped_region_slot(logits: torch.Tensor) -> torch.Tensor:
                        torch.where(group == 1, torch.full_like(best_go, 2), best_go))
 
 
-def act_deterministic(out: dict[str, torch.Tensor], region: bool = False, grouped: bool = False) -> dict[str, np.ndarray]:
+def act_deterministic(out: dict[str, torch.Tensor], region: bool = False, grouped: bool = False,
+                      selection: str | None = None) -> dict[str, np.ndarray]:
     """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends). With
     ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it: the hierarchical
     head's own choice (region_mode); on a flat head ``grouped`` makes it grouped_region_slot."""
     if region and "region" in out:
-        slot = region_mode(out, grouped)
+        if selection == "argmax":
+            slot = out.get("region_logp", out["region"]).argmax(dim=1)
+        elif selection == "stay":
+            slot = torch.full((len(out["region"]),), REGION_STAY, dtype=torch.long, device=out["region"].device)
+        elif selection is None:
+            slot = region_mode(out, grouped)
+        else:
+            raise ValueError(f"unknown diagnostic region selection {selection!r}")
     else:
         slot = torch.zeros(len(out["mix_logits"]), dtype=torch.long)
     if region:

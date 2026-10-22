@@ -15,6 +15,20 @@ OBSERVATION_KEYS = ["core", "core_present", "movement_mask", "clothing_route_mas
     key for name, _, _ in contracts.SETS for key in (name, name + "_present")
 ]
 OPTIONAL_KEYS = {key for name in ("regions", "trade", "activities") for key in (name, name + "_present")}
+
+
+def normalize_optional(arrays: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Normalize each file before joining vintages; never discard another file's conditioning."""
+    out = dict(arrays)
+    n = len(out["core"])
+    for name, rows, width in contracts.SETS:
+        out.setdefault(name, np.zeros((n, rows, width), np.float32))
+        out.setdefault(name + "_present", np.zeros((n, rows), bool))
+    native = np.zeros((n, contracts.REGION_MOVEMENT_SLOTS), bool); native[:, contracts.REGION_NATIVE] = True
+    out.setdefault("region_movement_mask", native)
+    out.setdefault("commit_hold_mask", np.zeros(n, bool))
+    out.setdefault("personality", np.tile(np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32), (n, 1)))
+    return out
 LABEL_KEYS = [
     "strategic", "strategic_mask", "service_levels", "service_mask", "clothing_route", "clothing_route_label_mask",
     "shelter_route", "shelter_route_label_mask", "movement", "movement_label_mask", "fission_policy", "repair",
@@ -27,6 +41,8 @@ OUTCOME_KEYS = [
 
 def load_world(directory: Path) -> dict[str, np.ndarray]:
     meta = json.loads((directory / "meta.json").read_text())
+    from .protocol import scan
+    scan(meta, "dataset metadata")
     # Sets and masks added after a shard was written (contracts 10-12) are optional: to_tensors treats them as absent.
     arrays = {key: np.load(directory / f"{key}.npy") for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS
               if key not in OPTIONAL_KEYS or (directory / f"{key}.npy").exists()}
@@ -36,6 +52,9 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
     if (directory / "privileged.npy").exists():
         arrays["privileged"] = np.load(directory / "privileged.npy")
     arrays["world"] = np.full(len(arrays["camp"]), int(meta["seed"]), dtype=np.int32)
+    # Source family identity is independent of sequence IDs, which branch loaders rebase.
+    arrays["source_seed"] = np.full(len(arrays["camp"]), int(meta["seed"]), np.int64)
+    arrays["source_snapshot"] = np.full(len(arrays["camp"]), str(meta.get("snapshot_hash") or ""))
     # Search branch shards (branch_shards.py) carry a unique world id per (seed, decision point, alternative), each
     # row's personality, alternative kind and founding turn, and a bootstrap index into their own bootstrap block.
     for key in BRANCH_KEYS:
@@ -48,12 +67,46 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
 BRANCH_KEYS = ("world", "personality", "alt_kind", "founded_turn", "bootstrap_index", "calibration")
 
 
-def load(directories: Iterable[Path]) -> dict[str, np.ndarray]:
-    worlds = [load_world(d) for d in sorted(directories) if (d / "meta.json").exists()]
-    worlds = [w for w in worlds if len(w["camp"]) > 0]
+def load(directories: Iterable[Path], *, strict: bool = False, report: dict | None = None,
+         declared_sources=None, calibration_manifest=None) -> dict[str, np.ndarray]:
+    directories = sorted(directories)
+    from .protocol import scan
+    for directory in directories:
+        if (directory / "meta.json").exists(): scan(json.loads((directory / "meta.json").read_text()))
+    verified, metadata = {}, []
+    if strict:
+        from .teacher_data import verify_dataset, verify_shard
+        from . import provenance as prov
+        for directory in directories:
+            root = directory.parent
+            if root not in verified: verified[root] = verify_dataset(root)
+            metadata.append(verify_shard(directory))
+        ids = [m["trajectory_id"] for m in metadata]
+        if len(ids) != len(set(ids)): raise prov.ProvenanceError("duplicate teacher trajectory")
+        records = [v["source_record"] for v in verified.values()]
+        checked = prov.check([("native_teacher", r["learner_commit"], r["source_run"]) for r in records],
+                             "reject", "native teacher", declared=declared_sources)
+        proof = {**checked, "schema": 1, "kind": "native_teacher", "verified": True,
+                 "datasets": list(verified.values()), "records": records,
+                 "dataset_refs": [{"path": str((root / "dataset.json").resolve()),
+                                    "sha256": prov.checkpoint_hash(root / "dataset.json")} for root in verified]}
+        proof["digest"] = prov.digest(proof)
+        if report is not None: report.update(proof)
+    worlds = [load_world(d) for d in directories if (d / "meta.json").exists()]
+    if strict:
+        for i, world in enumerate(worlds): world["world"] = np.full(len(world["camp"]), i, np.int64)
+    if calibration_manifest:
+        from .calibration import assert_training_rows
+        for world in worlds: assert_training_rows(calibration_manifest, world)
+    worlds = [normalize_optional(w) for w in worlds if len(w["camp"]) > 0]
     if not worlds:
         raise ValueError("no teacher shards found")
-    keys = [key for key in worlds[0] if all(key in w for w in worlds)]  # shards of mixed vintage share their common keys
+    keys = set.union(*(set(w) for w in worlds))
+    for key in keys:
+        template = next(w[key] for w in worlds if key in w)
+        for world in worlds:
+            if key not in world:
+                world[key] = np.zeros((len(world["camp"]),) + template.shape[1:], template.dtype)
     return {key: np.concatenate([w[key] for w in worlds]) for key in keys}
 
 

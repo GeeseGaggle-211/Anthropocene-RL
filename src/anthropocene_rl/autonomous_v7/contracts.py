@@ -99,6 +99,17 @@ class Schema:
     core_width: int
     core_features: tuple[str, ...]
     build_hash: str
+    decision_diagnostics_schema: int = 0
+    simulator_commit: str = "unknown"
+    simulator_source_clean: bool = False
+    raw_material_diagnostics_schema: int = 0
+    diagnostic_envelope_schema: int = 0
+    bridge_build_hash: str = "unknown"
+    bridge_sha256: str = "unknown"
+    feature_flags: dict | None = None
+    producer_flags: dict | None = None
+    configuration_hash: str = "unknown"
+    players: int = 0
 
 
 def verify_schema(response: Mapping[str, Any]) -> Schema:
@@ -124,4 +135,13 @@ def verify_schema(response: Mapping[str, Any]) -> Schema:
     features = tuple(response["coreFeatures"])
     if len(features) != response["coreWidth"]:
         raise ValueError("model9 core feature registry is inconsistent")
-    return Schema(core_width=int(response["coreWidth"]), core_features=features, build_hash=str(response["buildHash"]))
+    return Schema(core_width=int(response["coreWidth"]), core_features=features, build_hash=str(response["buildHash"]),
+                  decision_diagnostics_schema=int(response.get("decisionDiagnosticsSchema", 0)),
+                  simulator_commit=str(response.get("simulatorCommit", "unknown")),
+                  simulator_source_clean=bool(response.get("simulatorSourceClean", False)),
+                  raw_material_diagnostics_schema=int(response.get("rawMaterialDiagnosticsSchema", 0)),
+                  diagnostic_envelope_schema=int(response.get("diagnosticEnvelopeSchema", 0)),
+                  bridge_build_hash=str(response.get("bridgeBuildHash", "unknown")),
+                  bridge_sha256=str(response.get("bridgeSha256", "unknown")), feature_flags=response.get("featureFlags"),
+                  producer_flags=response.get("producerFlags"), configuration_hash=str(response.get("configurationHash", "unknown")),
+                  players=int(response.get("players", 0)))

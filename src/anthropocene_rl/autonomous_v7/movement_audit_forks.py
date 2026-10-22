@@ -74,7 +74,12 @@ def fork_seed(seed: int, checkpoint: str, points: list[int], horizon: int) -> li
     actor.region_movement = True; actor.grouped_region = True
     out = []
     with Model9Bridge() as bridge:
+        from .worker_contract import validate, world
+        validate(bridge, getattr(actor, "worker_contract", None), world(seed, movement=True, head=actor.region_head), head=actor.region_head)
         step = bridge.reset(seed, movement=True)
+        from .evaluate import producer_identity
+        from .provenance import checkpoint_hash
+        producer = producer_identity(bridge); checkpoint_sha = checkpoint_hash(checkpoint)
         turn = 0
         for point in sorted(points):
             while turn < point:
@@ -85,7 +90,8 @@ def fork_seed(seed: int, checkpoint: str, points: list[int], horizon: int) -> li
             stay = branch(bridge, actor, normalizer, step, horizon, stay=True)
             step = bridge.restore(fork)
             bridge.drop(fork)
-            out.append({"seed": seed, "point": point, "move": move, "stay": stay})
+            out.append({"seed": seed, "point": point, "horizon": horizon, "move": move, "stay": stay,
+                        "checkpoint_sha256": checkpoint_sha, "producer": producer})
     return out
 
 
@@ -97,7 +103,8 @@ def main() -> int:
     parser.add_argument("--horizon", type=int, default=4)
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     seeds = seed_list(args.seeds); points = [int(p) for p in args.points.split(",")]
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         pairs = [p for rows in pool.map(fork_seed, seeds, [args.checkpoint] * len(seeds), [points] * len(seeds),

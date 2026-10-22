@@ -11,6 +11,11 @@ namespace Anthropocene.RLBridge
 {
     internal static class Model9BridgeProgram
     {
+        private static string BuildMetadata(string key) => typeof(Model9BridgeProgram).Assembly
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false)
+            .Cast<System.Reflection.AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == key)?.Value ?? "unknown";
+        private static readonly string BridgeSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.IO.File.ReadAllBytes(typeof(Model9BridgeProgram).Assembly.Location))).ToLowerInvariant();
         private static readonly JsonSerializerOptions Json = new JsonSerializerOptions
         {
             IncludeFields = true, PropertyNameCaseInsensitive = true, WriteIndented = false
@@ -54,6 +59,18 @@ namespace Anthropocene.RLBridge
                         observationSchema = ElderModel9Contract.ObservationSchemaVersion,
                         environmentSchema = ElderModel9Contract.EnvironmentSchemaVersion,
                         replaySchema = ElderModel9Contract.ReplaySchemaVersion,
+                        decisionDiagnosticsSchema = 1,
+                        diagnosticEnvelopeSchema = 2,
+                        rawMaterialDiagnosticsSchema = 2,
+                        bridgeBuildHash = typeof(Model9BridgeProgram).Module.ModuleVersionId.ToString("N"),
+                        bridgeSha256 = BridgeSha256,
+                        configurationHash = SaveCodec.ConfigurationHash(Config(root)),
+                        players = Config(root).Players,
+                        featureFlags = FeatureFlags(Config(root)),
+                        producerFlags = new Dictionary<string, string> { ["sim_rules"] = Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_RULES") ?? "",
+                            ["sim_statics"] = Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_STATICS") ?? "" },
+                        simulatorCommit = BuildMetadata("AnthropoceneSimulatorCommit"),
+                        simulatorSourceClean = BuildMetadata("AnthropoceneSimulatorClean") == "true",
                         coreWidth = ElderModel9Contract.CoreWidth,
                         coreFeatures = ElderModel9Encoder.CoreFeatureNames(),
                         sets = ElderModel9Contract.Sets.Select(s => new { name = s.Name, rows = s.Rows, width = s.Width }).ToArray(),
@@ -72,6 +89,8 @@ namespace Anthropocene.RLBridge
                     };
                 case "reset":
                 {
+                    int declaredSeed = root.GetProperty("seed").GetInt32();
+                    RequireUnsealedSeed(declaredSeed);
                     // withheld: SimulationConfig.TrainingWithheldTechnologies for capability fixtures (0 = the game).
                     int withheld = root.TryGetProperty("withheld", out var wh) ? wh.GetInt32() : 0;
                     // Optional world size (scale probes): width, height, separation; absent keeps SimulationConfig.Small.
@@ -112,16 +131,57 @@ namespace Anthropocene.RLBridge
                     {
                         snapshot = root.TryGetProperty("snapshot", out var s) && s.ValueKind == JsonValueKind.String
                             ? Convert.FromBase64String(s.GetString())
-                            : ElderModel9Environment.GenerateOpening(root.GetProperty("seed").GetInt32(),
+                            : ElderModel9Environment.GenerateOpening(declaredSeed,
                                 root.TryGetProperty("players", out var p) ? p.GetInt32() : 8, out _, 40, withheld);
                     }
                     finally { ElderModel9Environment.ConfigOverride = previous; }
+                    var snapshotWorld = SaveCodec.Load(snapshot);
+                    RequireUnsealedSeed(snapshotWorld.Seed);
+                    if (snapshotWorld.Seed != declaredSeed) throw new InvalidOperationException("Snapshot root differs from declared seed.");
                     bool movement = root.TryGetProperty("movement", out var m) && m.GetBoolean();
                     environment = new ElderModel9Environment { WithheldTechnologies = withheld };
                     forks.Clear();
                     var step = environment.Reset(snapshot, movement);
                     return new { ok = true, op, step = Encode(step), fingerprint = environment.Replay.InitialFingerprint,
+                        rawMaterialsEnabled = environment.World.Config.ElderRawMaterialsEnabled,
+                        sourceSeed = environment.World.Seed,
                         configurationHash = environment.Replay.ConfigurationHash, buildHash = environment.Replay.BuildHash };
+                }
+                case "validate_snapshot":
+                {
+                    var bytes = Convert.FromBase64String(root.GetProperty("snapshot").GetString());
+                    var world = SaveCodec.Load(bytes);
+                    RequireUnsealedSeed(world.Seed);
+                    return new { ok = true, op, sourceSeed = world.Seed, turn = world.Turn,
+                        fingerprint = SaveCodec.Fingerprint(world), payloadFingerprint = PayloadFingerprint(bytes),
+                        rawMaterialsEnabled = world.Config.ElderRawMaterialsEnabled, featureFlags = FeatureFlags(world.Config),
+                        configurationHash = SaveCodec.ConfigurationHash(world.Config), players = world.Config.Players,
+                        livePlayerCount = world.PlayerCount };
+                }
+                case "reset_metadata":
+                {
+                    int seed = root.GetProperty("seed").GetInt32(); RequireUnsealedSeed(seed);
+                    if (root.TryGetProperty("snapshot", out var snap))
+                    {
+                        var world = SaveCodec.Load(Convert.FromBase64String(snap.GetString()));
+                        RequireUnsealedSeed(world.Seed);
+                        if (world.Seed != seed) throw new InvalidOperationException("Snapshot root differs from declared seed.");
+                        return new { ok = true, op, sourceSeed = world.Seed, turn = (int?)world.Turn,
+                            rawMaterialsEnabled = world.Config.ElderRawMaterialsEnabled, featureFlags = FeatureFlags(world.Config),
+                            configurationHash = SaveCodec.ConfigurationHash(world.Config), players = world.Config.Players,
+                            livePlayerCount = world.PlayerCount };
+                    }
+                    var config = Config(root); config.Validate();
+                    return new { ok = true, op, sourceSeed = seed, turn = (int?)null,
+                        rawMaterialsEnabled = config.ElderRawMaterialsEnabled, featureFlags = FeatureFlags(config),
+                        configurationHash = SaveCodec.ConfigurationHash(config), players = config.Players };
+                }
+                case "validate_fingerprint_snapshot":
+                {
+                    byte[] bytes = Convert.FromBase64String(root.GetProperty("snapshot").GetString());
+                    var world = ValidateFingerprintSnapshot(bytes);
+                    return new { ok = true, op, sourceSeed = world.Seed, turn = world.Turn,
+                        payloadFingerprint = PayloadFingerprint(bytes) };
                 }
                 case "step":
                 {
@@ -172,9 +232,116 @@ namespace Anthropocene.RLBridge
                 case "capture":
                     if (environment == null) throw new InvalidOperationException("reset required");
                     return new { ok = true, op, snapshot = Convert.ToBase64String(SaveCodec.Save(environment.World)) };
+                case "fingerprint_snapshot":
+                {
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    var w = environment.World;
+                    string fingerprint = SaveCodec.Fingerprint(w);
+                    // Exact canonical ordering/exclusions used by SaveCodec.Fingerprint. Export fails closed if
+                    // that simulator contract changes: the full decompressed payload must hash to the native value.
+                    var copy = new WorldState { MaterialSources = w.MaterialSources, MaterialKnowledge = w.MaterialKnowledge,
+                        FixedHousing = w.FixedHousing?.OrderBy(s => s.CampId).ThenBy(s => s.Tile).ToList(),
+                        FisherySites = w.FisherySites?.OrderBy(s => s.TileId).ToList(), DemographicMigrations = w.DemographicMigrations,
+                        Version = w.Version, Seed = w.Seed, Turn = w.Turn, NextId = w.NextId, PlayerCount = w.PlayerCount,
+                        Days = w.Days, Config = w.Config, Tiles = w.Tiles, Camps = w.Camps.OrderBy(c => c.Id).ToList(),
+                        Societies = w.Societies.OrderBy(s => s.Id).ToList(), Improvements = w.Improvements.OrderBy(i => i.Id).ToList(),
+                        Hunters = w.Hunters.OrderBy(h => h.Id).ToList(), Herds = w.Herds.OrderBy(h => h.Id).ToList(),
+                        Rivers = w.Rivers, History = w.History, Generation = null, Resources = w.Resources,
+                        AutonomousReceipts = w.AutonomousReceipts };
+                    byte[] snapshot = SaveCodec.Save(copy);
+                    if (PayloadFingerprint(snapshot) != fingerprint || SaveCodec.Fingerprint(w) != fingerprint)
+                        throw new InvalidOperationException("Canonical fingerprint payload mismatch or export mutated live state.");
+                    return new { ok = true, op, snapshot = Convert.ToBase64String(snapshot), fingerprint,
+                        sourceSeed = w.Seed, turn = w.Turn, fingerprintContract = "savecodec-canonical-writepayload-sha256-v1" };
+                }
                 default:
                     throw new ArgumentException("Unknown model9 operation: " + op);
             }
+        }
+
+        private static SimulationConfig Config(JsonElement root)
+        {
+            var config = SimulationConfig.Small(root.TryGetProperty("players", out var p) ? p.GetInt32() : 8);
+            foreach (var item in (Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_RULES") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var kv = item.Split('=', 2); object target = config;
+                var field = typeof(SimulationConfig).GetField(kv[0].Trim());
+                if (field == null) { target = config.Neolithic; field = typeof(NeolithicConfig).GetField(kv[0].Trim()); }
+                if (field == null) throw new InvalidOperationException("Unknown simulator rule " + kv[0]);
+                field.SetValue(target, Convert.ChangeType(kv[1].Trim(), field.FieldType, System.Globalization.CultureInfo.InvariantCulture));
+            }
+            if (root.TryGetProperty("width", out var width)) config.Width = width.GetInt32();
+            if (root.TryGetProperty("height", out var height)) config.Height = height.GetInt32();
+            if (root.TryGetProperty("separation", out var separation)) config.StartSeparation = separation.GetInt32();
+            return config;
+        }
+
+        private static Dictionary<string, bool> FeatureFlags(SimulationConfig config)
+        {
+            var flags = new Dictionary<string, bool>();
+            foreach (var field in typeof(SimulationConfig).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+                if (field.FieldType == typeof(bool)) flags["SimulationConfig." + field.Name] = (bool)field.GetValue(config);
+            foreach (var field in typeof(NeolithicConfig).GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public))
+                if (field.FieldType == typeof(bool)) flags["NeolithicConfig." + field.Name] = (bool)field.GetValue(config.Neolithic);
+            return flags;
+        }
+
+        private static string PayloadFingerprint(byte[] snapshot)
+        {
+            using var input = new System.IO.MemoryStream(snapshot);
+            using var zip = new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress);
+            using var hash = System.Security.Cryptography.SHA256.Create();
+            return BitConverter.ToString(hash.ComputeHash(zip)).Replace("-", "");
+        }
+
+        private static byte[] Header(WorldState world)
+        {
+            using var output = new System.IO.MemoryStream();
+            var serializer = new System.Runtime.Serialization.DataContractSerializer(typeof(WorldState),
+                new System.Runtime.Serialization.DataContractSerializerSettings { MaxItemsInObjectGraph = int.MaxValue });
+            using (var xml = System.Xml.XmlDictionaryWriter.CreateBinaryWriter(output, null, null, false)) serializer.WriteObject(xml, world);
+            return output.ToArray();
+        }
+
+        private static WorldState ValidateFingerprintSnapshot(byte[] snapshot)
+        {
+            using var input = new System.IO.MemoryStream(snapshot);
+            using var zip = new System.IO.Compression.GZipStream(input, System.IO.Compression.CompressionMode.Decompress);
+            using var reader = new System.IO.BinaryReader(zip);
+            string magic = reader.ReadString();
+            if (!new[] { "ANTHROPOCENE-11", "ANTHROPOCENE-12", "ANTHROPOCENE-13", "ANTHROPOCENE-14", "ANTHROPOCENE-15" }.Contains(magic))
+                throw new InvalidOperationException("Unknown fingerprint-save envelope.");
+            bool hasFlags = magic == "ANTHROPOCENE-14" || magic == "ANTHROPOCENE-15";
+            byte flags = hasFlags ? reader.ReadByte() : (byte)0;
+            int size = reader.ReadInt32();
+            if (size < 1 || size > 512 * 1024 * 1024) throw new InvalidOperationException("Invalid fingerprint-save header size.");
+            byte[] header = reader.ReadBytes(size);
+            var serializer = new System.Runtime.Serialization.DataContractSerializer(typeof(WorldState),
+                new System.Runtime.Serialization.DataContractSerializerSettings { MaxItemsInObjectGraph = int.MaxValue });
+            WorldState world;
+            using (var xml = System.Xml.XmlDictionaryReader.CreateBinaryReader(header, System.Xml.XmlDictionaryReaderQuotas.Max))
+                world = (WorldState)serializer.ReadObject(xml);
+            RequireUnsealedSeed(world.Seed);
+            if (world.Generation != null || !Header(world).SequenceEqual(header))
+                throw new InvalidOperationException("Fingerprint-save header is not the complete canonical serialized header.");
+            // Fingerprint deliberately omits nonphysical Generation, while ordinary SaveCodec.Load requires it.
+            // Supply only that validator metadata in a temporary copy; never rewrite the compared artifact/tail.
+            world.Generation = new GenerationReport();
+            byte[] validationHeader = Header(world);
+            using var output = new System.IO.MemoryStream();
+            using (var compressed = new System.IO.Compression.GZipStream(output, System.IO.Compression.CompressionLevel.Fastest, true))
+            using (var writer = new System.IO.BinaryWriter(compressed))
+            {
+                writer.Write(magic); if (hasFlags) writer.Write(flags);
+                writer.Write(validationHeader.Length); writer.Write(validationHeader);
+                zip.CopyTo(compressed);
+            }
+            return SaveCodec.Load(output.ToArray());
+        }
+
+        private static void RequireUnsealedSeed(int seed)
+        {
+            if (seed >= 3000 && seed <= 3059) throw new InvalidOperationException("Confirmation seed is sealed.");
         }
 
         private static ElderDirective Directive(JsonElement e)
@@ -203,6 +370,18 @@ namespace Anthropocene.RLBridge
         private static object Encode(ElderModel9Step step) => new
         {
             turn = step.Turn, years = step.Years, fingerprint = step.Fingerprint, nativeMs = step.NativeMilliseconds,
+            diagnosticSchemaVersion = step.DiagnosticSchemaVersion,
+            // Explicit envelope zero means no preceding decision, including an immediate reset fork.
+            // Do not infer absence from generic head records: envelope two may carry raw-only diagnostics.
+            trajectoryId = step.DiagnosticSchemaVersion == 0 ? null : step.TrajectoryId,
+            rawMaterialDiagnostics = step.RawMaterialDiagnostics.OrderBy(p => p.Key, StringComparer.Ordinal)
+                .ToDictionary(p => p.Key, p => new
+                {
+                    schemaVersion = p.Value.SchemaVersion, campId = p.Value.CampId, decisionTurn = p.Value.DecisionTurn,
+                    material = (int)p.Value.Material, requestId = p.Value.RequestId,
+                    requestedUnits = p.Value.RequestedUnits, acceptedUnits = p.Value.AcceptedUnits,
+                    realisedUnits = p.Value.RealisedUnits
+                }),
             villages = step.Villages.Select(v => new
             {
                 camp = v.Camp, society = v.Society, parentSociety = v.ParentSociety, player = v.Player,
@@ -210,6 +389,7 @@ namespace Anthropocene.RLBridge
                 clothing = v.Clothing, housing = v.Housing, years = v.Years, welfare = v.Welfare,
                 terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length, privileged = v.Privileged,
                 tradeUtility = v.TradeUtility, specialistShare = v.SpecialistShare, goodsOutput = v.GoodsOutput,
+                decisionDiagnostics = v.DecisionDiagnostics,
                 observation = v.Observation == null ? null : new
                 {
                     core = v.Observation.Core, corePresent = v.Observation.CorePresent,

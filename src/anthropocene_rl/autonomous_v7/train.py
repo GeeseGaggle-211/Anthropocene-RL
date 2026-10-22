@@ -331,15 +331,39 @@ def main() -> int:
     parser.add_argument("--grad-clip", type=float, default=1.0, help="BC gradient-norm clip")
     parser.add_argument("--input-guard", type=float, default=None,
                         help="normalizer guard: drop inputs constant in TRAIN, clip the rest to +-this (token 10, else 0 = off)")
-    parser.add_argument("--region-head", choices=("hierarchical", "flat"), default="hierarchical",
-                        help="region-movement head: hierarchical (native / stay / go, then where; round 3) or the earlier flat head")
+    parser.add_argument("--provenance", choices=("reject", "flag", "allow"), default="reject",
+                        help="branch shards that mix sources or hold shards of unknown source: reject, flag or allow")
     parser.add_argument("--branch-shards", default=None,
                         help="comma-separated search branch-shard directories added to critic pretraining only")
-    args = parser.parse_args()
+    parser.add_argument("--calibration-manifest", type=Path, default=None)
+    parser.add_argument("--source-manifest", type=Path, default=None)
+    parser.add_argument("--prior-use-inventory", type=Path, default=None)
+    parser.add_argument("--clone-protocol", type=Path, default=None, help="pre-frozen shared guarded-clone cohort manifest")
+    parser.add_argument("--preregistration", type=Path, default=None)
+    parser.add_argument("--protocol-approval", type=Path, default=None)
+    parser.add_argument("--execution-manifest", type=Path, default=None)
+    parser.add_argument("--nonqualifying", action="store_true", help="local stability only; emitted weights cannot qualify or select")
+    parser.add_argument("--local-execution-design", type=Path, default=None)
+    from .checkpoint import parse, restore_actor
+    args = parse(parser)
+    from .protocol import enforce_clone_execution
+    execution = enforce_clone_execution(args)
+    if args.provenance != "reject" and args.branch_shards:
+        raise ValueError("flag/allow provenance is for analysis and migrations; training requires reject")
     torch.manual_seed(args.seed); np.random.seed(args.seed); torch.set_num_threads(args.threads)
     clock = time.time()
-    train = data.load(p for p in args.train.iterdir() if p.is_dir())
-    dev = data.load(p for p in args.dev.iterdir() if p.is_dir())
+    from .calibration import manifest, assert_training_rows
+    held_manifest = manifest(args.calibration_manifest) if args.calibration_manifest else None
+    from .provenance import declared_sources
+    declared = declared_sources(args.source_manifest)
+    train_report, dev_report = {}, {}
+    train = data.load((p for p in args.train.iterdir() if p.is_dir()), strict=True, report=train_report,
+                      declared_sources=declared, calibration_manifest=held_manifest)
+    dev = data.load((p for p in args.dev.iterdir() if p.is_dir()), strict=True, report=dev_report,
+                    declared_sources=declared, calibration_manifest=held_manifest)
+    if held_manifest:
+        assert_training_rows(held_manifest, train)
+        assert_training_rows(held_manifest, dev)
     print(json.dumps({"train": data.summary(train), "dev": data.summary(dev)}), flush=True)
     warmup = args.lr_warmup if args.lr_warmup is not None else (0.05 if args.token else 0.0)
     final_lr = args.lr_final if args.lr_final is not None else (0.05 if args.token else -1.0)
@@ -347,8 +371,6 @@ def main() -> int:
     guard = args.input_guard if args.input_guard is not None else (10.0 if args.token else 0.0)
     bc_config = {"lr": args.lr, "warmup": warmup, "final_lr": final_lr, "encoder_lr_scale": args.encoder_lr_scale,
                  "grad_clip": args.grad_clip, "input_guard": guard or None}
-    normalizer = Normalizer.fit(train, guard=guard or None)
-    print(json.dumps({"bc_config": bc_config, "dropped_inputs": normalizer.dead_names()}), flush=True)
     core_width = train["core"].shape[1]
     privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
     # Round 3: the hierarchical region head by default (model.Actor; saved in the actor state); --region-head flat keeps
@@ -356,31 +378,80 @@ def main() -> int:
     actor = Actor(core_width, token=args.token, region_head=args.region_head)
     critic = (VectorCritic if args.vector_critic else Critic)(core_width, privileged_width=privileged_width, token=args.token)
     branch = None
+    branch_report: dict = {}
     if args.branch_shards:
         from . import branch_shards
-        branch = branch_shards.load([Path(p) for p in args.branch_shards.split(",")])
-        print(json.dumps({"branch_rows": int(len(branch[0]["camp"]))}), flush=True)
+        branch = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], args.provenance, branch_report,
+                                    declared_sources=declared, calibration_manifest=held_manifest)
+        print(json.dumps({"branch_rows": int(len(branch[0]["camp"])), "branch_provenance": branch_report}), flush=True)
+    from .checkpoint import run_manifest, resolve_head
+    from .provenance import checkpoint_hash, compatible_sources
+    from .lineage import build as build_lineage, rows_families, merge, source_families
+    phase = args.out.with_suffix(".bc.pt")
+    load_from = args.resume if args.resume is not None else phase if phase.exists() else None
+    loading = torch.load(load_from, map_location="cpu", weights_only=False) if load_from else None
+    if loading is not None:
+        actor.set_region_head(resolve_head(loading, args.region_head, resume=True))
+    frozen_run = run_manifest(args, actor, require_init=False)
+    frozen_run["teacher_inputs"] = {"training": train_report["digest"], "selection": dev_report["digest"]}
+    if args.clone_protocol:
+        from .promotion import validate_cohort
+        if args.preregistration is None or args.protocol_approval is None:
+            raise ValueError("guarded clones require full --preregistration and external --protocol-approval")
+        frozen_run["protocol_digest"] = held_manifest["protocol_digest"]
+        frozen_run["protocol_evidence"] = {"preregistration": {"path": str(args.preregistration.resolve()), "sha256": checkpoint_hash(args.preregistration)},
+            "approval": {"path": str(args.protocol_approval.resolve()), "sha256": checkpoint_hash(args.protocol_approval)}}
+        frozen_run["clone_protocol"] = {"path": str(args.clone_protocol.resolve()), "sha256": checkpoint_hash(args.clone_protocol)}
+        validate_cohort({"run_manifest": frozen_run, "bc_config": bc_config, "token": args.token,
+                         "vector_critic": args.vector_critic, "region_head": actor.region_head, "calibration_manifest": held_manifest})
+    elif held_manifest and frozen_run.get("options"):
+        raise ValueError("qualification clones require a pre-frozen --clone-protocol")
+    offline_compatibility = (compatible_sources(train_report["records"] + dev_report["records"] + branch_report.get("records", []), frozen_run["simulator"],
+                                                frozen_run["simulator_compatibility"],
+                                                {k: frozen_run[k] for k in ("sim_rules", "sim_statics")}) if frozen_run else None)
+    training_families = merge(rows_families(train), source_families(branch_report)) if held_manifest else {}
+    selection_families = rows_families(dev) if held_manifest else {}
+    from .teacher_data import validate_source
+    for record in train_report["records"] + dev_report["records"]:
+        validate_source(record, live=frozen_run["simulator"], binary_sha256=frozen_run["bridge_sha256"])
+    normalizer = Normalizer.fit(train, guard=guard or None)
+    print(json.dumps({"bc_config": bc_config, "dropped_inputs": normalizer.dead_names()}), flush=True)
+    teacher_inputs = {"training": train_report, "selection": dev_report}
+    lineage = None
     log: list = []
     if args.resume is not None:
-        state = torch.load(args.resume, map_location="cpu", weights_only=False)
-        actor.load_state_dict(state["actor"]); critic.load_state_dict(state["critic"])
+        state = loading
+        restore_actor(actor, state, args.region_head, resume=True); critic.load_state_dict(state["critic"])
         normalizer = Normalizer.from_state(state["normalizer"]); log = list(state.get("log", []))
+        if frozen_run:
+            frozen_run["inputs"]["init"] = checkpoint_hash(args.resume)
+            frozen_run["initialization"] = "checkpoint"
+        lineage = build_lineage(held_manifest, training_families, selection_families,
+                                [(checkpoint_hash(args.resume), state, {"path": str(args.resume.resolve()), "sha256": checkpoint_hash(args.resume)})], teacher_inputs=teacher_inputs)
     # Phase checkpoint: cloning is the long phase, so it is saved on its own (atomically) and a rerun with the same
     # --out skips it. A preempted VM then loses at most the critic pretraining.
-    phase = args.out.with_suffix(".bc.pt")
     if args.resume is None and phase.exists():
-        saved = torch.load(phase, map_location="cpu", weights_only=False)
-        actor.load_state_dict(saved["actor"]); log = list(saved["log"])
+        saved = loading
+        restore_actor(actor, saved, args.region_head, resume=True); log = list(saved["log"])
         # The actor was cloned against this normalizer (phase files written before the guard carry none: refit).
         if "normalizer" in saved:
             normalizer = Normalizer.from_state(saved["normalizer"])
         bc_config = saved.get("bc_config", {"phase": "unrecorded"})
+        if frozen_run and saved.get("run_manifest") != frozen_run:
+            raise ValueError("BC phase lacks matching frozen run provenance; use a new output")
+        lineage = saved.get("family_lineage")
         print(json.dumps({"resumed_bc": str(phase), "bc_config": bc_config}), flush=True)
     else:
+        if lineage is None:
+            lineage = build_lineage(held_manifest, training_families, selection_families, teacher_inputs=teacher_inputs)
         train_actor(actor, train, dev, normalizer, args.bc_epochs, args.batch, args.lr, log, warmup=warmup,
                     final_lr=final_lr, encoder_lr_scale=args.encoder_lr_scale, grad_clip=args.grad_clip)
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"actor": actor.state_dict(), "log": log, "normalizer": normalizer.state_dict(), "bc_config": bc_config},
+        from .promotion import seal
+        torch.save(seal({"actor": actor.state_dict(), "log": log, "normalizer": normalizer.state_dict(), "bc_config": bc_config,
+                    "nonqualifying": args.nonqualifying,
+                    "contract": contracts.NATIVE_CONTRACT, "run_manifest": frozen_run,
+                    "calibration_manifest": held_manifest, "family_lineage": lineage}),
                    phase.with_suffix(".tmp"))
         os.replace(phase.with_suffix(".tmp"), phase)
     if args.vector_critic or branch is not None:
@@ -391,10 +462,15 @@ def main() -> int:
                              args.critic_lr or args.lr, log, warm=args.resume is not None)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     extra = {"vector_critic": True} if args.vector_critic else {}
-    torch.save({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
+    from .promotion import seal
+    torch.save(seal({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
                 "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "token": args.token,
                 "seed": args.seed, "log": log, "bc_config": bc_config, "region_head": actor.region_head,
-                "critic_dev": final, **extra}, args.out)
+                "nonqualifying": args.nonqualifying,
+                "calibration_manifest": held_manifest,
+                "run_manifest": frozen_run, "family_lineage": lineage, "offline_compatibility": offline_compatibility,
+                "branch_provenance": branch_report, "declared_source_runs": sorted(declared) if declared is not None else None,
+                "critic_dev": final, **extra}), args.out)
     print(json.dumps({"saved": str(args.out), "seconds": time.time() - clock, "critic_dev": final}), flush=True)
     return 0
 

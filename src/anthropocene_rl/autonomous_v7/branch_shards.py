@@ -2,6 +2,10 @@
 search branch's held horizon, written in the teacher-shard layout ``data.load`` reads, so the critic sees states the
 search reaches (native-acting, moved, re-mixed, probed) under the policy that will act from them.
 
+Round 3 provenance (provenance.py): each branch's ``meta.json`` records its source checkpoint hash, code commit,
+world (seed, withheld, warmup), fork turn, alternative kind, the searched village's personality and the calibration
+flag; ``load`` checks the (checkpoint, commit) mix.
+
 One directory per branch (seed, decision point, alternative). Each row is one lineage settlement's tail decision: its
 observation arrays, privileged features and personality, the outcome keys ``data.reward_components`` needs, the
 branch's unique world id (``world.npy``; sequences never collide across branches), its alternative kind
@@ -25,13 +29,20 @@ from .model import VectorCritic, to_tensors
 
 # World ids of branch rows live far above any seed, so branch and teacher rows never share a sequence key.
 BRANCH_WORLD_BASE = 1 << 56
+TRAJECTORY_FIELDS = ("seed", "withheld", "warmup", "point", "alternative", "fork_turn", "camp", "bank_entry", "snapshot_hash")
+
+
+def trajectory_id(meta: dict) -> str:
+    from .provenance import digest
+    return digest({k: meta[k] for k in TRAJECTORY_FIELDS} | {"source_run": meta.get("source_run", "unknown")})
 
 
 def world_id(seed: int, withheld: int, warmup: int, point: int, alternative: int) -> int:
     """A unique int64 world id per (seed, withheld mask, warm-up, decision point, alternative)."""
     if not (0 <= point < 1024 and 0 <= alternative < 64 and 0 <= withheld < 16 and 0 <= seed < (1 << 29)):
         raise ValueError("branch world id out of range")
-    return BRANCH_WORLD_BASE + ((((seed * 64 + warmup % 64) * 16 + withheld) * 1024 + point) * 64 + alternative)
+    from .provenance import digest
+    return BRANCH_WORLD_BASE + int(digest([seed, withheld, warmup, point, alternative])[:14], 16)
 
 
 def _observations(villages: list[dict[str, Any]], personalities: list[Any]) -> dict[str, np.ndarray]:
@@ -57,6 +68,8 @@ def write(directory: Path, tail: dict[str, Any], meta: dict[str, Any]) -> int:
     rows = tail["rows"]
     if not rows:
         return 0
+    if (directory / "meta.json").exists():
+        raise ValueError(f"branch trajectory already exists: {directory}")
     directory.mkdir(parents=True, exist_ok=True)
     n = len(rows)
     arrays = _observations([r["decision"] for r in rows], [r["personality"] for r in rows])
@@ -81,12 +94,21 @@ def write(directory: Path, tail: dict[str, Any], meta: dict[str, Any]) -> int:
     })
     for key, value in arrays.items():
         np.save(directory / f"{key}.npy", value)
+    (directory / "decision_diagnostics.json").write_text(json.dumps([
+        {"turn": r["turn"], "camp": r["outcome"]["camp"],
+         "decisionDiagnostics": r["outcome"].get("decisionDiagnostics")} for r in rows]))
     boot = tail.get("bootstrap") or []
     if boot:
         (directory / "bootstrap").mkdir(exist_ok=True)
-        for key, value in _observations([b["village"] for b in boot], [b["personality"] for b in boot]).items():
+        endpoint = _observations([b["village"] for b in boot], [b["personality"] for b in boot])
+        endpoint["endpoint_population"] = np.asarray([b["village"]["population"] for b in boot], np.float64)
+        endpoint["endpoint_world"] = np.full(len(boot), int(meta["world_id"]), np.int64)
+        endpoint["endpoint_turn"] = np.full(len(boot), int(tail.get("endpoint_turn", -1)), np.int64)
+        for key, value in endpoint.items():
             np.save(directory / "bootstrap" / f"{key}.npy", value)
-    (directory / "meta.json").write_text(json.dumps({**meta, "rows": n, "branch": True,
+    from .provenance import checkpoint_hash, digest
+    payload = {p.relative_to(directory).as_posix(): checkpoint_hash(p) for p in sorted(directory.rglob("*.npy"))}
+    (directory / "meta.json").write_text(json.dumps({**meta, "data_digest": digest(payload), "rows": n, "branch": True,
                                                      "contract": contracts.NATIVE_CONTRACT}))
     return n
 
@@ -103,18 +125,57 @@ def directories(roots: Iterable[Path]) -> list[Path]:
     return out
 
 
-def load(roots: Iterable[Path]) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None]:
+def load(roots: Iterable[Path], provenance: str = "flag",
+         report: dict[str, Any] | None = None, *, purpose: str = "training", declared_sources: set[str] | None = None,
+         calibration_manifest: dict | None = None) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None]:
     """All branch rows under ``roots`` and their bootstrap observations; ``bootstrap_index`` is rebased onto the
-    concatenated bootstrap block (-1: none)."""
+    concatenated bootstrap block (-1: none). ``provenance`` (provenance.check: reject, flag or allow) applies to the
+    shards' (source checkpoint, code commit); ``report`` receives the provenance report."""
+    from . import provenance as prov
     worlds, boots, offset = [], [], 0
+    sources, counts, records, identities, metadata = [], [], [], set(), []
     for d in directories(roots):
-        w = data.load_world(d)
+        meta = json.loads((d / "meta.json").read_text())
+        payload = {p.relative_to(d).as_posix(): prov.checkpoint_hash(p) for p in sorted(d.rglob("*.npy"))}
+        if "data_digest" in meta and meta["data_digest"] != prov.digest(payload):
+            raise prov.ProvenanceError(f"branch data changed after generation: {d}")
+        if provenance == "reject" and "data_digest" not in meta:
+            raise prov.ProvenanceError("branch shard lacks immutable data digest")
+        if "source_record" in meta:
+            prov.verify_link(meta["source_record"], meta, provenance)
+            declared_manifest = prov.source_exclusion(meta["source_record"])
+            if meta.get("calibration_manifest_digest", "") != declared_manifest.get("manifest_digest", ""):
+                raise prov.ProvenanceError("branch calibration manifest differs from its source record")
+        metadata.append(meta)
+        held_manifest = prov.source_exclusion(meta.get("source_record", {}))
+        if purpose == "training":
+            from .calibration import assert_training
+            assert_training(held_manifest, [meta["seed"]], [meta.get("snapshot_hash")])
+            if calibration_manifest is not None:
+                assert_training(calibration_manifest, [meta["seed"]], [meta.get("snapshot_hash")])
+            if meta.get("heldout_calibration", False):
+                raise prov.ProvenanceError("held-out calibration trajectory cannot train the critic")
+        identity = meta.get("trajectory_id") or str(d.resolve())
+        if "trajectory_id" in meta and identity != trajectory_id(meta):
+            raise prov.ProvenanceError("branch trajectory metadata changed after generation")
+        if identity in identities:
+            raise prov.ProvenanceError(f"duplicate branch trajectory: {identity}")
+        identities.add(identity)
+        records.append(meta.get("source_record", {}))
+        w = data.normalize_optional(data.load_world(d))
         if len(w["camp"]) == 0:
             continue
+        sources.append(prov.key(meta)); counts.append(len(w["camp"]))
+        # A directory is one branch. Allocate fresh sequence keys even when independent runs reused saved IDs.
+        w["world"] = np.full(len(w["camp"]), BRANCH_WORLD_BASE + len(worlds), np.int64)
         w.setdefault("calibration", np.zeros(len(w["camp"]), np.int8))  # shards written before calibration tails
         index = w["bootstrap_index"].astype(np.int64)
+        w["endpoint_turn"] = np.full(len(w["camp"]), -1, np.int64)
         if (d / "bootstrap" / "core.npy").exists():
             b = {p.stem: np.load(p) for p in sorted((d / "bootstrap").glob("*.npy"))}
+            b["endpoint_world"] = np.full(len(b["core"]), BRANCH_WORLD_BASE + len(worlds), np.int64)
+            if "endpoint_turn" in b:
+                w["endpoint_turn"][:] = int(b["endpoint_turn"][0])
             boots.append(b)
             w["bootstrap_index"] = np.where(index >= 0, index + offset, -1)
             offset += len(b["core"])
@@ -123,6 +184,12 @@ def load(roots: Iterable[Path]) -> tuple[dict[str, np.ndarray], dict[str, np.nda
         worlds.append(w)
     if not worlds:
         raise ValueError("no branch shards found")
+    validated = prov.validate_records(records, provenance)
+    checked = {**prov.check(sources, provenance, "branch shards", counts, declared_sources), **validated,
+               "trajectories": len(identities), "records": records, "branches": metadata,
+               "calibration_manifest_digest": (calibration_manifest or {}).get("manifest_digest")}
+    if report is not None:
+        report.update(checked)
     keys = [k for k in worlds[0] if all(k in w for w in worlds)]
     rows = {k: np.concatenate([w[k] for w in worlds]) for k in keys}
     boot = None
@@ -149,6 +216,19 @@ def _head_values(critic, batch: dict[str, np.ndarray], normalizer, batch_size: i
 def head_scale(name: str, population: np.ndarray) -> np.ndarray:
     from .ppo import head_scale as scale
     return scale(name, population)
+
+
+def endpoint_values(critic, boot, normalizer) -> dict:
+    """All living endpoint settlements, including daughters founded on the final reward turn."""
+    if boot is None or not all(k in boot for k in ("endpoint_world", "endpoint_turn", "endpoint_population")):
+        return {}
+    heads = _head_values(critic, boot, normalizer)
+    out = {}
+    for world, turn in set(zip(boot["endpoint_world"].tolist(), boot["endpoint_turn"].tolist())):
+        mask = (boot["endpoint_world"] == world) & (boot["endpoint_turn"] == turn)
+        for name, u in heads.items():
+            out[world, turn, name] = float((u[mask] * head_scale(name, boot["endpoint_population"][mask])).sum())
+    return out
 
 
 def values(critic, rows: dict[str, np.ndarray], boot: dict[str, np.ndarray] | None,

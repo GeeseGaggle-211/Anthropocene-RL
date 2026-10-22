@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -25,10 +26,11 @@ from .model import Actor, Normalizer, act_deterministic, region_code, to_tensors
 from .upgrade import upgrade
 
 
-def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
+def load(checkpoint: Path, region_head: str | None = None) -> tuple[Actor, Normalizer]:
     state = upgrade(torch.load(checkpoint, map_location="cpu", weights_only=False))
     actor = Actor(int(state["core_width"]), experts=bool(state.get("experts", False)), token=bool(state.get("token", False)))
-    actor.load_state_dict(state["actor"]); actor.eval()
+    from .checkpoint import restore_actor
+    restore_actor(actor, state, region_head); actor.eval()
     # Contract 9: a policy trained without commitments decides every turn at evaluation too, whatever span head it
     # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results reproduce.
     actor.commitments = bool(state.get("commitments", True))
@@ -36,6 +38,8 @@ def load(checkpoint: Path) -> tuple[Actor, Normalizer]:
     actor.region_movement = bool(state.get("region_movement", False))
     actor.learned_fission = bool(state.get("learned_fission", False))
     actor.learned_trade = bool(state.get("learned_trade", False))
+    from .worker_contract import from_state
+    actor.worker_contract = from_state(state)
     return actor, Normalizer.from_state(state["normalizer"])
 
 
@@ -57,7 +61,8 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
         batch["personality"] = np.tile(np.asarray(personality, np.float32), (len(live), 1))
     with torch.no_grad():
         mode = act_deterministic(actor(to_tensors(batch, normalizer)), region=region,
-                                 grouped=getattr(actor, "grouped_region", False))
+                                 grouped=getattr(actor, "grouped_region", False),
+                                 selection=getattr(actor, "region_selection", None))
     if not getattr(actor, "commitments", True):
         mode["span"] = np.full(len(live), contracts.SPAN_SINGLE)
     actions = {}
@@ -87,10 +92,19 @@ def specialist_share(villages: list[dict[str, Any]]) -> float:
     return float(sum(float(v.get("specialistShare", 0.0)) * v["population"] for v in villages) / max(1, people))
 
 
+def producer_identity(bridge):
+    from .teacher_data import binary_identity
+    from .provenance import simulator_identity
+    return {"simulator": simulator_identity(bridge.schema), "bridge_sha256": binary_identity()["sha256"],
+            "flags": {"sim_rules": os.environ.get("ANTHROPOCENE_SIM_RULES", ""),
+                      "sim_statics": os.environ.get("ANTHROPOCENE_SIM_STATICS", "")},
+            "raw_materials": bridge.last_reset_identity["rawMaterialsEnabled"]}
+
+
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
             fission: bool | None = None, trade: bool | None = None, personality: list[float] | None = None,
-            grouped: bool = False, focal: bool = False) -> dict[str, Any]:
+            grouped: bool = False, focal: bool = False, expected_producer=None, world_contract=None) -> dict[str, Any]:
     """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
     ``grouped``: the hierarchical region choice (model.grouped_region_slot) instead of a plain argmax.
     ``focal`` (with ``personality``): only alternate founding lineages (and their daughters) take ``personality``; the
@@ -116,8 +130,10 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     moves = 0
     policies: dict[int, int] = {}
     trade_utility = 0.0; trades = 0
+    diagnostic_records = []
     traits: dict[int, Any] = {}; focal_set: set[int] = set()
     focal_rng = np.random.default_rng([seed, 31])
+    focal_welfare = 0.0; focal_roots = set()
 
     def assign(villages: list[dict[str, Any]]) -> None:
         founders = sorted(int(v["society"]) for v in villages
@@ -130,12 +146,18 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                     focal_set.add(society)
         for i, society in enumerate(founders):
             if i % 2 == 0:
-                traits[society] = list(personality); focal_set.add(society)
+                traits[society] = list(personality); focal_set.add(society); focal_roots.add(society)
             else:
                 traits[society] = focal_rng.dirichlet(np.ones(contracts.PERSONALITY_WIDTH)).tolist()
 
     with Model9Bridge() as bridge:
+        from .worker_contract import validate, world
+        expected_producer = expected_producer or getattr(actor, "worker_contract", None)
+        world_contract = world_contract or world(seed, withheld, movement=movement, head=getattr(actor, "region_head", None))
+        worker = validate(bridge, expected_producer, world_contract, head=getattr(actor, "region_head", None))
         step = bridge.reset(seed, withheld=withheld, movement=movement)
+        from .teacher_data import binary_identity
+        producer = producer_identity(bridge)
         for _ in range(warmup):
             step = bridge.step({})
         for _ in range(turns):
@@ -155,10 +177,13 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                 previous[camp] = mix
             decisions += len(actions)
             step = bridge.step(actions)
+            if focal and personality is not None: assign(step["villages"])
+            diagnostic_records.extend(getattr(bridge, "decision_diagnostics", []))
             for v in step["villages"]:
                 if v["priorPopulation"] <= 0:
                     continue
                 welfare += float(v["welfare"]); camp_turns += 1
+                if int(v["society"]) in focal_set: focal_welfare += float(v["welfare"])
                 trade_utility += float(v.get("tradeUtility", 0.0)); trades += int(abs(float(v.get("tradeUtility", 0.0))) > 0)
                 hungry += int(v["nutrition"] < 0.8 and not v["terminated"])
                 interventions += int(v["interventions"])
@@ -166,6 +191,8 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                 break
         replay = bridge.verify_replay()
         final = [v for v in step["villages"] if not v["terminated"] and v["population"] > 0]
+        if binary_identity()["sha256"] != producer["bridge_sha256"]:
+            raise ValueError("bridge binary changed during evaluation rollout")
     population = sum(v["population"] for v in final)
     weight = max(1, population)
     focal_final = [v for v in final if int(v["society"]) in focal_set]
@@ -173,10 +200,22 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     focal_stats = {"focal_population": focal_people, "focal_settlements": len(focal_final),
                    "focal_qol": sum(v["qol"] * v["population"] for v in focal_final) / max(1, focal_people),
                    "focal_below_30": sum(1 for v in focal_final if v["population"] < 30),
+                   "focal_welfare": focal_welfare, "focal_root_lineages": len(focal_roots),
+                   "focal_population_denominator": focal_people,
+                   "focal_extinctions": sum(1 for v in step["villages"] if v["terminated"] and int(v["society"]) in focal_set),
+                   "focal_societies": sorted(focal_set),
                    "focal_specialist_share": specialist_share(focal_final)} if focal else {}
+    from .diagnostics import aggregate
     return {
+        "producer": producer,
+        "worker_contract": worker,
+        "world_contract": world_contract,
+        "personality": personality,
+        "decision_diagnostics": aggregate(diagnostic_records),
+        "region_head": actor.region_head if actor is not None else None,
         **focal_stats,
         "seed": seed, "withheld": withheld, "policy": checkpoint is not None, "welfare": welfare, "population": population,
+        "warmup": warmup,
         "settlements": len(final), "villages_600": sum(1 for v in final if v["population"] >= 600),
         "nutrition": sum(v["nutrition"] * v["population"] for v in final) / weight,
         "clothing": sum(v["clothing"] * v["population"] for v in final) / weight,
@@ -211,13 +250,28 @@ def main() -> int:
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     a, b = (int(x) for x in args.seeds.split("-"))
     seeds = list(range(a, b + 1))
     clock = time.time()
+    from functools import partial
+    from .worker_contract import from_state, world
+    saved = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+    expected = from_state(saved)
+    bound = partial(rollout, expected_producer=expected)
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        teacher = list(pool.map(rollout, seeds, [args.turns] * len(seeds), [None] * len(seeds)))
-        policy = list(pool.map(rollout, seeds, [args.turns] * len(seeds), [str(args.checkpoint)] * len(seeds)))
+        teacher = list(pool.map(bound, seeds, [args.turns] * len(seeds), [None] * len(seeds)))
+        policy = list(pool.map(bound, seeds, [args.turns] * len(seeds), [str(args.checkpoint)] * len(seeds)))
+    if expected is not None and any(row.get("worker_contract") != expected for row in teacher + policy):
+        from .provenance import ProvenanceError
+        raise ProvenanceError("evaluation worker differs from frozen checkpoint producer")
+    from .checkpoint import resolve_head
+    descriptors = [world(seed) for seed in seeds] + [world(seed, head=resolve_head(saved)) for seed in seeds]
+    if (len(teacher) != len(seeds) or len(policy) != len(seeds)
+            or any(row.get("world_contract") != descriptor for row, descriptor in zip(teacher + policy, descriptors))):
+        from .provenance import ProvenanceError
+        raise ProvenanceError("evaluation worker differs from requested world contract")
     ratio = [p["welfare"] / max(1e-9, t["welfare"]) for p, t in zip(policy, teacher)]
 
     def mean(rows: list[dict[str, Any]], key: str) -> float:

@@ -47,7 +47,8 @@ def main() -> int:
     parser.add_argument("--regime-tolerance", type=float, default=0.03,
                         help="a candidate fails if any regime's welfare falls more than this share below the init")
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     categories = {"default": [(s, 0) for s in seed_list(args.default_seeds)]}
     for name, mask in contracts.CAPABILITY_MASKS.items():
         categories[name] = [(s, mask) for s in seed_list(args.fixture_seeds)]
@@ -58,15 +59,19 @@ def main() -> int:
         if path is not None:
             pairs = [line.split(",") for line in path.read_text().split() if line.strip()]
             categories[name] = [(int(s), 0, int(w)) for s, w in pairs]
+    from .worker_contract import from_state
+    import torch
+    expected_producer = from_state(torch.load(args.init, map_location="cpu", weights_only=False))
     report = {}
     for name, worlds in categories.items():
-        teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers)
+        teacher = evaluate_closed_loop(None, worlds, args.turns, args.workers, expected_producer=expected_producer)
         region = True if args.region_movement else None
-        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement, region=region)
+        init = evaluate_closed_loop(args.init, worlds, args.turns, args.workers, movement=args.movement, region=region,
+                                    expected_producer=expected_producer)
         row = {"teacher": teacher, "init": init, "candidates": {}}
         for candidate in args.candidates.split(","):
             ev = evaluate_closed_loop(Path(candidate), worlds, args.turns, args.workers, movement=args.movement, region=region,
-                                      grouped=args.grouped_region)
+                                      grouped=args.grouped_region, expected_producer=expected_producer)
             ev["ratio_vs_init"] = ev["welfare"] / max(1e-9, init["welfare"])
             ev["ratio_vs_teacher"] = ev["welfare"] / max(1e-9, teacher["welfare"])
             row["candidates"][candidate] = ev

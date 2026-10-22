@@ -139,7 +139,8 @@ def sample(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], stage: Stag
     mask = t["economy_mix_mask"]
     # Contract 10: the region slot is drawn first and the mix given it.
     # Round 3: the region slot is drawn from the head's joint distribution (hierarchical by default: group, then slot).
-    region = categorical(out[region_key(out)]) if stage.region_movement else torch.full((len(mask),), contracts.REGION_NATIVE, dtype=torch.long)
+    region = (torch.multinomial(out["region_probs"], 1, generator=generator).squeeze(1)
+              if "region_probs" in out else categorical(out[region_key(out)])) if stage.region_movement else torch.full((len(mask),), contracts.REGION_NATIVE, dtype=torch.long)
     if stage.region_movement:
         out = condition_mix(out, region)
     mu, free, _ = _mix_parts(out, mask)
@@ -182,7 +183,7 @@ def log_prob(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], draw: dic
     entropy = (out["service_log_std"] + half_log_2pie).sum(dim=1)
 
     def categorical(head: str, key: str | None = None) -> tuple[torch.Tensor, torch.Tensor]:
-        logq = torch.log_softmax(out[key or head], dim=1)
+        logq = out[key] if key == "region_logp" else torch.log_softmax(out[key or head], dim=1)
         return logq.gather(1, draw[head].clamp(min=0).unsqueeze(1)).squeeze(1), -(logq.exp() * logq).sum(dim=1)
 
     if stage.routes:
@@ -275,6 +276,9 @@ class Rollout:
     outcome: dict[str, list] = field(default_factory=lambda: {k: [] for k in data.OUTCOME_KEYS + ["world", "seed", "mask", "cost", "bootstrap_index",
                                                                                          "trade_utility", "bank"]})
     bootstrap_obs: list[dict[str, np.ndarray]] = field(default_factory=list)
+    diagnostics: list[dict] = field(default_factory=list)
+    worker_contracts: list[dict] = field(default_factory=list)
+    world_contracts: list[dict] = field(default_factory=list)
 
 
 def village_batch(villages: list[dict[str, Any]]) -> dict[str, np.ndarray]:
@@ -288,6 +292,15 @@ def village_batch(villages: list[dict[str, Any]]) -> dict[str, np.ndarray]:
 def _cost(v: dict[str, Any], founded_turn: int, turn: int) -> float:
     young = v["parentSociety"] > 0 and turn - founded_turn <= YOUNG_DAUGHTER_TURNS
     return float(not v["terminated"] and v["population"] < SMALL_SETTLEMENT and not young)
+
+
+def validate_reset_producer(actor, bridge):
+    expected = getattr(actor, "run_producer", None)
+    if expected is not None:
+        from .evaluate import producer_identity
+        from .provenance import ProvenanceError
+        if producer_identity(bridge) != expected:
+            raise ProvenanceError("rollout reset actual bridge/flags/raw-material producer differs from frozen run")
 
 
 def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage: Stage,
@@ -306,6 +319,12 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
     banked = [b for _, _, _, b in full]
     if any(b >= 0 for b in banked) and bank is None:
         raise ValueError("bank worlds need the daughter bank")
+    held_manifest = getattr(actor, "calibration_manifest", None)
+    if held_manifest:
+        from .calibration import assert_training
+        import hashlib
+        assert_training(held_manifest, [s for s, _, _, _ in full],
+                        [hashlib.sha256(bank.snapshot(bank.get(b))).hexdigest() for b in banked if b >= 0])
     seeds = [s for s, _ in worlds]
     bridges = [Model9Bridge() for _ in seeds]
     roll = Rollout()
@@ -336,17 +355,33 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
         batch["personality"] = np.asarray(rows, dtype=np.float32)
         return batch
     try:
+        expected_simulator = getattr(actor, "run_simulator", None)
+        if expected_simulator is not None:
+            from .provenance import simulator_identity, ProvenanceError
+            if any(simulator_identity(b.schema, production=True) != expected_simulator for b in bridges):
+                raise ProvenanceError("rollout bridge differs from the frozen pre-run simulator")
+        from .worker_contract import validate, world
+        prepared = []
+        for bridge, (seed, mask), warm, entry in zip(bridges, worlds, warmups, banked):
+            record = bank.get(entry) if entry >= 0 else None
+            snapshot = bank.snapshot(record) if record is not None else None
+            descriptor = world(seed, mask, snapshot_sha256=record["snapshot_sha256"] if record else "",
+                               turn=record["turn"] if record else None, movement=stage.bridge_movement, head=getattr(actor, "region_head", None))
+            observed = validate(bridge, getattr(actor, "worker_contract", None), descriptor,
+                                snapshot=snapshot, head=getattr(actor, "region_head", None))
+            roll.worker_contracts.append(observed); roll.world_contracts.append(descriptor)
+            prepared.append((bridge, (seed, mask), warm, descriptor, snapshot))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             def start(pair):
-                bridge, (seed, mask), warm, entry = pair
-                if entry >= 0:  # a daughter-bank world: its snapshot, under the entry's own withheld mask
-                    return bridge.reset(seed, movement=stage.bridge_movement, withheld=mask,
-                                        snapshot=bank.snapshot(bank.get(entry)))
-                step = bridge.reset(seed, movement=stage.bridge_movement, withheld=mask)
+                bridge, (seed, mask), warm, descriptor, snapshot = pair
+                validate(bridge, getattr(actor, "worker_contract", None), descriptor,
+                         snapshot=snapshot, head=getattr(actor, "region_head", None))
+                step = bridge.reset(seed, movement=stage.bridge_movement, withheld=mask, snapshot=snapshot)
+                validate_reset_producer(actor, bridge)
                 for _ in range(warm):  # fixture states: the heuristic plays the warm-up turns
                     step = bridge.step({})
                 return step
-            steps = list(pool.map(start, zip(bridges, worlds, warmups, banked)))
+            steps = list(pool.map(start, prepared))
             founded = [{v["camp"]: s["turn"] for v in s["villages"]} for s in steps]
             for _ in range(turns):
                 live = [(w, v) for w, s in enumerate(steps) for v in s["villages"]
@@ -365,6 +400,8 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                     per_world[w][int(v["camp"])] = a
                 turn_before = [s["turn"] for s in steps]
                 steps = list(pool.map(lambda pair: pair[0].step(pair[1]), zip(bridges, per_world)))
+                for bridge in bridges:
+                    roll.diagnostics.extend(getattr(bridge, "decision_diagnostics", []))
                 row_of = {}
                 for k, (w, v) in enumerate(live):
                     row_of[(w, int(v["camp"]))] = k
@@ -624,10 +661,44 @@ class Hyper:
     cost_bootstrap: bool = True
 
 
-def warmup_iterations(fresh_heads: bool, critic_warmup: int, round_start_warmup: int) -> int:
+def warmup_iterations(fresh_heads: bool, critic_warmup: int, round_start_warmup: int, *, promoted_init=False) -> int:
     """Critic-only iterations at the head of a run: the fresh-heads warm-up and the round-start warm-up overlap (the
     larger count, once). The loop runs iterations ``[0, warmup)`` critic-only, so a resume past them repeats none."""
-    return max(critic_warmup if fresh_heads else 0, round_start_warmup)
+    return max(critic_warmup if fresh_heads or promoted_init else 0, round_start_warmup)
+
+
+def resolve_configuration(args, state, resume_state=None):
+    """Pure, shared CLI/default expansion for training and read-only launch qualification; consumes no RNG."""
+    from .checkpoint import resume_setting
+    hyper = Hyper()
+    for key in ("lr", "teacher_kl", "lagrange_lr", "cost_budget", "log_std_floor", "mix_change_cost", "break_cost",
+                "critic_warmup", "round_start_warmup", "branch_share"):
+        value = getattr(args, key)
+        if value is not None: setattr(hyper, key, value)
+    hyper.balance_regimes = not args.no_balance
+    stage = STAGES[args.stage]
+    for argument, values in (("commitments", {"commitments": True}),
+                             ("learned_movement", {"movement": True, "region_movement": True}),
+                             ("observe_movement", {"observe_movement": True}),
+                             ("learned_fission", {"fission": True}), ("learned_trade", {"trade": True})):
+        if getattr(args, argument): stage = dataclasses.replace(stage, **values)
+    if args.learned_trade: hyper.objective_weights["trade_utility"] = contracts.TRADE_UTILITY_WEIGHT
+    hyper.personality = args.personality; hyper.personality_scales = args.personality_scales
+    hyper.personality_clip = args.personality_clip
+    if args.search_labels:
+        hyper.search_weight = args.search_weight
+        if args.search_margin is not None: hyper.search_margin = args.search_margin
+    if args.objective_weights:
+        for item in args.objective_weights.split(","):
+            key, value = item.split("=")
+            if key not in contracts.OBJECTIVES: raise ValueError(f"unknown objective {key}")
+            hyper.objective_weights[key] = float(value)
+    hyper.kl_refit = args.kl_refit if args.kl_refit is not None else bool((resume_state or {}).get("kl_refit", resume_state is None))
+    hyper.cost_bootstrap = resume_setting("cost_bootstrap", resume_state, args.cost_bootstrap, True)
+    fresh = not state.get("vector_critic") and (args.vector_critic or args.learned_trade or args.personality != "default")
+    warmup = warmup_iterations(bool(fresh), hyper.critic_warmup, hyper.round_start_warmup,
+                               promoted_init=state.get("artifact_kind") == "promotion")
+    return hyper, stage, {"critic_only": warmup, "actor": args.iterations, "total": warmup + args.iterations}
 
 
 def default_personality() -> np.ndarray:
@@ -659,17 +730,75 @@ def personality_sampler(spec: str, rng: np.random.Generator):
     raise ValueError(f"unknown personality spec {spec!r}")
 
 
-def load_search_labels(paths: list[Path], margin: float, legacy_margin: float = 0.005) -> dict[str, np.ndarray] | None:
+def load_search_labels(paths: list[Path], margin: float, legacy_margin: float = 0.005, provenance: str = "flag",
+                       report: dict | None = None, declared_sources: set[str] | None = None,
+                       calibration_manifest: dict | None = None) -> dict[str, np.ndarray] | None:
     """Search-teacher label rows (search_teacher.py) whose best alternative beats the policy by more than ``margin``
     and is not the policy itself: the rows PPO imitates. Gains are on search utility version 2 (U_p in reference
     spreads, the units of PPO's advantage); version-1 files are rescored from their return vectors, and rows whose
     label is no longer the best are dropped. Files too old to rescore keep the relative rule against
-    ``legacy_margin``."""
+    ``legacy_margin``. ``provenance`` (provenance.check: reject, flag or allow) applies to the rows' (source checkpoint,
+    code commit), files written before provenance counting as unknown; ``report`` receives the provenance report."""
+    from . import provenance as prov
     from .search_teacher import POLICY, label_gain, rescore
-    parts = [dict(np.load(p)) for p in paths]
-    parts = [rescore(p) for p in parts if p]
+    parts = []
+    decisions = set(); identities_complete = True
+    for path in paths:
+        part = dict(np.load(path))
+        if not part:
+            continue
+        ids, complete = prov.normalize_label_identity(part, prov.checkpoint_hash(path),
+                                                       provenance == "reject" or calibration_manifest is not None)
+        identities_complete &= complete
+        for identity in ids:
+            if identity in decisions:
+                raise prov.ProvenanceError(f"duplicate search decision: {identity}")
+            decisions.add(identity)
+        if calibration_manifest is not None:
+            from .calibration import assert_training_rows
+            assert_training_rows(calibration_manifest, part)
+        parts.append(data.normalize_optional(rescore(part)))
     if not parts:
         return None
+    sources: list[tuple[str, ...]] = []
+    counts: list[int] = []
+    loaded_records = []
+    for p in parts:
+        n = len(p["label_kind"])
+        if np.asarray(p.get("heldout_calibration", np.zeros(n)), bool).any():
+            raise prov.ProvenanceError("held-out calibration labels cannot train the actor")
+        if "source_record" in p:
+            loaded_records.extend(json.loads(str(x)) for x in np.unique(p["source_record"]))
+            for i, record in enumerate(p["source_record"]):
+                source_record = json.loads(str(record))
+                prov.verify_link(source_record, {k: p[k][i] if k in p else prov.UNKNOWN
+                                 for k in ("source_checkpoint", "code_commit", "source_run")}, provenance)
+                exclusion = prov.source_exclusion(source_record)
+                saved_digest = str(p.get("calibration_manifest_digest", np.full(n, ""))[i])
+                if saved_digest != exclusion.get("manifest_digest", ""):
+                    raise prov.ProvenanceError("search label exclusion manifest differs from its source record")
+                if exclusion:
+                    from .calibration import assert_training_rows
+                    assert_training_rows(exclusion, {k: v[i:i + 1] for k, v in p.items()})
+        elif provenance == "reject":
+            raise prov.ProvenanceError("search labels lack full production provenance")
+        if "source_checkpoint" in p and "code_commit" in p:
+            pairs = list(zip(np.asarray(p["source_checkpoint"]).astype(str).tolist(),
+                             np.asarray(p["code_commit"]).astype(str).tolist(),
+                             np.asarray(p.get("source_run", np.full(n, prov.UNKNOWN))).astype(str).tolist()))
+            for pair in sorted(set(pairs)):
+                sources.append(pair); counts.append(pairs.count(pair))
+        else:
+            sources.append((prov.UNKNOWN, prov.UNKNOWN, prov.UNKNOWN)); counts.append(n)
+    checked = {**prov.check(sources, provenance, "search labels", counts, declared_sources),
+               **prov.validate_records(loaded_records, provenance), "records": loaded_records,
+               "decision_identities_complete": identities_complete,
+               "calibration_manifest_digest": (calibration_manifest or {}).get("manifest_digest")}
+    from .lineage import families
+    checked["families"] = families([s for p in parts for s in p.get("source_seed", [])],
+                                    [s for p in parts for s in p.get("source_snapshot", [])])
+    if report is not None:
+        report.update(checked)
     groups = len(contracts.TRADE_GROUPS)
     for p in parts:  # round-3 label arrays, absent from earlier label files: no fission or trade label
         n = len(p["label_kind"])
@@ -677,14 +806,23 @@ def load_search_labels(paths: list[Path], margin: float, legacy_margin: float = 
         p.setdefault("label_trade_value", np.full((n, groups), np.nan))
         p.setdefault("label_trade_gate", np.full((n, groups), -1))
         p.setdefault("label_trade_mask", np.zeros((n, groups), np.int8))
-    keys = set.intersection(*(set(p) for p in parts))
+    keys = set.union(*(set(p) for p in parts))
+    for k in keys:
+        template = next(p[k] for p in parts if k in p)
+        for p in parts:
+            if k in p:
+                continue
+            fill = (prov.UNKNOWN if template.dtype.kind in "US" else -1 if k in ("alt_kind", "alt_slot", "alt_calibration")
+                    else False if template.dtype.kind == "b" else np.nan)
+            dtype = template.dtype if isinstance(fill, (str, bool)) or fill == -1 else np.float64
+            p[k] = np.full((len(p["label_kind"]),) + template.shape[1:], fill, dtype=dtype)
 
     def stack(k: str) -> np.ndarray:
         # Per-alternative arrays are padded to their file's MAX_ALTERNATIVES; pad to the widest before stacking.
         arrays = [p[k] for p in parts]
         if k.startswith("alt_") and len({a.shape[1] for a in arrays}) > 1:
             width = max(a.shape[1] for a in arrays)
-            fill = -1 if k in ("alt_kind", "alt_slot") else np.nan
+            fill = -1 if k in ("alt_kind", "alt_slot", "alt_calibration") else np.nan
             arrays = [np.concatenate([a, np.full((a.shape[0], width - a.shape[1]) + a.shape[2:], fill, dtype=a.dtype
                                                  if fill == -1 else np.float64)], axis=1) for a in arrays]
         return np.concatenate(arrays)
@@ -713,7 +851,7 @@ def search_loss(out: dict[str, torch.Tensor], t: dict[str, torch.Tensor], kind: 
     if on_slot.any() and "region" in out:
         # Round 3: the hierarchical head's joint log-probability is log p(group) + log p(slot | group), so one
         # cross-entropy supervises both levels (a native label teaches the group only).
-        logq = torch.log_softmax(out[region_key(out)], dim=1)
+        logq = out["region_logp"] if "region_logp" in out else torch.log_softmax(out["region"], dim=1)
         loss = loss - logq.gather(1, slot.clamp(min=0).unsqueeze(1)).squeeze(1)[on_slot].sum(); count += int(on_slot.sum())
     has_mix = ~torch.isnan(mix).any(dim=1)
     if has_mix.any():
@@ -865,8 +1003,24 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
               bank: DaughterBank | None = None) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
     inherit = None if sampler is None else (lambda parent: personality_drift(parent, rng, hyper.personality_drift))
+    expected_worker = getattr(actor, "worker_contract", None)
+    expected_worlds = []
+    if expected_worker is not None:
+        from .worker_contract import world
+        for item in seeds:
+            seed, mask = (item, 0) if isinstance(item, int) else (item[0], item[1])
+            record = bank.get(item[3]) if not isinstance(item, int) and len(item) > 3 and item[3] >= 0 else None
+            expected_worlds.append(world(seed, mask, snapshot_sha256=record["snapshot_sha256"] if record else "",
+                                         turn=record["turn"] if record else None, movement=stage.bridge_movement, head=getattr(actor, "region_head", None)))
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler,
                    inherit=inherit, bank=bank)
+    if expected_worker is not None:
+        from .worker_contract import checked
+        from .provenance import ProvenanceError
+        if (len(roll.worker_contracts) != len(seeds) or len(roll.world_contracts) != len(seeds)
+                or any(checked(row) != expected_worker for row in roll.worker_contracts)
+                or roll.world_contracts != expected_worlds):
+            raise ProvenanceError("collection producer/world proof differs before optimization")
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
     regimes = np.asarray([regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])])
@@ -879,7 +1033,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
     welfare_now = np.maximum(0.0, batch["welfare"].astype(np.float64))
     reward = reward - hyper.mix_change_cost * change * welfare_now - hyper.break_cost * voluntary_break * welfare_now
     rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
-    drift = clipped = None
+    drift = clipped = saturated = None
     if isinstance(critic, VectorCritic):
         # Each objective component: its own reward, value, bootstrap and GAE; the policy follows their weighted sum.
         components = data.reward_components(batch); components["welfare"] = reward
@@ -901,6 +1055,9 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
                      else combine_personal(advantages, batch["personality"], hyper.personality_scales,
                                            hyper.personality_clip))
         drift = scale_drift(advantages)
+        # Value-bin saturation per objective head (review 5.5(3)): the share of this batch's values at the bin range's ends.
+        from .branch_bias import saturation
+        saturated = saturation({name: value_by[name] / head_scale(name, batch["prior_population"]) for name in value_by})
         clipped = clip_fractions(advantages, hyper.personality_clip if hyper.personality_scales == "reference" else 0.0)
         target = {name: value / head_scale(name, batch["prior_population"]) for name, value in target_by.items()}
     else:
@@ -930,8 +1087,12 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         sample = {k: v[:512] for k, v in batch.items()}
         stats["film_max"] = actor.encoder.film_extent(to_tensors(sample, normalizer))
     if drift is not None:
-        stats["scale_drift"] = drift; stats["scale_clipped"] = clipped
+        stats["scale_drift"] = drift; stats["scale_clipped"] = clipped; stats["value_saturation"] = saturated
     stats["bank_decisions"] = int((batch["bank"] >= 0).sum()) if "bank" in batch else 0
+    from .diagnostics import aggregate
+    stats["decision_diagnostics"] = aggregate(roll.diagnostics)
+    stats["worker_contracts"] = roll.worker_contracts
+    stats["world_contracts"] = roll.world_contracts
     # Guard cost bootstrap (round 3): whether it is on and the mean bootstrapped cost value of truncated villages.
     stats["cost_bootstrap"] = bool(hyper.cost_bootstrap)
     stats["cost_bootstrap_mean"] = float(cost_boot[rows].mean()) if len(rows) else 0.0
@@ -991,13 +1152,19 @@ def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) ->
 
 
 def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: np.random.Generator,
-                  valley: list[tuple[int, int]] | None = None, bank: DaughterBank | None = None):
+                  valley: list[tuple[int, int]] | None = None, bank: DaughterBank | None = None, schedule="legacy"):
     """Curriculum worlds as (seed, withheld-technology mask[, heuristic warm-up turns[, bank entry id]]). Stage 2 draws
     the three single-capability fixtures equally; stages 3-4 draw half ordinary TRAIN worlds, a quarter grassland-rich
     openings (where herding competes with farming) and a quarter rehearsed capability fixtures. With learned movement
     and a valley bank, a quarter of worlds (any stage) are valley fixture states, where moving can pay. With a
     non-empty daughter bank, slot i % 4 == 0 is a banked daughter start (stage 2: only capability-fixture entries);
     an empty bank (or no eligible entry) leaves that slot as before."""
+    if schedule == "r3-balanced-v1":
+        from .curriculum import BalancedSampler
+        return BalancedSampler(stage, train, grassland, rng, valley, bank)
+    if schedule != "legacy": raise ValueError("unknown frozen curriculum")
+    from .protocol import seeds
+    seeds(train, "legacy TRAIN"); seeds(grassland, "legacy grassland"); seeds([s for s, _ in valley or []], "legacy valley")
     masks = list(contracts.CAPABILITY_MASKS.values())
 
     def draw(n: int) -> list[tuple]:
@@ -1028,21 +1195,36 @@ def world_sampler(stage: Stage, train: np.ndarray, grassland: np.ndarray, rng: n
 def evaluate_closed_loop(checkpoint: Path | None, worlds: list[tuple[int, int]], turns: int, workers: int = 6,
                          movement: bool = False, commitments: bool | None = None, region: bool | None = None,
                          fission: bool | None = None, trade: bool | None = None,
-                         personality: list[float] | None = None, grouped: bool = False) -> dict[str, float]:
+                         personality: list[float] | None = None, grouped: bool = False, expected_producer=None) -> dict[str, float]:
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
     the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn). A world is
     (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns). ``personality`` evaluates every village
     at that Elder personality (None: the default)."""
     from concurrent.futures import ProcessPoolExecutor
     from .evaluate import rollout
+    from .worker_contract import from_state, world
+    if expected_producer is None and checkpoint is not None:
+        expected_producer = from_state(torch.load(checkpoint, map_location="cpu", weights_only=False))
+    descriptors = [world(w[0], w[1], movement=movement) for w in worlds]
     with ProcessPoolExecutor(max_workers=min(workers, len(worlds))) as pool:
         rows = list(pool.map(rollout, [w[0] for w in worlds], [turns] * len(worlds),
                              [None if checkpoint is None else str(checkpoint)] * len(worlds), [w[1] for w in worlds],
                              [movement] * len(worlds), [commitments] * len(worlds), [region] * len(worlds),
                              [w[2] if len(w) > 2 else 0 for w in worlds], [fission] * len(worlds), [trade] * len(worlds),
-                             [personality] * len(worlds), [grouped] * len(worlds)))
+                             [personality] * len(worlds), [grouped] * len(worlds), [False] * len(worlds),
+                             [expected_producer] * len(worlds), descriptors))
+    if expected_producer is not None:
+        from .provenance import ProvenanceError
+        expected_old = {"simulator": expected_producer["simulator"], "bridge_sha256": expected_producer["bridge_sha256"],
+                        "flags": expected_producer["flags"], "raw_materials": False}
+        if (len(rows) != len(descriptors)
+                or any(row.get("worker_contract") != expected_producer or row.get("producer") != expected_old
+                       or row.get("world_contract") != descriptor for row, descriptor in zip(rows, descriptors))):
+            raise ProvenanceError("selection worker producer differs from frozen run; cannot select checkpoint")
     population = sum(r["population"] for r in rows)
-    return {"welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
+    return {"worker_contract": expected_producer, "producer": rows[0].get("producer") if rows else None,
+            "world_contracts": descriptors,
+            "welfare": float(sum(r["welfare"] for r in rows)), "population": float(population),
             "qol": float(sum(r["qol"] * r["population"] for r in rows) / max(1, population)),
             "specialist_share": float(sum(r.get("specialist_share", 0.0) * r["population"] for r in rows) / max(1, population)),
             "below_30": float(np.mean([r["below_30"] for r in rows])), "extinctions": float(sum(r["extinctions"] for r in rows)),
@@ -1085,7 +1267,7 @@ def spread_selection(points: dict[str, dict], baseline: dict) -> dict[str, Any]:
             "welfare_regime_ratios": ratios, "extinctions": extinctions, "eligible": bool(eligible)}
 
 
-def main() -> int:
+def argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--init", type=Path, required=True, help="stage-1 or earlier-stage checkpoint")
     parser.add_argument("--teacher", type=Path, default=None, help="anchor actor (default: the stage-1 actor in --init)")
@@ -1132,6 +1314,9 @@ def main() -> int:
     parser.add_argument("--kl-refit", action=argparse.BooleanOptionalAction, default=None,
                         help="one extra critic-only epoch after an update stopped on target_kl (default on for new runs; "
                              "a resumed run keeps its own setting, off for runs saved before the flag)")
+    parser.add_argument("--provenance", choices=("reject", "flag", "allow"), default="reject",
+                        help="search labels and branch shards that mix source checkpoints or code commits, or hold rows "
+                             "of unknown source: reject (default), flag (warn and log) or allow")
     parser.add_argument("--cost-bootstrap", action=argparse.BooleanOptionalAction, default=None,
                         help="bootstrap truncated living villages in the guard cost critic from its own value (round 3; "
                              "default on for new runs, a resumed run keeps its own setting, off for runs saved before)")
@@ -1156,9 +1341,6 @@ def main() -> int:
     parser.add_argument("--film-bound", type=float, default=None,
                         help="bound the FiLM scale and shift to +/- this with tanh (off by default: it also dampens FiLM; "
                              "use only if film_max shows instability)")
-    parser.add_argument("--region-head", choices=("hierarchical", "flat"), default=None,
-                        help="region-movement head (round 3): hierarchical (native / stay / go, then where) or the earlier "
-                             "flat head. Default: the checkpoint's own (hierarchical for checkpoints saved before the head)")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--teacher-kl", type=float, default=None, help="weight of the teacher KL anchor (default 0.05)")
@@ -1166,7 +1348,39 @@ def main() -> int:
     parser.add_argument("--lagrange-lr", type=float, default=None)
     parser.add_argument("--cost-budget", type=float, default=None)
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    parser.add_argument("--calibration-manifest", type=Path, default=None)
+    parser.add_argument("--source-manifest", type=Path, default=None)
+    parser.add_argument("--prior-use-inventory", type=Path, default=None)
+    parser.add_argument("--curriculum", choices=("legacy", "r3-balanced-v1"), default=None)
+    parser.add_argument("--bank-image", type=Path, default=None)
+    parser.add_argument("--arm", choices=("R3def", "R3per", "R3lo"), default=None,
+                        help="frozen preregistered treatment identity for formal reports")
+    parser.add_argument("--execution-manifest", type=Path, default=None)
+    parser.add_argument("--nonqualifying", action="store_true", help="isolated local diagnostic only; no best/qualification artifacts")
+    parser.add_argument("--local-execution-design", type=Path, default=None)
+    return parser
+
+
+def main() -> int:
+    parser = argument_parser()
+    from .checkpoint import parse, restore_actor, resolve_head, actor_parameters, resume_setting, run_manifest
+    args = parse(parser)
+    from .protocol import enforce_execution
+    qualified = enforce_execution(args)
+    if qualified and "live_probe" in qualified: args._qualified_probe = qualified["live_probe"]
+    if args.provenance != "reject" and (args.search_labels or args.branch_shards):
+        raise ValueError("flag/allow provenance is for analysis and migrations; training requires reject")
+    from .calibration import manifest, assert_training
+    held_manifest = manifest(args.calibration_manifest) if args.calibration_manifest else None
+    from .provenance import declared_sources
+    declared = declared_sources(args.source_manifest)
+    resume_path = args.out / "resume.pt"
+    resume_state = (torch.load(resume_path, map_location="cpu", weights_only=False)
+                    if args.resume and resume_path.exists() else None)
+    saved_curriculum = (resume_state or {}).get("curriculum", "legacy")
+    if resume_state is not None and args.curriculum not in (None, saved_curriculum):
+        raise ValueError("curriculum differs from frozen resume; start a new run")
+    args.curriculum = saved_curriculum if resume_state is not None else args.curriculum or "r3-balanced-v1"
     torch.manual_seed(args.seed); torch.set_num_threads(4)
     from .upgrade import upgrade
     state = upgrade(torch.load(args.init, map_location="cpu", weights_only=False))
@@ -1176,7 +1390,7 @@ def main() -> int:
     token = bool(state.get("token", False))  # contract 12 token model (from stage-1 cloning; never an upgrade)
     actor, teacher = Actor(core_width, experts=experts, token=token), Actor(core_width, token=token)
     critic = Critic(core_width, privileged_width=privileged, token=token)
-    missing, unexpected = actor.load_state_dict(state["actor"], strict=False)
+    missing, unexpected = restore_actor(actor, state, args.region_head, strict=False)
     if unexpected or any(not k.startswith("experts.") for k in missing):
         raise ValueError(f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}")
     # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised trade utility).
@@ -1191,12 +1405,18 @@ def main() -> int:
         critic.load_state_dict(state["critic"])
     anchor = upgrade(torch.load(args.teacher, map_location="cpu", weights_only=False)) if args.teacher else state
     teacher.load_state_dict(anchor.get("teacher_actor", anchor["actor"])); teacher.eval()
-    if args.region_head is not None:
-        actor.set_region_head(args.region_head); teacher.set_region_head(args.region_head)
+    if resume_state is not None:
+        actor.set_region_head(resolve_head(resume_state, args.region_head, resume=True))
+    teacher.set_region_head(actor.region_head)
+    frozen_run = run_manifest(args, actor, resume_state)
+    actor.run_simulator = frozen_run["simulator"]
+    actor.worker_contract = frozen_run["worker_contract"]
+    actor.run_producer = {"simulator": frozen_run["simulator"], "bridge_sha256": frozen_run["bridge_sha256"],
+                          "flags": {key: frozen_run[key] for key in ("sim_rules", "sim_statics")}, "raw_materials": False}
     cost_critic = CostCritic(core_width, token=token)
     if "cost_critic" in state:
         cost_critic.load_state_dict(state["cost_critic"])
-    hyper = Hyper()
+    hyper, _, _ = resolve_configuration(args, state, resume_state)
     if args.lr is not None:
         hyper.lr = args.lr
     if args.teacher_kl is not None:
@@ -1211,7 +1431,7 @@ def main() -> int:
         hyper.balance_regimes = False
     if args.mix_change_cost is not None:
         hyper.mix_change_cost = args.mix_change_cost
-    optimizers = (torch.optim.Adam(actor.parameters(), lr=hyper.lr), torch.optim.Adam(critic.parameters(), lr=hyper.critic_lr),
+    optimizers = (torch.optim.Adam(actor_parameters(actor, resume_state), lr=hyper.lr), torch.optim.Adam(critic.parameters(), lr=hyper.critic_lr),
                   torch.optim.Adam(cost_critic.parameters(), lr=hyper.critic_lr))
     a, b = (int(x) for x in args.seeds.split("-"))
     train = np.arange(a, b + 1)
@@ -1240,12 +1460,16 @@ def main() -> int:
     if args.break_cost is not None:
         hyper.break_cost = args.break_cost
     search = None
+    label_report: dict = {}
     if args.search_labels:
         if args.search_margin is not None:
             hyper.search_margin = args.search_margin
         hyper.search_weight = args.search_weight
-        search = load_search_labels([Path(p) for p in args.search_labels.split(",")], hyper.search_margin)
-        print(json.dumps({"search_rows": 0 if search is None else int(len(search["label_kind"]))}), flush=True)
+        search = load_search_labels([Path(p) for p in args.search_labels.split(",")], hyper.search_margin,
+                                    provenance=args.provenance, report=label_report, declared_sources=declared,
+                                    calibration_manifest=held_manifest)
+        print(json.dumps({"search_rows": 0 if search is None else int(len(search["label_kind"])),
+                          "search_provenance": label_report}), flush=True)
     if args.objective_weights:
         for item in args.objective_weights.split(","):
             name, weight = item.split("=")
@@ -1260,13 +1484,77 @@ def main() -> int:
             others = contracts.REGION_MOVEMENT_SLOTS - 1
             actor.region_native.bias.fill_(float(np.log(args.native_start / (1 - args.native_start) * others)))
     bank = DaughterBank(args.daughter_bank) if args.daughter_bank else None
-    draw = world_sampler(stage, train, grassland, rng, valley, bank)
+    if bank is not None and args.curriculum == "r3-balanced-v1":
+        from .curriculum import private_bank, bank_state
+        if args.bank_image is None: raise ValueError("balanced curriculum needs a frozen private bank image")
+        private_bank(bank, args.bank_image, args.out, resume=resume_state is not None)
+    draw = world_sampler(stage, train, grassland, rng, valley, bank, args.curriculum)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
     # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric
     # mean of the per-regime welfare ratios, so no regime can be traded away for the majority.
     eval_worlds = [(s, 0) for s in range(ea, eb + 1)]
     eval_worlds += [(s, m) for s in range(ea, min(eb, ea + 1) + 1) for m in contracts.CAPABILITY_MASKS.values()]
+    if held_manifest:
+        assert_training(held_manifest, list(train) + list(grassland) + [s for s, _ in eval_worlds]
+                        + ([] if valley is None else [s for s, _ in valley]))
+        if bank is not None:
+            import hashlib
+            entries = bank.training_entries()
+            assert_training(held_manifest, [int(e["seed"]) for e in entries],
+                            [hashlib.sha256(bank.snapshot(e)).hexdigest() for e in entries])
     grassland_set = frozenset(int(x) for x in grassland)
+    branch = None
+    branch_report: dict = {}
+    if args.branch_shards:
+        from . import branch_shards
+        branch = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], args.provenance, branch_report,
+                                    declared_sources=declared, calibration_manifest=held_manifest)
+        print(json.dumps({"branch_provenance": branch_report, "branch_rows": int(len(branch[0]["camp"])),
+                          "branch_bootstraps": 0 if branch[1] is None else int(len(branch[1]["core"]))}), flush=True)
+    from .provenance import compatible_sources
+    offline_compatibility = compatible_sources(label_report.get("records", []) + branch_report.get("records", []),
+                                               frozen_run["simulator"], frozen_run["simulator_compatibility"],
+                                               {k: frozen_run[k] for k in ("sim_rules", "sim_statics")})
+    hyper.critic_warmup = args.critic_warmup if args.critic_warmup is not None else hyper.critic_warmup
+    hyper.round_start_warmup = args.round_start_warmup if args.round_start_warmup is not None else hyper.round_start_warmup
+    hyper.branch_share = args.branch_share if args.branch_share is not None else hyper.branch_share
+    hyper.kl_refit = args.kl_refit if args.kl_refit is not None else bool((resume_state or {}).get("kl_refit", resume_state is None))
+    hyper.cost_bootstrap = resume_setting("cost_bootstrap", resume_state, args.cost_bootstrap, True)
+    frozen_run["resolved_hyper"] = dataclasses.asdict(hyper)
+    frozen_run["resolved_stage"] = dataclasses.asdict(stage)
+    effective_warmup = warmup_iterations(fresh_heads, hyper.critic_warmup, hyper.round_start_warmup,
+                                        promoted_init=state.get("artifact_kind") == "promotion")
+    frozen_run["effective_iterations"] = {"critic_only": effective_warmup, "actor": args.iterations,
+                                           "total": effective_warmup + args.iterations}
+    resolved_hyper, resolved_stage, effective = resolve_configuration(args, state, resume_state)
+    if (dataclasses.asdict(resolved_hyper) != frozen_run["resolved_hyper"]
+            or dataclasses.asdict(resolved_stage) != frozen_run["resolved_stage"] or effective != frozen_run["effective_iterations"]):
+        raise ValueError("actual PPO setup drifted from the shared frozen configuration resolver")
+    if resume_state is not None and "resolved_hyper" in resume_state.get("run_manifest", {}) and resume_state["run_manifest"] != frozen_run:
+        raise ValueError("resolved hyperparameters/stage differ from frozen resume")
+    from .lineage import build as build_lineage, families, merge, source_families
+    from .provenance import checkpoint_hash
+    entries = bank.training_entries() if bank is not None else []
+    import hashlib
+    current_training = merge(families(list(train) + list(grassland) + ([] if valley is None else [s for s, _ in valley])
+                                     + [int(e["seed"]) for e in entries],
+                                     [hashlib.sha256(bank.snapshot(e)).hexdigest() for e in entries]),
+                             source_families(label_report), source_families(branch_report))
+    current_selection = families([s for s, _ in eval_worlds])
+    if resume_state is not None:
+        lineage = resume_state.get("family_lineage")
+        if held_manifest and lineage is None:
+            raise ValueError("resume lacks frozen initialization/training family lineage")
+    else:
+        parents = [(checkpoint_hash(args.init), state, {"path": str(args.init.resolve()), "sha256": checkpoint_hash(args.init)})]
+        if args.teacher:
+            parents.append((checkpoint_hash(args.teacher), anchor, {"path": str(args.teacher.resolve()), "sha256": checkpoint_hash(args.teacher)}))
+        lineage = build_lineage(held_manifest, current_training, current_selection, parents)
+    actor.calibration_manifest = held_manifest
+    if held_manifest and args.curriculum == "r3-balanced-v1":
+        from .lineage import checkpoint_evidence
+        if state.get("artifact_kind") != "promotion" or not checkpoint_evidence(state, held_manifest)["verified"]:
+            raise ValueError("Round-3 balanced training requires the verified promoted guarded clone")
     args.out.mkdir(parents=True, exist_ok=True)
     trajectory = args.out / "trajectory.jsonl"
     log: list = []
@@ -1276,7 +1564,8 @@ def main() -> int:
     def atomic(obj: Any, path: Path) -> None:
         # Write then rename, so a preempted VM never leaves a half-written checkpoint.
         tmp = path.with_suffix(path.suffix + ".tmp")
-        torch.save(obj, tmp)
+        from .promotion import seal
+        torch.save(seal(obj), tmp)
         os.replace(tmp, path)
 
     def save(path: Path) -> None:
@@ -1287,6 +1576,12 @@ def main() -> int:
                     "observe_movement": stage.observe_movement, "learned_fission": stage.fission, "learned_trade": stage.trade,
                     "experts": experts, "token": token, "vector_critic": isinstance(critic, VectorCritic),
                     "region_head": actor.region_head,
+                    "nonqualifying": args.nonqualifying,
+                    "iteration": it,
+                    "calibration_manifest": held_manifest,
+                    "run_manifest": frozen_run,
+                    "family_lineage": lineage, "offline_compatibility": offline_compatibility,
+                    "cost_bootstrap": hyper.cost_bootstrap,
                     "objective_weights": hyper.objective_weights, "hyper": dataclasses.asdict(hyper),
                     "personality_scales": hyper.personality_scales, "personality_clip": hyper.personality_clip,
                     "daughter_bank": None if bank is None else str(bank.directory),
@@ -1300,7 +1595,8 @@ def main() -> int:
                                              movement=stage.bridge_movement,
                                              commitments=stage.commitments,
                                              region=stage.region_movement or stage.observe_movement,
-                                             fission=stage.fission, trade=stage.trade, personality=personality)
+                                             fission=stage.fission, trade=stage.trade, personality=personality,
+                                             expected_producer=actor.worker_contract)
                   for name, worlds in groups.items()}
         total = {key: float(sum(r[key] for r in result.values())) for key in ("welfare", "population", "extinctions")}
         total["below_30"] = float(np.mean([r["below_30"] for r in result.values()]))
@@ -1308,6 +1604,8 @@ def main() -> int:
         total["specialist_share"] = float(sum(r["specialist_share"] * r["population"] for r in result.values())
                                           / max(1.0, total["population"]))
         total["regimes"] = result
+        total["worker_contract"] = actor.worker_contract
+        total["producer"] = actor.run_producer
         return total
 
     # Resume (--resume): everything an iteration depends on, written atomically after each iteration's trajectory line.
@@ -1315,11 +1613,18 @@ def main() -> int:
     start = 0
     if args.resume and resume_path.exists():
         r = torch.load(resume_path, map_location="cpu", weights_only=False)
-        actor.load_state_dict(r["actor"]); critic.load_state_dict(r["critic"]); cost_critic.load_state_dict(r["cost_critic"])
+        restore_actor(actor, r, args.region_head, resume=True)
+        teacher.set_region_head(actor.region_head)
+        critic.load_state_dict(r["critic"]); cost_critic.load_state_dict(r["cost_critic"])
         for optimizer, saved in zip(optimizers, r["optimizers"]):
             optimizer.load_state_dict(saved)
         lagrange, best, baseline, log, start = r["lagrange"], r["best"], r["baseline"], r["log"], r["iteration"] + 1
         rng.bit_generator.state = r["numpy_rng"]; generator.set_state(r["generator"]); torch.set_rng_state(r["torch_rng"])
+        if args.curriculum == "r3-balanced-v1":
+            draw.load_state_dict(r["curriculum_state"])
+            if bank is not None:
+                from .curriculum import restore_bank
+                restore_bank(bank, r["bank_state"])
         # Keep the trajectory consistent with the resumed state: the baseline and iterations up to the saved one.
         # A preempted VM can leave a partial or zero-filled last line: unreadable lines are dropped, never fatal.
         lines = trajectory.read_text(errors="replace").splitlines() if trajectory.exists() else []
@@ -1346,20 +1651,13 @@ def main() -> int:
     resumed = args.resume and resume_path.exists()
     hyper.kl_refit = (args.kl_refit if args.kl_refit is not None
                       else bool(r.get("kl_refit", False)) if resumed else True)
-    hyper.cost_bootstrap = (args.cost_bootstrap if args.cost_bootstrap is not None
-                            else bool(r.get("cost_bootstrap", False)) if resumed else True)
-    branch = None
-    if args.branch_shards:
-        from . import branch_shards
-        branch = branch_shards.load([Path(p) for p in args.branch_shards.split(",")])
-        print(json.dumps({"branch_rows": int(len(branch[0]["camp"])),
-                          "branch_bootstraps": 0 if branch[1] is None else int(len(branch[1]["core"]))}), flush=True)
+    hyper.cost_bootstrap = resume_setting("cost_bootstrap", resume_state, args.cost_bootstrap, True)
     if args.film_bound:
         for net in (actor, teacher, critic, cost_critic):
             if hasattr(net.encoder, "film_extent"):
                 net.encoder.film_bound = args.film_bound
     # Extra iterations, so the actor still gets --iterations updates.
-    warmup = warmup_iterations(fresh_heads, hyper.critic_warmup, hyper.round_start_warmup)
+    warmup = effective_warmup
     for it in range(start, args.iterations + warmup):
         clock = time.time()
         worlds = draw(args.worlds)
@@ -1368,6 +1666,7 @@ def main() -> int:
                                     branch=branch, bank=bank)
         stats["critic_warmup"] = it < warmup
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
+        if args.curriculum == "r3-balanced-v1": stats["curriculum_sources"] = draw.last_sources
         save(args.out / "latest.pt")
         if args.eval_every > 0 and (it + 1) % args.eval_every == 0:
             ev = evaluate(args.out / "latest.pt")
@@ -1382,9 +1681,11 @@ def main() -> int:
                 points = {"welfare": ev, **{name: evaluate(args.out / "latest.pt", p)
                                              for name, p in SELECTION_POINTS.items() if name != "welfare"}}
                 spread = spread_selection(points, baseline)
-                spread["points"] = {name: {k: p[k] for k in ("welfare", "population", "qol", "below_30", "extinctions")}
+                spread["points"] = {name: {k: p[k] for k in ("welfare", "population", "qol", "below_30", "extinctions", "worker_contract", "producer")}
                                     for name, p in points.items()}
                 ev["spread"] = spread; ev["selection_score"] = spread["score"]; eligible = spread["eligible"]
+            eligible = bool(eligible) and not args.nonqualifying
+            ev["eligible"] = bool(eligible)
             stats["eval"] = ev
             if ev["selection_score"] > best and eligible:
                 best = ev["selection_score"]; save(args.out / "best.pt")
@@ -1395,9 +1696,23 @@ def main() -> int:
                 "optimizers": [o.state_dict() for o in optimizers], "lagrange": lagrange, "best": best, "baseline": baseline,
                 "log": log, "iteration": it, "numpy_rng": rng.bit_generator.state, "generator": generator.get_state(),
                 "torch_rng": torch.get_rng_state(), "kl_refit": hyper.kl_refit,
-                "cost_bootstrap": hyper.cost_bootstrap}, resume_path)
+                "cost_bootstrap": hyper.cost_bootstrap, "region_head": actor.region_head,
+                "legacy_actor_optimizer": len(optimizers[0].param_groups[0]["params"]) != len(list(actor.parameters())),
+                "contract": contracts.NATIVE_CONTRACT, "calibration_manifest": held_manifest,
+                "family_lineage": lineage, "offline_compatibility": offline_compatibility,
+                "curriculum": args.curriculum,
+                "curriculum_state": draw.state_dict() if args.curriculum == "r3-balanced-v1" else None,
+                "bank_state": bank_state(bank) if bank is not None and args.curriculum == "r3-balanced-v1" else None,
+                "run_manifest": frozen_run}, resume_path)
         print(json.dumps({k: v for k, v in stats.items() if k != "worlds"}), flush=True)
-    (args.out / "done").write_text(json.dumps({"iterations": args.iterations}))
+    if args.arm and not args.nonqualifying:
+        from .completion import build
+        completed = build(args.out, frozen_run)
+        target = args.out / "completion.json"
+        tmp = target.with_suffix(".tmp"); tmp.write_text(json.dumps(completed, sort_keys=True)); os.replace(tmp, target)
+        (args.out / "done").write_text(json.dumps({"completion_sha256": checkpoint_hash(target)}))
+    else:
+        (args.out / ("diagnostic.done" if args.nonqualifying else "done")).write_text(json.dumps({"iterations": args.iterations, "nonqualifying": args.nonqualifying}))
     return 0
 
 

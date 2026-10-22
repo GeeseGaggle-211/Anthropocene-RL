@@ -10,4 +10,27 @@
     <Compile Include="$(AnthropoceneSimRoot)/Assets/_Anthropocene/Simulation/*.cs" />
     <Compile Include="Model9BridgeProgram.cs" />
   </ItemGroup>
+  <!-- Bind the compiled simulator sources to their checkout identity. A failed Git check is never clean. -->
+  <Target Name="Model9SimulatorIdentity" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git -C &quot;$(AnthropoceneSimRoot)&quot; rev-parse HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="Low" StandardErrorImportance="Low">
+      <Output TaskParameter="ConsoleOutput" ItemName="Model9SimCommit" />
+      <Output TaskParameter="ExitCode" PropertyName="Model9SimCommitExit" />
+    </Exec>
+    <Exec Command="git -C &quot;$(AnthropoceneSimRoot)&quot; status --porcelain --untracked-files=normal" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="Low" StandardErrorImportance="Low">
+      <Output TaskParameter="ConsoleOutput" ItemName="Model9SimDirty" />
+      <Output TaskParameter="ExitCode" PropertyName="Model9SimStatusExit" />
+    </Exec>
+    <PropertyGroup>
+      <Model9SimClean>false</Model9SimClean>
+      <Model9SimClean Condition="'$(Model9SimCommitExit)' == '0' and '$(Model9SimStatusExit)' == '0' and '@(Model9SimDirty)' == ''">true</Model9SimClean>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>AnthropoceneSimulatorCommit</_Parameter1><_Parameter2>@(Model9SimCommit)</_Parameter2>
+      </AssemblyAttribute>
+      <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+        <_Parameter1>AnthropoceneSimulatorClean</_Parameter1><_Parameter2>$(Model9SimClean)</_Parameter2>
+      </AssemblyAttribute>
+    </ItemGroup>
+  </Target>
 </Project>

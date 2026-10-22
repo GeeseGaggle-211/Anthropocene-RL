@@ -59,7 +59,8 @@ def main() -> int:
     parser.add_argument("--seeds", default="2000-2019")
     parser.add_argument("--turns", type=int, default=25)
     parser.add_argument("--out", type=Path, required=True)
-    args = parser.parse_args()
+    from .checkpoint import parse
+    args = parse(parser)
     torch.set_num_threads(2)
     a, b = (int(x) for x in args.seeds.split("-"))
     report = {"policy": [], "teacher": []}

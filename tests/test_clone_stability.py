@@ -149,9 +149,27 @@ def write_shard(directory: Path, seed: int, n: int = 30, core: int = 24) -> None
 
 
 def run_main(monkeypatch, tmp_path: Path, *extra: str) -> list[dict]:
+    # These historical optimizer/normalizer tests use deliberately tiny synthetic, unattributed arrays.
+    # Strict production sources are tested separately; keep this fixture from masquerading as production evidence.
+    from test_autonomous_v7_round3_contracts import checkpoint_proof_fixture
+    from anthropocene_rl.autonomous_v7 import checkpoint
+    import copy
+    _, fixture = checkpoint_proof_fixture()
+    original_load = getattr(train.data.load, "_original_load", train.data.load)
+    def synthetic_load(paths, **kwargs):
+        paths = list(paths)
+        role = "training" if paths[0].parent.name == "train" else "selection"
+        kwargs["report"].update(copy.deepcopy(fixture["family_lineage"]["teacher_inputs"][role]))
+        return original_load(paths)
+    synthetic_load._original_load = original_load
+    monkeypatch.setattr(train.data, "load", synthetic_load)
+    monkeypatch.setattr(checkpoint, "run_manifest", lambda *a, **kw: copy.deepcopy(fixture["run_manifest"]))
     out = tmp_path / "runs" / "stage1.pt"
+    from anthropocene_rl.autonomous_v7.provenance import digest
+    local = {"schema": 1, "execution": {"tier": "local", "purpose": "stability", "arms": {"diagnostic": [0]}}}
+    local["digest"] = digest(local); local_path = tmp_path / "local.json"; local_path.write_text(json.dumps(local))
     argv = ["train", "--train", str(tmp_path / "train"), "--dev", str(tmp_path / "dev"), "--out", str(out),
-            "--bc-epochs", "2", "--critic-rounds", "1", "--critic-epochs", "1", "--batch", "16", "--threads", "1", *extra]
+            "--bc-epochs", "2", "--critic-rounds", "1", "--critic-epochs", "1", "--batch", "16", "--threads", "1", "--nonqualifying", "--local-execution-design", str(local_path), *extra]
     monkeypatch.setattr(sys, "argv", argv)
     assert train.main() == 0
     return torch.load(out, map_location="cpu", weights_only=False)
