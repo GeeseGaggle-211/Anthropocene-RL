@@ -101,9 +101,18 @@ schema/order, herd IDs, linked-population reconciliation, replay tampering,
 fork copy/continuation, scalar/worker parity, parser rejection, zero denominators,
 writer failure/completion integrity and actual pre-update targets/mutations.
 The focused real-bridge replay and the broader autonomous-v7 regression set
-pass from the clean simulator commit. The local three-seed prospective cohort
-is intentionally deferred until this learner branch is committed and clean,
-because the provenance guard rejects a dirty learner before optimization.
+pass from the clean simulator commit.
+
+A non-qualifying local prospective cohort was then run from learner commit
+`61180a4` and simulator commit `e5fb626`, using exactly optimizer seeds 90, 91
+and 92, one diagnostic arm, world seed 1000 and ten turns. It produced 344
+decision rows, 25 update rows and 11 joined mutations. Aggregation completed
+with zero conservation failures. This cohort validates stability, integrity and
+report generation only: it has one arm and one world seed, initializes new
+vector-critic heads from a legacy scalar checkpoint, and cannot select an arm,
+tune a treatment or establish readiness. Its critic calibration is therefore
+an instrumentation exercise, not evidence about the historical T3 optimizer.
+
 The approved throughput/RSS benchmark gates have not been measured; this build
 does not establish VM collection readiness. No VM was started and no training
 comparison, arm selection or confirmation-seed access was performed.
