@@ -104,6 +104,7 @@ class Schema:
     simulator_source_clean: bool = False
     raw_material_diagnostics_schema: int = 0
     diagnostic_envelope_schema: int = 0
+    economic_diagnostics_schema: int = 0
     bridge_build_hash: str = "unknown"
     bridge_sha256: str = "unknown"
     feature_flags: dict | None = None
@@ -141,6 +142,7 @@ def verify_schema(response: Mapping[str, Any]) -> Schema:
                   simulator_source_clean=bool(response.get("simulatorSourceClean", False)),
                   raw_material_diagnostics_schema=int(response.get("rawMaterialDiagnosticsSchema", 0)),
                   diagnostic_envelope_schema=int(response.get("diagnosticEnvelopeSchema", 0)),
+                  economic_diagnostics_schema=int(response.get("economicDiagnosticsSchema", 0)),
                   bridge_build_hash=str(response.get("bridgeBuildHash", "unknown")),
                   bridge_sha256=str(response.get("bridgeSha256", "unknown")), feature_flags=response.get("featureFlags"),
                   producer_flags=response.get("producerFlags"), configuration_hash=str(response.get("configurationHash", "unknown")),

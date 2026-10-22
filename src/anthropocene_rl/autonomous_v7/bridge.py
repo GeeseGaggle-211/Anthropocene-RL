@@ -27,7 +27,9 @@ def dotnet_command() -> list[str]:
 
 
 class Model9Bridge:
-    def __init__(self, command: Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None, *, economic_diagnostics: bool = False) -> None:
+        self.economic_diagnostics_enabled = economic_diagnostics
+        self.economic_diagnostics: dict[int, dict] = {}
         self._process = subprocess.Popen(
             list(command or dotnet_command()),
             stdin=subprocess.PIPE,
@@ -84,6 +86,10 @@ class Model9Bridge:
                     or actual_sha != expected_world["snapshot_sha256"]):
                 raise ProvenanceError("actual Reset arguments differ from immutable world/cohort contract")
         payload: dict[str, Any] = {"op": "reset", "seed": seed, "players": players, "movement": movement, "withheld": withheld}
+        if getattr(self, "economic_diagnostics_enabled", False):
+            if self.schema.economic_diagnostics_schema != 1:
+                raise ValueError("bridge does not support economic diagnostics schema 1")
+            payload["economicDiagnostics"] = True
         if snapshot is not None:
             payload["snapshot"] = snapshot if isinstance(snapshot, str) else base64.b64encode(snapshot).decode("ascii")
             checked = self.request({"op": "validate_snapshot", "snapshot": payload["snapshot"]})
@@ -162,6 +168,8 @@ class Model9Bridge:
             raw_enabled=getattr(self, "_raw_materials_enabled", None))
         self.diagnostic_schema_version = int(step.get("diagnosticSchemaVersion", 0))
         self.diagnostic_trajectory_id = step.get("trajectoryId")
+        from .economic_trace import validate_economic_step
+        self.economic_diagnostics = validate_economic_step(step, required=getattr(self, "economic_diagnostics_enabled", False), initial=initial)
 
     def _check_alignment(self, actual: dict, saved: dict) -> None:
         def sidecars(s):
@@ -172,6 +180,8 @@ class Model9Bridge:
         if getattr(self.schema, "raw_material_diagnostics_schema", 0) >= 1 and any(
                 actual.get(key) != saved.get(key) for key in ("diagnosticSchemaVersion", "trajectoryId", "rawMaterialDiagnostics")):
             raise ValueError("fork/restore changed physical diagnostics alignment")
+        if actual.get("economicDiagnostics", {}) != saved.get("economicDiagnostics", {}):
+            raise ValueError("fork/restore changed economic diagnostics alignment")
 
     def drop(self, fork: int) -> None:
         self.request({"op": "drop", "fork": fork})

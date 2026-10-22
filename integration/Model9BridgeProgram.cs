@@ -60,7 +60,8 @@ namespace Anthropocene.RLBridge
                         environmentSchema = ElderModel9Contract.EnvironmentSchemaVersion,
                         replaySchema = ElderModel9Contract.ReplaySchemaVersion,
                         decisionDiagnosticsSchema = 1,
-                        diagnosticEnvelopeSchema = 2,
+                        diagnosticEnvelopeSchema = 3,
+                        economicDiagnosticsSchema = 1,
                         rawMaterialDiagnosticsSchema = 2,
                         bridgeBuildHash = typeof(Model9BridgeProgram).Module.ModuleVersionId.ToString("N"),
                         bridgeSha256 = BridgeSha256,
@@ -139,7 +140,8 @@ namespace Anthropocene.RLBridge
                     RequireUnsealedSeed(snapshotWorld.Seed);
                     if (snapshotWorld.Seed != declaredSeed) throw new InvalidOperationException("Snapshot root differs from declared seed.");
                     bool movement = root.TryGetProperty("movement", out var m) && m.GetBoolean();
-                    environment = new ElderModel9Environment { WithheldTechnologies = withheld };
+                    environment = new ElderModel9Environment { WithheldTechnologies = withheld,
+                        EconomicDiagnosticsEnabled = root.TryGetProperty("economicDiagnostics", out var economic) && economic.GetBoolean() };
                     forks.Clear();
                     var step = environment.Reset(snapshot, movement);
                     return new { ok = true, op, step = Encode(step), fingerprint = environment.Replay.InitialFingerprint,
@@ -213,7 +215,6 @@ namespace Anthropocene.RLBridge
                     return new { ok = true, op };
                 case "verify_replay":
                     if (environment == null) throw new InvalidOperationException("reset required");
-                    if (environment.Forked) throw new InvalidOperationException("replay verification is unavailable after a search fork");
                     ElderModel9Environment.VerifyReplay(environment.Replay);
                     return new { ok = true, op, steps = environment.Replay.Steps.Count };
                 case "inspect":
@@ -367,8 +368,10 @@ namespace Anthropocene.RLBridge
             return d;
         }
 
-        private static object Encode(ElderModel9Step step) => new
+        private static object Encode(ElderModel9Step step)
         {
+            var ordinary = new
+            {
             turn = step.Turn, years = step.Years, fingerprint = step.Fingerprint, nativeMs = step.NativeMilliseconds,
             diagnosticSchemaVersion = step.DiagnosticSchemaVersion,
             // Explicit envelope zero means no preceding decision, including an immediate reset fork.
@@ -414,7 +417,13 @@ namespace Anthropocene.RLBridge
                     tradeShare = v.Teacher.Action.TradeExportShare, tradeLabel = v.Teacher.TradeMask
                 }
             }).ToArray()
-        };
+            };
+            if (environment?.EconomicDiagnosticsEnabled != true) return ordinary;
+            var encoded = JsonSerializer.SerializeToElement(ordinary, Json).EnumerateObject().ToDictionary(p => p.Name, p => (object)p.Value);
+            encoded["restoredObservation"] = step.RestoredObservation;
+            encoded["economicDiagnostics"] = step.EconomicDiagnostics.OrderBy(p => p.Key).ToDictionary(p => p.Key, p => p.Value);
+            return encoded;
+        }
 
         // Footprint stock of a camp standing on `tile`: accessible human food now (pure projection) and its
         // season-mean capacity, separately for land and aquatic tiles of the gather radius.

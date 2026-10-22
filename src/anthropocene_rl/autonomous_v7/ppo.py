@@ -279,6 +279,8 @@ class Rollout:
     diagnostics: list[dict] = field(default_factory=list)
     worker_contracts: list[dict] = field(default_factory=list)
     world_contracts: list[dict] = field(default_factory=list)
+    economic_rows: list[dict] = field(default_factory=list)
+    economic_bytes: int = 0
 
 
 def village_batch(villages: list[dict[str, Any]]) -> dict[str, np.ndarray]:
@@ -305,7 +307,7 @@ def validate_reset_producer(actor, bridge):
 
 def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage: Stage,
             generator: torch.Generator, workers: int = 6, floor: float = -2.0, personality=None,
-            inherit=None, bank: DaughterBank | None = None) -> Rollout:
+            inherit=None, bank: DaughterBank | None = None, economic_trace: Any | None = None) -> Rollout:
     """Run every world for ``turns`` steps with the sampled shared policy (worlds step in lockstep). A world is a
     seed, a (seed, withheld-technology mask) pair, (seed, mask, heuristic warm-up turns) or (seed, mask, 0, bank entry
     id): a daughter-bank world, reset from that entry's snapshot. ``personality``: a sampler of Elder personalities,
@@ -326,7 +328,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
         assert_training(held_manifest, [s for s, _, _, _ in full],
                         [hashlib.sha256(bank.snapshot(bank.get(b))).hexdigest() for b in banked if b >= 0])
     seeds = [s for s, _ in worlds]
-    bridges = [Model9Bridge() for _ in seeds]
+    bridges = [Model9Bridge(economic_diagnostics=True) if economic_trace else Model9Bridge() for _ in seeds]
     roll = Rollout()
     traits: list[dict[int, np.ndarray]] = [{} for _ in seeds]
     # Bank captures: per world, a reservoir sample of CAPTURES_PER_WORLD over all founded daughters (keyed by the
@@ -380,6 +382,9 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                 validate_reset_producer(actor, bridge)
                 for _ in range(warm):  # fixture states: the heuristic plays the warm-up turns
                     step = bridge.step({})
+                if economic_trace:
+                    import base64
+                    bridge.economic_reset_snapshot_sha256 = economic_trace.store_snapshot(base64.b64decode(bridge.capture()))
                 return step
             steps = list(pool.map(start, prepared))
             founded = [{v["camp"]: s["turn"] for v in s["villages"]} for s in steps]
@@ -399,6 +404,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                 for (w, v), a in zip(live, actions):
                     per_world[w][int(v["camp"])] = a
                 turn_before = [s["turn"] for s in steps]
+                fingerprints_before = [s["fingerprint"] for s in steps] if economic_trace else None
                 steps = list(pool.map(lambda pair: pair[0].step(pair[1]), zip(bridges, per_world)))
                 for bridge in bridges:
                     roll.diagnostics.extend(getattr(bridge, "decision_diagnostics", []))
@@ -425,6 +431,24 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                         if k is None:
                             continue
                         kept.append(k)
+                        if economic_trace:
+                            import copy
+                            economic = bridges[w].economic_diagnostics.get(int(v["camp"]))
+                            if economic is None:
+                                raise ValueError("missing prospective economic decision row")
+                            roll.economic_rows.append({"economicDiagnostics": copy.deepcopy(economic),
+                                "actorDistribution": {name: values[k].detach().cpu().tolist() for name, values in out.items()
+                                                      if isinstance(values, torch.Tensor) and values.ndim > 0 and len(values) == len(live)},
+                                "sampledAction": actions[k], "provenance": {
+                                    "preFingerprint": fingerprints_before[w], "postFingerprint": s["fingerprint"],
+                                    "resetSnapshotHash": bridges[w].economic_reset_snapshot_sha256,
+                                    "simulatorCommit": bridges[w].schema.simulator_commit,
+                                    "bridgeSha256": bridges[w].schema.bridge_sha256,
+                                    **bridges[w].last_reset_identity}})
+                            from .economic_trace import canonical_bytes
+                            roll.economic_bytes += len(canonical_bytes(roll.economic_rows[-1]))
+                            if roll.economic_bytes > 256 * 1024 * 1024:
+                                raise ValueError("economic rollout capture exceeds 256 MiB bound")
                         o = roll.outcome
                         # "world" is this iteration's world index: a seed drawn twice (say as a default world and a
                         # fixture) must not merge sequences.
@@ -885,12 +909,14 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
            advantage: np.ndarray, target_u: np.ndarray, cost_adv: np.ndarray, cost_target: np.ndarray,
            lagrange: float, stage: Stage, hyper: Hyper, optimizers: tuple, rng: np.random.Generator,
            regimes: np.ndarray | None = None, search: dict[str, np.ndarray] | None = None,
-           train_actor: bool = True, branch: tuple[dict[str, np.ndarray], Any] | None = None) -> dict[str, float]:
+           train_actor: bool = True, branch: tuple[dict[str, np.ndarray], Any] | None = None,
+           economic_trace=None, trace_context=None) -> dict[str, float]:
     """One PPO update. ``train_actor`` False updates only the critics (critic warm-up). ``branch``: search branch rows
     and their critic targets (branch_shards.targets); each critic minibatch then draws ``hyper.branch_share`` of its
     rows from them. With ``hyper.kl_refit``, an update stopped early on approximate KL gets one extra critic-only epoch."""
     actor_opt, critic_opt, cost_opt = optimizers
     n = len(advantage)
+    trace_metrics = {}
 
     def value_step(t: dict[str, torch.Tensor], index: np.ndarray) -> tuple[torch.Tensor, dict | None]:
         """One value-critic step on this minibatch (plus its share of branch rows)."""
@@ -916,20 +942,41 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                 value_loss = w_on * value_loss + w_b * cross_entropy(logits_b, target_b, pick)
         if value_by is not None:
             value_loss = sum(value_by.values())
-        critic_opt.zero_grad(); value_loss.backward(); nn.utils.clip_grad_norm_(critic.parameters(), 1.0); critic_opt.step()
+        critic_opt.zero_grad(); value_loss.backward(); critic_norm = nn.utils.clip_grad_norm_(critic.parameters(), 1.0); critic_opt.step()
+        if economic_trace is not None:
+            trace_metrics["criticGradientNormBeforeClipping"] = float(critic_norm)
+            trace_metrics["criticClippingScale"] = min(1., 1. / max(1e-12, float(critic_norm)))
         return value_loss, value_by
 
     def cost_step(t: dict[str, torch.Tensor], index: np.ndarray) -> torch.Tensor:
         cost_loss = ((cost_critic(t) - torch.as_tensor(cost_target[index], dtype=torch.float32)) ** 2).mean()
-        cost_opt.zero_grad(); cost_loss.backward(); nn.utils.clip_grad_norm_(cost_critic.parameters(), 1.0); cost_opt.step()
+        cost_opt.zero_grad(); cost_loss.backward(); cost_norm = nn.utils.clip_grad_norm_(cost_critic.parameters(), 1.0); cost_opt.step()
+        if economic_trace is not None:
+            trace_metrics["costGradientNormBeforeClipping"] = float(cost_norm)
+            trace_metrics["costClippingScale"] = min(1., 1. / max(1e-12, float(cost_norm)))
         return cost_loss
     combined = advantage / max(1e-8, advantage.std()) - lagrange * cost_adv / max(1e-8, cost_adv.std() + 1e-8)
     combined, weight = balance(combined, regimes if hyper.balance_regimes else None, hyper.regime_weight_cap)
+    if economic_trace is not None:
+        from .economic_trace import emit_rollout
+        emit_rollout(economic_trace, *trace_context, combined, weight, regimes, hyper, lagrange,
+                     actor, critic, cost_critic, normalizer)
     stats: dict[str, float] = {}
     for epoch in range(hyper.epochs):
         approx = []
         for start in range(0, n, hyper.batch):
             index = rng.permutation(n)[: hyper.batch] if n > hyper.batch else np.arange(n)
+            if economic_trace is not None:
+                trace_metrics = {}
+                from .economic_trace import canonical_bytes, state_digest
+                import hashlib
+                trace_before = {"actor": state_digest(actor), "critic": state_digest(critic), "cost": state_digest(cost_critic)}
+                trace_parameters = {name: torch.cat([p.detach().view(-1).cpu().clone() for p in net.parameters()])
+                                    for name, net in (("actor", actor), ("critic", critic), ("cost", cost_critic))}
+                economic_trace.write("updates", {"event": "mutation-start", "policyVersionBefore": economic_trace.policy_version,
+                    "batchTransitionIds": [economic_trace.transition_ids[i] for i in index],
+                    "batchRowDigest": hashlib.sha256(canonical_bytes([economic_trace.transition_ids[i] for i in index])).hexdigest(),
+                    "epoch": epoch, "minibatch": start // hyper.batch, "beforeHashes": trace_before})
             sub = {k: v[index] for k, v in batch.items()}
             t = to_tensors(sub, normalizer)
             out = explore(actor(t), hyper.log_std_floor)
@@ -961,7 +1008,10 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                                         torch.as_tensor(s_obs["label_mix"], dtype=torch.float32), **round3)
                 loss = loss + hyper.search_weight * imitation
             if train_actor:
-                actor_opt.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
+                actor_opt.zero_grad(); loss.backward(); actor_norm = nn.utils.clip_grad_norm_(actor.parameters(), 1.0); actor_opt.step()
+                if economic_trace is not None:
+                    trace_metrics["actorGradientNormBeforeClipping"] = float(actor_norm)
+                    trace_metrics["actorClippingScale"] = min(1., 1. / max(1e-12, float(actor_norm)))
             value_loss, value_by = value_step(t, index)
             cost_loss = cost_step(t, index)
             approx.append(float((old - lp).mean().detach()))
@@ -971,6 +1021,19 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
                 stats["search"] = float(imitation.detach())
             if value_by is not None:  # per-objective value loss: are the personality heads learning?
                 stats["value_by"] = {name: float(v.detach()) for name, v in value_by.items()}
+            if economic_trace is not None:
+                economic_trace.policy_version += int(train_actor)
+                changes = {name: float(torch.linalg.vector_norm(torch.cat([p.detach().view(-1).cpu() for p in net.parameters()]) - trace_parameters[name]))
+                           for name, net in (("actor", actor), ("critic", critic), ("cost", cost_critic))}
+                economic_trace.write("updates", {"event": "mutation-complete", "epoch": epoch, "minibatch": start // hyper.batch,
+                    "batchTransitionIds": [economic_trace.transition_ids[i] for i in index],
+                    "policyVersionAfter": economic_trace.policy_version,
+                    "batchRowDigest": hashlib.sha256(canonical_bytes([economic_trace.transition_ids[i] for i in index])).hexdigest(),
+                    "afterHashes": {"actor": state_digest(actor), "critic": state_digest(critic), "cost": state_digest(cost_critic)},
+                    "ppoRatioMean": float(ratio.detach().mean()), "ppoClipFraction": float(((ratio - 1).abs() > hyper.clip).float().mean().detach()),
+                    "approxKl": float((old - lp).mean().detach()), "losses": stats, "gradientMetrics": dict(trace_metrics),
+                    "parameterUpdateNorms": changes, "fixedAuditChanges": None,
+                    "unavailable": {"fixedAuditChanges": "fixed-audit-minibatch-not-configured", "perHeadEntropy": "current-api-joint-entropy-only"}})
             if n <= hyper.batch:
                 break
         stats["approx_kl"] = float(np.mean(approx)); stats["epochs"] = epoch + 1
@@ -982,10 +1045,25 @@ def update(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Actor
             for start in range(0, n, hyper.batch):
                 index = rng.permutation(n)[: hyper.batch] if n > hyper.batch else np.arange(n)
                 t = to_tensors({k: v[index] for k, v in batch.items()}, normalizer)
+                if economic_trace is not None:
+                    trace_metrics = {}
+                    economic_trace.write("updates", {"event": "critic-refit-start", "epoch": epoch + 1,
+                        "batchTransitionIds": [economic_trace.transition_ids[i] for i in index],
+                        "beforeHashes": {"critic": state_digest(critic), "cost": state_digest(cost_critic)},
+                        "batchRowDigest": hashlib.sha256(canonical_bytes([economic_trace.transition_ids[i] for i in index])).hexdigest()})
                 value_step(t, index); cost_step(t, index)
+                if economic_trace is not None:
+                    economic_trace.write("updates", {"event": "critic-refit-complete", "epoch": epoch + 1,
+                        "batchTransitionIds": [economic_trace.transition_ids[i] for i in index],
+                        "afterHashes": {"critic": state_digest(critic), "cost": state_digest(cost_critic)},
+                        "batchRowDigest": hashlib.sha256(canonical_bytes([economic_trace.transition_ids[i] for i in index])).hexdigest(),
+                        "gradientMetrics": dict(trace_metrics), "actorMetrics": None,
+                        "unavailable": {"actorMetrics": "critic-only-refit-no-actor-mutation"}})
                 if n <= hyper.batch:
                     break
         stats["kl_refit"] = refit
+    if economic_trace is not None:
+        economic_trace.write("updates", {"event": "iteration-summary", "policyVersion": economic_trace.policy_version, "metrics": stats})
     return stats
 
 
@@ -1000,7 +1078,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
               grassland: frozenset = frozenset(), search: dict[str, np.ndarray] | None = None,
               train_actor: bool = True,
               branch: tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None] | None = None,
-              bank: DaughterBank | None = None) -> tuple[float, dict[str, float]]:
+              bank: DaughterBank | None = None, economic_trace=None) -> tuple[float, dict[str, float]]:
     sampler = None if hyper.personality == "default" else personality_sampler(hyper.personality, rng)
     inherit = None if sampler is None else (lambda parent: personality_drift(parent, rng, hyper.personality_drift))
     expected_worker = getattr(actor, "worker_contract", None)
@@ -1012,8 +1090,9 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
             record = bank.get(item[3]) if not isinstance(item, int) and len(item) > 3 and item[3] >= 0 else None
             expected_worlds.append(world(seed, mask, snapshot_sha256=record["snapshot_sha256"] if record else "",
                                          turn=record["turn"] if record else None, movement=stage.bridge_movement, head=getattr(actor, "region_head", None)))
+    collect_options = {"economic_trace": economic_trace} if economic_trace is not None else {}
     roll = collect(actor, normalizer, seeds, turns, stage, generator, floor=hyper.log_std_floor, personality=sampler,
-                   inherit=inherit, bank=bank)
+                   inherit=inherit, bank=bank, **collect_options)
     if expected_worker is not None:
         from .worker_contract import checked
         from .provenance import ProvenanceError
@@ -1046,11 +1125,15 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
                 logits = critic(to_tensors(roll.bootstrap_obs[0], normalizer))
             tails = {name: critic.expectation(v).numpy() for name, v in logits.items()}
         advantages, target_by = {}, {}
+        objective_trace = {}
+        raw_components = data.reward_components(batch) if economic_trace is not None else None
         for name in critic.heads:
             boot = np.zeros(len(reward))
             if name in tails:
                 boot[rows] = tails[name][batch["bootstrap_index"][rows]] * head_scale(name, batch["population"][rows])
             advantages[name], target_by[name] = gae(batch, components[name], value_by[name], boot)
+            if economic_trace is not None:
+                objective_trace[name] = (components[name], raw_components[name], value_by[name], boot, advantages[name], target_by[name])
         advantage = (combine(advantages, hyper.objective_weights) if "personality" not in batch
                      else combine_personal(advantages, batch["personality"], hyper.personality_scales,
                                            hyper.personality_clip))
@@ -1069,6 +1152,7 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
             # The next observation's value per resident times the residents it was taken at (this row's end population).
             bootstrap[rows] = u_tail[batch["bootstrap_index"][rows]] * np.maximum(1.0, batch["population"][rows])
         advantage, target = gae(batch, reward, value, bootstrap)
+        objective_trace = {"welfare": (reward, data.lineage_rewards(batch), value, bootstrap, advantage, target.copy())}
         target = data.scale_free(target, batch)
     with torch.no_grad():
         cost_value = cost_critic(to_tensors(batch, normalizer)).numpy().astype(np.float64)
@@ -1080,9 +1164,11 @@ def iteration(actor: Actor, critic: Critic, cost_critic: CostCritic, teacher: Ac
         # critic after the last tail turn, recomputed every iteration.
         from . import branch_shards
         branch_targets = (branch[0], branch_shards.targets(critic, branch[0], branch[1], normalizer))
+    trace_options = {"economic_trace": economic_trace,
+                     "trace_context": (roll, batch, draws, old_logp, objective_trace, (cost_value, cost_boot, cost_adv, cost_target))} if economic_trace is not None else {}
     stats = update(actor, critic, cost_critic, teacher, normalizer, batch, draws, old_logp, advantage,
                    target, cost_adv, cost_target, lagrange, stage, hyper, optimizers, rng, regimes, search, train_actor,
-                   branch_targets)
+                   branch_targets, **trace_options)
     if "personality" in batch and hasattr(actor.encoder, "film_extent"):  # FiLM instability monitor
         sample = {k: v[:512] for k, v in batch.items()}
         stats["film_max"] = actor.encoder.film_extent(to_tensors(sample, normalizer))
@@ -1269,6 +1355,8 @@ def spread_selection(points: dict[str, dict], baseline: dict) -> dict[str, Any]:
 
 def argument_parser():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--economic-trace", type=Path, default=None,
+                        help="opt-in prospective pre-update economic/critic trace directory (must be new)")
     parser.add_argument("--init", type=Path, required=True, help="stage-1 or earlier-stage checkpoint")
     parser.add_argument("--teacher", type=Path, default=None, help="anchor actor (default: the stage-1 actor in --init)")
     parser.add_argument("--stage", choices=sorted(STAGES), default="capability")
@@ -1658,12 +1746,23 @@ def main() -> int:
                 net.encoder.film_bound = args.film_bound
     # Extra iterations, so the actor still gets --iterations updates.
     warmup = effective_warmup
+    economic_trace = None
+    if args.economic_trace is not None:
+        from .economic_trace import EconomicTraceWriter
+        from .provenance import code_commit, checkpoint_hash
+        economic_trace = EconomicTraceWriter(args.economic_trace, {"runId": str(args.out.resolve()),
+            "arm": args.arm or "diagnostic", "optimizerSeed": args.seed,
+            "nonqualifying": bool(args.nonqualifying), "executionAuthority": qualified,
+            "localExecutionDesignSha256": checkpoint_hash(args.local_execution_design),
+            "executionManifestSha256": checkpoint_hash(args.execution_manifest),
+            "learnerCommit": code_commit(), "initialCheckpointSha256": checkpoint_hash(args.init),
+            "runManifest": frozen_run})
     for it in range(start, args.iterations + warmup):
         clock = time.time()
         worlds = draw(args.worlds)
         lagrange, stats = iteration(actor, critic, cost_critic, teacher, normalizer, worlds, args.turns, stage, hyper,
                                     optimizers, lagrange, generator, rng, grassland_set, search, train_actor=it >= warmup,
-                                    branch=branch, bank=bank)
+                                    branch=branch, bank=bank, economic_trace=economic_trace)
         stats["critic_warmup"] = it < warmup
         stats.update({"iteration": it, "seconds": time.time() - clock, "worlds": worlds})
         if args.curriculum == "r3-balanced-v1": stats["curriculum_sources"] = draw.last_sources
@@ -1705,6 +1804,8 @@ def main() -> int:
                 "bank_state": bank_state(bank) if bank is not None and args.curriculum == "r3-balanced-v1" else None,
                 "run_manifest": frozen_run}, resume_path)
         print(json.dumps({k: v for k, v in stats.items() if k != "worlds"}), flush=True)
+    if economic_trace is not None:
+        economic_trace.close()
     if args.arm and not args.nonqualifying:
         from .completion import build
         completed = build(args.out, frozen_run)

@@ -88,7 +88,7 @@ def validate_raw_materials(step: dict, turn: int | None, *, required: bool, init
         return {}
     version = step["diagnosticSchemaVersion"]
     records = step["rawMaterialDiagnostics"]
-    if version not in (0, 1, 2) or not isinstance(records, dict):
+    if version not in (0, 1, 2, 3) or not isinstance(records, dict):
         raise ValueError("physical diagnostic schema/layout mismatch")
     if version == 1 and (raw_enabled is True or records):
         raise ValueError("provisional schema-1 raw-material semantics cannot continue as schema 2")
@@ -104,7 +104,7 @@ def validate_raw_materials(step: dict, turn: int | None, *, required: bool, init
     for key, raw in records.items():
         d = canonical(raw)
         camp, material = d.get("campId"), d.get("material")
-        if (d.get("schemaVersion") != 2 or version != 2 or not isinstance(camp, int) or not isinstance(material, int)
+        if (d.get("schemaVersion") != 2 or version not in (2, 3) or not isinstance(camp, int) or not isinstance(material, int)
                 or camp not in by_camp or str(key) != f"{camp}:{material}" or d.get("decisionTurn") != turn
                 or not isinstance(d.get("requestId"), str) or not d["requestId"]):
             raise ValueError("physical diagnostics camp/material/turn/request identity mismatch")

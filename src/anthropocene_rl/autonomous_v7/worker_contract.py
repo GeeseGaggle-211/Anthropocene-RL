@@ -32,8 +32,12 @@ def observe(bridge):
                 "observation": contracts.OBSERVATION_SCHEMA, "environment": contracts.ENVIRONMENT_SCHEMA,
                 "head": schema.decision_diagnostics_schema, "envelope": schema.diagnostic_envelope_schema,
                 "raw": schema.raw_material_diagnostics_schema}
-    if versions["head"] != 1 or versions["envelope"] != 2 or versions["raw"] != 2:
+    if versions["head"] != 1 or versions["envelope"] not in (2, 3) or versions["raw"] != 2:
         raise ProvenanceError("worker diagnostics/head/envelope versions differ before reset")
+    if versions["envelope"] == 3:
+        versions["economic"] = getattr(schema, "economic_diagnostics_schema", 0)
+        if versions["economic"] != 1:
+            raise ProvenanceError("worker economic diagnostic schema differs before reset")
     features = getattr(schema, "feature_flags", None)
     if not isinstance(features, dict) or features.get("SimulationConfig.ElderRawMaterialsEnabled") is not False:
         raise ProvenanceError("worker feature flags missing or raw materials enabled before reset")
