@@ -47,14 +47,20 @@ turn and intervention status. Values used only as finite encodings for
 unbounded planner returns are excluded from statistics.
 
 Each transition also retains the already validated authoritative action
-diagnostic masks. Action alignment excludes inactive heads and derives a
-head-specific intervention numerator from comparable requested-to-accepted or
-accepted-to-realised changes. Continuous actions use Pearson correlation;
-route, movement, fission, commitment and trade-gate choices are categorical and
-are reported as category-mean differences. Constraint reasons are attached only
-where a direct economic-funnel mapping exists. Conservation coverage is emitted
-separately from non-zero residuals, and each report carries an execution-authority
-cohort classification so a local sample cannot appear experimentally sufficient.
+diagnostic masks and a separate `actorPolicyActiveMask` computed from the exact
+stage and commitment decision. Action alignment requires both masks: delegated
+native movement, disabled heads and capital controls re-emitted during a
+commitment hold are excluded from actor evidence. Exclusion-only policy rows are
+retained so native delegation is visible rather than silently absent. The report
+derives a head-specific intervention numerator from comparable
+requested-to-accepted or accepted-to-realised changes. Continuous actions use
+Pearson correlation; route, movement, fission, commitment and trade-gate choices
+are categorical and are reported as category-mean differences. Constraint reasons
+are attached only where a direct economic-funnel mapping exists. Conservation
+coverage is emitted separately from non-zero residuals. Every standalone summary
+CSV carries the execution-authority cohort classification, arm-selection and
+readiness permissions, plus an explicitly descriptive sample-size flag, so an
+extracted local table cannot appear experimentally sufficient.
 
 ## Boundaries and limitations
 
@@ -113,15 +119,18 @@ writer failure/completion integrity and actual pre-update targets/mutations.
 The focused real-bridge replay and the broader autonomous-v7 regression set
 pass from the clean simulator commit.
 
-A non-qualifying local prospective cohort was then run from learner commit
-`61180a4` and simulator commit `e5fb626`, using exactly optimizer seeds 90, 91
-and 92, one diagnostic arm, world seed 1000 and ten turns. It produced 344
-decision rows, 25 update rows and 11 joined mutations. Aggregation completed
-with zero conservation failures. This cohort validates stability, integrity and
-report generation only: it has one arm and one world seed, initializes new
-vector-critic heads from a legacy scalar checkpoint, and cannot select an arm,
-tune a treatment or establish readiness. Its critic calibration is therefore
-an instrumentation exercise, not evidence about the historical T3 optimizer.
+A non-qualifying local prospective cohort was first run from learner commit
+`61180a4`, then repeated with the same identities after the active-head report
+repair at learner commit `7a2915c`; both used simulator commit `e5fb626`, exactly
+optimizer seeds 90, 91 and 92, one diagnostic arm, world seed 1000 and ten
+turns. The corrected cohort produced 344 decision rows, 25 update rows and 11
+joined mutations. There were zero non-zero values among 1,032 available
+conservation checks, while 1,376 food/material/goods/field residual values were
+explicitly unavailable. This cohort validates stability, integrity and report
+generation only: it has one arm and one world seed, initializes new vector-
+critic heads from a legacy scalar checkpoint, and cannot select an arm, tune a
+treatment or establish readiness. Its critic calibration is therefore an
+instrumentation exercise, not evidence about the historical T3 optimizer.
 
 The approved throughput/RSS benchmark gates have not been measured; this build
 does not establish VM collection readiness. No VM was started and no training

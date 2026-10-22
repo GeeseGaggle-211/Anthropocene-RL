@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 
 import numpy as np
@@ -100,6 +101,33 @@ def test_diagnostic_tree_cannot_enter_actor_tensor_or_rng_path():
     assert all(torch.equal(before[key], after[key]) for key in before)
 
 
+def test_actor_policy_activity_distinguishes_native_delegation_and_commitment_holds():
+    observed_native = dataclasses.replace(ppo.STAGES["mixed"], observe_movement=True)
+    native = ppo.actor_policy_active_mask({"commit": 1}, observed_native)
+    assert native["strategic"] == [True] * 5
+    assert native["service"] == [True] * 6
+    assert native["movement"] is False
+    assert native["intentTile"] is False
+
+    learned_region = dataclasses.replace(
+        ppo.STAGES["mixed"], movement=True, region_movement=True
+    )
+    learned = ppo.actor_policy_active_mask({"commit": 1}, learned_region)
+    assert learned["movement"] is True
+    assert learned["intentTile"] is True
+
+    hold_stage = dataclasses.replace(
+        ppo.STAGES["mixed"], commitments=True, fission=True, trade=True
+    )
+    hold = ppo.actor_policy_active_mask({"commit": 0}, hold_stage)
+    assert hold["commit"] is True
+    assert hold["service"] == [True] * 6
+    assert hold["fission"] is True
+    assert hold["strategic"] == [False] * 5
+    assert hold["clothingRoute"] is False
+    assert hold["tradeValue"] == [False] * len(ppo.contracts.TRADE_GROUPS)
+
+
 def test_preupdate_trace_and_mutation_metrics_are_joined(tmp_path):
     values = batch(2)
     values.update(
@@ -133,6 +161,7 @@ def test_preupdate_trace_and_mutation_metrics_are_joined(tmp_path):
         {
             "economicDiagnostics": transition(turn=i + 1)["economicDiagnostics"],
             "actionDiagnostics": transition(turn=i + 1)["actionDiagnostics"],
+            "actorPolicyActiveMask": transition(turn=i + 1)["actorPolicyActiveMask"],
             "actorDistribution": {},
             "sampledAction": {},
             "provenance": {},
@@ -184,6 +213,7 @@ def test_preupdate_trace_and_mutation_metrics_are_joined(tmp_path):
     writer.close()
     _, transitions, updates = economic_diagnostics.load_artifact(tmp_path / "run")
     assert transitions[0]["actionDiagnostics"]["activeMask"]["strategic"][0] is True
+    assert transitions[0]["actorPolicyActiveMask"]["strategic"][0] is True
     assert transitions[0]["objectives"]["welfare"]["bootstrap"] == 6.0
     assert transitions[1]["objectives"]["welfare"]["bootstrap"] == 0.0
     assert transitions[0]["policyVersion"] == 0

@@ -366,6 +366,7 @@ def emit_rollout(
             ),
             "economicDiagnostics": economic,
             "actionDiagnostics": captured.get("actionDiagnostics"),
+            "actorPolicyActiveMask": captured.get("actorPolicyActiveMask"),
             "objectives": output_objectives,
             "finalPolicyAdvantage": float(combined[i]),
             "balanceWeight": float(weights[i]),

@@ -266,6 +266,34 @@ def to_bridge_actions(draw: dict[str, torch.Tensor], t: dict[str, torch.Tensor])
     return actions
 
 
+def actor_policy_active_mask(action: dict[str, Any], stage: Stage) -> dict[str, Any]:
+    """Heads that contributed to this row's policy decision.
+
+    Simulator eligibility is recorded independently by the bridge.  In particular,
+    ``observe_movement`` enables the simulator contract without making native
+    movement an actor choice, and commitment holds re-emit capital controls without
+    scoring their freshly sampled values in the actor loss.
+    """
+    capital_decision = (
+        not stage.commitments
+        or int(action.get("commit", contracts.SPAN_SINGLE)) != contracts.SPAN_HOLD
+    )
+    movement_decision = stage.movement or stage.region_movement
+    return {
+        "strategic": [capital_decision] * 5,
+        "service": [True] * 6,
+        "clothingRoute": bool(stage.routes and capital_decision),
+        "shelterRoute": bool(stage.routes and capital_decision),
+        "movement": bool(movement_decision),
+        "intentTile": bool(stage.region_movement),
+        "fission": bool(stage.fission),
+        "commit": bool(stage.commitments),
+        "tradeValue": [bool(stage.trade and capital_decision)] * len(contracts.TRADE_GROUPS),
+        "tradeGate": [bool(stage.trade and capital_decision)] * len(contracts.TRADE_GROUPS),
+        "tradeShare": bool(stage.trade and capital_decision),
+    }
+
+
 # --------------------------------------------------------------------------------------------- rollouts
 @dataclass
 class Rollout:
@@ -400,6 +428,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                     draw = sample(out, t, stage, generator)
                     lp, _ = log_prob(out, t, draw, stage)
                 actions = to_bridge_actions(draw, t)
+                policy_active_masks = [actor_policy_active_mask(action, stage) for action in actions]
                 per_world: list[dict[int, dict]] = [{} for _ in seeds]
                 for (w, v), a in zip(live, actions):
                     per_world[w][int(v["camp"])] = a
@@ -445,6 +474,7 @@ def collect(actor: Actor, normalizer: Normalizer, seeds: list, turns: int, stage
                                 raise ValueError("missing prospective action decision row")
                             roll.economic_rows.append({"economicDiagnostics": copy.deepcopy(economic),
                                 "actionDiagnostics": copy.deepcopy(action_diagnostic),
+                                "actorPolicyActiveMask": copy.deepcopy(policy_active_masks[k]),
                                 "actorDistribution": {name: values[k].detach().cpu().tolist() for name, values in out.items()
                                                       if isinstance(values, torch.Tensor) and values.ndim > 0 and len(values) == len(live)},
                                 "sampledAction": actions[k], "provenance": {

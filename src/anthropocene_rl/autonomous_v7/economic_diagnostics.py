@@ -294,6 +294,21 @@ def _validate_action_diagnostics(row: dict[str, Any]) -> None:
                         )
 
 
+def _validate_actor_policy_active_mask(row: dict[str, Any]) -> None:
+    mask = row.get("actorPolicyActiveMask")
+    if mask is None:  # Legacy schema-1 traces remain readable but cannot establish actor activity.
+        return
+    if not isinstance(mask, dict):
+        raise ValueError("actor policy active mask must be an object")
+    for head, width in ACTION_HEAD_WIDTHS.items():
+        if head not in mask:
+            raise ValueError(f"actor policy active mask missing {head}")
+        raw_vector = mask[head]
+        vector = raw_vector if isinstance(raw_vector, list) else [raw_vector]
+        if len(vector) != width or any(not isinstance(value, bool) for value in vector):
+            raise ValueError(f"actor policy active mask {head} layout mismatch")
+
+
 def validate_transition(row: dict[str, Any]) -> None:
     required = {
         "schemaVersion": int,
@@ -335,6 +350,7 @@ def validate_transition(row: dict[str, Any]) -> None:
     if economic.get("schemaVersion") != SCHEMA_VERSION:
         raise ValueError("unsupported economic sidecar schema")
     _validate_action_diagnostics(row)
+    _validate_actor_policy_active_mask(row)
     for _path, _value in _finite_numbers(row):
         pass
     for path in _null_paths(economic, "economicDiagnostics"):
@@ -756,7 +772,9 @@ def _source_phase(path: str) -> str:
         return "committed_physical_receipt"
     if path.startswith("economicDiagnostics."):
         return "simulator_sidecar"
-    if path.startswith("actor."):
+    if path.startswith(
+        ("actor.", "actorDistribution.", "sampledAction.", "actorPolicyActiveMask.")
+    ):
         return "actor_sample"
     return "transition_identity"
 
@@ -1265,16 +1283,21 @@ def _action_component(container: Any, head: str) -> Any:
     return vector[index] if 0 <= index < len(vector) else None
 
 
-def _action_status(row: dict[str, Any], head: str) -> tuple[bool, bool | None] | None:
-    """Return active and whether that specific head was changed by an authoritative phase."""
+def _action_status(row: dict[str, Any], head: str) -> tuple[str, bool | None]:
+    """Return activity status and whether an authoritative phase changed the head."""
+    policy_active = _action_component(row.get("actorPolicyActiveMask"), head)
+    if not isinstance(policy_active, bool):
+        return "missing-policy-mask", None
+    if not policy_active:
+        return "policy-inactive", None
     diagnostic = row.get("actionDiagnostics")
     if not isinstance(diagnostic, dict):
-        return None
+        return "missing-simulator-mask", None
     active = _action_component(diagnostic.get("activeMask"), head)
     if not isinstance(active, bool):
-        return None
+        return "missing-simulator-mask", None
     if not active:
-        return False, None
+        return "simulator-inactive", None
     available = False
     changed = False
     for before, after in (("requested", "accepted"), ("accepted", "realised")):
@@ -1288,7 +1311,7 @@ def _action_status(row: dict[str, Any], head: str) -> tuple[bool, bool | None] |
             continue
         available = True
         changed = changed or abs(after_value - before_value) > 1e-7
-    return True, changed if available else None
+    return "active", changed if available else None
 
 
 def _head_constraint_reasons(row: dict[str, Any], head: str) -> tuple[str, ...] | None:
@@ -1313,8 +1336,10 @@ def _alignment_record(
     domain: str,
     metric: str,
     records: Sequence[tuple[dict[str, Any], float, float, bool | None, tuple[str, ...] | None]],
-    inactive: int,
-    missing_mask: int,
+    policy_inactive: int,
+    simulator_inactive: int,
+    missing_policy_mask: int,
+    missing_simulator_mask: int,
 ) -> dict[str, Any]:
     seeds = {item[0]["optimizerSeed"] for item in records}
     interventions = [item[3] for item in records if item[3] is not None]
@@ -1331,8 +1356,12 @@ def _alignment_record(
         "count": len(records),
         "optimizerSeedCount": len(seeds),
         "activeOnly": True,
-        "inactiveRowsExcluded": inactive,
-        "missingActiveMaskRowsExcluded": missing_mask,
+        "inactiveRowsExcluded": policy_inactive + simulator_inactive,
+        "policyInactiveRowsExcluded": policy_inactive,
+        "simulatorInactiveRowsExcluded": simulator_inactive,
+        "missingActiveMaskRowsExcluded": missing_policy_mask + missing_simulator_mask,
+        "missingActorPolicyMaskRowsExcluded": missing_policy_mask,
+        "missingSimulatorActiveMaskRowsExcluded": missing_simulator_mask,
         "interventionCount": sum(interventions),
         "interventionDenominator": len(interventions),
         "interventionRate": float(np.mean(interventions)) if interventions else None,
@@ -1358,28 +1387,37 @@ def action_alignment(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         tuple[str, str, str, str, str, str],
         list[tuple[dict[str, Any], float, float, bool | None, tuple[str, ...] | None]],
     ] = defaultdict(list)
-    inactive: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
-    missing_mask: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
+    policy_inactive: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
+    simulator_inactive: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
+    missing_policy_mask: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
+    missing_simulator_mask: dict[tuple[str, str, str, str, str, str], int] = defaultdict(int)
     for row in rows:
         for head, action in _actor_values(row):
             for relationship, domain, metric, outcome in _alignment_outcomes(row):
                 key = (row["evidenceClass"], row["arm"], head, relationship, domain, metric)
-                status = _action_status(row, head)
-                if status is None:
-                    missing_mask[key] += 1
+                status, intervened = _action_status(row, head)
+                if status == "missing-policy-mask":
+                    missing_policy_mask[key] += 1
                     continue
-                active, intervened = status
-                if not active:
-                    inactive[key] += 1
+                if status == "missing-simulator-mask":
+                    missing_simulator_mask[key] += 1
+                    continue
+                if status == "policy-inactive":
+                    policy_inactive[key] += 1
+                    continue
+                if status == "simulator-inactive":
+                    simulator_inactive[key] += 1
                     continue
                 groups[key].append(
                     (row, action, outcome, intervened, _head_constraint_reasons(row, head))
                 )
     output = []
-    for (evidence, arm, head, relationship, domain, metric), records in sorted(
-        groups.items()
-    ):
+    # Preserve exclusion-only rows for policy-inactive sampled values.  This makes
+    # delegated native movement visible as excluded rather than silently absent.
+    keys = set(groups) | set(policy_inactive)
+    for evidence, arm, head, relationship, domain, metric in sorted(keys):
         key = (evidence, arm, head, relationship, domain, metric)
+        records = groups[key]
         base = _alignment_record(
             evidence,
             arm,
@@ -1388,10 +1426,27 @@ def action_alignment(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
             domain,
             metric,
             records,
-            inactive[key],
-            missing_mask[key],
+            policy_inactive[key],
+            simulator_inactive[key],
+            missing_policy_mask[key],
+            missing_simulator_mask[key],
         )
         head_name = head.split("[", 1)[0]
+        if not records:
+            base.update(
+                {
+                    "associationMethod": "category-mean-difference"
+                    if head_name in CATEGORICAL_ACTION_HEADS
+                    else "pearson",
+                    "category": None,
+                    "outcomeMean": None,
+                    "overallOutcomeMean": None,
+                    "meanDifference": None,
+                    "pearson": None,
+                }
+            )
+            output.append(base)
+            continue
         outcome = np.asarray([item[2] for item in records])
         if head_name in CATEGORICAL_ACTION_HEADS:
             overall = float(outcome.mean())
@@ -1405,8 +1460,10 @@ def action_alignment(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
                     domain,
                     metric,
                     selected,
-                    inactive[key],
-                    missing_mask[key],
+                    policy_inactive[key],
+                    simulator_inactive[key],
+                    missing_policy_mask[key],
+                    missing_simulator_mask[key],
                 )
                 category_mean = float(np.mean([item[2] for item in selected]))
                 category_record.update(
@@ -1708,6 +1765,25 @@ def _cohort_status(
     }
 
 
+def _qualify_summary_rows(
+    rows: Sequence[dict[str, Any]], cohort: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Carry the experimental interpretation boundary into every standalone summary."""
+    qualification = {
+        "cohortClassification": cohort["classification"],
+        "supportsArmSelection": cohort["supportsArmSelection"],
+        "supportsReadiness": cohort["supportsReadiness"],
+    }
+    return [
+        {
+            **row,
+            **qualification,
+            "descriptiveSampleInsufficient": row.get("insufficient"),
+        }
+        for row in rows
+    ]
+
+
 def _missing_capabilities(
     manifests: Sequence[dict[str, Any]],
     rows: Sequence[dict[str, Any]],
@@ -1795,6 +1871,15 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
     mutation_rollup = optimizer_update_rollup(mutation_rows)
     failures = _conservation_failures(transitions)
     conservation_coverage = _conservation_coverage(transitions)
+    cohort_status = _cohort_status(manifests, transitions)
+    domains = _qualify_summary_rows(domains, cohort_status)
+    mutation_rollup = _qualify_summary_rows(mutation_rollup, cohort_status)
+    conservation_coverage = _qualify_summary_rows(conservation_coverage, cohort_status)
+    calibration = _qualify_summary_rows(calibration, cohort_status)
+    alignment = _qualify_summary_rows(alignment, cohort_status)
+    forks = _qualify_summary_rows(forks, cohort_status)
+    contrasts = _qualify_summary_rows(contrasts, cohort_status)
+    latency = _qualify_summary_rows(latency, cohort_status)
 
     (destination / "field_dictionary.json").write_text(
         json.dumps(dictionary, sort_keys=True, indent=2, allow_nan=False) + "\n", encoding="utf-8"
@@ -1902,7 +1987,7 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
         ),
         "conservationFailures": failures,
         "conservationCoverage": conservation_coverage,
-        "cohortStatus": _cohort_status(manifests, transitions),
+        "cohortStatus": cohort_status,
         "missingCapabilities": _missing_capabilities(
             manifests, transitions, calibration, forks, contrasts, latency, mutation_rows
         ),

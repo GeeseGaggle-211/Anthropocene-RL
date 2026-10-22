@@ -33,6 +33,7 @@ def transition(seed: int = 70, arm: str = "base", world: int = 2000, turn: int =
     active_mask = {name: [False] * width for name, width in head_widths.items()}
     active_mask["strategic"][0] = True
     available_mask = {name: list(values) for name, values in active_mask.items()}
+    policy_active_mask = {name: [True] * width for name, width in head_widths.items()}
     economic = {
         "schemaVersion": 1,
         "transitionId": identity,
@@ -143,6 +144,7 @@ def transition(seed: int = 70, arm: str = "base", world: int = 2000, turn: int =
             "realisedMask": available_mask,
             "activeMask": active_mask,
         },
+        "actorPolicyActiveMask": policy_active_mask,
         "objectives": {
             "welfare": {
                 "reward": 10.0 + candidate_bonus,
@@ -213,7 +215,12 @@ def update_pair(rows: list[dict]) -> list[dict]:
 
 
 def write_artifact(
-    root: Path, rows: list[dict], *, baseline: str = "base", updates: list[dict] | None = None
+    root: Path,
+    rows: list[dict],
+    *,
+    baseline: str = "base",
+    updates: list[dict] | None = None,
+    local_nonqualifying: bool = False,
 ) -> None:
     root.mkdir(parents=True)
     manifest = {
@@ -227,6 +234,21 @@ def write_artifact(
         },
         "tradeCreditMaxLag": 1,
     }
+    if local_nonqualifying:
+        manifest.update(
+            {
+                "nonqualifying": True,
+                "executionAuthority": {
+                    "nonqualifying": True,
+                    "execution": {
+                        "tier": "local",
+                        "purpose": "validation-and-stability-only",
+                        "selects_arm": False,
+                        "readiness_bearing": False,
+                    },
+                },
+            }
+        )
     (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     transition_bytes = b"".join(diagnostics.canonical_bytes(row) + b"\n" for row in rows)
     (root / "transitions.jsonl").write_bytes(transition_bytes)
@@ -290,6 +312,10 @@ def test_complete_trace_writes_deterministic_physical_and_critic_reports(tmp_pat
     )
     assert float(field["nativeDemandToActorCappedRequestRatioOfSumsLoss"]) == pytest.approx(0.2)
     assert float(field["actorCappedRequestToCompilerGrantRatioOfSumsLoss"]) == pytest.approx(0.25)
+    assert field["cohortClassification"] == "other"
+    assert "supportsArmSelection" in field
+    assert "supportsReadiness" in field
+    assert "descriptiveSampleInsufficient" in field
     cultivation_slices = {
         row["slice"]
         for row in domains
@@ -356,6 +382,8 @@ def test_action_alignment_filters_inactive_heads_and_treats_routes_as_categories
         row = transition(turn=index + 1)
         category = index % 2
         row["sampledAction"]["clothingRoute"] = category
+        row["sampledAction"]["movement"] = -2
+        row["actorPolicyActiveMask"]["movement"] = False
         diagnostic = row["actionDiagnostics"]
         diagnostic["activeMask"]["clothingRoute"] = True
         for phase in ("requestedMask", "acceptedMask", "realisedMask"):
@@ -386,6 +414,40 @@ def test_action_alignment_filters_inactive_heads_and_treats_routes_as_categories
     assert all(row["associationMethod"] == "category-mean-difference" for row in routes)
     assert all(row["pearson"] is None for row in routes)
     assert {row["meanDifference"] for row in routes} == {-1.0, 1.0}
+    movement = next(
+        row
+        for row in alignment
+        if row["head"] == "movement"
+        and row["relationship"] == "descriptive_action_to_final_policy_advantage"
+    )
+    assert movement["count"] == 0
+    assert movement["policyInactiveRowsExcluded"] == 6
+    assert movement["simulatorInactiveRowsExcluded"] == 0
+
+
+def test_local_cohort_boundary_is_carried_by_standalone_summary_csvs(tmp_path: Path) -> None:
+    artifact = tmp_path / "trace"
+    write_artifact(
+        artifact,
+        [transition(turn=1), transition(turn=2)],
+        local_nonqualifying=True,
+    )
+    output = tmp_path / "report"
+    report = diagnostics.aggregate_trace_directories([artifact], output)
+
+    assert report["cohortStatus"]["classification"] == "nonqualifying-local-stability"
+    for name in (
+        "domain_summary.csv",
+        "conservation_coverage.csv",
+        "critic_calibration.csv",
+        "action_alignment.csv",
+        "trade_credit_latency.csv",
+    ):
+        rows = read_csv(output / name)
+        assert rows, name
+        assert all(row["cohortClassification"] == "nonqualifying-local-stability" for row in rows)
+        assert all(row["supportsArmSelection"] == "False" for row in rows)
+        assert all(row["supportsReadiness"] == "False" for row in rows)
 
 
 def test_optimizer_boundaries_join_to_exact_preupdate_rows(tmp_path: Path) -> None:
