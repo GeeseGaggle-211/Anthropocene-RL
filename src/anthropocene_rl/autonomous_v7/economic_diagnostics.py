@@ -276,13 +276,17 @@ def _validate_action_diagnostics(row: dict[str, Any]) -> None:
         if not isinstance(values, dict):
             raise ValueError(f"action diagnostic missing {phase}")
         for head, width in ACTION_HEAD_WIDTHS.items():
-            vector = values.get(head)
-            if not isinstance(vector, list) or len(vector) != width:
+            if head not in values:
+                raise ValueError(f"action diagnostic missing {phase}/{head}")
+            raw_vector = values.get(head)
+            vector = raw_vector if isinstance(raw_vector, list) else [raw_vector]
+            if len(vector) != width:
                 raise ValueError(f"action diagnostic {phase}/{head} layout mismatch")
             if phase.endswith("Mask") and any(not isinstance(value, bool) for value in vector):
                 raise ValueError(f"action diagnostic {phase}/{head} must be boolean")
             if not phase.endswith("Mask"):
-                mask = diagnostic.get(f"{phase}Mask", {}).get(head, [])
+                raw_mask = diagnostic.get(f"{phase}Mask", {}).get(head, [])
+                mask = raw_mask if isinstance(raw_mask, list) else [raw_mask]
                 for index, value in enumerate(vector):
                     if index < len(mask) and mask[index] and _number(value) is None:
                         raise ValueError(
@@ -1256,7 +1260,7 @@ def _action_component(container: Any, head: str) -> Any:
     name, raw_index = match.groups()
     vector = container.get(name)
     if not isinstance(vector, list):
-        return None
+        vector = [vector]
     index = int(raw_index) if raw_index is not None else 0
     return vector[index] if 0 <= index < len(vector) else None
 

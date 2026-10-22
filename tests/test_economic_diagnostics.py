@@ -357,12 +357,13 @@ def test_action_alignment_filters_inactive_heads_and_treats_routes_as_categories
         category = index % 2
         row["sampledAction"]["clothingRoute"] = category
         diagnostic = row["actionDiagnostics"]
-        diagnostic["activeMask"]["clothingRoute"][0] = True
+        diagnostic["activeMask"]["clothingRoute"] = True
         for phase in ("requestedMask", "acceptedMask", "realisedMask"):
-            diagnostic[phase]["clothingRoute"][0] = True
+            diagnostic[phase]["clothingRoute"] = True
         for phase in ("requested", "accepted", "realised"):
-            diagnostic[phase]["clothingRoute"][0] = category
+            diagnostic[phase]["clothingRoute"] = category
         row["finalPolicyAdvantage"] = -1.0 if category == 0 else 1.0
+        diagnostics.validate_transition(row)
         rows.append(row)
     rows[0]["actionDiagnostics"]["activeMask"]["strategic"][0] = False
 
