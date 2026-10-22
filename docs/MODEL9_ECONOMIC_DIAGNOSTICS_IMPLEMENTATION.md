@@ -120,17 +120,27 @@ The focused real-bridge replay and the broader autonomous-v7 regression set
 pass from the clean simulator commit.
 
 A non-qualifying local prospective cohort was first run from learner commit
-`61180a4`, then repeated with the same identities after the active-head report
-repair at learner commit `7a2915c`; both used simulator commit `e5fb626`, exactly
+`61180a4`, repeated after the active-head report repair at `7a2915c`, and
+regenerated from `d6308b4` after adding the actor policy/stage activity mask.
+Every pass used simulator commit `e5fb626` and the same identities: exactly
 optimizer seeds 90, 91 and 92, one diagnostic arm, world seed 1000 and ten
-turns. The corrected cohort produced 344 decision rows, 25 update rows and 11
-joined mutations. There were zero non-zero values among 1,032 available
-conservation checks, while 1,376 food/material/goods/field residual values were
-explicitly unavailable. This cohort validates stability, integrity and report
-generation only: it has one arm and one world seed, initializes new vector-
-critic heads from a legacy scalar checkpoint, and cannot select an arm, tune a
-treatment or establish readiness. Its critic calibration is therefore an
-instrumentation exercise, not evidence about the historical T3 optimizer.
+turns. The final cohort produced 344 decision rows, 25 update rows and 11 joined
+mutations. All 344 observe-only native-movement rows are now reported as
+policy-inactive, with zero missing policy masks; the 11 commitment-hold rows
+exclude their re-emitted capital controls. There were zero non-zero values among
+1,032 available conservation checks, while 1,376 food/material/goods/field
+residual values were explicitly unavailable. This cohort validates stability,
+integrity and report generation only: it has one arm and one world seed,
+initializes new vector-critic heads from a legacy scalar checkpoint, and cannot
+select an arm, tune a treatment or establish readiness. Its critic calibration
+is therefore an instrumentation exercise, not evidence about the historical T3
+optimizer.
+
+Astra High independently approved the final policy-mask and standalone-cohort
+reporting semantics with no blocking defect. It retained a HOLD on critic-head
+removal, personality-attention redesign and Round 4 because independent-return,
+matched-fork, trade-latency, conservation-completion and performance evidence is
+still missing.
 
 The approved throughput/RSS benchmark gates have not been measured; this build
 does not establish VM collection readiness. No VM was started and no training
