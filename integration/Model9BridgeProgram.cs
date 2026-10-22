@@ -83,6 +83,15 @@ namespace Anthropocene.RLBridge
                     // "SettlingGraceOnce=false;PlantTentsEnabled=true"): public SimulationConfig/NeolithicConfig fields by
                     // name, set by reflection so the bridge still builds against simulators without them.
                     string rules = Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_RULES");
+                    // Measurement-only static switches (ANTHROPOCENE_SIM_STATICS, e.g. "NeolithicProduction.SiteTenureRepointDiagnosticOff=true").
+                    foreach (var item in (Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_STATICS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var kv = item.Split('=', 2); int dot = kv[0].LastIndexOf('.');
+                        var type = typeof(SimulationConfig).Assembly.GetType("Anthropocene.Simulation." + kv[0].Substring(0, dot).Trim());
+                        var field = type?.GetField(kv[0].Substring(dot + 1).Trim(), System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                        if (field == null) throw new InvalidOperationException("Unknown simulator static " + kv[0]);
+                        field.SetValue(null, Convert.ChangeType(kv[1].Trim(), field.FieldType, System.Globalization.CultureInfo.InvariantCulture));
+                    }
                     if (width > 0 || height > 0 || separation > 0 || !string.IsNullOrWhiteSpace(rules))
                         ElderModel9Environment.ConfigOverride = c =>
                         {
