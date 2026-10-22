@@ -83,6 +83,8 @@ namespace Anthropocene.RLBridge
                     // "SettlingGraceOnce=false;PlantTentsEnabled=true"): public SimulationConfig/NeolithicConfig fields by
                     // name, set by reflection so the bridge still builds against simulators without them.
                     string rules = Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_RULES");
+                    if (Environment.GetEnvironmentVariable("ANTHROPOCENE_FISSION_DIAG") == "1")
+                    { Fission.Diagnostic = new Dictionary<int, Fission.Diag>(); Fission.CounterfactualDiagnostic = new Dictionary<int, Fission.Diag>(); }
                     // Measurement-only static switches (ANTHROPOCENE_SIM_STATICS, e.g. "NeolithicProduction.SiteTenureRepointDiagnosticOff=true").
                     foreach (var item in (Environment.GetEnvironmentVariable("ANTHROPOCENE_SIM_STATICS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries))
                     {
@@ -299,8 +301,16 @@ namespace Anthropocene.RLBridge
             }).ToArray();
             var fissions = last?.Fissions?.Select(f => new { parent = f.ParentCamp, daughter = f.DaughterCamp, parentSociety = f.ParentSociety,
                 daughterSociety = f.DaughterSociety, tile = f.Tile, people = f.Daughter, trigger = f.Trigger.ToString() }).ToArray();
+            // Measurement only (ANTHROPOCENE_FISSION_DIAG=1): last resolution's fission evaluations, actual and with the
+            // settled expectation forced to 1; cleared once reported.
+            object Rows(Dictionary<int, Fission.Diag> d) => d?.OrderBy(p => p.Key).Select(p => new { camp = p.Key, stage = p.Value.Stage,
+                threshold = p.Value.Threshold, baseline = p.Value.BaselineUtility, mover = p.Value.MoverChange, source = p.Value.SourceChange,
+                aggregate = p.Value.AggregateChange, moverPass = p.Value.MoverPass, sourcePass = p.Value.SourcePass, aggregatePass = p.Value.AggregatePass,
+                daughter = p.Value.Daughter, daughterQoL = p.Value.DaughterQoL, sourceNoMoveQoL = p.Value.SourceNoMoveQoL }).ToArray();
+            var fissionDiag = Rows(Fission.Diagnostic); var fissionCounterfactual = Rows(Fission.CounterfactualDiagnostic);
+            Fission.Diagnostic?.Clear(); Fission.CounterfactualDiagnostic?.Clear();
             return new { turn = w.Turn, days = w.Days, camps, fissions, migrations = last?.Migrations?.Count ?? 0,
-                tiles = extra.Distinct().OrderBy(t => t).Select(t => Footprint(w, t)).ToArray() };
+                tiles = extra.Distinct().OrderBy(t => t).Select(t => Footprint(w, t)).ToArray(), fissionDiag, fissionCounterfactual };
         }
 
         private static void Write(object value)
