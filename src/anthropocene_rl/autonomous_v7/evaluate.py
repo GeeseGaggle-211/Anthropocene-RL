@@ -26,18 +26,60 @@ from .model import Actor, Normalizer, act_deterministic, region_code, to_tensors
 from .upgrade import upgrade
 
 
-def load(checkpoint: Path, region_head: str | None = None) -> tuple[Actor, Normalizer]:
-    state = upgrade(torch.load(checkpoint, map_location="cpu", weights_only=False))
-    actor = Actor(int(state["core_width"]), experts=bool(state.get("experts", False)), token=bool(state.get("token", False)))
+def load(checkpoint: Path, region_head: str | None = None, *, strict: bool = False,
+         resolved_semantics: dict[str, Any] | None = None) -> tuple[Actor, Normalizer]:
+    """Load an ordinary checkpoint, or a Gate-1 checkpoint without any upgrade/default inference.
+
+    The compatibility loader remains available to existing callers.  ``strict`` is a separate diagnostic surface:
+    it uses the weights-only deserializer, requires the current raw contract, and receives every constructor and
+    decoder default from a content-bound resolution record.  It never calls :func:`upgrade`.
+    """
+    raw = torch.load(checkpoint, map_location="cpu", weights_only=strict)
+    if strict:
+        if raw.get("contract") != contracts.NATIVE_CONTRACT:
+            raise ValueError("strict diagnostic evaluation requires the native raw checkpoint contract")
+        required = {"experts", "token", "commitments", "learned_movement", "region_movement",
+                    "learned_fission", "learned_trade", "region_head", "grouped_region", "region_selection"}
+        if not isinstance(resolved_semantics, dict) or set(resolved_semantics) != required:
+            raise ValueError("strict diagnostic evaluation requires complete resolved checkpoint semantics")
+        for key in ("experts", "token", "commitments", "learned_movement", "region_movement",
+                    "learned_fission", "learned_trade"):
+            if key in raw and (type(raw[key]) is not bool or raw[key] != resolved_semantics[key]):
+                raise ValueError("strict diagnostic semantics differ from explicit checkpoint metadata")
+        actor_state = raw.get("actor", raw)
+        if "region_flat" in actor_state:
+            saved_head = "flat" if bool(actor_state["region_flat"]) else "hierarchical"
+            if saved_head != resolved_semantics["region_head"]:
+                raise ValueError("strict diagnostic region head differs from raw checkpoint metadata")
+        state = raw
+        experts, token = resolved_semantics["experts"], resolved_semantics["token"]
+        region_head = resolved_semantics["region_head"]
+    else:
+        state = upgrade(raw)
+        experts, token = bool(state.get("experts", False)), bool(state.get("token", False))
+    actor = Actor(int(state["core_width"]), experts=experts, token=token, region_head=region_head)
+    if strict:
+        expected_keys = set(actor.state_dict())
+        actual_keys = set(actor_state)
+        if actual_keys != expected_keys:
+            missing = sorted(expected_keys - actual_keys)
+            unexpected = sorted(actual_keys - expected_keys)
+            raise ValueError(
+                "strict diagnostic actor requires exact raw tensor keys "
+                f"(missing={missing}, unexpected={unexpected})"
+            )
     from .checkpoint import restore_actor
     restore_actor(actor, state, region_head); actor.eval()
     # Contract 9: a policy trained without commitments decides every turn at evaluation too, whatever span head it
     # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results reproduce.
-    actor.commitments = bool(state.get("commitments", True))
+    actor.commitments = (resolved_semantics["commitments"] if strict else bool(state.get("commitments", True)))
     # Contract 10: a policy trained with learned movement moves over region rows; others keep the contract-8 pointer.
-    actor.region_movement = bool(state.get("region_movement", False))
-    actor.learned_fission = bool(state.get("learned_fission", False))
-    actor.learned_trade = bool(state.get("learned_trade", False))
+    actor.region_movement = (resolved_semantics["region_movement"] if strict else bool(state.get("region_movement", False)))
+    actor.learned_fission = (resolved_semantics["learned_fission"] if strict else bool(state.get("learned_fission", False)))
+    actor.learned_trade = (resolved_semantics["learned_trade"] if strict else bool(state.get("learned_trade", False)))
+    if strict:
+        actor.grouped_region = resolved_semantics["grouped_region"]
+        actor.region_selection = resolved_semantics["region_selection"]
     from .worker_contract import from_state
     actor.worker_contract = from_state(state)
     return actor, Normalizer.from_state(state["normalizer"])
@@ -103,9 +145,13 @@ def producer_identity(bridge):
 
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
-            fission: bool | None = None, trade: bool | None = None, personality: list[float] | None = None,
-            grouped: bool = False, focal: bool = False, expected_producer=None, world_contract=None) -> dict[str, Any]:
-    """``commitments`` and ``region`` (contract-10 learned movement) override the checkpoint's own settings.
+            fission: bool | None = None, trade: bool | None = None,
+            personality: list[float] | dict[int, Any] | None = None,
+            grouped: bool = False, focal: bool = False, expected_producer=None, world_contract=None,
+            strict_checkpoint: bool = False, resolved_semantics: dict[str, Any] | None = None,
+            evaluation_semantics: dict[str, Any] | None = None) -> dict[str, Any]:
+    """``movement`` enables learned rollout movement; ``region`` selects its contract-10 regional decoder.
+    ``commitments`` and ``region`` override the checkpoint's own settings.
     ``grouped``: the hierarchical region choice (model.grouped_region_slot) instead of a plain argmax.
     ``focal`` (with ``personality``): only alternate founding lineages (and their daughters) take ``personality``; the
     others draw Dirichlet(1) personalities, as in training. The focal lineages' outcomes are reported separately.
@@ -114,7 +160,13 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
     torch.set_num_threads(1)
     actor = normalizer = None
     if checkpoint is not None:
-        actor, normalizer = load(Path(checkpoint))
+        if strict_checkpoint:
+            actor, normalizer = load(Path(checkpoint), strict=True, resolved_semantics=resolved_semantics)
+            if evaluation_semantics is not None:
+                actor.set_region_head(evaluation_semantics["region_head"])
+                actor.region_selection = evaluation_semantics["region_selection"]
+        else:
+            actor, normalizer = load(Path(checkpoint))
         if commitments is not None:
             actor.commitments = commitments
         if region is not None:

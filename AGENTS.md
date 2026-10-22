@@ -12,3 +12,9 @@
 
 Current reviewed Round-3 details and seed roles are normative in `docs/MODEL9_ROUND3_BUILD_ARCHITECTURE.md` and
 `docs/MODEL9_M7.md`.
+
+## Diagnostic delegation
+
+- Hand implementation work for this diagnostic and training program to GPT-5.6 Sol with x-high reasoning, not
+  GPT-6 Sol, unless the user explicitly changes that preference.
+- Keep Astra High as the independent architecture and training-gate reviewer.

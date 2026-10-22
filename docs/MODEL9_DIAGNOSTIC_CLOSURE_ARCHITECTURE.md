@@ -1,8 +1,8 @@
 # Model9 diagnostic closure architecture
 
-Status: revised draft for Astra High re-review. No implementation, VM start,
-training launch, checkpoint promotion or model-architecture change is authorized
-by this document.
+Status: Astra High approved for diagnostic-only implementation, 22 October 2026.
+This approval does not authorize a VM start, training launch, checkpoint
+promotion or model-architecture change.
 
 This document closes the four evidence gaps identified after T3. It supplements
 `MODEL9_ECONOMIC_OBSERVABILITY_ARCHITECTURE.md`; that document remains normative
