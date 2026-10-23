@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import json
 import math
+import random
 from pathlib import Path
 
 import numpy as np
@@ -90,9 +91,77 @@ def refresh_gate1_protocols(document: dict, tmp_path: Path, *, inventory: bool =
         )
 
 
+def install_contract8_checkpoint(document: dict, tmp_path: Path, node_id: str,
+                                 *, remove_actor_key: str | None = None) -> None:
+    """Replace one fixture node with a complete reviewed raw contract-8 execution path."""
+    from tests.test_gate1_legacy_contract8 import checkpoint_state
+    node = next(row for row in document["nodes"] if row["id"] == node_id)
+    state = checkpoint_state()
+    if remove_actor_key is not None:
+        state["actor"] = dict(state["actor"])
+        state["actor"].pop(remove_actor_key)
+    state["run_manifest"] = {"worker_contract": torch.load(
+        tmp_path / document["nodes"][0]["artifact"]["path"], weights_only=True,
+    )["run_manifest"]["worker_contract"]}
+    checkpoint = tmp_path / f"{node_id}-contract8.pt"
+    torch.save(state, checkpoint)
+    node["artifact"] = {"path": checkpoint.name, "sha256": checkpoint_hash(checkpoint)}
+    node["raw_schema"], _, _ = gate1.inspect_checkpoint(node["artifact"], tmp_path)
+    legacy_semantics = {"experts": False, "token": False, "commitments": False,
+                        "learned_movement": False, "region_movement": False,
+                        "learned_fission": False, "learned_trade": False,
+                        "region_head": "flat", "grouped_region": False,
+                        "region_selection": None}
+    node["historical_semantics"] = legacy_semantics
+    defaults = {"schema": 1, "kind": "checkpoint_default_resolution",
+                "checkpoint_sha256": node["artifact"]["sha256"], "implicit_defaults": [],
+                "resolved": {key: {"source": "reviewed-contract-8-default", "value": value}
+                             for key, value in legacy_semantics.items()}}
+    default_ref = write(tmp_path / f"{node_id}-contract8-defaults.json", defaults, seal_digest=True)
+    reviewer = write(tmp_path / f"{node_id}-contract8-reviewer.json", {
+        "schema": 1, "kind": "independent_reviewer_identity", "provider": "openai",
+        "model": "astra-high", "version": "2026-10-22",
+    }, seal_digest=True)
+    source_path = gate1.REPOSITORY / "src/anthropocene_rl/autonomous_v7/legacy_contract8.py"
+    source = {"path": str(source_path.resolve()), "sha256": checkpoint_hash(source_path)}
+    protocol = write_reviewed_protocol(tmp_path / f"{node_id}-contract8-adapter.json", {
+        "schema": 1, "kind": "gate1_legacy_adapter_protocol", "source_contract": 8,
+        "historical_source_commit": "2f4cc895e6bcd897200d340851d69be98fd18e00",
+        "source": source,
+        "input_mapping": {"core": "raw-checkpoint-core-width-prefix",
+                          "sets": ["sites", "fishing", "herds", "commodities", "contacts"],
+                          "appended_sets": "excluded-from-contract-8-actor-input"},
+        "decoder_defaults": {"commit": 1, "movement": contracts.NATIVE_MOVEMENT,
+                             "fission": -1, "trade_posture": "native"},
+        "default_resolution": default_ref, "review": None,
+    }, reviewer, ["historical-source", "input-mapping", "decoder", "default-resolution"])
+    migration = write(tmp_path / f"{node_id}-contract8-migration.json", {
+        "schema": 1, "kind": "checkpoint_migration", "status": "reconstructed",
+        "historical_conversion": False, "destination_checkpoint_sha256": node["artifact"]["sha256"],
+        "adapter": protocol,
+    }, seal_digest=True)
+    node["loading"] = {"mode": "reviewed-adapter", "implementation": protocol,
+                       "default_resolution": default_ref, "migration_record": migration}
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+
+
 def raw_checkpoint(path: Path, worker: dict, value=1.0, contract=contracts.NATIVE_CONTRACT) -> dict:
-    state = {"contract": contract, "core_width": 4, "actor": {"weight": torch.tensor([value])},
-             "normalizer": {"core_mean": [0.0], "core_std": [1.0]},
+    from anthropocene_rl.autonomous_v7.model import Actor
+    with torch.random.fork_rng():
+        torch.manual_seed(1)
+        expected = Actor(4, experts=False, token=False, region_head="hierarchical").state_dict()
+    pools = {dtype: torch.zeros(1, dtype=dtype) for dtype in {row.dtype for row in expected.values()}}
+    actor = {name: (pools[reference.dtype].expand(reference.shape)
+                    if reference.ndim else pools[reference.dtype].reshape(()))
+             for name, reference in expected.items()}
+    actor["strategic.bias"] = torch.full_like(expected["strategic.bias"], value)
+    normalizer = {"core_mean": [0.0] * 4, "core_std": [1.0] * 4}
+    for name, _, width in contracts.SETS:
+        normalizer[name + "_mean"] = [0.0] * width
+        normalizer[name + "_std"] = [1.0] * width
+    state = {"contract": contract, "core_width": 4, "actor": actor,
+             "normalizer": normalizer,
              "run_manifest": {"worker_contract": worker}}
     torch.save(state, path)
     return {"path": path.name, "sha256": checkpoint_hash(path)}
@@ -106,8 +175,9 @@ def fixture(tmp_path: Path) -> tuple[dict, dict]:
                    "feature_flags": {"SimulationConfig.ElderRawMaterialsEnabled": False},
                    "configuration": {"sha256": "4" * 64, "players": 8}})
     worker_ref = write(tmp_path / "worker.json", {"schema": 1, "kind": "worker_contract", "contract": worker})
+    from anthropocene_rl.autonomous_v7.gate1_diagnostics import service_outcome_registry
     service_ref = write(tmp_path / "services.json", {"schema": 1, "kind": "service_outcome_schema",
-                                                      "fields": [{"name": "food", "unit": "service-units"}]},
+                                                      "fields": service_outcome_registry()},
                         seal_digest=True)
     common_ref = write(tmp_path / "evidence.json", {"schema": 1, "kind": "fixture_evidence"})
     reviewer_ref = write(tmp_path / "reviewer.json", {
@@ -182,7 +252,8 @@ def fixture(tmp_path: Path) -> tuple[dict, dict]:
     claim = {"kind": "exact_tensor_preservation", "source_schema": raw[0], "destination_schema": raw[1],
              "numeric_runtime": {"framework": "torch", "version": torch.__version__, "device": "cpu",
                                  "dtype": "float32", "determinism": "bitwise tensor compare"},
-             "mapped_tensors": [{"source": "actor.weight", "destination": "actor.weight"}],
+             "mapped_tensors": [{"source": "actor.strategic.bias",
+                                 "destination": "actor.strategic.bias"}],
              "mapped_outputs": [], "appended_outputs": [], "action_decoder": {"kind": "unchanged"},
              "active_heads": ["actor"], "delegated_heads": [], "normalizer_mapping": {"kind": "identity"},
              "tolerances": {"absolute": 0, "relative": 0}, "corpus": corpus_ref}
@@ -190,7 +261,11 @@ def fixture(tmp_path: Path) -> tuple[dict, dict]:
     pane = {"id": "historical", "kind": "historical-semantics",
             "nodes": ["prior", "clone", *trained_ids],
             "worlds": [{"family": "evaluation", "seed": 4000, "withheld": 0, "warmup": 0, "horizon": 2,
-                        "snapshot": None}], "action_mode": "deterministic",
+                        "reset_turn": 1, "snapshot": None}], "action_mode": "deterministic",
+            "observation_core_width": 4,
+            "capture_bounds": {"max_steps": 2, "max_villages_per_boundary": 64,
+                               "max_economic_rows_per_step": 64,
+                               "max_canonical_bytes": 4 * 1024 * 1024},
             "metrics": ["welfare", "ending_residents"],
             "background_policy": {**gate1.CURRENT_BACKGROUND_POLICY,
                                   "digest": digest(gate1.CURRENT_BACKGROUND_POLICY)},
@@ -359,33 +434,244 @@ def verification_ref(tmp_path: Path, document: dict, *, commit: str | None = Non
     return write(tmp_path / "verification.json", evidence, seal_digest=True)
 
 
+def mandatory_values(*, welfare: float = 1.0, service: float | None = 1.0) -> dict:
+    from anthropocene_rl.autonomous_v7.gate1_diagnostics import service_outcome_registry
+    return {"welfare": welfare, "population_years": 2.0, "ending_residents": 2,
+            "qol_years": 1.5, "trade_utility": 0.0, "extinctions": 0, "settlements": 1,
+            "service_outcomes": {field["name"]: {"value": service,
+                                                   "availability_reason": (None if service is not None else "not observed")}
+                                 for field in service_outcome_registry()},
+            "compiler_interventions": 0, "trajectory_digest": "8" * 64}
+
+
+def policy_observation(core_width: int = 4) -> dict:
+    return {
+        "core": [0.0] * core_width,
+        "corePresent": [True] * core_width,
+        "sets": [[0.0] * (rows * width) for _, rows, width in contracts.SETS],
+        "rowPresent": [[False] * rows for _, rows, _ in contracts.SETS],
+        "movementMask": [True] * contracts.MOVEMENT_SLOTS,
+        "regionMovementMask": [True] * contracts.REGION_MOVEMENT_SLOTS,
+        "clothingRouteMask": [True, True],
+        "shelterRouteMask": [True, True],
+        "economyMixMask": [True] * len(contracts.ECONOMY_MIX),
+        "commitHoldMask": True,
+    }
+
+
+def policy_action(semantics: dict) -> dict:
+    movement = contracts.NATIVE_MOVEMENT
+    if semantics["learned_movement"]:
+        movement = (contracts.REGION_BASE
+                    if semantics["region_movement"] else 0)
+    action = {
+        "strategic": [0.5] * len(contracts.STRATEGIC),
+        "service": [0.5] * len(contracts.SERVICES),
+        "clothingRoute": 0,
+        "shelterRoute": 0,
+        "movement": movement,
+        "fission": (0 if semantics["learned_fission"] else -1),
+        "commit": (contracts.SPAN_SINGLE if not semantics["commitments"] else 1),
+    }
+    if semantics["learned_trade"]:
+        action.update({"tradeValue": [1.0] * len(contracts.TRADE_GROUPS),
+                       "tradeGate": [0] * len(contracts.TRADE_GROUPS),
+                       "tradeShare": 0.0})
+    return action
+
+
+def diagnostic_result(world: dict, world_id: str, horizon: int, bounds: dict, values: dict,
+                      *, action_mode: str = "deterministic", rng_steps: list[dict] | None = None,
+                      semantics: dict | None = None, observation_core_width: int = 4,
+                      decoder: str = "native-contract-12") -> dict:
+    from anthropocene_rl.autonomous_v7 import gate1_diagnostics as diagnostic
+    from tests.test_gate1_diagnostics import decoder_receipt
+    complete_values = mandatory_values()
+    complete_values.update(copy.deepcopy(values))
+    values = complete_values
+    semantics = copy.deepcopy(semantics or SEMANTICS)
+    reset_fingerprint = digest({"world": world_id, "reset": True})
+    warmup_chain = []
+    chain_fingerprint = reset_fingerprint
+    chain_turn = world["reset_turn"]
+    for warmup_index in range(world["warmup"]):
+        successor_fingerprint = digest({"world": world_id, "warmup": warmup_index})
+        warmup_chain.append({"index": warmup_index, "source_turn": chain_turn,
+                             "source_fingerprint": chain_fingerprint,
+                             "successor_turn": chain_turn + 1,
+                             "successor_fingerprint": successor_fingerprint,
+                             "trajectory_id": reset_fingerprint})
+        chain_turn += 1
+        chain_fingerprint = successor_fingerprint
+    opening_fingerprint = chain_fingerprint
+    population = int(values["ending_residents"])
+    opening_village = {"camp": 1, "society": 1, "parentSociety": 0,
+                       "priorPopulation": population, "population": population,
+                       "qol": values["qol_years"] / horizon, "years": 1.0,
+                       "welfare": 0.0, "tradeUtility": 0.0, "terminated": False,
+                       "founded": False, "observation": policy_observation(observation_core_width)}
+    opening_village["observation_sha256"] = digest(opening_village["observation"])
+    opening = {"turn": chain_turn, "fingerprint": opening_fingerprint,
+               "villages": [opening_village]}
+    prior = opening
+    steps = []
+    service = next(iter(values["service_outcomes"].values()))["value"]
+    numeric_service = 0.0 if service is None else float(service)
+    for index in range(horizon):
+        successor_village = copy.deepcopy(opening_village)
+        successor_village.update({
+            "priorPopulation": population, "welfare": values["welfare"] / horizon,
+            "tradeUtility": values["trade_utility"] / horizon,
+            "qol": values["qol_years"] / horizon, "years": 1.0,
+        })
+        successor = {"turn": prior["turn"] + 1,
+                     "fingerprint": digest({"world": world_id, "successor": index}),
+                     "villages": [successor_village]}
+        trade = {"settledTrades": (int(numeric_service) if index == horizon - 1 else 0),
+                 "realisedUtility": values["trade_utility"] / horizon}
+        for good in diagnostic.TRADE_GOODS:
+            trade["imported" + good] = numeric_service / horizon
+            trade["exported" + good] = numeric_service / horizon
+        unavailable = {}
+        cultivation = numeric_service / horizon
+        if service is None:
+            cultivation = None
+            unavailable["domains.cultivation.foodDelivered"] = "not observed"
+        economic = {
+            "schemaVersion": 1,
+            "transitionId": f"{opening_fingerprint}/{prior['turn']}/1",
+            "trajectoryId": reset_fingerprint, "decisionTurn": prior["turn"],
+            "campId": 1, "societyId": 1, "years": 1.0,
+            "domains": {
+                "population": {
+                    "personYears": values["population_years"] / horizon,
+                    "qol": values["qol_years"] / horizon,
+                    "openingResidents": population, "openingParties": 0,
+                    "openingLinked": population, "reportStartingLinked": population,
+                    "reportEndingLinked": population,
+                    "afterReintegrationResidents": population,
+                    "afterReintegrationParties": 0,
+                    "splitOff": 0, "emigrated": 0, "immigrated": 0,
+                    "endingResidents": population, "endingParties": 0,
+                    "endingLinked": population,
+                },
+                "cultivation": {"foodDelivered": cultivation, "funnels": []},
+                "herding": {"acceptedFood": numeric_service / horizon, "funnels": []},
+                "manufacturing": {"funnels": []}, "trade": trade,
+            },
+            "units": diagnostic.economic_unit_registry(),
+            "unavailable": unavailable,
+            "herds": [{"herdId": 1, "slaughterFood": numeric_service / horizon}],
+            "goods": [{"good": good, "unit": "good-units",
+                       "output": numeric_service / horizon} for good in diagnostic.CRAFT_GOODS],
+            "materials": [{"material": material, "unit": "material-units",
+                           "received": numeric_service / horizon}
+                          for material in diagnostic.MATERIALS],
+            "requests": [], "trades": [], "transfers": [], "fields": [],
+            "conservation": {}, "parentTransitionId": None, "forkId": None, "branchId": None,
+        }
+        action = policy_action(semantics)
+        receipt = decoder_receipt(
+            action, opening_village["observation"], semantics,
+            mode=action_mode, decoder=decoder,
+        )
+        rng_receipt = (diagnostic.recompute_rng_receipt(rng_steps[index], 1)
+                       if action_mode == "seeded-stochastic" else None)
+        steps.append({
+            "index": index,
+            "transition_id": digest({"index": index, "source_turn": prior["turn"],
+                                     "source_fingerprint": prior["fingerprint"],
+                                     "successor_turn": successor["turn"],
+                                     "successor_fingerprint": successor["fingerprint"]}),
+            "source_turn": prior["turn"], "source_fingerprint": prior["fingerprint"],
+            "actions": [{"camp": 1, "action_request": action, "decoded_action": action,
+                         "decoder_receipt": receipt}],
+            "policy_rng_receipt": rng_receipt, "successor": successor,
+            "terminal": {"terminated": False, "truncated": index == horizon - 1,
+                         "reason": "evaluation-horizon" if index == horizon - 1 else "continuing"},
+            "economic": [economic],
+        })
+        prior = successor
+    evidence = diagnostic.trajectory_evidence(
+        opening, steps, bounds, world_id=world_id, snapshot_sha256=world["snapshot_sha256"],
+        reset_turn=world["reset_turn"], reset_fingerprint=reset_fingerprint,
+        warmup_chain=warmup_chain,
+    )
+    derived = diagnostic.validate_trajectory_evidence(
+        evidence, world_id=world_id, snapshot_sha256=world["snapshot_sha256"],
+        horizon=horizon, bounds=bounds, action_mode=action_mode,
+        rng_steps=rng_steps, service_fields=diagnostic.service_outcome_registry(),
+        expected_opening_turn=world["reset_turn"] + world["warmup"],
+        expected_reset_turn=world["reset_turn"],
+        observation_core_width=observation_core_width, policy_semantics=semantics,
+        expected_decoder=decoder,
+    )
+    return {**derived, "population": derived["ending_residents"],
+            "trajectory_evidence": evidence,
+            "snapshot_sha256": world["snapshot_sha256"], "action_mode": action_mode}
+
+
 def evaluation_report(document: dict, tmp_path: Path, node: str, worker: dict) -> dict:
+    pane = next(row for row in document["evaluation"]["panes"] if row["id"] == "historical")
+    frozen = pane["worlds"][0]
+    world_id = gate1._world_id(frozen)
+    node_record = next(row for row in document["nodes"] if row["id"] == node)
+    decoder = ("pinned-contract-8" if node_record["loading"]["mode"] == "reviewed-adapter"
+               else "native-contract-12")
+
     def runner(*args, **kwargs):
-        return {"welfare": 1.0, "population": 2, "trade_utility": 0.0,
-                "extinctions": 0, "settlements": 1, "worker_contract": worker,
-                "world_contract": args[14], "producer": gate1._producer_identity_for_worker(worker)}
+        result = diagnostic_result(
+            gate1._frozen_world_record(frozen), world_id, frozen["horizon"],
+            pane["capture_bounds"], mandatory_values(), action_mode=pane["action_mode"],
+            rng_steps=kwargs.get("policy_rng_steps"), semantics=kwargs["evaluation_semantics"],
+            observation_core_width=pane["observation_core_width"],
+            decoder=decoder,
+        )
+        return {**result, "worker_contract": worker, "world_contract": args[14],
+                "producer": gate1._producer_identity_for_worker(worker)}
 
     return gate1.evaluate_node(document, tmp_path, node, "historical", runner)
 
 
-def mandatory_values(*, welfare: float = 1.0, service: float | None = 1.0) -> dict:
-    return {"welfare": welfare, "population_years": 2.0, "ending_residents": 2,
-            "qol_years": 1.5, "trade_utility": 0.0, "extinctions": 0, "settlements": 1,
-            "service_outcomes": {"food": {"value": service,
-                                             "availability_reason": (None if service is not None else "not observed")}},
-            "compiler_interventions": 0, "trajectory_digest": "8" * 64}
-
-
-def manual_report(document: dict, node_id: str, pane_id: str, worker: dict, values: dict) -> dict:
+def manual_report(document: dict, node_id: str, pane_id: str, worker: dict, values: dict,
+                  *, base: Path | None = None) -> dict:
     node = next(row for row in document["nodes"] if row["id"] == node_id)
     pane = next(row for row in document["evaluation"]["panes"] if row["id"] == pane_id)
     semantics = dict(node["historical_semantics"])
     if pane["kind"] == "standardized-flags-intervention":
         semantics.update(pane["standardized_overrides"])
     rows = []
+    decoder = ("pinned-contract-8" if node["loading"]["mode"] == "reviewed-adapter"
+               else "native-contract-12")
     for world in pane["worlds"]:
+        rng_steps = None
+        if pane["action_mode"] == "seeded-stochastic":
+            if base is None:
+                raise AssertionError("seeded-stochastic fixture needs its artifact base")
+            schedule, _ = gate1._read_json_ref(
+                pane["policy_rng_schedule"], base, kind="gate1_policy_rng_schedule",
+            )
+            from anthropocene_rl.autonomous_v7.gate1_diagnostics import (
+                draw_order_from_semantics, validate_rng_schedule,
+            )
+            rng_steps = validate_rng_schedule(
+                schedule, gate1._world_id(world), world["horizon"], node_id=node_id,
+                expected_draw_order=draw_order_from_semantics(semantics),
+            )
+        result = diagnostic_result(
+            gate1._frozen_world_record(world), gate1._world_id(world), world["horizon"],
+            pane["capture_bounds"], values, action_mode=pane["action_mode"], rng_steps=rng_steps,
+            semantics=semantics, observation_core_width=pane["observation_core_width"],
+            decoder=decoder,
+        )
+        row_values = {metric: result[metric] for metric in pane["metrics"]}
         rows.append({"world_id": gate1._world_id(world), "world": gate1._frozen_world_record(world),
-                     "metrics": copy.deepcopy(values),
+                     "metrics": row_values,
+                     "compiler_intervention_summary": result["compiler_intervention_summary"],
+                     "trajectory_evidence": result["trajectory_evidence"],
+                     "policy_rng_receipts": result["policy_rng_receipts"],
+                     "evaluation_steps": result["evaluation_steps"],
+                     "capture_receipt": result["capture_receipt"],
                      "producer": gate1._producer_identity_for_worker(worker),
                      "worker_contract": worker,
                      "world_contract": gate1._expected_world_descriptor(world, semantics)})
@@ -397,9 +683,149 @@ def manual_report(document: dict, node_id: str, pane_id: str, worker: dict, valu
               "service_outcome_schema": pane["service_outcome_schema"],
               "inference_implementation": node["inference_implementation"],
               "evaluation_implementation": pane["evaluation_implementation"],
-              "execution": pane["execution"], "rows": rows}
+              "loading_protocol": node["loading"].get("implementation"),
+              "execution": pane["execution"], "action_mode": pane["action_mode"],
+              "policy_rng_schedule": pane.get("policy_rng_schedule"),
+              "capture_bounds": pane["capture_bounds"], "rows": rows}
+    report["observation_core_width"] = pane["observation_core_width"]
     report["digest"] = digest(report)
     return report
+
+
+def reseal_trajectory_report(report: dict) -> None:
+    """Reseal a deliberately forged imported report without repairing its semantics."""
+    from anthropocene_rl.autonomous_v7 import gate1_diagnostics as diagnostic
+    for row in report["rows"]:
+        evidence = row["trajectory_evidence"]
+        evidence["capture_receipt"] = diagnostic._capture_receipt(
+            evidence["reset"], evidence["opening"], evidence["steps"],
+        )
+        evidence["digest"] = digest({key: value for key, value in evidence.items()
+                                     if key != "digest"})
+        if "trajectory_digest" in row["metrics"]:
+            row["metrics"]["trajectory_digest"] = evidence["digest"]
+    report["digest"] = digest({key: value for key, value in report.items() if key != "digest"})
+
+
+def apply_trajectory_attack(report: dict, attack: str) -> None:
+    """Apply one Astra-reproduced raw-evidence or asserted-outcome attack."""
+    row = report["rows"][0]
+    evidence = row["trajectory_evidence"]
+    steps = evidence["steps"]
+    if attack == "empty":
+        steps.clear()
+    elif attack == "incomplete":
+        steps[0].pop("actions")
+    elif attack == "duplicate":
+        steps[1]["transition_id"] = steps[0]["transition_id"]
+    elif attack == "short":
+        del steps[1:]
+        steps[0]["terminal"] = {"terminated": False, "truncated": False,
+                                "reason": "continuing"}
+    elif attack == "missing-terminal-reason":
+        steps[-1]["terminal"]["reason"] = ""
+    elif attack == "fabricated-headlines":
+        for name in ("welfare", "ending_residents", "trade_utility", "extinctions", "settlements"):
+            row["metrics"][name] = 999999
+    elif attack == "wrong-unit":
+        steps[0]["economic"][0]["goods"][0]["unit"] = "kilograms"
+    elif attack == "negative-output":
+        steps[0]["economic"][0]["goods"][0]["output"] = -5.0
+    elif attack == "fractional-trade-count":
+        steps[0]["economic"][0]["domains"]["trade"]["settledTrades"] = 0.25
+    elif attack == "missing-herds":
+        steps[0]["economic"][0].pop("herds")
+    elif attack == "successor-prior-suppression":
+        steps[0]["successor"]["villages"][0]["priorPopulation"] = 0
+        steps[0]["economic"].clear()
+    elif attack == "false-terminal":
+        del steps[1:]
+        steps[0]["terminal"] = {"terminated": True, "truncated": False,
+                                "reason": "all-villages-terminated"}
+    elif attack == "opening-turn-mismatch":
+        evidence["opening"]["turn"] = 17
+    elif attack == "null-actions":
+        steps[0]["actions"][0]["action_request"] = None
+        steps[0]["actions"][0]["decoded_action"] = None
+    elif attack == "empty-observation":
+        evidence["opening"]["villages"][0]["observation"] = {}
+        evidence["opening"]["villages"][0]["observation_sha256"] = digest({})
+    elif attack == "wrong-society-id":
+        steps[0]["economic"][0]["societyId"] = 999999
+    elif attack == "wrong-trade-unit":
+        steps[0]["economic"][0]["units"]["domains.trade.realisedUtility"] = "bananas"
+    elif attack == "missing-units":
+        steps[0]["economic"][0]["units"] = {}
+    elif attack == "extra-unit":
+        steps[0]["economic"][0]["units"]["domains.trade.unregistered"] = "qol"
+    elif attack == "wrong-reset-trajectory-id":
+        evidence["reset"]["trajectory_id"] = "f" * 64
+    elif attack == "broken-opening-chain":
+        evidence["reset"]["warmup_chain"] = [{
+            "index": 0, "source_turn": evidence["reset"]["turn"],
+            "source_fingerprint": evidence["reset"]["fingerprint"],
+            "successor_turn": evidence["reset"]["turn"] + 1,
+            "successor_fingerprint": "e" * 64,
+            "trajectory_id": evidence["reset"]["trajectory_id"],
+        }]
+    elif attack in {"invented-founder", "mismatched-founder-witness"}:
+        parent = steps[0]["successor"]["villages"][0]
+        daughter = copy.deepcopy(parent)
+        daughter.update(camp=2, society=2, parentSociety=1, priorPopulation=0,
+                        population=(999999 if attack == "invented-founder" else 1),
+                        years=0.0, welfare=0.0, tradeUtility=0.0,
+                        founded=True)
+        steps[0]["successor"]["villages"].append(daughter)
+        if attack == "mismatched-founder-witness":
+            population = steps[0]["economic"][0]["domains"]["population"]
+            population["splitOff"] = 2
+            steps[0]["economic"][0]["transfers"].append({
+                "kind": "fission", "phase": "close-after-demography",
+                "sourceCamp": 1, "destinationCamp": 2, "people": 2, "animals": 0,
+            })
+    elif attack == "reflag-existing-founder":
+        steps[0]["successor"]["villages"][0]["founded"] = True
+    elif attack == "illegal-clothing-route":
+        observation = evidence["opening"]["villages"][0]["observation"]
+        observation["clothingRouteMask"] = [False, True]
+        evidence["opening"]["villages"][0]["observation_sha256"] = digest(observation)
+    elif attack == "fabricated-trade-boundary":
+        steps[0]["successor"]["villages"][0]["tradeUtility"] = 99999.0
+    elif attack == "deterministic-unsnapped-levels":
+        action = steps[0]["actions"][0]
+        action["action_request"]["service"][0] = 0.005
+        action["decoded_action"]["service"][0] = 0.005
+        action["action_request"]["strategic"][0] = 0.995
+        action["decoded_action"]["strategic"][0] = 0.995
+    elif attack == "invented-migration-founder":
+        parent = steps[0]["successor"]["villages"][0]
+        daughter = copy.deepcopy(parent)
+        daughter.update(camp=2, society=2, parentSociety=1, priorPopulation=0,
+                        population=999999, years=0.0, welfare=0.0,
+                        tradeUtility=0.0, founded=True)
+        steps[0]["successor"]["villages"].append(daughter)
+        steps[0]["economic"][0]["transfers"].append({
+            "kind": "migration", "phase": "close-after-demography",
+            "sourceCamp": 1, "destinationCamp": 2, "people": 999999,
+        })
+    elif attack == "migration-copies-deleted":
+        population = steps[0]["economic"][0]["domains"]["population"]
+        population["emigrated"] = 1
+        population["endingResidents"] -= 1
+        population["endingLinked"] -= 1
+        steps[0]["successor"]["villages"][0]["population"] -= 1
+    elif attack == "migration-kind-renamed":
+        forged = {"kind": "unreviewed-movement", "phase": "close-after-demography",
+                  "sourceCamp": 1, "destinationCamp": 2, "people": 1}
+        steps[0]["economic"][0]["transfers"] = [copy.deepcopy(forged),
+                                                   copy.deepcopy(forged)]
+    elif attack == "migration-population-inflation":
+        population = steps[0]["economic"][0]["domains"]["population"]
+        population["endingResidents"] += 999999
+        steps[0]["successor"]["villages"][0]["population"] += 999999
+    else:  # pragma: no cover - fixture authoring guard
+        raise AssertionError(f"unknown trajectory attack {attack}")
+    reseal_trajectory_report(report)
 
 
 def complete_packet_inputs(document: dict, worker: dict, tmp_path: Path, prefix: str):
@@ -407,7 +833,7 @@ def complete_packet_inputs(document: dict, worker: dict, tmp_path: Path, prefix:
     pane["metrics"] = sorted(gate1.MANDATORY_METRICS)
     refresh_gate1_protocols(document, tmp_path, inventory=False)
     reseal(document)
-    reports = [manual_report(document, node, pane["id"], worker, mandatory_values())
+    reports = [manual_report(document, node, pane["id"], worker, mandatory_values(), base=tmp_path)
                for node in pane["nodes"]]
     evaluation_refs = [write(tmp_path / f"{prefix}-evaluation-{report['node']}.json", report)
                        for report in reports]
@@ -713,7 +1139,10 @@ def test_exact_tensor_claim_rejects_numerically_equal_but_byte_distinct_values(t
                   torch.tensor([0x7FC00002], dtype=torch.int32).view(torch.float32))
     for node, value in zip(document["nodes"][:2], values, strict=True):
         checkpoint = tmp_path / node["artifact"]["path"]
-        state = torch.load(checkpoint, weights_only=True); state["actor"]["weight"] = value
+        state = torch.load(checkpoint, weights_only=True)
+        replacement = torch.zeros_like(state["actor"]["strategic.bias"])
+        replacement[0] = value[0]
+        state["actor"]["strategic.bias"] = replacement
         torch.save(state, checkpoint); node["artifact"]["sha256"] = checkpoint_hash(checkpoint)
         defaults_path = tmp_path / node["loading"]["default_resolution"]["path"]
         defaults = json.loads(defaults_path.read_text())
@@ -844,21 +1273,67 @@ def test_reconstructed_migration_cannot_claim_historical_conversion(tmp_path):
 
 
 @pytest.mark.parametrize("capability", ["snapshot", "stochastic", "integrated"])
-def test_evaluation_rejects_unsupported_capabilities_without_calling_rollout(tmp_path, capability):
-    document, _ = fixture(tmp_path); pane = document["evaluation"]["panes"][0]
-    if capability == "snapshot": pane["worlds"][0]["snapshot"] = write(tmp_path / "snapshot.bin", {"snapshot": 1})
+def test_evaluation_executes_bound_gate1_capabilities(tmp_path, capability):
+    document, worker = fixture(tmp_path); pane = document["evaluation"]["panes"][0]
+    snapshot_bytes = None
+    if capability == "snapshot":
+        pane["worlds"][0]["snapshot"] = write(tmp_path / "snapshot.bin", {"snapshot": 1})
+        pane["worlds"][0]["turn"] = pane["worlds"][0]["reset_turn"]
+        snapshot_bytes = (tmp_path / "snapshot.bin").read_bytes()
     elif capability == "stochastic":
+        from anthropocene_rl.autonomous_v7.gate1_diagnostics import (
+            draw_order_from_semantics, generator_state_sha256,
+        )
         pane["action_mode"] = "seeded-stochastic"
-        pane["policy_rng_schedule"] = write(tmp_path / "rng.json", {"rng": [1]})
-    else: pane["metrics"].append("population_years")
+        world_id = gate1._world_id(pane["worlds"][0])
+        steps = []
+        for index in range(pane["worlds"][0]["horizon"]):
+            seed = 900 + index
+            generator = torch.Generator(device="cpu").manual_seed(seed)
+            steps.append({"step": index, "seed": seed,
+                          "state_sha256": generator_state_sha256(generator)})
+        node_schedules = [{"node_id": node_id,
+                           "draw_order": draw_order_from_semantics(SEMANTICS),
+                           "steps": copy.deepcopy(steps)} for node_id in pane["nodes"]]
+        pane["policy_rng_schedule"] = write(
+            tmp_path / "rng.json",
+            {"schema": 1, "kind": "gate1_policy_rng_schedule",
+             "algorithm": "torch.Generator.cpu-default", "torch_version": torch.__version__,
+             "device": "cpu", "worlds": [{"world_id": world_id, "nodes": node_schedules}]},
+            seal_digest=True,
+        )
+    else:
+        pane["metrics"].append("population_years")
     refresh_gate1_protocols(document, tmp_path, inventory=False)
     reseal(document)
-    called = False
+    captured = {}
+
     def runner(*args, **kwargs):
-        nonlocal called; called = True; return {}
-    with pytest.raises(ProvenanceError, match="does not support"):
-        gate1.evaluate_node(document, tmp_path, "prior", "historical", runner)
-    assert called is False
+        captured.update(kwargs)
+        values = mandatory_values(); values["population_years"] = 3.0
+        result = diagnostic_result(
+            gate1._frozen_world_record(pane["worlds"][0]), gate1._world_id(pane["worlds"][0]),
+            pane["worlds"][0]["horizon"], pane["capture_bounds"], values,
+            action_mode=pane["action_mode"], rng_steps=kwargs.get("policy_rng_steps"),
+            semantics=kwargs["evaluation_semantics"],
+            observation_core_width=pane["observation_core_width"],
+        )
+        return {**result, "worker_contract": worker, "world_contract": args[14],
+                "producer": gate1._producer_identity_for_worker(worker),
+                "snapshot_sha256": args[14]["snapshot_sha256"], "action_mode": pane["action_mode"]}
+
+    report = gate1.evaluate_node(document, tmp_path, "prior", "historical", runner)
+    assert report["rows"][0]["metrics"]["welfare"] == 1.0
+    if capability == "snapshot":
+        assert captured["snapshot"] == snapshot_bytes
+    elif capability == "stochastic":
+        assert [
+            {key: row[key] for key in ("step", "seed", "state_sha256")}
+            for row in captured["policy_rng_steps"]
+        ] == steps
+        assert gate1._evaluation_index(document, [report], tmp_path)
+    else:
+        assert report["rows"][0]["metrics"]["population_years"] == 3.0
 
 
 def test_evaluation_rejects_incompatible_producer_without_comparator(tmp_path):
@@ -903,6 +1378,140 @@ def test_imported_evidence_rechecks_historical_worker_compatibility(tmp_path, mo
     assert len(gate1._evaluation_index(document, [report], tmp_path)) == 1
 
 
+@pytest.mark.parametrize("attack", [
+    "empty", "incomplete", "duplicate", "short", "missing-terminal-reason",
+    "fabricated-headlines", "wrong-unit", "negative-output",
+    "fractional-trade-count", "missing-herds", "successor-prior-suppression",
+    "false-terminal", "opening-turn-mismatch", "null-actions", "empty-observation",
+    "wrong-society-id", "wrong-trade-unit", "missing-units", "extra-unit",
+    "wrong-reset-trajectory-id", "broken-opening-chain", "invented-founder",
+    "mismatched-founder-witness", "reflag-existing-founder", "illegal-clothing-route",
+    "fabricated-trade-boundary", "deterministic-unsnapped-levels",
+    "invented-migration-founder", "migration-copies-deleted",
+    "migration-kind-renamed", "migration-population-inflation",
+])
+def test_imported_evidence_recomputes_complete_typed_trajectory(tmp_path, attack):
+    document, worker = fixture(tmp_path)
+    pane = document["evaluation"]["panes"][0]
+    pane["metrics"] = sorted(gate1.MANDATORY_METRICS)
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+    report = manual_report(document, "prior", pane["id"], worker, mandatory_values())
+    apply_trajectory_attack(report, attack)
+    with pytest.raises(ProvenanceError, match="diagnostic surface|outcomes/receipts"):
+        gate1._evaluation_index(document, [report], tmp_path)
+
+
+def test_imported_evidence_rejects_generic_legacy_loader_blob(tmp_path):
+    document, worker = fixture(tmp_path)
+    node = document["nodes"][0]
+    node["loading"] = {
+        "mode": "pinned-historical", "implementation": node["producer_evidence"],
+        "default_resolution": node["loading"]["default_resolution"],
+    }
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+    report = manual_report(
+        document, node["id"], document["evaluation"]["panes"][0]["id"],
+        worker, mandatory_values(),
+    )
+    with pytest.raises(ProvenanceError, match="supported reviewed adapter"):
+        gate1._evaluation_index(document, [report], tmp_path)
+
+
+def test_imported_economic_unit_validation_is_observationally_immutable(tmp_path):
+    document, worker = fixture(tmp_path)
+    pane = document["evaluation"]["panes"][0]
+    pane["metrics"] = sorted(gate1.MANDATORY_METRICS)
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+    report = manual_report(document, "prior", pane["id"], worker, mandatory_values())
+    before = copy.deepcopy(report)
+    assert gate1._evaluation_index(document, [report], tmp_path)
+    assert report == before
+
+
+def test_import_and_packet_reject_forced_region_selection_substitution(tmp_path):
+    document, worker = fixture(tmp_path)
+    prior = next(node for node in document["nodes"] if node["id"] == "prior")
+    prior["historical_semantics"].update(
+        learned_movement=True, region_movement=True, region_selection="stay",
+    )
+    rewrite_sealed_ref(
+        tmp_path, prior["loading"]["default_resolution"],
+        lambda body: body["resolved"].update({
+            name: {"source": "checkpoint-or-manifest", "value": value}
+            for name, value in prior["historical_semantics"].items()
+        }),
+    )
+    pane = document["evaluation"]["panes"][0]
+    pane["metrics"] = sorted(gate1.MANDATORY_METRICS)
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+    pristine = manual_report(document, "prior", pane["id"], worker, mandatory_values())
+    assert gate1._evaluation_index(document, [pristine], tmp_path)
+
+    forged = copy.deepcopy(pristine)
+    action = forged["rows"][0]["trajectory_evidence"]["steps"][0]["actions"][0]
+    action["action_request"]["movement"] = contracts.REGION_BASE + 3
+    action["decoded_action"]["movement"] = contracts.REGION_BASE + 3
+    reseal_trajectory_report(forged)
+    with pytest.raises(ProvenanceError, match="diagnostic surface|outcomes/receipts"):
+        gate1._evaluation_index(document, [forged], tmp_path)
+
+    reports = [manual_report(document, node, pane["id"], worker, mandatory_values())
+               for node in pane["nodes"]]
+    reports[0] = forged
+    refs = [write(tmp_path / f"forced-region-{report['node']}.json", report)
+            for report in reports]
+    with pytest.raises(ProvenanceError):
+        gate1.build_review_packet(
+            document, refs, tmp_path, cli=["packet"],
+            verification=verification_ref(tmp_path, document),
+            implementation=implementation_ref(tmp_path),
+            manifest_ref=write(tmp_path / "forced-region-manifest.json", document),
+        )
+
+
+@pytest.mark.parametrize("attack", [
+    "empty", "incomplete", "duplicate", "short", "missing-terminal-reason",
+    "fabricated-headlines", "wrong-unit", "negative-output",
+    "fractional-trade-count", "missing-herds", "successor-prior-suppression",
+    "false-terminal", "opening-turn-mismatch", "null-actions", "empty-observation",
+    "wrong-society-id", "wrong-trade-unit", "missing-units", "extra-unit",
+    "wrong-reset-trajectory-id", "broken-opening-chain", "invented-founder",
+    "mismatched-founder-witness", "reflag-existing-founder", "illegal-clothing-route",
+    "fabricated-trade-boundary", "deterministic-unsnapped-levels",
+    "invented-migration-founder", "migration-copies-deleted",
+    "migration-kind-renamed", "migration-population-inflation", "generic-loader",
+])
+def test_complete_packet_rejects_forged_diagnostic_evidence(tmp_path, attack):
+    document, worker = fixture(tmp_path)
+    pane = document["evaluation"]["panes"][0]
+    pane["metrics"] = sorted(gate1.MANDATORY_METRICS)
+    if attack == "generic-loader":
+        node = document["nodes"][0]
+        node["loading"] = {
+            "mode": "pinned-historical", "implementation": node["producer_evidence"],
+            "default_resolution": node["loading"]["default_resolution"],
+        }
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+    reports = [manual_report(document, node, pane["id"], worker, mandatory_values())
+               for node in pane["nodes"]]
+    if attack != "generic-loader":
+        apply_trajectory_attack(reports[0], attack)
+    evaluation_refs = [write(tmp_path / f"{attack}-{report['node']}.json", report)
+                       for report in reports]
+    with pytest.raises(ProvenanceError):
+        gate1.build_review_packet(
+            document, evaluation_refs, tmp_path, cli=["packet"],
+            verification=verification_ref(tmp_path, document),
+            implementation=implementation_ref(tmp_path),
+            manifest_ref=write(tmp_path / f"{attack}-manifest.json", document),
+        )
+
+
 @pytest.mark.parametrize("unsupported", ["personality-dict", "native-background"])
 def test_evaluation_rejects_unexecutable_frozen_pane_declarations(tmp_path, unsupported):
     document, _ = fixture(tmp_path)
@@ -936,7 +1545,15 @@ def test_learned_movement_controls_rollout_while_region_movement_controls_decode
 
     def runner(*args, **kwargs):
         captured.update({"movement": args[4], "region": args[6], "world": args[14], "kwargs": kwargs})
-        return {"welfare": 1.0, "population": 2, "worker_contract": worker,
+        result = diagnostic_result(
+            gate1._frozen_world_record(document["evaluation"]["panes"][0]["worlds"][0]),
+            gate1._world_id(document["evaluation"]["panes"][0]["worlds"][0]), args[1],
+            kwargs["capture_bounds"], mandatory_values(), action_mode=kwargs["action_mode"],
+            rng_steps=kwargs["policy_rng_steps"],
+            semantics=kwargs["evaluation_semantics"],
+            observation_core_width=kwargs["observation_core_width"],
+        )
+        return {**result, "worker_contract": worker,
                 "world_contract": args[14], "producer": gate1._producer_identity_for_worker(worker)}
 
     report = gate1.evaluate_node(document, tmp_path, "prior", "historical", runner)
@@ -1110,7 +1727,7 @@ def test_paired_aggregation_is_deterministic_and_marks_zero_denominators(tmp_pat
     assert first == second and digest(first) == digest(second)
     pair = first["pairs"][0]
     assert pair["derived"]["welfare"]["ratio"] == {"status": "zero-denominator", "value": None}
-    assert pair["derived"]["service_outcomes.food"]["ratio"]["status"] == "zero-denominator"
+    assert pair["derived"]["service_outcomes.cultivation.food-delivered"]["ratio"]["status"] == "zero-denominator"
     assert first["resampling"]["unit"] == "paired-world"
     assert first["resampling"]["optimizer_identities_pooled"] is False
 
@@ -1170,6 +1787,262 @@ def test_strict_evaluate_loader_never_calls_upgrade_or_infers_defaults(tmp_path,
     wrong = dict(SEMANTICS, region_head="flat")
     with pytest.raises(ValueError, match="region head differs"):
         evaluate.load(path, strict=True, resolved_semantics=wrong)
+
+
+def _guarded_native_state() -> dict:
+    from anthropocene_rl.autonomous_v7.model import Actor, Normalizer
+    actor = Actor(4, region_head="hierarchical")
+    normalizer = Normalizer(np.zeros(4, np.float32), np.ones(4, np.float32))
+    normalizer.guard = 3.0
+    normalizer.dead = {"core": np.asarray([False, True, False, False], dtype=bool)}
+    for name, _, width in contracts.SETS:
+        normalizer.set_mean[name] = np.zeros(width, np.float32)
+        normalizer.set_std[name] = np.ones(width, np.float32)
+        normalizer.dead[name] = np.zeros(width, dtype=bool)
+    return {"contract": contracts.NATIVE_CONTRACT, "core_width": 4,
+            "actor": actor.state_dict(), "normalizer": normalizer.state_dict()}
+
+
+def test_strict_loader_accepts_exact_guarded_normalizer_state_dict_round_trip():
+    from anthropocene_rl.autonomous_v7.evaluate import load_strict_state
+    actor, normalizer = load_strict_state(
+        _guarded_native_state(), resolved_semantics=SEMANTICS, diagnostic_loading=None,
+    )
+    assert actor.region_head == "hierarchical"
+    assert normalizer.guard == 3.0
+    assert normalizer.dead["core"].tolist() == [False, True, False, False]
+
+
+@pytest.mark.parametrize("attack", [
+    "partial", "extra", "dead-dtype", "dead-shape", "guard-negative",
+    "guard-nonfinite", "mean-dtype", "mean-nonfinite", "std-zero",
+])
+def test_strict_loader_rejects_hostile_guarded_normalizer_variants(attack):
+    from anthropocene_rl.autonomous_v7.evaluate import load_strict_state
+    state = _guarded_native_state()
+    normalizer = state["normalizer"]
+    if attack == "partial":
+        del normalizer["sites_dead"]
+    elif attack == "extra":
+        normalizer["unknown_dead"] = [False]
+    elif attack == "dead-dtype":
+        normalizer["core_dead"] = [0, 1, 0, 0]
+    elif attack == "dead-shape":
+        normalizer["core_dead"] = [False]
+    elif attack == "guard-negative":
+        normalizer["guard"] = -1.0
+    elif attack == "guard-nonfinite":
+        normalizer["guard"] = float("nan")
+    elif attack == "mean-dtype":
+        normalizer["core_mean"][0] = 0
+    elif attack == "mean-nonfinite":
+        normalizer["core_mean"][0] = float("inf")
+    else:
+        normalizer["core_std"][0] = 0.0
+    with pytest.raises(ValueError, match="normalizer"):
+        load_strict_state(state, resolved_semantics=SEMANTICS, diagnostic_loading=None)
+
+
+def _replace_node_checkpoint(document: dict, tmp_path: Path, node_id: str,
+                             state: dict) -> None:
+    node = next(row for row in document["nodes"] if row["id"] == node_id)
+    checkpoint = tmp_path / node["artifact"]["path"]
+    original = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    state["actor"] = original["actor"]
+    for key in ("run_manifest", "experts", "token", "commitments", "learned_movement",
+                "region_movement", "learned_fission", "learned_trade"):
+        if key in original and key not in state:
+            state[key] = original[key]
+    torch.save(state, checkpoint)
+    node["artifact"]["sha256"] = checkpoint_hash(checkpoint)
+    node["raw_schema"], _, _ = gate1.inspect_checkpoint(node["artifact"], tmp_path)
+    defaults_path = tmp_path / node["loading"]["default_resolution"]["path"]
+    defaults = json.loads(defaults_path.read_text())
+    defaults["checkpoint_sha256"] = node["artifact"]["sha256"]
+    defaults["digest"] = digest({key: value for key, value in defaults.items() if key != "digest"})
+    defaults_path.write_text(json.dumps(defaults, sort_keys=True))
+    node["loading"]["default_resolution"]["sha256"] = checkpoint_hash(defaults_path)
+    for edge in document["edges"]:
+        equivalence = edge.get("equivalence")
+        if not isinstance(equivalence, dict):
+            continue
+        if edge["source"] == node_id:
+            equivalence["source_schema"] = copy.deepcopy(node["raw_schema"])
+        if edge["destination"] == node_id:
+            equivalence["destination_schema"] = copy.deepcopy(node["raw_schema"])
+            equivalence["normalizer_mapping"] = {"kind": "explicit-guarded-normalizer"}
+    refresh_gate1_protocols(document, tmp_path)
+    reseal(document)
+
+
+def test_guarded_normalizer_is_bound_through_import_packet_and_strict_cas(
+        tmp_path, monkeypatch):
+    document, worker = fixture(tmp_path)
+    _replace_node_checkpoint(document, tmp_path, "clone", _guarded_native_state())
+    gate1.validate_manifest(document, tmp_path)
+    report = manual_report(document, "clone", "historical", worker, mandatory_values())
+    assert gate1._evaluation_index(document, [report], tmp_path)
+    clean_tree = gate1.implementation_source_tree()
+    clean_tree["dirty_state"] = {"clean": True, "scope": "entire-repository", "porcelain": [],
+                                 "porcelain_sha256": digest([])}
+    monkeypatch.setattr(gate1, "implementation_source_tree", lambda: copy.deepcopy(clean_tree))
+    inputs = complete_packet_inputs(document, worker, tmp_path, "guarded-normalizer")
+    packet = gate1.build_review_packet(
+        document, inputs[0], tmp_path, cli=["packet"], verification=inputs[1],
+        implementation=inputs[2], manifest_ref=inputs[3],
+    )
+    assert packet["decision"] == "PASS"
+    directory = gate1.write_review_packet(packet, tmp_path / "guarded-packet")
+    assert gate1.reconstruct_review_packet(directory) == packet
+    clone = next(node for node in document["nodes"] if node["id"] == "clone")
+    checkpoint_blob = gate1._native_path(directory / "cas" / clone["artifact"]["sha256"])
+    checkpoint_blob.write_bytes(checkpoint_blob.read_bytes() + b"corrupt")
+    with pytest.raises(ProvenanceError, match="content hash mismatch"):
+        gate1.reconstruct_review_packet(directory)
+
+
+def test_guarded_normalizer_partial_state_rejects_manifest_and_packet(tmp_path):
+    document, worker = fixture(tmp_path)
+    state = _guarded_native_state()
+    del state["normalizer"]["sites_dead"]
+    _replace_node_checkpoint(document, tmp_path, "clone", state)
+    with pytest.raises(ProvenanceError, match="normalizer keys"):
+        gate1.validate_manifest(document, tmp_path)
+    inputs = complete_packet_inputs(document, worker, tmp_path, "partial-guard")
+    with pytest.raises(ProvenanceError, match="normalizer keys"):
+        gate1.build_review_packet(
+            document, inputs[0], tmp_path, cli=["packet"], verification=inputs[1],
+            implementation=inputs[2], manifest_ref=inputs[3],
+        )
+
+
+@pytest.mark.parametrize("attack", [
+    "absent", "raw", "stride", "emitted", "mode", "bool-float",
+    "large-float-positive", "large-float-negative", "string", "null", "ragged",
+])
+def test_import_and_complete_packet_reject_forged_decoder_receipt(tmp_path, attack):
+    document, worker = fixture(tmp_path)
+    inputs = complete_packet_inputs(document, worker, tmp_path, f"decoder-{attack}")
+    report_path = tmp_path / inputs[0][0]["path"]
+    report = json.loads(report_path.read_text())
+    action_row = report["rows"][0]["trajectory_evidence"]["steps"][0]["actions"][0]
+    receipt = action_row["decoder_receipt"]
+    if attack == "absent":
+        action_row.pop("decoder_receipt")
+    elif attack == "raw":
+        receipt["raw"]["mix_logits"]["values"][0] += 1.0
+        receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                    if key != "digest"})
+    elif attack == "stride":
+        receipt["raw"]["mix_logits"]["stride"] = [0, 1]
+        receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                    if key != "digest"})
+    elif attack == "emitted":
+        receipt["emitted_action"]["service"][0] = 0.75
+        receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                    if key != "digest"})
+    elif attack == "mode":
+        receipt["mode"] = "seeded-stochastic"
+        receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                    if key != "digest"})
+    else:
+        values = receipt["raw"]["strategic_mean"]["values"]
+        if attack == "bool-float":
+            values[0] = False
+        elif attack == "large-float-positive":
+            values[0] = 2**60 + 1
+        elif attack == "large-float-negative":
+            values[0] = -(2**60 + 1)
+        elif attack == "string":
+            values[0] = "0"
+        elif attack == "null":
+            values[0] = None
+        else:
+            values[0] = [0.0]
+        receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                    if key != "digest"})
+    reseal_trajectory_report(report)
+    report_path.write_text(json.dumps(report, sort_keys=True))
+    inputs[0][0]["sha256"] = checkpoint_hash(report_path)
+    with pytest.raises(ProvenanceError, match="decoder|action request|tensor"):
+        gate1.build_review_packet(
+            document, inputs[0], tmp_path, cli=["packet"], verification=inputs[1],
+            implementation=inputs[2], manifest_ref=inputs[3],
+        )
+
+
+def test_stochastic_import_and_complete_packet_reject_bool_in_int_tensor(tmp_path):
+    document, worker = fixture(tmp_path)
+    pane = document["evaluation"]["panes"][0]
+    pane["action_mode"] = "seeded-stochastic"
+    world_id = gate1._world_id(pane["worlds"][0])
+    nodes = []
+    from anthropocene_rl.autonomous_v7.gate1_diagnostics import (
+        draw_order_from_semantics, generator_state_sha256,
+    )
+    for node_id in pane["nodes"]:
+        steps = []
+        for index in range(pane["worlds"][0]["horizon"]):
+            seed = 1100 + index
+            generator = torch.Generator(device="cpu").manual_seed(seed)
+            steps.append({"step": index, "seed": seed,
+                          "state_sha256": generator_state_sha256(generator)})
+        nodes.append({"node_id": node_id, "draw_order": draw_order_from_semantics(SEMANTICS),
+                      "steps": steps})
+    pane["policy_rng_schedule"] = write(
+        tmp_path / "hostile-int-rng.json",
+        {"schema": 1, "kind": "gate1_policy_rng_schedule",
+         "algorithm": "torch.Generator.cpu-default", "torch_version": torch.__version__,
+         "device": "cpu", "worlds": [{"world_id": world_id, "nodes": nodes}]},
+        seal_digest=True,
+    )
+    refresh_gate1_protocols(document, tmp_path, inventory=False)
+    reseal(document)
+    inputs = complete_packet_inputs(document, worker, tmp_path, "decoder-bool-int")
+    report_path = tmp_path / inputs[0][0]["path"]
+    report = json.loads(report_path.read_text())
+    receipt = report["rows"][0]["trajectory_evidence"]["steps"][0]["actions"][0]["decoder_receipt"]
+    receipt["raw"]["region"]["values"] = False
+    receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                if key != "digest"})
+    reseal_trajectory_report(report)
+    report_path.write_text(json.dumps(report, sort_keys=True))
+    inputs[0][0]["sha256"] = checkpoint_hash(report_path)
+    with pytest.raises(ProvenanceError, match="canonical int64"):
+        gate1.build_review_packet(
+            document, inputs[0], tmp_path, cli=["packet"], verification=inputs[1],
+            implementation=inputs[2], manifest_ref=inputs[3],
+        )
+
+
+def test_decoder_receipts_are_preserved_and_replayed_from_strict_packet_cas(
+        tmp_path, monkeypatch):
+    document, worker = fixture(tmp_path)
+    clean_tree = gate1.implementation_source_tree()
+    clean_tree["dirty_state"] = {"clean": True, "scope": "entire-repository", "porcelain": [],
+                                 "porcelain_sha256": digest([])}
+    monkeypatch.setattr(gate1, "implementation_source_tree", lambda: copy.deepcopy(clean_tree))
+    inputs = complete_packet_inputs(document, worker, tmp_path, "decoder-cas")
+    packet = gate1.build_review_packet(
+        document, inputs[0], tmp_path, cli=["packet"], verification=inputs[1],
+        implementation=inputs[2], manifest_ref=inputs[3],
+    )
+    directory = gate1.write_review_packet(packet, tmp_path / "decoder-cas-packet")
+    rebuilt = gate1.reconstruct_review_packet(directory)
+    assert rebuilt == packet and rebuilt["decision"] == "PASS"
+    report_ref = packet["inputs"]["evaluation_reports"][0]["ref"]
+    report_blob = gate1._native_path(directory / "cas" / report_ref["sha256"])
+    preserved = json.loads(report_blob.read_text())
+    receipt = preserved["rows"][0]["trajectory_evidence"]["steps"][0]["actions"][0]["decoder_receipt"]
+    assert receipt["digest"] == digest({key: value for key, value in receipt.items()
+                                        if key != "digest"})
+    receipt["raw"]["strategic_mean"]["values"][0] = False
+    receipt["digest"] = digest({key: value for key, value in receipt.items()
+                                if key != "digest"})
+    reseal_trajectory_report(preserved)
+    report_blob.write_text(json.dumps(preserved, sort_keys=True))
+    with pytest.raises(ProvenanceError, match="content hash mismatch"):
+        gate1.reconstruct_review_packet(directory)
 
 
 @pytest.mark.parametrize("missing", ["encoder.film_tokens.0.weight", "region_group.weight"])
@@ -1428,6 +2301,26 @@ def test_packet_reconstructs_from_cas_and_detects_derived_tampering(tmp_path, mo
     rejects_blob_change(
         manifest_ref["sha256"], lambda value: value + b"\ncorrupt manifest",
     )
+    attacked_report = copy.deepcopy(reports[0])
+    attacked_report["rows"][0]["metrics"]["welfare"] = 999999
+    attacked_report["digest"] = digest(
+        {key: value for key, value in attacked_report.items() if key != "digest"},
+    )
+    rejects_blob_change(
+        evaluation_refs[0]["sha256"],
+        lambda _: json.dumps(attacked_report, sort_keys=True).encode(),
+    )
+    for attack in ("wrong-reset-trajectory-id", "broken-opening-chain", "invented-founder",
+                   "illegal-clothing-route", "missing-units", "fabricated-trade-boundary",
+                   "deterministic-unsnapped-levels", "invented-migration-founder",
+                   "migration-copies-deleted", "migration-kind-renamed",
+                   "migration-population-inflation"):
+        attacked_report = copy.deepcopy(reports[0])
+        apply_trajectory_attack(attacked_report, attack)
+        rejects_blob_change(
+            evaluation_refs[0]["sha256"],
+            lambda _, value=json.dumps(attacked_report, sort_keys=True).encode(): value,
+        )
     protocol_cas = gate1._native_path(
         directory / "cas" / equivalence_evidence["protocol"]["sha256"],
     )
@@ -1675,7 +2568,9 @@ def test_reviewed_inventory_prevents_removing_failed_expected_equivalence(tmp_pa
     clone = document["nodes"][1]
     checkpoint = tmp_path / clone["artifact"]["path"]
     state = torch.load(checkpoint, weights_only=True)
-    state["actor"]["weight"] = torch.tensor([2.0])
+    state["actor"]["strategic.bias"] = torch.full_like(
+        state["actor"]["strategic.bias"], 2.0,
+    )
     torch.save(state, checkpoint)
     clone["artifact"]["sha256"] = checkpoint_hash(checkpoint)
     defaults_ref = clone["loading"]["default_resolution"]
@@ -1708,7 +2603,9 @@ def test_old_evaluation_review_rejects_preregistered_surface_substitution(tmp_pa
         node = document["nodes"][0]
         checkpoint = tmp_path / node["artifact"]["path"]
         state = torch.load(checkpoint, weights_only=True)
-        state["actor"]["weight"] = torch.tensor([9.0])
+        state["actor"]["strategic.bias"] = torch.full_like(
+            state["actor"]["strategic.bias"], 9.0,
+        )
         torch.save(state, checkpoint)
         node["artifact"]["sha256"] = checkpoint_hash(checkpoint)
         rewrite_sealed_ref(
@@ -1937,3 +2834,136 @@ def test_complete_packet_and_cas_accept_exact_integer_controls(
     assert packet["decision"] == "PASS"
     directory = gate1.write_review_packet(packet, tmp_path / "p")
     assert gate1.reconstruct_review_packet(directory) == packet
+
+
+def test_contract8_adapter_protocol_binds_historical_source_mapping_and_defaults(tmp_path):
+    from tests.test_gate1_legacy_contract8 import checkpoint_state
+    reviewer = write(tmp_path / "legacy-reviewer.json", {
+        "schema": 1, "kind": "independent_reviewer_identity", "provider": "openai",
+        "model": "astra-high", "version": "2026-10-22",
+    }, seal_digest=True)
+    defaults = write(tmp_path / "legacy-defaults.json", {"defaults": "checkpoint-specific"})
+    source_path = gate1.REPOSITORY / "src/anthropocene_rl/autonomous_v7/legacy_contract8.py"
+    source = {"path": str(source_path.resolve()), "sha256": checkpoint_hash(source_path)}
+    protocol = write_reviewed_protocol(tmp_path / "legacy-adapter.json", {
+        "schema": 1, "kind": "gate1_legacy_adapter_protocol", "source_contract": 8,
+        "historical_source_commit": "2f4cc895e6bcd897200d340851d69be98fd18e00",
+        "source": source,
+        "input_mapping": {"core": "raw-checkpoint-core-width-prefix",
+                          "sets": ["sites", "fishing", "herds", "commodities", "contacts"],
+                          "appended_sets": "excluded-from-contract-8-actor-input"},
+        "decoder_defaults": {"commit": 1, "movement": contracts.NATIVE_MOVEMENT,
+                             "fission": -1, "trade_posture": "native"},
+        "default_resolution": defaults, "review": None,
+    }, reviewer, ["historical-source", "input-mapping", "decoder", "default-resolution"])
+    semantics = {"experts": False, "token": False, "commitments": False,
+                 "learned_movement": False, "region_movement": False,
+                 "learned_fission": False, "learned_trade": False,
+                 "region_head": "flat", "grouped_region": False, "region_selection": None}
+    checkpoint = tmp_path / "legacy-contract8.pt"
+    torch.save(checkpoint_state(), checkpoint)
+    artifact_ref = {"path": checkpoint.name, "sha256": checkpoint_hash(checkpoint)}
+    raw_schema, _, _ = gate1.inspect_checkpoint(artifact_ref, tmp_path)
+    node = {"artifact": artifact_ref, "raw_schema": raw_schema,
+            "historical_semantics": semantics,
+            "loading": {"mode": "reviewed-adapter", "implementation": protocol,
+                        "default_resolution": defaults}}
+    assert gate1._diagnostic_loading(node, tmp_path)["adapter"] == "pinned-contract-8"
+    rewrite_reviewed_protocol(
+        tmp_path, protocol,
+        lambda body: body["decoder_defaults"].update(commit=2),
+    )
+    with pytest.raises(ProvenanceError, match="noncanonical"):
+        gate1._diagnostic_loading(node, tmp_path)
+
+
+def _global_rng_state() -> tuple:
+    numpy = np.random.get_state()
+    return (random.getstate(), (numpy[0], numpy[1].copy(), *numpy[2:]),
+            torch.random.get_rng_state().clone())
+
+
+def _assert_global_rng_state(expected: tuple) -> None:
+    observed = _global_rng_state()
+    assert observed[0] == expected[0]
+    assert observed[1][0] == expected[1][0]
+    assert np.array_equal(observed[1][1], expected[1][1])
+    assert observed[1][2:] == expected[1][2:]
+    assert torch.equal(observed[2], expected[2])
+
+
+@pytest.mark.parametrize("failing", [False, True])
+def test_manifest_import_and_packet_loader_eligibility_are_rng_neutral(
+        tmp_path, monkeypatch, failing):
+    document, worker = fixture(tmp_path)
+    packet_inputs = complete_packet_inputs(document, worker, tmp_path, f"rng-{failing}")
+    report = manual_report(document, "prior", "historical", worker, mandatory_values())
+    original = gate1._diagnostic_loading_preserved
+
+    def eligibility(*args, **kwargs):
+        random.random(); np.random.random(); torch.rand(3)
+        if failing:
+            raise ProvenanceError("injected loader eligibility failure")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(gate1, "_diagnostic_loading_preserved", eligibility)
+    calls = [
+        lambda: gate1.validate_manifest(document, tmp_path),
+        lambda: gate1._evaluation_index(document, [report], tmp_path),
+        lambda: gate1.build_review_packet(
+            document, packet_inputs[0], tmp_path, cli=["packet"],
+            verification=packet_inputs[1], implementation=packet_inputs[2],
+            manifest_ref=packet_inputs[3],
+        ),
+    ]
+    for call in calls:
+        random.seed(123); np.random.seed(456); torch.manual_seed(789)
+        before = _global_rng_state()
+        if failing:
+            with pytest.raises(ProvenanceError, match="injected loader"):
+                call()
+        else:
+            call()
+        _assert_global_rng_state(before)
+
+
+def test_manifest_import_path_rejects_contract8_checkpoint_missing_required_tensor(tmp_path):
+    document, _ = fixture(tmp_path)
+    target = trained_ids(document)[0]
+    install_contract8_checkpoint(
+        document, tmp_path, target, remove_actor_key="strategic.bias",
+    )
+    with pytest.raises(ProvenanceError, match="raw actor keys differ"):
+        gate1.validate_manifest(document, tmp_path)
+
+
+def test_contract8_packet_reconstruction_uses_preserved_adapter_source_only(
+        tmp_path, monkeypatch):
+    document, worker = fixture(tmp_path)
+    target = trained_ids(document)[0]
+    install_contract8_checkpoint(document, tmp_path, target)
+    clean_tree = gate1.implementation_source_tree()
+    clean_tree["dirty_state"] = {"clean": True, "scope": "entire-repository", "porcelain": [],
+                                 "porcelain_sha256": digest([])}
+    monkeypatch.setattr(gate1, "implementation_source_tree", lambda: copy.deepcopy(clean_tree))
+    inputs = complete_packet_inputs(document, worker, tmp_path, "contract8-cas")
+    packet = gate1.build_review_packet(
+        document, inputs[0], tmp_path, cli=["packet"], verification=inputs[1],
+        implementation=inputs[2], manifest_ref=inputs[3],
+    )
+    directory = gate1.write_review_packet(packet, tmp_path / "p")
+    live_source = (gate1.REPOSITORY / "src/anthropocene_rl/autonomous_v7/legacy_contract8.py").resolve()
+    original_hash = gate1.checkpoint_hash
+
+    def cas_only_hash(path):
+        if Path(path).resolve() == live_source:
+            raise AssertionError("strict packet replay consulted the live adapter source")
+        return original_hash(path)
+
+    monkeypatch.setattr(gate1, "checkpoint_hash", cas_only_hash)
+    assert gate1.reconstruct_review_packet(directory)["decision"] == "PASS"
+    source_sha = original_hash(live_source)
+    source_cas = gate1._native_path(directory / "cas" / source_sha)
+    source_cas.write_bytes(source_cas.read_bytes() + b"\ncorrupt")
+    with pytest.raises(ProvenanceError, match="content hash mismatch"):
+        gate1.reconstruct_review_packet(directory)

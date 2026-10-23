@@ -52,12 +52,12 @@ EDGE_STATUSES = {"present", "missing", "not-applicable"}
 LOADING_MODES = {"native-strict", "pinned-historical", "reviewed-adapter"}
 PANE_KINDS = {"historical-semantics", "standardized-flags-intervention"}
 SUPPORTED_RAW_CONTRACTS = frozenset(range(8, contracts.NATIVE_CONTRACT + 1))
-CURRENT_METRICS = frozenset({"welfare", "ending_residents", "trade_utility", "extinctions", "settlements"})
 MANDATORY_METRICS = frozenset({
     "welfare", "population_years", "ending_residents", "qol_years", "trade_utility",
     "extinctions", "settlements", "service_outcomes", "compiler_interventions",
     "trajectory_digest",
 })
+CURRENT_METRICS = MANDATORY_METRICS
 SEMANTIC_FIELDS = (
     "experts", "token", "commitments", "learned_movement", "region_movement",
     "learned_fission", "learned_trade", "region_head", "grouped_region",
@@ -74,6 +74,13 @@ IMPLEMENTATION_SOURCES = (
     "docs/MODEL9_ECONOMIC_OBSERVABILITY_ARCHITECTURE.md",
     "docs/MODEL9_GATE1_IMPLEMENTATION_STATUS.md",
     "src/anthropocene_rl/autonomous_v7/evaluate.py",
+    "src/anthropocene_rl/autonomous_v7/bridge.py",
+    "src/anthropocene_rl/autonomous_v7/model.py",
+    "src/anthropocene_rl/autonomous_v7/gate1_diagnostics.py",
+    "src/anthropocene_rl/autonomous_v7/legacy_contract8.py",
+    "tests/test_autonomous_v7_bridge.py",
+    "tests/test_gate1_diagnostics.py",
+    "tests/test_gate1_legacy_contract8.py",
     "src/anthropocene_rl/autonomous_v7/initialization_lineage.py",
     "tests/test_initialization_lineage.py",
 )
@@ -245,10 +252,12 @@ def _service_schema(pane: dict, base: Path) -> dict:
     if set(body) != {"schema", "kind", "fields", "digest"} or not _is_sha(body.get("digest")):
         _fail(f"pane {pane.get('id')} service outcome schema is not canonical/content-addressed")
     fields = body.get("fields")
+    field_sets = ({"name", "unit"}, {"name", "unit", "source"})
     if (not isinstance(fields, list) or not fields
-            or any(not isinstance(row, dict) or set(row) != {"name", "unit"}
+            or any(not isinstance(row, dict) or set(row) not in field_sets
                    or not isinstance(row["name"], str) or not row["name"].strip()
                    or not isinstance(row["unit"], str) or not row["unit"].strip()
+                   or ("source" in row and (not isinstance(row["source"], str) or not row["source"].strip()))
                    for row in fields)
             or len({row["name"] for row in fields}) != len(fields)):
         _fail(f"pane {pane.get('id')} service outcome schema has invalid fields/units")
@@ -1288,9 +1297,11 @@ def _validate_pane(pane: dict, nodes: dict[str, dict], base: Path) -> dict:
                 or type(world.get("horizon")) is not int or world["horizon"] <= 0):
             _fail(f"pane {pane_id} world controls are incomplete")
         turn = world.get("turn")
+        reset_turn = world.get("reset_turn")
         players = world.get("players", 8)
         cohort_digest = world.get("cohort_digest", "")
-        if ((turn is not None and (type(turn) is not int or turn < 0))
+        if (type(reset_turn) is not int or reset_turn < 0
+                or (turn is not None and (type(turn) is not int or turn < 0))
                 or type(players) is not int or players <= 0
                 or not isinstance(cohort_digest, str)
                 or (cohort_digest and not _is_sha(cohort_digest))):
@@ -1299,19 +1310,69 @@ def _validate_pane(pane: dict, nodes: dict[str, dict], base: Path) -> dict:
         snapshot_sha = ""
         if snapshot is not None:
             _, snapshot_sha = artifact(snapshot, base)
+            if turn != reset_turn:
+                _fail(f"pane {pane_id} snapshot turn differs from its reviewed reset turn")
         identity = (seed, world["withheld"], world["warmup"], world["horizon"], snapshot_sha,
-                    turn, players, cohort_digest)
+                    turn, reset_turn, players, cohort_digest)
         if identity in identities: _fail(f"pane {pane_id} contains a duplicate world")
         identities.add(identity)
     if pane.get("action_mode") not in {"deterministic", "seeded-stochastic"}:
         _fail(f"pane {pane_id} has no explicit action mode")
-    if pane["action_mode"] == "seeded-stochastic": artifact(pane.get("policy_rng_schedule"), base)
+    from .gate1_diagnostics import (draw_order_from_semantics, validate_capture_bounds,
+                                    validate_rng_schedule)
+    capture_bounds = pane.get("capture_bounds")
+    for world_record in worlds:
+        try:
+            validate_capture_bounds(capture_bounds, world_record["horizon"])
+        except ValueError as exc:
+            _fail(f"pane {pane_id} {exc}")
+    if pane["action_mode"] == "seeded-stochastic":
+        schedule, _ = _read_json_ref(pane.get("policy_rng_schedule"), base,
+                                     kind="gate1_policy_rng_schedule")
+        scheduled_worlds = schedule.get("worlds")
+        expected_world_ids = {_world_id(world_record) for world_record in worlds}
+        if (not isinstance(scheduled_worlds, list)
+                or len(scheduled_worlds) != len(expected_world_ids)
+                or {row.get("world_id") for row in scheduled_worlds
+                    if isinstance(row, dict)} != expected_world_ids):
+            _fail(f"pane {pane_id} policy RNG schedule world coverage differs from the reviewed cohort")
+        for scheduled_world in scheduled_worlds:
+            scheduled_nodes = scheduled_world.get("nodes")
+            if (not isinstance(scheduled_nodes, list) or len(scheduled_nodes) != len(selected)
+                    or {row.get("node_id") for row in scheduled_nodes
+                        if isinstance(row, dict)} != set(selected)):
+                _fail(f"pane {pane_id} policy RNG schedule node coverage differs from the reviewed executions")
+        for world_record in worlds:
+            for node_id in selected:
+                if "semantics" not in nodes[node_id]:
+                    _fail(f"pane {pane_id} cannot schedule stochastic execution for an unavailable node")
+                semantics = dict(nodes[node_id]["semantics"])
+                if pane["kind"] == "standardized-flags-intervention":
+                    semantics.update(pane.get("standardized_overrides", {}))
+                try:
+                    validate_rng_schedule(
+                        schedule, _world_id(world_record), world_record["horizon"],
+                        node_id=node_id,
+                        expected_draw_order=draw_order_from_semantics(semantics),
+                    )
+                except ValueError as exc:
+                    _fail(f"pane {pane_id} {exc}")
+    elif pane.get("policy_rng_schedule") is not None:
+        _fail(f"deterministic pane {pane_id} cannot carry a policy RNG schedule")
     metrics = pane.get("metrics")
     if not isinstance(metrics, list) or not metrics or len(metrics) != len(set(metrics)):
         _fail(f"pane {pane_id} has an invalid metric request")
     if any(metric not in MANDATORY_METRICS for metric in metrics):
         _fail(f"pane {pane_id} requests an unknown metric")
+    observation_core_width = pane.get("observation_core_width")
+    if (type(observation_core_width) is not int or observation_core_width <= 0
+            or observation_core_width > 1_000_000):
+        _fail(f"pane {pane_id} has no valid frozen live observation core width")
     service_schema = _service_schema(pane, base)
+    if "service_outcomes" in metrics:
+        from .gate1_diagnostics import service_outcome_registry
+        if service_schema["fields"] != service_outcome_registry():
+            _fail(f"pane {pane_id} does not bind the complete Gate 1 service registry")
     execution = _execution_declaration(pane.get("execution"), f"pane {pane_id}")
     background = pane.get("background_policy")
     if (not isinstance(background, dict) or background.get("digest")
@@ -1355,6 +1416,8 @@ def _validate_pane(pane: dict, nodes: dict[str, dict], base: Path) -> dict:
             "metrics": metrics, "worker_contract": worker["contract"],
             "service_outcome_schema_sha256": pane["service_outcome_schema"]["sha256"],
             "service_fields": service_schema["fields"], "execution": execution,
+            "capture_bounds": capture_bounds,
+            "observation_core_width": observation_core_width,
             "evaluation_implementation_sha256": pane["evaluation_implementation"]["sha256"]}
 
 
@@ -1388,6 +1451,12 @@ def validate_manifest(document: dict, base: Path | str = ".") -> dict:
     source_nodes = {node["id"]: node for node in document["nodes"]}
     for node_id, row in node_rows.items():
         if row["status"] == "present": hashes[row["sha256"]].append(source_nodes[node_id])
+    # Artifact-backed imports and packet replay must prove the same raw loader
+    # eligibility as live evaluation.  A report is never allowed to stand in
+    # for missing actor/normalizer tensors or an unexecutable adapter.
+    for node_id, row in node_rows.items():
+        if row["status"] == "present":
+            _diagnostic_loading(source_nodes[node_id], base)
     for sha, copies in hashes.items():
         signatures = {digest({k: n.get(k) for k in ("raw_schema", "contracts", "producing_learner", "historical_status", "historical_semantics", "loading")}) for n in copies}
         if len(signatures) > 1: _fail(f"checkpoint hash {sha} has conflicting semantic declarations")
@@ -1614,6 +1683,7 @@ def _frozen_world_record(world: dict) -> dict:
     snapshot = world.get("snapshot")
     return {"family": world["family"], "seed": world["seed"], "withheld": world["withheld"],
             "warmup": world["warmup"], "horizon": world["horizon"],
+            "reset_turn": world["reset_turn"],
             "snapshot_sha256": "" if snapshot is None else snapshot["sha256"],
             "turn": world.get("turn"), "players": world.get("players", 8),
             "cohort_digest": world.get("cohort_digest", "")}
@@ -1641,27 +1711,90 @@ def _evaluation_context(node: dict, pane: dict, base: Path) -> tuple[dict, Path,
     return state, path, live_worker, producer
 
 
+def _diagnostic_loading(node: dict, base: Path) -> dict | None:
+    """Validate diagnostic loader eligibility without advancing global RNGs."""
+    from .gate1_diagnostics import preserve_global_rng
+    with preserve_global_rng():
+        return _diagnostic_loading_preserved(node, base)
+
+
+def _diagnostic_loading_preserved(node: dict, base: Path) -> dict | None:
+    """Implementation of loader eligibility, called only under RNG preservation."""
+    _, checkpoint_state, _ = inspect_checkpoint(node["artifact"], base)
+    if node["loading"]["mode"] == "native-strict":
+        if node["raw_schema"].get("checkpoint_contract") != contracts.NATIVE_CONTRACT:
+            _fail("native-strict loading cannot execute a legacy checkpoint")
+        from .evaluate import load_strict_state
+        try:
+            load_strict_state(checkpoint_state, resolved_semantics=node["historical_semantics"],
+                              diagnostic_loading=None)
+        except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+            _fail(f"native checkpoint is not executable under its strict declared loader: {exc}")
+        return None
+    if (node["loading"]["mode"] != "reviewed-adapter"
+            or node["raw_schema"].get("checkpoint_contract") != 8):
+        _fail("legacy checkpoint lacks a supported reviewed adapter")
+    protocol, protocol_sha = _read_json_ref(
+        node["loading"].get("implementation"), base, kind="gate1_legacy_adapter_protocol",
+    )
+    required = {"schema", "kind", "source_contract", "historical_source_commit", "source",
+                "input_mapping", "decoder_defaults", "default_resolution", "review", "digest"}
+    expected_mapping = {"core": "raw-checkpoint-core-width-prefix",
+                        "sets": ["sites", "fishing", "herds", "commodities", "contacts"],
+                        "appended_sets": "excluded-from-contract-8-actor-input"}
+    expected_decoder = {"commit": 1, "movement": contracts.NATIVE_MOVEMENT, "fission": -1,
+                        "trade_posture": "native"}
+    if (set(protocol) != required or protocol.get("source_contract") != 8
+            or protocol.get("historical_source_commit") != "2f4cc895e6bcd897200d340851d69be98fd18e00"
+            or protocol.get("input_mapping") != expected_mapping
+            or protocol.get("decoder_defaults") != expected_decoder
+            or protocol.get("default_resolution") != node["loading"]["default_resolution"]):
+        _fail("contract-8 adapter protocol is noncanonical or not bound to its defaults")
+    _reviewed_protocol(protocol, base, "gate1_legacy_adapter_protocol",
+                       {"historical-source", "input-mapping", "decoder", "default-resolution"})
+    source_path, source_sha = artifact(protocol.get("source"), base)
+    expected_relative = Path("src/anthropocene_rl/autonomous_v7/legacy_contract8.py")
+    expected_source = (REPOSITORY / "src/anthropocene_rl/autonomous_v7/legacy_contract8.py").resolve()
+    declared_source = Path(protocol["source"].get("path", ""))
+    if declared_source.is_absolute():
+        try:
+            declared_relative = declared_source.resolve().relative_to(REPOSITORY.resolve())
+        except ValueError:
+            _fail("contract-8 adapter source identity is outside the repository")
+    else:
+        declared_relative = declared_source
+    if (declared_relative.as_posix() != expected_relative.as_posix()
+            or checkpoint_hash(source_path) != source_sha):
+        _fail("contract-8 adapter protocol does not bind the executing adapter source")
+    if _STRICT_PACKET_CAS.get() is None and checkpoint_hash(expected_source) != source_sha:
+        _fail("contract-8 adapter protocol differs from the live executing adapter source")
+    semantics = node["historical_semantics"]
+    expected_semantics = {"experts": False, "token": False, "commitments": False,
+                          "learned_movement": False, "region_movement": False,
+                          "learned_fission": False, "learned_trade": False,
+                          "region_head": "flat", "grouped_region": False,
+                          "region_selection": None}
+    if semantics != expected_semantics:
+        _fail("contract-8 adapter cannot synthesize post-contract-8 heads or decoder semantics")
+    diagnostic_loading = {"mode": "reviewed-adapter", "adapter": "pinned-contract-8",
+                          "protocol_sha256": protocol_sha}
+    from .evaluate import load_strict_state
+    try:
+        load_strict_state(checkpoint_state, resolved_semantics=node["historical_semantics"],
+                          diagnostic_loading=diagnostic_loading)
+    except (KeyError, TypeError, ValueError, RuntimeError) as exc:
+        _fail(f"legacy checkpoint is not executable under its reviewed adapter: {exc}")
+    return diagnostic_loading
+
+
 def evaluate_node(document: dict, base: Path | str, node_id: str, pane_id: str,
                   runner: Callable[..., dict] | None = None) -> dict:
-    """Run only the deterministic subset the current producer can prove.
-
-    Unsupported requests are errors, never substitutions.  In particular, a
-    reset snapshot is not replaced with a fresh reset and population/QoL-year or
-    trajectory metrics are not reconstructed from the current final observation.
-    """
+    """Execute the exact reviewed Gate-1 pane; unsupported contracts fail closed."""
     base = Path(base); validate_manifest(document, base)
     node, pane = _node(document, node_id), _pane(document, pane_id)
     if node["status"] != "present" or node_id not in pane["nodes"]:
         _fail("evaluation node is unavailable or outside the pane")
-    if node["loading"]["mode"] != "native-strict" or node["raw_schema"].get("checkpoint_contract") != contracts.NATIVE_CONTRACT:
-        _fail("current evaluator supports only native-contract strict checkpoints; legacy inference needs its pinned adapter")
-    if pane["action_mode"] != "deterministic":
-        _fail("current evaluator does not support seeded stochastic policy execution")
-    if any(world.get("snapshot") is not None for world in pane["worlds"]):
-        _fail("current evaluator does not support reset-snapshot input")
-    unsupported = sorted(set(pane["metrics"]) - CURRENT_METRICS)
-    if unsupported:
-        _fail("current evaluator does not support requested metrics: " + ", ".join(unsupported))
+    diagnostic_loading = _diagnostic_loading(node, base)
     if pane["kind"] == "standardized-flags-intervention":
         unknown = set(pane["standardized_overrides"]) - INTERVENTION_FIELDS
         if unknown: _fail("standardized pane requests unsupported actor overrides: " + ", ".join(sorted(unknown)))
@@ -1673,23 +1806,80 @@ def evaluate_node(document: dict, base: Path | str, node_id: str, pane_id: str,
     semantics = dict(historical_semantics)
     if pane["kind"] == "standardized-flags-intervention": semantics.update(pane["standardized_overrides"])
     runner = runner or __import__("anthropocene_rl.autonomous_v7.evaluate", fromlist=["rollout"]).rollout
+    service_schema = _service_schema(pane, base)
+    rng_schedule = None
+    if pane["action_mode"] == "seeded-stochastic":
+        rng_schedule, _ = _read_json_ref(pane["policy_rng_schedule"], base,
+                                         kind="gate1_policy_rng_schedule")
+    from .gate1_diagnostics import (draw_order_from_semantics, validate_rng_schedule,
+                                    validate_trajectory_evidence)
     rows = []
     for frozen in pane["worlds"]:
         descriptor = _expected_world_descriptor(frozen, semantics)
+        snapshot = None
+        if frozen.get("snapshot") is not None:
+            snapshot_path, snapshot_sha = artifact(frozen["snapshot"], base)
+            snapshot = snapshot_path.read_bytes()
+            if snapshot_sha != descriptor["snapshot_sha256"]:
+                _fail("snapshot bytes differ from the exact frozen world descriptor")
+        policy_rng_steps = None
+        if rng_schedule is not None:
+            try:
+                policy_rng_steps = validate_rng_schedule(
+                    rng_schedule, _world_id(frozen), frozen["horizon"], node_id=node_id,
+                    expected_draw_order=draw_order_from_semantics(semantics),
+                )
+            except ValueError as exc:
+                _fail(str(exc))
         result = runner(frozen["seed"], frozen["horizon"], str(path), frozen["withheld"],
                         semantics["learned_movement"], semantics["commitments"], semantics["region_movement"],
                         frozen["warmup"], semantics["learned_fission"], semantics["learned_trade"],
                         pane["personality"],
                         semantics["grouped_region"], False, live, descriptor,
                         strict_checkpoint=True, resolved_semantics=historical_semantics,
-                        evaluation_semantics=semantics)
+                        evaluation_semantics=semantics, snapshot=snapshot,
+                        action_mode=pane["action_mode"], policy_rng_steps=policy_rng_steps,
+                        requested_metrics=pane["metrics"], service_fields=service_schema["fields"],
+                        diagnostic_loading=diagnostic_loading,
+                        capture_bounds=pane["capture_bounds"],
+                        evaluation_world_id=_world_id(frozen),
+                        expected_reset_turn=frozen["reset_turn"],
+                        observation_core_width=pane["observation_core_width"])
         if (result.get("worker_contract") != live or result.get("world_contract") != descriptor
-                or result.get("producer") != expected_producer):
+                or result.get("producer") != expected_producer
+                or result.get("snapshot_sha256", "") != descriptor["snapshot_sha256"]
+                or result.get("action_mode", "deterministic") != pane["action_mode"]):
             _fail("evaluation result producer/worker/world identity differs from the frozen request")
-        values = {metric: (result["population"] if metric == "ending_residents" else result[metric]) for metric in pane["metrics"]}
+        try:
+            recomputed = validate_trajectory_evidence(
+                result.get("trajectory_evidence"), world_id=_world_id(frozen),
+                snapshot_sha256=descriptor["snapshot_sha256"], horizon=frozen["horizon"],
+                bounds=pane["capture_bounds"], action_mode=pane["action_mode"],
+                rng_steps=policy_rng_steps, service_fields=service_schema["fields"],
+                expected_opening_turn=frozen["reset_turn"] + frozen["warmup"],
+                expected_reset_turn=frozen["reset_turn"],
+                observation_core_width=pane["observation_core_width"],
+                policy_semantics=semantics,
+                expected_decoder=("pinned-contract-8" if diagnostic_loading is not None
+                                  else "native-contract-12"),
+            )
+        except (TypeError, ValueError) as exc:
+            _fail(f"live evaluation trajectory evidence is malformed: {exc}")
+        values = {metric: recomputed[metric] for metric in pane["metrics"]}
+        if (result.get("policy_rng_receipts", []) != recomputed["policy_rng_receipts"]
+                or result.get("evaluation_steps") != recomputed["evaluation_steps"]
+                or result.get("capture_receipt") != recomputed["capture_receipt"]
+                or result.get("compiler_intervention_summary")
+                != recomputed["compiler_intervention_summary"]):
+            _fail("live evaluation summaries differ from complete raw trajectory evidence")
         rows.append({"world_id": _world_id(frozen),
                      "world": _frozen_world_record(frozen),
                      "metrics": values,
+                     "compiler_intervention_summary": result.get("compiler_intervention_summary"),
+                     "trajectory_evidence": result.get("trajectory_evidence"),
+                     "policy_rng_receipts": result.get("policy_rng_receipts", []),
+                     "evaluation_steps": result.get("evaluation_steps", frozen["horizon"]),
+                     "capture_receipt": result.get("capture_receipt"),
                      "producer": result.get("producer"), "worker_contract": result["worker_contract"],
                      "world_contract": result["world_contract"]})
     payload = {"schema": 1, "kind": "initialization_evaluation", "evidence_class": "checkpoint-evaluation",
@@ -1701,6 +1891,11 @@ def evaluate_node(document: dict, base: Path | str, node_id: str, pane_id: str,
                "inference_implementation": node["inference_implementation"],
                "evaluation_implementation": pane["evaluation_implementation"],
                "execution": pane["execution"], "rows": rows}
+    payload["loading_protocol"] = node["loading"].get("implementation")
+    payload["action_mode"] = pane["action_mode"]
+    payload["policy_rng_schedule"] = pane.get("policy_rng_schedule")
+    payload["capture_bounds"] = pane["capture_bounds"]
+    payload["observation_core_width"] = pane["observation_core_width"]
     payload["digest"] = digest(payload)
     if checkpoint_hash(path) != node["artifact"]["sha256"]: _fail("checkpoint changed during evaluation")
     return payload
@@ -1731,6 +1926,36 @@ def _metric(metric: str, value: Any, service_schema: dict) -> bool:
     return metric not in {"population_years", "qol_years"} or value >= 0
 
 
+def _compiler_summary(value: Any, total: int) -> bool:
+    if (not isinstance(value, dict)
+            or set(value) != {"schema", "kind", "total", "by_domain_reason", "raw_rows", "digest"}
+            or value.get("schema") != 1 or value.get("kind") != "gate1_compiler_intervention_summary"
+            or value.get("total") != total
+            or value.get("digest") != digest({key: item for key, item in value.items() if key != "digest"})
+            or not isinstance(value.get("by_domain_reason"), list)
+            or not isinstance(value.get("raw_rows"), list)
+            or len(value["raw_rows"]) != total):
+        return False
+    expected = defaultdict(int)
+    previous = None
+    for row in value["raw_rows"]:
+        if (not isinstance(row, dict)
+                or set(row) != {"transitionId", "decisionTurn", "campId", "domain", "reason", "source"}
+                or not all(isinstance(row.get(key), str) and row[key]
+                           for key in ("domain", "reason", "source"))):
+            return False
+        ordering = (str(row["transitionId"]), int(row["decisionTurn"] or 0), int(row["campId"] or 0),
+                    row["domain"], row["reason"], row["source"])
+        if previous is not None and ordering < previous:
+            return False
+        previous = ordering
+        expected[(row["domain"], row["reason"])] += 1
+    return value["by_domain_reason"] == [
+        {"domain": domain, "reason": reason, "count": count}
+        for (domain, reason), count in sorted(expected.items())
+    ]
+
+
 def _evaluation_index(document: dict, evaluations: list[dict], base: Path) -> dict[tuple[str, str, str], dict]:
     index = {}
     for report in evaluations:
@@ -1739,6 +1964,7 @@ def _evaluation_index(document: dict, evaluations: list[dict], base: Path) -> di
                 or report.get("digest") != digest({k: v for k, v in report.items() if k != "digest"})):
             _fail("evaluation report is malformed or bound to another manifest")
         node, pane = _node(document, report.get("node")), _pane(document, report.get("pane"))
+        diagnostic_loading = _diagnostic_loading(node, base)
         if (node["status"] != "present" or node["id"] not in pane["nodes"]
                 or report.get("evidence_class") != "checkpoint-evaluation"
                 or report.get("checkpoint_sha256") != node["artifact"]["sha256"]
@@ -1748,8 +1974,14 @@ def _evaluation_index(document: dict, evaluations: list[dict], base: Path) -> di
                 or report.get("service_outcome_schema") != pane["service_outcome_schema"]
                 or report.get("inference_implementation") != node["inference_implementation"]
                 or report.get("evaluation_implementation") != pane["evaluation_implementation"]
-                or report.get("execution") != pane["execution"]):
+                or report.get("execution") != pane["execution"]
+                or report.get("loading_protocol") != node["loading"].get("implementation")
+                or report.get("action_mode") != pane["action_mode"]
+                or report.get("policy_rng_schedule") != pane.get("policy_rng_schedule")
+                or report.get("capture_bounds") != pane.get("capture_bounds")):
             _fail("evaluation report node/checkpoint/evidence/metric/personality/background scope differs from request")
+        if report.get("observation_core_width") != pane["observation_core_width"]:
+            _fail("evaluation report observation layout differs from the reviewed pane")
         _execution_declaration(report["execution"], "evaluation report")
         semantics = dict(node["historical_semantics"])
         if pane["kind"] == "standardized-flags-intervention": semantics.update(pane["standardized_overrides"])
@@ -1771,6 +2003,47 @@ def _evaluation_index(document: dict, evaluations: list[dict], base: Path) -> di
                     or row.get("producer") != expected_producer
                     or row.get("worker_contract") != worker):
                 _fail("evaluation row lacks finite scoped metrics or its exact bound producer")
+            executed_steps = row.get("evaluation_steps")
+            if (type(executed_steps) is not int or executed_steps < 0
+                    or executed_steps > frozen["horizon"]):
+                _fail("evaluation row has an invalid executed-step count")
+            evidence = row.get("trajectory_evidence")
+            schedule_steps = None
+            if pane["action_mode"] == "seeded-stochastic":
+                schedule, _ = _read_json_ref(pane["policy_rng_schedule"], base,
+                                             kind="gate1_policy_rng_schedule")
+                from .gate1_diagnostics import draw_order_from_semantics, validate_rng_schedule
+                try:
+                    schedule_steps = validate_rng_schedule(
+                        schedule, world_id, frozen["horizon"], node_id=node["id"],
+                        expected_draw_order=draw_order_from_semantics(semantics),
+                    )
+                except ValueError as exc:
+                    _fail(f"evaluation row policy RNG schedule is invalid: {exc}")
+            from .gate1_diagnostics import validate_trajectory_evidence
+            try:
+                recomputed = validate_trajectory_evidence(
+                    evidence, world_id=world_id,
+                    snapshot_sha256=_frozen_world_record(frozen)["snapshot_sha256"],
+                    horizon=frozen["horizon"], bounds=pane["capture_bounds"],
+                    action_mode=pane["action_mode"], rng_steps=schedule_steps,
+                    service_fields=service_schema["fields"],
+                    expected_opening_turn=frozen["reset_turn"] + frozen["warmup"],
+                    expected_reset_turn=frozen["reset_turn"],
+                    observation_core_width=pane["observation_core_width"],
+                    policy_semantics=semantics,
+                    expected_decoder=("pinned-contract-8" if diagnostic_loading is not None
+                                      else "native-contract-12"),
+                )
+            except (TypeError, ValueError) as exc:
+                _fail(f"evaluation row diagnostic surface is malformed: {exc}")
+            if (any(metrics[name] != recomputed[name] for name in metrics)
+                    or row.get("compiler_intervention_summary")
+                    != recomputed["compiler_intervention_summary"]
+                    or row.get("policy_rng_receipts", []) != recomputed["policy_rng_receipts"]
+                    or executed_steps != recomputed["evaluation_steps"]
+                    or row.get("capture_receipt") != recomputed["capture_receipt"]):
+                _fail("evaluation row outcomes/receipts differ from complete raw trajectory evidence")
             from .worker_contract import checked
             expected_descriptor = _expected_world_descriptor(frozen, semantics)
             if checked(row.get("world_contract")) != expected_descriptor:

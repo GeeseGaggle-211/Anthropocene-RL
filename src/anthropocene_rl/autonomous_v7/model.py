@@ -8,6 +8,7 @@ from pooling, so missing and zero never look alike.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import torch
@@ -626,6 +627,36 @@ def mix_shares(mix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return s, mix[:, 2]
 
 
+def deterministic_level(mean: torch.Tensor) -> np.ndarray:
+    """Decode unit-interval levels exactly as the deterministic actor does."""
+    values = torch.sigmoid(mean).detach().cpu().numpy()
+    values[values < 0.01] = 0.0
+    values[values > 0.99] = 1.0
+    return values
+
+
+def deterministic_mix(logits: torch.Tensor) -> np.ndarray:
+    """Decode the economy simplex using the actor's native float32 operations."""
+    mix = torch.softmax(logits, dim=1).detach().cpu().numpy()
+    mix[mix < 0.01] = 0.0
+    return mix / np.maximum(mix.sum(axis=1, keepdims=True), 1e-12)
+
+
+def validate_deterministic_level_image(values: list[float] | tuple[float, ...] | np.ndarray) -> None:
+    """Require canonical float32 values in the deterministic level image."""
+    supplied = np.asarray(values)
+    if supplied.ndim != 1 or not np.issubdtype(supplied.dtype, np.number):
+        raise ValueError("deterministic levels are malformed")
+    decoded = supplied.astype(np.float32)
+    if (not np.isfinite(decoded).all()
+            or any(float(item) != original
+                   for item, original in zip(decoded, supplied.tolist(), strict=True))):
+        raise ValueError("deterministic levels are not canonical float32 values")
+    if np.any(((decoded > np.float32(0.0)) & (decoded < np.float32(0.01)))
+              | ((decoded > np.float32(0.99)) & (decoded < np.float32(1.0)))):
+        raise ValueError("deterministic levels are outside the actor decoder image")
+
+
 def mix_soft_cross_entropy(logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     """Cross-entropy of the masked softmax against a simplex target restricted to the available coordinates.
     Returns per-row losses and the rows where the target carries mass on an available coordinate."""
@@ -687,20 +718,14 @@ def act_deterministic(out: dict[str, torch.Tensor], region: bool = False, groupe
     if region:
         out = condition_mix(out, slot)
 
-    def level(mean: torch.Tensor) -> np.ndarray:
-        p = torch.sigmoid(mean).detach().cpu().numpy()
-        p[p < 0.01] = 0.0
-        p[p > 0.99] = 1.0
-        return p
-
-    mix = torch.softmax(out["mix_logits"], dim=1).detach().cpu().numpy()
-    mix[mix < 0.01] = 0.0
-    mix = mix / np.maximum(mix.sum(axis=1, keepdims=True), 1e-12)
+    mix = deterministic_mix(out["mix_logits"])
     s, f = mix_shares(mix)
     return {
-        "strategic": np.concatenate([level(out["strategic_mean"]), s[:, None], f[:, None]], axis=1),
+        "strategic": np.concatenate([
+            deterministic_level(out["strategic_mean"]), s[:, None], f[:, None],
+        ], axis=1),
         "mix": mix,
-        "service": level(out["service_mean"]),
+        "service": deterministic_level(out["service_mean"]),
         "clothing": out["clothing"].argmax(dim=1).cpu().numpy(),
         "shelter": out["shelter"].argmax(dim=1).cpu().numpy(),
         "fission": out["fission"].argmax(dim=1).cpu().numpy(),
@@ -713,6 +738,45 @@ def act_deterministic(out: dict[str, torch.Tensor], region: bool = False, groupe
         "trade_share": np.where(torch.sigmoid(out["trade_share_mean"]).detach().cpu().numpy() < 0.01, 0.0,
                                 torch.sigmoid(out["trade_share_mean"]).detach().cpu().numpy()),
     }
+
+
+def bridge_actions_from_mode(mode: dict[str, np.ndarray], *, movement: bool,
+                             region_movement: bool, commitments: bool,
+                             learned_fission: bool, learned_trade: bool) -> list[dict[str, Any]]:
+    """Map an already decoded actor mode to the bridge schema.
+
+    The Gate-1 decoder receipt replays this same helper.  Keeping the live and
+    evidence paths on one implementation avoids attempting to invert the two
+    rounded economy shares back into the actor's hidden three-simplex.
+    """
+    rows = len(mode["strategic"])
+    if not commitments:
+        spans = np.full(rows, contracts.SPAN_SINGLE)
+    else:
+        spans = mode["span"]
+    actions: list[dict[str, Any]] = []
+    for index in range(rows):
+        code = contracts.NATIVE_MOVEMENT
+        if movement:
+            code = (region_code(int(mode["region"][index])) if region_movement
+                    else int(mode["movement"][index]))
+        action: dict[str, Any] = {
+            "strategic": mode["strategic"][index].tolist(),
+            "service": mode["service"][index].tolist(),
+            "clothingRoute": int(mode["clothing"][index]),
+            "shelterRoute": int(mode["shelter"][index]),
+            "movement": code,
+            "fission": int(mode["fission"][index]) if learned_fission else -1,
+            "commit": contracts.SPANS[int(spans[index])],
+        }
+        if learned_trade:
+            action.update({
+                "tradeValue": mode["trade_value"][index].tolist(),
+                "tradeGate": [int(gate) for gate in mode["trade_gate"][index]],
+                "tradeShare": float(mode["trade_share"][index]),
+            })
+        actions.append(action)
+    return actions
 
 
 def region_code(slot: int) -> int:

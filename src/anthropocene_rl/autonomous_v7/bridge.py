@@ -169,7 +169,17 @@ class Model9Bridge:
         self.diagnostic_schema_version = int(step.get("diagnosticSchemaVersion", 0))
         self.diagnostic_trajectory_id = step.get("trajectoryId")
         from .economic_trace import validate_economic_step
-        self.economic_diagnostics = validate_economic_step(step, required=getattr(self, "economic_diagnostics_enabled", False), initial=initial)
+        self.economic_diagnostics = validate_economic_step(
+            step, required=getattr(self, "economic_diagnostics_enabled", False), initial=initial,
+        )
+        # The bridge's raw signed trade utility is defined by the simulator as
+        # realised person-QoL-years.  Older diagnostic envelopes did not repeat
+        # that unit in every row; enrich only the opt-in reporting sidecar and
+        # reject a conflicting declaration rather than relabelling it.
+        if getattr(self, "economic_diagnostics_enabled", False):
+            from .gate1_diagnostics import complete_economic_units
+            for row in self.economic_diagnostics.values():
+                complete_economic_units(row)
 
     def _check_alignment(self, actual: dict, saved: dict) -> None:
         def sidecars(s):
