@@ -46,6 +46,9 @@ ECONOMIC_ROW_FIELDS = {
     "herds", "requests", "trades", "transfers", "fields", "conservation",
     "parentTransitionId", "forkId", "branchId",
 }
+GATE2_ADDITIVE_ECONOMIC_ROW_FIELDS = {
+    "controls", "conservationRows", "physicalEvents",
+}
 ECONOMIC_DOMAINS = {"population", "cultivation", "herding", "manufacturing", "trade"}
 BOUNDARY_VILLAGE_FIELDS = {
     "camp", "society", "parentSociety", "priorPopulation", "population", "qol", "years",
@@ -263,6 +266,32 @@ def _unique_optional_collection(row: dict, collection: str, identity: str) -> No
         raise ValueError(f"economic {collection} identities are missing or duplicated")
 
 
+def _unique_trade_collection(row: dict, schema: int) -> None:
+    """Validate the identity surface for the schema-specific trade envelope."""
+    values = row["trades"]
+    if not isinstance(values, list) or any(not isinstance(item, dict) for item in values):
+        raise ValueError("economic trades collection is malformed")
+    if schema == 1:
+        identities = [item.get("transactionId") for item in values]
+    else:
+        identity_by_type = {
+            "eligibility": "eventId",
+            "requisition": "requestId",
+            "transaction": "transactionId",
+        }
+        identities = []
+        for item in values:
+            record_type = item.get("recordType")
+            identity_name = identity_by_type.get(record_type)
+            identity = item.get(identity_name) if identity_name is not None else None
+            if (identity_name is None or not isinstance(identity, str)
+                    or not identity.strip()):
+                raise ValueError("economic schema-2 trade identity is missing or malformed")
+            identities.append((record_type, identity))
+    if any(value is None for value in identities) or len(identities) != len(set(identities)):
+        raise ValueError("economic trades identities are missing or duplicated")
+
+
 def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
                            source_villages: list[dict], successor_villages: list[dict]) -> list[dict]:
     """Validate the one authoritative raw economic envelope used by Gate 1."""
@@ -276,10 +305,16 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
     transitions: set[str] = set()
     by_camp = {int(village["camp"]): village for village in successor_villages}
     for row in rows:
-        if not isinstance(row, dict) or set(row) != ECONOMIC_ROW_FIELDS:
+        if not isinstance(row, dict):
+            raise ValueError("economic row does not match the frozen envelope schema")
+        schema = row.get("schemaVersion")
+        expected_fields = (ECONOMIC_ROW_FIELDS if schema == 1 else
+                           ECONOMIC_ROW_FIELDS | GATE2_ADDITIVE_ECONOMIC_ROW_FIELDS
+                           if schema == 2 else None)
+        if expected_fields is None or set(row) != expected_fields:
             raise ValueError("economic row does not match the frozen envelope schema")
         _walk_finite(row)
-        if row["schemaVersion"] != 1 or row["trajectoryId"] != trajectory_id:
+        if row["trajectoryId"] != trajectory_id:
             raise ValueError("economic row schema/trajectory identity differs from the opening boundary")
         if row["decisionTurn"] != decision_turn:
             raise ValueError("economic row decision turn differs from its trajectory step")
@@ -355,7 +390,7 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
             _nonnegative(trade.get("exported" + good), f"trade.exported{good}")
         _unique_optional_collection(row, "fields", "fieldId")
         _unique_optional_collection(row, "requests", "requestId")
-        _unique_optional_collection(row, "trades", "transactionId")
+        _unique_trade_collection(row, schema)
         if not isinstance(row["transfers"], list) or any(not isinstance(item, dict) for item in row["transfers"]):
             raise ValueError("economic transfers collection is malformed")
     if camps != expected:
@@ -448,6 +483,19 @@ _UNORDERED_IDENTITIES = {
 }
 
 
+def _semantic_identity(item: dict[str, Any], identity: str) -> Any:
+    if identity != "transactionId" or "recordType" not in item:
+        return item.get(identity)
+    identity_by_type = {
+        "eligibility": "eventId",
+        "requisition": "requestId",
+        "transaction": "transactionId",
+    }
+    record_type = item.get("recordType")
+    name = identity_by_type.get(record_type)
+    return (record_type, item.get(name) if name is not None else None)
+
+
 def _canonical_semantic(value: Any, key: str | None = None) -> Any:
     if isinstance(value, dict):
         return {name: _canonical_semantic(value[name], name) for name in sorted(value)}
@@ -455,7 +503,7 @@ def _canonical_semantic(value: Any, key: str | None = None) -> Any:
         values = [_canonical_semantic(item) for item in value]
         if key in _UNORDERED_IDENTITIES:
             identity = _UNORDERED_IDENTITIES[key]
-            values.sort(key=(lambda item: (str(item.get(identity)), digest(item))) if identity
+            values.sort(key=(lambda item: (str(_semantic_identity(item, identity)), digest(item))) if identity
                         else lambda item: digest(item))
         return values
     if isinstance(value, np.generic):

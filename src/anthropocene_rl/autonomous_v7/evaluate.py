@@ -33,6 +33,12 @@ from .model import (Actor, Normalizer, act_deterministic, bridge_actions_from_mo
 from .upgrade import upgrade
 
 
+def decoder_identity(actor: Actor) -> str:
+    """Return the receipt/validator decoder identity from the constructed actor."""
+    from .legacy_contract8 import Contract8Actor
+    return "pinned-contract-8" if isinstance(actor, Contract8Actor) else "native-contract-12"
+
+
 def load_strict_state(raw: dict[str, Any], *, resolved_semantics: dict[str, Any] | None,
                       diagnostic_loading: dict[str, Any] | None) -> tuple[Actor, Normalizer]:
     """Construct only when raw bytes exactly satisfy their declared Gate-1 loader."""
@@ -147,6 +153,40 @@ def load(checkpoint: Path, region_head: str | None = None, *, strict: bool = Fal
     it uses the weights-only deserializer, requires the current raw contract, and receives every constructor and
     decoder default from a content-bound resolution record.  It never calls :func:`upgrade`.
     """
+    if (strict and isinstance(diagnostic_loading, dict)
+            and diagnostic_loading.get("mode") == "reviewed-adapter"
+            and diagnostic_loading.get("adapter") == "t3-initialization-bc-composite"):
+        from .gate1_production_adapter import load_bc_phase
+        raw = load_bc_phase(checkpoint, diagnostic_loading, base=checkpoint.parent)
+        # The adapter has already proved and assembled an exact native raw
+        # state.  The ordinary strict contract-12 loader performs the remaining
+        # key/dtype/shape/normalizer checks without upgrade or defaults.
+        return load_strict_state(raw, resolved_semantics=resolved_semantics,
+                                 diagnostic_loading=None)
+    if (strict and isinstance(diagnostic_loading, dict)
+            and diagnostic_loading.get("mode") == "reviewed-adapter"
+            and diagnostic_loading.get("adapter") == "t2m-guarded-bc-actor-only"):
+        from .gate1_production_adapter import load_guarded_bc
+        return load_guarded_bc(checkpoint, diagnostic_loading, base=checkpoint.parent)
+    if (strict and isinstance(diagnostic_loading, dict)
+            and diagnostic_loading.get("mode") == "reviewed-adapter"
+            and diagnostic_loading.get("adapter") == "t3-init-guard-only-intervention"):
+        from .gate1_production_adapter import load_guard_only_intervention
+        raw = load_guard_only_intervention(checkpoint, diagnostic_loading,
+                                           base=checkpoint.parent)
+        return load_strict_state(raw, resolved_semantics=resolved_semantics,
+                                 diagnostic_loading=None)
+    if (strict and isinstance(diagnostic_loading, dict)
+            and diagnostic_loading.get("mode") == "reviewed-adapter"
+            and diagnostic_loading.get("adapter")
+            == "recovered-contract12-inactive-region"):
+        from .gate1_production_adapter import load_recovered_contract12
+        raw = load_recovered_contract12(
+            checkpoint, diagnostic_loading, resolved_semantics or {},
+            base=checkpoint.parent,
+        )
+        return load_strict_state(raw, resolved_semantics=resolved_semantics,
+                                 diagnostic_loading=None)
     raw = torch.load(checkpoint, map_location="cpu", weights_only=strict)
     if strict:
         return load_strict_state(raw, resolved_semantics=resolved_semantics,
@@ -165,7 +205,8 @@ def load(checkpoint: Path, region_head: str | None = None, *, strict: bool = Fal
     actor.learned_trade = bool(state.get("learned_trade", False))
     from .worker_contract import from_state
     actor.worker_contract = from_state(state)
-    return actor, Normalizer.from_state(state["normalizer"])
+    from .model import load_checkpoint_normalizer
+    return actor, load_checkpoint_normalizer(state)
 
 
 def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str, Any]],
@@ -211,8 +252,7 @@ def policy_actions(actor: Actor, normalizer: Normalizer, villages: list[dict[str
     if decoder_receipts is not None:
         if decoder_semantics is None:
             raise ValueError("Gate-1 decoder capture requires exact policy semantics")
-        decoder = ("pinned-contract-8" if isinstance(actor, Contract8Actor)
-                   else "native-contract-12")
+        decoder = decoder_identity(actor)
         for index, village in enumerate(live):
             camp = int(village["camp"])
             decoder_receipts[camp] = action_decoder_receipt(
@@ -284,8 +324,7 @@ def policy_actions_stochastic(actor: Actor, normalizer: Normalizer, villages: li
     if decoder_receipts is not None:
         if decoder_semantics is None:
             raise ValueError("Gate-1 decoder capture requires exact policy semantics")
-        decoder = ("pinned-contract-8" if isinstance(actor, Contract8Actor)
-                   else "native-contract-12")
+        decoder = decoder_identity(actor)
         for index, village in enumerate(live):
             camp = int(village["camp"])
             decoder_receipts[camp] = action_decoder_receipt(
@@ -316,6 +355,34 @@ def producer_identity(bridge):
             "raw_materials": bridge.last_reset_identity["rawMaterialsEnabled"]}
 
 
+def _validated_reset_turn(step: dict[str, Any], expected_reset_turn: int | None, *,
+                          bind_observed_reset_turn: bool, world_contract: dict[str, Any],
+                          snapshot: bytes | None) -> int:
+    """Validate and return the authoritative post-reset turn.
+
+    Fresh seeded generation has no turn before ``reset``: its reviewed world
+    descriptor therefore carries ``turn=None`` and the native bridge supplies
+    the boundary turn.  Snapshot-backed worlds remain pre-materialized and
+    must match their reviewed turn exactly.
+    """
+    if type(bind_observed_reset_turn) is not bool or not isinstance(step, dict):
+        raise ValueError("reset-turn binding declaration is malformed")
+    actual = step.get("turn")
+    if type(actual) is not int or actual < 0:
+        raise ValueError("bridge reset lacks an exact nonnegative native turn")
+    if bind_observed_reset_turn:
+        if (expected_reset_turn is not None or snapshot is not None
+                or world_contract.get("snapshot_sha256") not in {None, ""}
+                or world_contract.get("turn") is not None):
+            raise ValueError("observed reset-turn binding is only valid for a fresh generated world")
+        return actual
+    if type(expected_reset_turn) is not int or expected_reset_turn < 0:
+        raise ValueError("reviewed snapshot/reset boundary lacks an exact turn")
+    if actual != expected_reset_turn:
+        raise ValueError("bridge reset turn differs from the reviewed world boundary")
+    return actual
+
+
 def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, movement: bool = False,
             commitments: bool | None = None, region: bool | None = None, warmup: int = 0,
             fission: bool | None = None, trade: bool | None = None,
@@ -331,6 +398,7 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             capture_bounds: dict[str, int] | None = None,
             evaluation_world_id: str | None = None,
             expected_reset_turn: int | None = None,
+            bind_observed_reset_turn: bool = False,
             observation_core_width: int | None = None) -> dict[str, Any]:
     """``movement`` enables learned rollout movement; ``region`` selects its contract-10 regional decoder.
     ``commitments`` and ``region`` override the checkpoint's own settings.
@@ -386,7 +454,10 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
         capture_bounds = validate_capture_bounds(capture_bounds, turns)
         if not service_fields:
             raise ValueError("Gate-1 diagnostic capture requires its registered service fields")
-        if (type(expected_reset_turn) is not int or expected_reset_turn < 0
+        if (type(bind_observed_reset_turn) is not bool
+                or (bind_observed_reset_turn and expected_reset_turn is not None)
+                or (not bind_observed_reset_turn
+                    and (type(expected_reset_turn) is not int or expected_reset_turn < 0))
                 or type(observation_core_width) is not int or observation_core_width <= 0
                 or not isinstance(evaluation_semantics, dict)):
             raise ValueError("Gate-1 diagnostic capture lacks reviewed reset/observation/policy semantics")
@@ -418,9 +489,11 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
                           head=getattr(actor, "region_head", None))
         step = bridge.reset(seed, players=world_contract["players"], withheld=withheld,
                             movement=movement, snapshot=snapshot)
-        if economic_required and int(step["turn"]) != expected_reset_turn:
-            raise ValueError("bridge reset turn differs from the reviewed world boundary")
-        reset_turn = int(step["turn"])
+        reset_turn = (_validated_reset_turn(
+            step, expected_reset_turn,
+            bind_observed_reset_turn=bind_observed_reset_turn,
+            world_contract=world_contract, snapshot=snapshot,
+        ) if economic_required else int(step["turn"]))
         reset_fingerprint = str(step["fingerprint"])
         diagnostic_world_id = evaluation_world_id or digest(world_contract)
         warmup_chain = []
@@ -615,12 +688,11 @@ def rollout(seed: int, turns: int, checkpoint: str | None, withheld: int = 0, mo
             snapshot_sha256=world_contract["snapshot_sha256"], horizon=turns,
             bounds=capture_bounds, action_mode=action_mode,
             rng_steps=policy_rng_steps, service_fields=service_fields,
-            expected_opening_turn=expected_reset_turn + warmup,
-            expected_reset_turn=expected_reset_turn,
+            expected_opening_turn=reset_turn + warmup,
+            expected_reset_turn=reset_turn,
             observation_core_width=observation_core_width,
             policy_semantics=evaluation_semantics,
-            expected_decoder=("pinned-contract-8" if diagnostic_loading is not None
-                              else "native-contract-12"),
+            expected_decoder=decoder_identity(actor),
         )
         result.update({key: recomputed[key] for key in (
             "welfare", "population_years", "qol_years", "trade_utility",

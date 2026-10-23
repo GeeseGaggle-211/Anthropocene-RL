@@ -22,8 +22,9 @@ import torch
 from torch import nn
 
 from . import contracts, data
-from .model import (Actor, Critic, Normalizer, VectorCritic, act_deterministic, logistic_normal_nll,
-                    mix_soft_cross_entropy, mix_target, to_tensors)
+from .model import (BOUNDED_FEATURE_CONTRACT, LEGACY_FEATURE_CONTRACT, Actor, Critic, Normalizer, VectorCritic,
+                    act_deterministic, load_checkpoint_normalizer, logistic_normal_nll, mix_soft_cross_entropy,
+                    mix_target, normalizer_feature_contract, to_tensors)
 
 
 def subset(batch: dict[str, np.ndarray], index: np.ndarray) -> dict[str, np.ndarray]:
@@ -331,6 +332,8 @@ def main() -> int:
     parser.add_argument("--grad-clip", type=float, default=1.0, help="BC gradient-norm clip")
     parser.add_argument("--input-guard", type=float, default=None,
                         help="normalizer guard: drop inputs constant in TRAIN, clip the rest to +-this (token 10, else 0 = off)")
+    parser.add_argument("--normalization-contract", choices=("legacy", "bounded-v2"), default="legacy",
+                        help="new-run bounded physical/history contract; legacy preserves historical checkpoints")
     parser.add_argument("--provenance", choices=("reject", "flag", "allow"), default="reject",
                         help="branch shards that mix sources or hold shards of unknown source: reject, flag or allow")
     parser.add_argument("--branch-shards", default=None,
@@ -347,7 +350,7 @@ def main() -> int:
     from .checkpoint import parse, restore_actor
     args = parse(parser)
     from .protocol import enforce_clone_execution
-    execution = enforce_clone_execution(args)
+    enforce_clone_execution(args)
     if args.provenance != "reject" and args.branch_shards:
         raise ValueError("flag/allow provenance is for analysis and migrations; training requires reject")
     torch.manual_seed(args.seed); np.random.seed(args.seed); torch.set_num_threads(args.threads)
@@ -371,6 +374,12 @@ def main() -> int:
     guard = args.input_guard if args.input_guard is not None else (10.0 if args.token else 0.0)
     bc_config = {"lr": args.lr, "warmup": warmup, "final_lr": final_lr, "encoder_lr_scale": args.encoder_lr_scale,
                  "grad_clip": args.grad_clip, "input_guard": guard or None}
+    if args.normalization_contract == "bounded-v2":
+        if args.input_guard not in (None, 10.0):
+            raise ValueError("bounded-v2 fixes the input guard at 10; do not override --input-guard")
+        guard = 10.0
+        bc_config["input_guard"] = guard
+        bc_config["normalization_contract"] = "bounded-v2"
     core_width = train["core"].shape[1]
     privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
     # Round 3: the hierarchical region head by default (model.Actor; saved in the actor state); --region-head flat keeps
@@ -414,7 +423,8 @@ def main() -> int:
     from .teacher_data import validate_source
     for record in train_report["records"] + dev_report["records"]:
         validate_source(record, live=frozen_run["simulator"], binary_sha256=frozen_run["bridge_sha256"])
-    normalizer = Normalizer.fit(train, guard=guard or None)
+    normalizer = (Normalizer.fit_bounded(train) if args.normalization_contract == "bounded-v2"
+                  else Normalizer.fit(train, guard=guard or None))
     print(json.dumps({"bc_config": bc_config, "dropped_inputs": normalizer.dead_names()}), flush=True)
     teacher_inputs = {"training": train_report, "selection": dev_report}
     lineage = None
@@ -422,7 +432,10 @@ def main() -> int:
     if args.resume is not None:
         state = loading
         restore_actor(actor, state, args.region_head, resume=True); critic.load_state_dict(state["critic"])
-        normalizer = Normalizer.from_state(state["normalizer"]); log = list(state.get("log", []))
+        expected_contract = (BOUNDED_FEATURE_CONTRACT if args.normalization_contract == "bounded-v2"
+                             else LEGACY_FEATURE_CONTRACT)
+        normalizer = load_checkpoint_normalizer(state, expected_feature_contract=expected_contract)
+        log = list(state.get("log", []))
         if frozen_run:
             frozen_run["inputs"]["init"] = checkpoint_hash(args.resume)
             frozen_run["initialization"] = "checkpoint"
@@ -435,7 +448,9 @@ def main() -> int:
         restore_actor(actor, saved, args.region_head, resume=True); log = list(saved["log"])
         # The actor was cloned against this normalizer (phase files written before the guard carry none: refit).
         if "normalizer" in saved:
-            normalizer = Normalizer.from_state(saved["normalizer"])
+            expected_contract = (BOUNDED_FEATURE_CONTRACT if args.normalization_contract == "bounded-v2"
+                                 else LEGACY_FEATURE_CONTRACT)
+            normalizer = load_checkpoint_normalizer(saved, expected_feature_contract=expected_contract)
         bc_config = saved.get("bc_config", {"phase": "unrecorded"})
         if frozen_run and saved.get("run_manifest") != frozen_run:
             raise ValueError("BC phase lacks matching frozen run provenance; use a new output")
@@ -448,10 +463,12 @@ def main() -> int:
                     final_lr=final_lr, encoder_lr_scale=args.encoder_lr_scale, grad_clip=args.grad_clip)
         args.out.parent.mkdir(parents=True, exist_ok=True)
         from .promotion import seal
+        feature_contract = normalizer_feature_contract(normalizer)
         torch.save(seal({"actor": actor.state_dict(), "log": log, "normalizer": normalizer.state_dict(), "bc_config": bc_config,
                     "nonqualifying": args.nonqualifying,
                     "contract": contracts.NATIVE_CONTRACT, "run_manifest": frozen_run,
-                    "calibration_manifest": held_manifest, "family_lineage": lineage}),
+                    "calibration_manifest": held_manifest, "family_lineage": lineage,
+                    **({"feature_contract": feature_contract} if feature_contract is not None else {})}),
                    phase.with_suffix(".tmp"))
         os.replace(phase.with_suffix(".tmp"), phase)
     if args.vector_critic or branch is not None:
@@ -462,6 +479,7 @@ def main() -> int:
                              args.critic_lr or args.lr, log, warm=args.resume is not None)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     extra = {"vector_critic": True} if args.vector_critic else {}
+    feature_contract = normalizer_feature_contract(normalizer)
     from .promotion import seal
     torch.save(seal({"actor": actor.state_dict(), "critic": critic.state_dict(), "normalizer": normalizer.state_dict(),
                 "core_width": core_width, "privileged_width": privileged_width, "contract": contracts.NATIVE_CONTRACT, "token": args.token,
@@ -470,7 +488,8 @@ def main() -> int:
                 "calibration_manifest": held_manifest,
                 "run_manifest": frozen_run, "family_lineage": lineage, "offline_compatibility": offline_compatibility,
                 "branch_provenance": branch_report, "declared_source_runs": sorted(declared) if declared is not None else None,
-                "critic_dev": final, **extra}), args.out)
+                "critic_dev": final, **({"feature_contract": feature_contract} if feature_contract is not None else {}),
+                **extra}), args.out)
     print(json.dumps({"saved": str(args.out), "seconds": time.time() - clock, "critic_dev": final}), flush=True)
     return 0
 

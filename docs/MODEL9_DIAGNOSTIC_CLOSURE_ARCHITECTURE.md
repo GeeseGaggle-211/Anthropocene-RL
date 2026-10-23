@@ -63,8 +63,11 @@ Each gate writes a content-addressed review packet containing:
 
 After implementation and collection for each gate, Astra High independently checks
 the packet and raw evidence and reports model-architecture and training shortfalls.
-Only Astra `PASS` permits the next gate. `HOLD` freezes interpretation and triggers
-a reviewed design correction; it never authorizes adaptive tuning on the cohort.
+Only a review `PASS` in the claim scope being advanced permits dependent work.
+`HOLD` freezes that claim and triggers a reviewed design correction; it never
+authorizes adaptive tuning on the cohort. Historical-replay and fresh-current
+diagnostic claims are independently classified rather than collapsed into one
+status.
 
 ## 3. Gate 1: initialization-loss decomposition
 
@@ -131,6 +134,51 @@ evidence covering reset/configuration, action, observation, reward and state
 trajectories. Otherwise the node is incompatible and the gate is held. Worker
 contracts are never rewritten or bypassed. A legacy external evidence wrapper may
 bind contemporaneous records but cannot claim modern qualification.
+
+Approved Gate 1 collection amendment, 23 October 2026: a separately named
+`fresh-common-producer-diagnostic` pane may evaluate hash-bound recovered actors
+under one exact current simulator, bridge, worker and runtime on identical frozen
+worlds, flags and action regimes. This pane answers the narrower identical-current-
+simulator initialization question. It may use a reviewed external legacy-artifact
+wrapper when historical checkpoints lack embedded worker metadata, provided the
+wrapper preserves the original bytes and raw contract and does not rewrite a
+historical worker contract. Contract-8 inference still requires its pinned-source
+adapter/comparator. An actor-only BC artifact may be assembled only as an explicit
+current diagnostic composite with a separately hash-bound support normalizer; that
+does not establish the BC-time normalizer. Every row, report and aggregate carries
+the pane ID and `historical_producer_status=unresolved`. The pane makes no claim of
+historical replay, source-to-live semantic equivalence, original BC-normalizer
+behavior, selection, readiness or historical provenance completeness. It does not
+replace the primary historical-semantics pane. Missing historical coverage keeps
+the historical-replay/provenance claim at `HOLD`. It does not block a separately
+labelled scoped `PASS` for the fresh-current diagnostic once all required 20 nodes,
+comparators, worlds, metrics, verification and current-producer evidence are
+complete. Such a scoped `PASS` may support current-diagnostic work in Gates 2-4,
+but it does not imply historical replay, training readiness, selection or model
+promotion.
+
+The same amendment permits one preregistered prospective normalizer intervention:
+the bitwise recovered unguarded T3-initialization actor and its exact affine
+normalizer moments, with only the independently recovered T2m seed-6 `guard` and
+dead masks applied. The loader must prove every common affine field literally
+identical and preserve the actor byte identity before evaluation. This node is
+motivated by the pre-existing cloning-stability diagnosis, is not selected from
+fresh outcomes and is not a historical checkpoint, T3 ancestor, source-runtime
+replay or behavioral-equivalence claim. It remains separately identified in every
+row and aggregate.
+
+Recovered T3 initialization-to-endpoint edges additionally preserve the pinned
+PPO architecture-expansion boundary. The initializer has `experts=false`; PPO
+constructs an `experts=true` actor and loads the initializer before updates.
+This is not a decoder-mode change and it is not the historically absent schema
+conversion between the prior reference and learned BC. Expected entry behavior
+preservation requires a content-addressed pinned-source and weight audit of the
+zero-output expert adapter on fixed existing teacher states and masks. The
+current freeze candidate binds such an audit across seeds 70-84 and batch-1/24
+fixed cases; this remains corpus-scoped equivalence, not closed-loop outcome
+evidence. No new outcome-treatment node is added. Each T3 edge is interpreted
+as the bundled expert expansion plus training boundary, never as a pure-
+gradient or pure-PPO causal effect.
 
 The evaluator adds capabilities absent from current deterministic `rollout`:
 reset-snapshot input, explicit deterministic/seeded-stochastic mode, canonical
@@ -223,6 +271,43 @@ By objective, action regime and constraint, report counts, means, bias, MAE, RMS
 explained variance, calibration slope/intercept, alternative-ranking accuracy,
 rank correlation, matched-effect sign agreement, tail coverage and all exclusions.
 Lambda-target fit remains a separately labelled training-consistency table.
+
+Approved Gate 3 debug amendment, 23 October 2026: before any broader Gate 3
+collection, one separately named no-learning probe may run the recovered
+`T3per-s70` vector critic at world 50000's default-regime first decision. It uses
+the existing four paired sampled-policy/development-budget continuation paths,
+25-term prefixes and unchanged 16-draw geometric-tail schedules, with a strict
+maximum of 727 bridge step calls. The exact checkpoint, critic, bridge, reset
+identity, runtime semantics, action/personality RNG schedules and plan are
+persisted before native execution. The saved vector training trace binds only the
+native reset state; its trajectory ID is not a fingerprint, and its sampled
+actions, personalities and optimizer rows are not replayed or relabelled. The
+probe constructs no optimizer and proves actor/critic tensor identity before and
+after collection. It retains first/end compact economic diagnostics, exact fork
+restoration, per-path maximum/actual steps and durations, and paired
+`r + gamma * V(successor)` versus critic-independent return differences with
+explicit ties and uncertainty. Paths remain nested measurements inside one world.
+Signed trade full-return conclusions remain unresolved unless the opening camp
+sequences terminate. This amendment permits implementation and a later explicitly
+authorized local run only; it is not the frozen full grid, independent-world
+inference, selection, readiness, checkpoint promotion or Gate 3 passage.
+
+Approved successor-sensitivity addendum, 23 October 2026: one separately named,
+five-step, no-learning probe may reuse that exact `T3per-s70` world-50000 state
+and replicate-zero action/personality seeds. One native-label step and two steps
+on each exact fork compare the development-budget substitution with its paired
+baseline. Step two applies the same complete sampled action map only when live
+camp identities and all policy legality masks match; otherwise the probe aborts.
+The result compares compact physical-event groups, observation and native-world
+fingerprints, and per-head critic values. Offline two-direction forward probes
+swap raw core 47, the full previous-decision block 40:56, and (when at most 16)
+each changed raw-core coordinate before the checkpoint normalizer's ordinary
+symlog/affine packing. These hybrids are not simulator states and their nonlinear
+effects are not additive attribution. Native fingerprints need not bind the
+bridge's previous-decision memory, which is present in the observations. This
+probe diagnoses model-input sensitivity and the closed-loop consequence of the
+first request only; it does not establish value calibration, historical cause,
+independent-world inference, selection, readiness or Gate 3 passage.
 
 Gate 3 passes when independent targets have complete provenance, frozen minimum
 coverage/tie/ambiguous-effect rules pass and enough matched alternatives measure

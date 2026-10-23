@@ -1,12 +1,10 @@
 """Gate-specific content verification. A status/pass shell is never qualification evidence."""
 import json
 import math
-import shlex
 import zlib
 from pathlib import Path
 import numpy as np
-import torch
-from .protocol import artifact, command, scan, ROLES, search_cohort, verify_inventory
+from .protocol import artifact, scan, ROLES, search_cohort, verify_inventory
 from .provenance import ProvenanceError, checkpoint_hash, digest, compatible_sources
 
 
@@ -61,7 +59,7 @@ def search_evidence(evidence, expected, held, base, *, calibration=False):
 def calibration_evidence(evidence, expected, held, state, base):
     from .calibration_audit import inventory
     from . import branch_shards, branch_bias
-    from .model import Normalizer
+    from .model import load_checkpoint_normalizer
     from .search_teacher import load_critic
     cohort, roots, provenance = search_evidence(evidence, expected, held, base, calibration=True)
     inputs, _ = read(evidence["inputs"], base)
@@ -78,7 +76,7 @@ def calibration_evidence(evidence, expected, held, state, base):
         raise ProvenanceError("calibration protocol/candidate lock missing/inconsistent")
     cp, _ = artifact(evidence["checkpoint"], base)
     if checkpoint_hash(cp) != expected["initialization_sha256"]: raise ProvenanceError("calibration evaluated another checkpoint")
-    normalizer = Normalizer.from_state(state["normalizer"]); critic = load_critic(cp)
+    normalizer = load_checkpoint_normalizer(state); critic = load_critic(cp)
     rows, boot = branch_shards.load(roots, "reject", purpose="analysis")
     pred, real = branch_bias.realised(critic, rows, boot, normalizer)
     endpoints = branch_shards.endpoint_values(critic, boot, normalizer)

@@ -50,7 +50,10 @@ EQUIVALENCE_KINDS = {
 NODE_STATUSES = {"present", "missing", "not-applicable"}
 EDGE_STATUSES = {"present", "missing", "not-applicable"}
 LOADING_MODES = {"native-strict", "pinned-historical", "reviewed-adapter"}
-PANE_KINDS = {"historical-semantics", "standardized-flags-intervention"}
+PANE_KINDS = {
+    "historical-semantics", "standardized-flags-intervention",
+    "fresh-common-producer-diagnostic",
+}
 SUPPORTED_RAW_CONTRACTS = frozenset(range(8, contracts.NATIVE_CONTRACT + 1))
 MANDATORY_METRICS = frozenset({
     "welfare", "population_years", "ending_residents", "qol_years", "trade_utility",
@@ -72,15 +75,21 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 IMPLEMENTATION_SOURCES = (
     "docs/MODEL9_DIAGNOSTIC_CLOSURE_ARCHITECTURE.md",
     "docs/MODEL9_ECONOMIC_OBSERVABILITY_ARCHITECTURE.md",
+    "docs/MODEL9_GATE1_PRODUCTION_PROTOCOL.md",
     "docs/MODEL9_GATE1_IMPLEMENTATION_STATUS.md",
     "src/anthropocene_rl/autonomous_v7/evaluate.py",
     "src/anthropocene_rl/autonomous_v7/bridge.py",
     "src/anthropocene_rl/autonomous_v7/model.py",
     "src/anthropocene_rl/autonomous_v7/gate1_diagnostics.py",
+    "src/anthropocene_rl/autonomous_v7/gate1_preflight.py",
     "src/anthropocene_rl/autonomous_v7/legacy_contract8.py",
+    "src/anthropocene_rl/autonomous_v7/gate1_production_adapter.py",
+    "src/anthropocene_rl/autonomous_v7/gate1_freeze_candidate.py",
     "tests/test_autonomous_v7_bridge.py",
     "tests/test_gate1_diagnostics.py",
+    "tests/test_gate1_preflight.py",
     "tests/test_gate1_legacy_contract8.py",
+    "tests/test_gate1_freeze_candidate.py",
     "src/anthropocene_rl/autonomous_v7/initialization_lineage.py",
     "tests/test_initialization_lineage.py",
 )
@@ -590,7 +599,8 @@ def _lineage_inventory(document: dict, base: Path) -> tuple[dict, str]:
         if row["status"] == "present" and row["id"] in required_nodes and not row["historical_panes"]:
             _fail(f"required present node {row['id']} lacks prescribed historical coverage")
         for pane_id in row["historical_panes"]:
-            if pane_id not in panes or panes[pane_id].get("kind") != "historical-semantics":
+            if (pane_id not in panes or panes[pane_id].get("kind") not in
+                    {"historical-semantics", "fresh-common-producer-diagnostic"}):
                 _fail(f"node {row['id']} historical applicability names a nonhistorical pane")
             expected_nodes[pane_id].add(row["id"])
         for pane_id in row["standardized_panes"]:
@@ -600,10 +610,11 @@ def _lineage_inventory(document: dict, base: Path) -> tuple[dict, str]:
     for row in protocol_edges:
         if row["status"] == "present" and row["id"] in required_edges and not row["historical_panes"]:
             _fail(f"required present edge {row['id']} lacks prescribed historical coverage")
-        for field, kind in (("historical_panes", "historical-semantics"),
-                            ("standardized_panes", "standardized-flags-intervention")):
+        for field, kinds in (("historical_panes", {"historical-semantics",
+                                                    "fresh-common-producer-diagnostic"}),
+                             ("standardized_panes", {"standardized-flags-intervention"})):
             for pane_id in row[field]:
-                if pane_id not in panes or panes[pane_id].get("kind") != kind:
+                if pane_id not in panes or panes[pane_id].get("kind") not in kinds:
                     _fail(f"edge {row['id']} applicability names the wrong pane kind")
                 if row["source"] not in expected_nodes[pane_id] or row["destination"] not in expected_nodes[pane_id]:
                     _fail(f"edge {row['id']} applicability omits an endpoint from pane {pane_id}")
@@ -749,6 +760,9 @@ def _validate_node(node: dict, base: Path) -> tuple[dict, dict | None, Path | No
         _fail(f"node {node_id} has invalid historical_status")
     if historical == "reconstructed" and node.get("claims_historical_conversion") is not False:
         _fail(f"reconstructed node {node_id} must explicitly deny historical conversion")
+    producer_status = node.get("historical_producer_status", "embedded-worker-contract")
+    if producer_status not in {"embedded-worker-contract", "unresolved"}:
+        _fail(f"node {node_id} has invalid historical producer status")
     raw, state, path = inspect_checkpoint(node.get("artifact"), base)
     declared = node.get("raw_schema")
     if not isinstance(declared, dict) or declared != raw:
@@ -795,6 +809,7 @@ def _validate_node(node: dict, base: Path) -> tuple[dict, dict | None, Path | No
     return {"id": node_id, "status": status, "role": node["role"], "sha256": node["artifact"]["sha256"],
             "raw_schema": raw, "historical_status": historical, "semantics": semantics,
             "run_identity": run_identity,
+            "historical_producer_status": producer_status,
             "inference_implementation": node["inference_implementation"]}, state, path, []
 
 
@@ -1394,9 +1409,13 @@ def _validate_pane(pane: dict, nodes: dict[str, dict], base: Path) -> dict:
     overrides = pane.get("environment_overrides")
     if not isinstance(overrides, dict) or set(overrides) != {"ANTHROPOCENE_REGION_HEAD", "ANTHROPOCENE_SIM_RULES", "ANTHROPOCENE_SIM_STATICS"}:
         _fail(f"pane {pane_id} must explicitly freeze every environment override")
-    if pane["kind"] == "historical-semantics":
+    if pane["kind"] in {"historical-semantics", "fresh-common-producer-diagnostic"}:
         if pane.get("standardized_overrides") not in ({}, None):
-            _fail(f"historical pane {pane_id} cannot standardize flags")
+            _fail(f"non-intervention pane {pane_id} cannot standardize flags")
+        if (pane["kind"] == "fresh-common-producer-diagnostic"
+                and (pane.get("semantic_comparator_protocol") is not None
+                     or pane.get("semantic_comparator") is not None)):
+            _fail(f"fresh common-producer pane {pane_id} cannot claim historical producer equivalence")
     else:
         standardized = pane.get("standardized_overrides")
         if not isinstance(standardized, dict) or not standardized or not pane.get("intervention_label"):
@@ -1495,8 +1514,11 @@ def validate_manifest(document: dict, base: Path | str = ".") -> dict:
     if not set(required_edges) <= set(edges_by_id): _fail("manifest omits a required edge record")
     order = _topological(set(node_rows), present_edges)
     panes = [_validate_pane(pane, node_rows, base) for pane in document.get("evaluation", {}).get("panes", [])]
-    if not panes or len({pane["id"] for pane in panes}) != len(panes) or not any(pane["kind"] == "historical-semantics" for pane in panes):
-        _fail("evaluation surface needs unique panes and a historical-semantics pane")
+    if (not panes or len({pane["id"] for pane in panes}) != len(panes)
+            or not any(pane["kind"] in {"historical-semantics",
+                                        "fresh-common-producer-diagnostic"}
+                       for pane in panes)):
+        _fail("evaluation surface needs unique panes and a historical or approved fresh common-producer pane")
     comparison_order = document.get("comparison_order")
     if (not isinstance(comparison_order, list) or not comparison_order
             or len(comparison_order) != len(set(comparison_order))
@@ -1701,14 +1723,26 @@ def _evaluation_context(node: dict, pane: dict, base: Path) -> tuple[dict, Path,
     """Bind a checkpoint's historical producer to the requested live worker."""
     _, state, path = inspect_checkpoint(node["artifact"], base)
     from .worker_contract import from_state
-    historical_worker = from_state(state, required=True)
+    historical_worker = from_state(state, required=False)
     live_wrapper, _ = _read_json_ref(pane["evaluation_worker_contract"], base, kind="worker_contract")
     live_worker = live_wrapper["contract"]
     producer = _producer_identity_for_worker(live_worker)
+    if pane["kind"] == "fresh-common-producer-diagnostic":
+        _fresh_common_producer_scope(node, pane)
+        return state, path, live_worker, producer
+    if historical_worker is None:
+        _fail("historical/standardized evaluation requires an embedded historical worker contract")
     _semantic_comparator(pane.get("semantic_comparator_protocol"), pane.get("semantic_comparator"),
                          base, historical_worker, live_worker, node["inference_implementation"],
                          pane["evaluation_implementation"])
     return state, path, live_worker, producer
+
+
+def _fresh_common_producer_scope(node: dict, pane: dict) -> None:
+    if (node.get("historical_producer_status") != "unresolved"
+            or pane.get("semantic_comparator_protocol") is not None
+            or pane.get("semantic_comparator") is not None):
+        _fail("fresh common-producer evaluation must preserve unresolved historical producer identity")
 
 
 def _diagnostic_loading(node: dict, base: Path) -> dict | None:
@@ -1731,6 +1765,59 @@ def _diagnostic_loading_preserved(node: dict, base: Path) -> dict | None:
         except (KeyError, TypeError, ValueError, RuntimeError) as exc:
             _fail(f"native checkpoint is not executable under its strict declared loader: {exc}")
         return None
+    if (node["loading"].get("mode") == "reviewed-adapter"
+            and node["loading"].get("adapter") == "t3-initialization-bc-composite"):
+        protocol, _ = _read_json_ref(
+            node["loading"].get("implementation"), base,
+            kind="gate1_bc_phase_adapter_protocol",
+        )
+        if (protocol.get("composite_scope") != "current-diagnostic-only"
+                or protocol.get("historical_bc_normalizer_claim") is not False
+                or node["loading"].get("protocol") != node["loading"].get("implementation")):
+            _fail("BC phase adapter overclaims historical normalizer provenance")
+        diagnostic_loading = {
+            "mode": "reviewed-adapter", "adapter": "t3-initialization-bc-composite",
+            "protocol": node["loading"]["protocol"],
+            "support_checkpoint": node["loading"].get("support_checkpoint"),
+        }
+        from .gate1_production_adapter import load_bc_phase
+        try:
+            assembled = load_bc_phase(
+                Path(node["artifact"]["path"]) if Path(node["artifact"]["path"]).is_absolute()
+                else base / node["artifact"]["path"],
+                diagnostic_loading,
+                base=base,
+            )
+            from .evaluate import load_strict_state
+            load_strict_state(assembled, resolved_semantics=node["historical_semantics"],
+                              diagnostic_loading=None)
+        except (KeyError, TypeError, ValueError, RuntimeError, ProvenanceError) as exc:
+            _fail(f"BC phase checkpoint is not executable under its reviewed composite: {exc}")
+        return diagnostic_loading
+    if (node["loading"].get("mode") == "reviewed-adapter"
+            and node["loading"].get("adapter") == "t2m-guarded-bc-actor-only"):
+        protocol, _ = _read_json_ref(
+            node["loading"].get("implementation"), base,
+            kind="gate1_guarded_bc_adapter_protocol",
+        )
+        if (protocol.get("checkpoint_sha256") != node["artifact"].get("sha256")
+                or protocol.get("critic_status") != "absent-in-actor-only-bc-phase"
+                or node["loading"].get("protocol") != node["loading"].get("implementation")):
+            _fail("guarded BC adapter overclaims critic/completion provenance")
+        diagnostic_loading = {
+            "mode": "reviewed-adapter", "adapter": "t2m-guarded-bc-actor-only",
+            "protocol": node["loading"]["protocol"],
+        }
+        from .gate1_production_adapter import load_guarded_bc
+        try:
+            load_guarded_bc(
+                Path(node["artifact"]["path"]) if Path(node["artifact"]["path"]).is_absolute()
+                else base / node["artifact"]["path"],
+                diagnostic_loading, base=base,
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError, ProvenanceError) as exc:
+            _fail(f"guarded BC checkpoint is not executable under its reviewed adapter: {exc}")
+        return diagnostic_loading
     if (node["loading"]["mode"] != "reviewed-adapter"
             or node["raw_schema"].get("checkpoint_contract") != 8):
         _fail("legacy checkpoint lacks a supported reviewed adapter")
@@ -1890,6 +1977,9 @@ def evaluate_node(document: dict, base: Path | str, node_id: str, pane_id: str,
                "service_outcome_schema": pane["service_outcome_schema"],
                "inference_implementation": node["inference_implementation"],
                "evaluation_implementation": pane["evaluation_implementation"],
+               "producer_scope": pane["kind"],
+               "historical_producer_status": node.get("historical_producer_status",
+                                                        "embedded-worker-contract"),
                "execution": pane["execution"], "rows": rows}
     payload["loading_protocol"] = node["loading"].get("implementation")
     payload["action_mode"] = pane["action_mode"]
@@ -1980,6 +2070,10 @@ def _evaluation_index(document: dict, evaluations: list[dict], base: Path) -> di
                 or report.get("policy_rng_schedule") != pane.get("policy_rng_schedule")
                 or report.get("capture_bounds") != pane.get("capture_bounds")):
             _fail("evaluation report node/checkpoint/evidence/metric/personality/background scope differs from request")
+        if (pane["kind"] == "fresh-common-producer-diagnostic"
+                and (report.get("producer_scope") != "fresh-common-producer-diagnostic"
+                     or report.get("historical_producer_status") != "unresolved")):
+            _fail("fresh common-producer report overclaims historical producer provenance")
         if report.get("observation_core_width") != pane["observation_core_width"]:
             _fail("evaluation report observation layout differs from the reviewed pane")
         _execution_declaration(report["execution"], "evaluation report")
@@ -2154,7 +2248,9 @@ def _paired_aggregation(document: dict, index: dict, inventory: dict | None = No
         source_node, destination_node = _node(document, edge["source"]), _node(document, edge["destination"])
         for pane in document["evaluation"]["panes"]:
             if prescribed is not None:
-                field = ("historical_panes" if pane["kind"] == "historical-semantics"
+                field = ("historical_panes" if pane["kind"] in {
+                             "historical-semantics", "fresh-common-producer-diagnostic"
+                         }
                          else "standardized_panes")
                 if pane["id"] not in prescribed[edge_id][field]:
                     continue
@@ -2315,7 +2411,9 @@ def _classification_matrix(document: dict, index: dict, inventory: dict, metric_
     rows = []
     for sequence in inventory["sequences"]:
         for pane in document["evaluation"]["panes"]:
-            field = ("historical_panes" if pane["kind"] == "historical-semantics"
+            field = ("historical_panes" if pane["kind"] in {
+                         "historical-semantics", "fresh-common-producer-diagnostic"
+                     }
                      else "standardized_panes")
             edges = [edge_id for edge_id in sequence["edges"] if pane["id"] in edge_map[edge_id][field]]
             if not edges:
@@ -2877,9 +2975,15 @@ def main() -> int:
     validate = sub.add_parser("validate"); validate.add_argument("--manifest", type=Path, required=True); validate.add_argument("--out", type=Path, required=True)
     evaluate = sub.add_parser("evaluate"); evaluate.add_argument("--manifest", type=Path, required=True); evaluate.add_argument("--node", required=True); evaluate.add_argument("--pane", required=True); evaluate.add_argument("--out", type=Path, required=True)
     packet = sub.add_parser("packet"); packet.add_argument("--manifest", type=Path, required=True); packet.add_argument("--evaluations", type=Path, required=True); packet.add_argument("--verification", type=Path, required=True); packet.add_argument("--implementation", type=Path, required=True); packet.add_argument("--out", type=Path, required=True)
+    preflight = sub.add_parser("preflight"); preflight.add_argument("--inventory", type=Path, required=True); preflight.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     from .protocol import command
     command(sys.argv[1:])
+    if args.command == "preflight":
+        from .gate1_preflight import run_preflight
+        result = run_preflight(args.inventory)
+        _write_json(args.out, result)
+        return 0 if result["ready_for_protocol_freeze"] else 2
     document, validation, manifest_path = load_manifest(args.manifest)
     if args.command == "validate": _write_json(args.out, validation); return 0
     if args.command == "evaluate": _write_json(args.out, evaluate_node(document, manifest_path.parent, args.node, args.pane)); return 0

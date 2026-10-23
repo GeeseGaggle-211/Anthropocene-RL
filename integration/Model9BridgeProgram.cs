@@ -20,6 +20,11 @@ namespace Anthropocene.RLBridge
         {
             IncludeFields = true, PropertyNameCaseInsensitive = true, WriteIndented = false
         };
+        private static readonly JsonSerializerOptions LaborJson = new JsonSerializerOptions
+        {
+            IncludeFields = true, PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = false
+        };
         private static ElderModel9Environment environment;
         // Search forks of the current environment (op fork / restore / drop), cleared on reset.
         private static readonly Dictionary<int, ElderModel9Fork> forks = new Dictionary<int, ElderModel9Fork>();
@@ -59,6 +64,35 @@ namespace Anthropocene.RLBridge
                         observationSchema = ElderModel9Contract.ObservationSchemaVersion,
                         environmentSchema = ElderModel9Contract.EnvironmentSchemaVersion,
                         replaySchema = ElderModel9Contract.ReplaySchemaVersion,
+                        actorLabor = new
+                        {
+                            schemaVersion = ElderActorLaborContract.RegistryVersion,
+                            nativeContract = ElderActorLaborContract.NativeContractVersion,
+                            actionSchema = ElderActorLaborContract.ActionSchemaVersion,
+                            observationSchema = ElderActorLaborContract.ObservationSchemaVersion,
+                            environmentSchema = ElderActorLaborContract.EnvironmentSchemaVersion,
+                            replaySchema = ElderActorLaborContract.ReplaySchemaVersion,
+                            featureFlag = "actorLaborRetryV1",
+                            specialties = ElderActorLaborContract.SpecialtyIds,
+                            activities = ElderActorLaborContract.ActivityIds,
+                            specialtyRows = ElderActorLaborContract.SpecialtyRows,
+                            roleRows = ElderActorLaborContract.RoleRows,
+                            activityRows = ElderActorLaborContract.ActivityRows,
+                            resourceRows = ElderActorLaborContract.ResourceRows,
+                            resources = ElderActorLaborContract.ResourceIds,
+                            registryDigest = ElderActorLaborContract.RegistryDigest,
+                            reasonRegistryVersion = ElderActorLaborContract.ReasonRegistryVersion,
+                            reasonIds = ElderActorLaborContract.ReasonIds,
+                            reasonRegistryDigest = ElderActorLaborContract.ReasonRegistryDigest,
+                            populationAuthority = "full-decision-boundary-controllable-population",
+                            apportionment = "largest-remainder-stable-ordinal",
+                            activitySemantics = "staffing-work-share-not-output-promise",
+                            maxProposals = ElderActorLaborContract.MaxProposals,
+                            attemptFeasibilityCostMaximum = ElderActorLaborContract.FeasibilityCostMaximum,
+                            decisionFeasibilityCostMaximum = ElderActorLaborContract.DecisionFeasibilityCostMaximum,
+                            fallbackSurcharge = 0,
+                            settlementGuardCostMaximum = 1
+                        },
                         decisionDiagnosticsSchema = 1,
                         diagnosticEnvelopeSchema = 3,
                         economicDiagnosticsSchema = 1,
@@ -141,10 +175,12 @@ namespace Anthropocene.RLBridge
                     if (snapshotWorld.Seed != declaredSeed) throw new InvalidOperationException("Snapshot root differs from declared seed.");
                     bool movement = root.TryGetProperty("movement", out var m) && m.GetBoolean();
                     environment = new ElderModel9Environment { WithheldTechnologies = withheld,
-                        EconomicDiagnosticsEnabled = root.TryGetProperty("economicDiagnostics", out var economic) && economic.GetBoolean() };
+                        EconomicDiagnosticsEnabled = root.TryGetProperty("economicDiagnostics", out var economic) && economic.GetBoolean(),
+                        ActorLaborEnabled = root.TryGetProperty("actorLabor", out var actorLabor) && actorLabor.GetBoolean() };
                     forks.Clear();
                     var step = environment.Reset(snapshot, movement);
                     return new { ok = true, op, step = Encode(step), fingerprint = environment.Replay.InitialFingerprint,
+                        actorLaborEnabled = environment.ActorLaborEnabled,
                         rawMaterialsEnabled = environment.World.Config.ElderRawMaterialsEnabled,
                         sourceSeed = environment.World.Seed,
                         configurationHash = environment.Replay.ConfigurationHash, buildHash = environment.Replay.BuildHash };
@@ -194,6 +230,31 @@ namespace Anthropocene.RLBridge
                             actions[int.Parse(item.Name)] = Directive(item.Value);
                     var step = environment.Step(actions);
                     return new { ok = true, op, step = Encode(step) };
+                }
+                case "validate_labor":
+                {
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    int attempt = root.TryGetProperty("attempt", out var at) ? at.GetInt32() : 0;
+                    var actions = ParseActions(root.GetProperty("actions"), actorLabor: true);
+                    var digests = ParseDigests(root);
+                    var attempts = environment.ValidateLabor(actions, attempt, digests);
+                    return new { ok = true, op, attempts = attempts.OrderBy(p => p.Key)
+                        .ToDictionary(p => p.Key, p => LaborElement(p.Value)) };
+                }
+                case "step_labor":
+                {
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    var actions = ParseActions(root.GetProperty("actions"), actorLabor: true);
+                    var retries = new Dictionary<int, ElderDirective>();
+                    if (root.TryGetProperty("retryActions", out var retryActions) &&
+                        retryActions.ValueKind == JsonValueKind.Object)
+                        foreach (var item in retryActions.EnumerateObject())
+                            retries[int.Parse(item.Name)] = LaborRetry(item.Value);
+                    var step = environment.StepLabor(actions, retries, ParseDigests(root));
+                    return new { ok = true, op, step = Encode(step),
+                        laborFeedback = step.Villages.Where(v => v.LaborPrevious != null)
+                            .OrderBy(v => v.Camp).ToDictionary(v => v.Camp,
+                                v => LaborElement(v.LaborPrevious)) };
                 }
                 case "fork":
                 {
@@ -345,8 +406,87 @@ namespace Anthropocene.RLBridge
             if (seed >= 3000 && seed <= 3059) throw new InvalidOperationException("Confirmation seed is sealed.");
         }
 
+        private static JsonElement LaborElement(object value)
+            => value == null ? JsonSerializer.SerializeToElement<object>(null,
+                LaborJson) : JsonSerializer.SerializeToElement(value,
+                    value.GetType(), LaborJson);
+
+        private static Dictionary<int, ElderDirective> ParseActions(
+            JsonElement value, bool actorLabor)
+        {
+            if (value.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException("actions must be an object");
+            var result = new Dictionary<int, ElderDirective>();
+            foreach (var item in value.EnumerateObject())
+                result[int.Parse(item.Name)] = actorLabor
+                    ? ActorLaborDirective(item.Value) : Directive(item.Value);
+            return result;
+        }
+
+        private static Dictionary<int, string> ParseDigests(JsonElement root)
+        {
+            if (!root.TryGetProperty("catalogDigests", out var value) ||
+                value.ValueKind != JsonValueKind.Object)
+                throw new ArgumentException("catalogDigests must bind every labor action");
+            var result = new Dictionary<int, string>();
+            foreach (var item in value.EnumerateObject())
+                result[int.Parse(item.Name)] = item.Value.GetString();
+            return result;
+        }
+
+        private static ElderDirective ActorLaborDirective(JsonElement e)
+        {
+            string[] exact = { "schemaVersion", "movement", "fission",
+                "tradeValue", "tradeGate", "tradeShare",
+                "laborSpecialtyAllocation", "laborActivityAllocation" };
+            var names = new HashSet<string>(e.EnumerateObject().Select(p => p.Name),
+                StringComparer.Ordinal);
+            if (!names.SetEquals(exact))
+                throw new ArgumentException("schema-12 action fields must be exactly: " +
+                    string.Join(",", exact));
+            if (e.GetProperty("schemaVersion").GetInt32() !=
+                ElderActorLaborContract.ActionSchemaVersion)
+                throw new ArgumentException("unsupported actor-labor action schema");
+            var d = new ElderDirective
+            {
+                SchemaVersion = ElderActorLaborContract.ActionSchemaVersion,
+                MovementCandidate = e.GetProperty("movement").GetInt32(),
+                FissionPolicy = e.GetProperty("fission").GetInt32(),
+                TradeValue = e.GetProperty("tradeValue").Deserialize<double[]>(Json),
+                TradeGate = e.GetProperty("tradeGate").Deserialize<int[]>(Json),
+                TradeExportShare = e.GetProperty("tradeShare").GetDouble(),
+                LaborSpecialtyAllocation = e.GetProperty(
+                    "laborSpecialtyAllocation").Deserialize<double[]>(Json),
+                LaborActivityAllocation = e.GetProperty(
+                    "laborActivityAllocation").Deserialize<double[][]>(Json)
+            };
+            return d;
+        }
+
+        private static ElderDirective LaborRetry(JsonElement e)
+        {
+            string[] exact = { "laborSpecialtyAllocation",
+                "laborActivityAllocation" };
+            var names = new HashSet<string>(e.EnumerateObject().Select(p => p.Name),
+                StringComparer.Ordinal);
+            if (!names.SetEquals(exact))
+                throw new ArgumentException("labor retry fields must be exactly: " +
+                    string.Join(",", exact));
+            return new ElderDirective
+            {
+                SchemaVersion = ElderActorLaborContract.ActionSchemaVersion,
+                LaborSpecialtyAllocation = e.GetProperty(
+                    "laborSpecialtyAllocation").Deserialize<double[]>(Json),
+                LaborActivityAllocation = e.GetProperty(
+                    "laborActivityAllocation").Deserialize<double[][]>(Json)
+            };
+        }
+
         private static ElderDirective Directive(JsonElement e)
         {
+            if (e.TryGetProperty("schemaVersion", out var actionSchema) &&
+                actionSchema.GetInt32() == ElderActorLaborContract.ActionSchemaVersion)
+                return ActorLaborDirective(e);
             var d = new ElderDirective { SchemaVersion = ElderModel9Contract.ActionSchemaVersion };
             double[] strategic = e.TryGetProperty("strategic", out var st) ? st.Deserialize<double[]>(Json) : null;
             if (strategic != null && (strategic.Length == 4 || strategic.Length == 5))
@@ -393,16 +533,7 @@ namespace Anthropocene.RLBridge
                 terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length, privileged = v.Privileged,
                 tradeUtility = v.TradeUtility, specialistShare = v.SpecialistShare, goodsOutput = v.GoodsOutput,
                 decisionDiagnostics = v.DecisionDiagnostics,
-                observation = v.Observation == null ? null : new
-                {
-                    core = v.Observation.Core, corePresent = v.Observation.CorePresent,
-                    sets = v.Observation.Sets, rowPresent = v.Observation.RowPresent,
-                    movementMask = v.Observation.MovementMask,
-                    clothingRouteMask = v.Observation.ClothingRouteMask, shelterRouteMask = v.Observation.ShelterRouteMask,
-                    economyMixMask = v.Observation.EconomyMixMask,
-                    commitHoldMask = v.Observation.CommitmentHoldMask,
-                    regionMovementMask = v.Observation.RegionMovementMask
-                },
+                observation = EncodeObservation(v),
                 teacher = v.Teacher == null ? null : new
                 {
                     strategic = new[] { v.Teacher.Action.RetainedFieldOperation, v.Teacher.Action.RetainedHerdFraction,
@@ -422,6 +553,33 @@ namespace Anthropocene.RLBridge
             var encoded = JsonSerializer.SerializeToElement(ordinary, Json).EnumerateObject().ToDictionary(p => p.Name, p => (object)p.Value);
             encoded["restoredObservation"] = step.RestoredObservation;
             encoded["economicDiagnostics"] = step.EconomicDiagnostics.OrderBy(p => p.Key).ToDictionary(p => p.Key, p => p.Value);
+            return encoded;
+        }
+
+        private static object EncodeObservation(ElderModel9Village village)
+        {
+            if (village?.Observation == null) return null;
+            var observation = village.Observation;
+            var ordinary = new
+            {
+                core = observation.Core, corePresent = observation.CorePresent,
+                sets = observation.Sets, rowPresent = observation.RowPresent,
+                movementMask = observation.MovementMask,
+                clothingRouteMask = observation.ClothingRouteMask,
+                shelterRouteMask = observation.ShelterRouteMask,
+                economyMixMask = observation.EconomyMixMask,
+                commitHoldMask = observation.CommitmentHoldMask,
+                regionMovementMask = observation.RegionMovementMask
+            };
+            if (environment?.ActorLaborEnabled != true) return ordinary;
+            if (village.LaborCatalog == null)
+                throw new InvalidOperationException(
+                    "Actor-labor observation lacks its origin catalog.");
+            var encoded = JsonSerializer.SerializeToElement(ordinary, Json)
+                .EnumerateObject().ToDictionary(p => p.Name,
+                    p => (object)p.Value);
+            encoded["laborCatalog"] = LaborElement(village.LaborCatalog);
+            encoded["laborPrevious"] = LaborElement(village.LaborPrevious);
             return encoded;
         }
 

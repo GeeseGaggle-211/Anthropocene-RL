@@ -34,6 +34,13 @@ def batch(n: int = 64, seed: int = 0, core: int = 24) -> dict[str, np.ndarray]:
         "economy_mix_mask": np.ones((n, 3), bool),
     }
     b["core"][:, FLAG] = 1.0
+    if core > 144:
+        b["core"][:, 40] = np.arange(n) % 2
+        b["core"][:, 41:53] = rng.random((n, 12))
+        b["core"][:, 53] = np.arange(n) % 8
+        b["core"][:, 54] = np.arange(n) % 20
+        b["core"][:, 55] = 1
+        b["core"][:, 144] = np.arange(n) % 2
     for name, rows, width in contracts.SETS:
         b[name] = rng.normal(size=(n, rows, width)).astype(np.float32)
         b[name + "_present"] = rng.random((n, rows)) > 0.3
@@ -202,6 +209,24 @@ def test_pooling_defaults_reproduce_the_original_optimiser(monkeypatch, tmp_path
                                   "grad_clip": 1.0, "input_guard": None}
     assert "guard" not in state["normalizer"]
     assert all(e["lr"] == pytest.approx(3e-4) for e in state["log"] if "epoch" in e)
+
+
+def test_bounded_normalization_cli_persists_contract_and_rejects_legacy_resume(monkeypatch, tmp_path: Path) -> None:
+    for i in range(2):
+        write_shard(tmp_path / "train" / f"world-0{i}", 1000 + i, core=188)
+    write_shard(tmp_path / "dev" / "world-0", 2000, core=188)
+    state = run_main(monkeypatch, tmp_path, "--token", "--normalization-contract", "bounded-v2",
+                     "--bc-epochs", "0", "--critic-rounds", "0")
+    assert state["feature_contract"] == "model9-bounded-physical-history-v1"
+    contract = state["normalizer"]["normalization_contract"]
+    assert contract["contractId"] == state["feature_contract"]
+    assert contract["supportSource"] is None
+    assert not any(row["supported"] for row in contract["historySupport"].values())
+    phase = torch.load(tmp_path / "runs" / "stage1.bc.pt", map_location="cpu", weights_only=False)
+    assert phase["feature_contract"] == state["feature_contract"]
+
+    with pytest.raises(ValueError, match="feature contract"):
+        run_main(monkeypatch, tmp_path, "--token", "--bc-epochs", "0", "--critic-rounds", "0")
 
 
 def test_default_train_actor_is_bitwise_the_original_loop() -> None:

@@ -31,7 +31,7 @@ import torch
 from . import branch_shards, data
 from .search_teacher import KINDS, MIX, NATIVE, REGION, load_critic
 from .upgrade import upgrade
-from .model import Normalizer
+from .model import load_checkpoint_normalizer
 
 TARGET = 0.10
 GATED = (NATIVE, REGION, MIX)
@@ -136,7 +136,7 @@ def main() -> int:
         prechecked = {}
         preloaded = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], "reject", prechecked, purpose="analysis")
         audit_claim = claim(held, binding)
-    normalizer = Normalizer.from_state(state["normalizer"])
+    normalizer = load_checkpoint_normalizer(state)
     critic = load_critic(args.checkpoint)
     provenance: dict = {}
     if held:

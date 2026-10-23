@@ -19,7 +19,7 @@ import torch
 from torch import nn
 
 from . import contracts, data, span_labels
-from .model import Actor, Normalizer, to_tensors
+from .model import Actor, load_checkpoint_normalizer, to_tensors
 from .train import bc_loss, label_tensors, subset
 from .upgrade import upgrade
 
@@ -60,7 +60,7 @@ def main() -> int:
     args = parse(parser)
     torch.manual_seed(args.seed); torch.set_num_threads(6)
     state = upgrade(torch.load(args.init, map_location="cpu", weights_only=False))
-    normalizer = Normalizer.from_state(state["normalizer"])
+    normalizer = load_checkpoint_normalizer(state)
     from .evaluate import load
     actor, _ = load(args.init)
     load = lambda root: span_labels.extend(data.load(p for p in sorted(root.iterdir()) if p.is_dir()), args.tolerance)

@@ -368,6 +368,13 @@ def implementation_ref(tmp_path: Path, *, mismatched_source: bool = False,
                  identity, seal_digest=True)
 
 
+def test_production_freeze_protocol_is_bound_to_implementation_identity():
+    relative = "docs/MODEL9_GATE1_PRODUCTION_PROTOCOL.md"
+    tree = gate1.implementation_source_tree()
+    rows = {row["path"]: row["sha256"] for row in tree["source_files"]}
+    assert rows[relative] == checkpoint_hash(gate1.REPOSITORY / relative)
+
+
 def verification_ref(tmp_path: Path, document: dict, *, commit: str | None = None, exit_code: int = 0,
                      observed_coverage: float = 95.0) -> dict:
     protocol = json.loads((tmp_path / document["verification_protocol"]["path"]).read_text())

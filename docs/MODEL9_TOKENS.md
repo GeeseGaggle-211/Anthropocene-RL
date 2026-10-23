@@ -181,3 +181,23 @@ seed spread. The clones are smaller than the VM's, so these ratios are relative,
   the guard only clips them.
 - PPO stages that run with movement off inherit the guarded normalizer from stage 1. The flag stays dropped, which is
   harmless while it is constant within a stage.
+
+### New-run bounded physical-history contract
+
+`train.py --normalization-contract bounded-v2` is an opt-in new-run contract; it never upgrades a historical
+checkpoint. It stores top-level `feature_contract=model9-bounded-physical-history-v1` and the matching complete
+contract inside the normalizer. Resume rejects a missing or different identifier.
+
+Core 40:55 (previous-decision history) and core 144 (movement enabled) use fixed physical transforms instead of a
+fitted near-zero standard deviation. Boolean and unit-fraction fields stay in their declared domains; compiler count
+uses `log1p(x)/log1p(32)` and elapsed years uses `log1p(x)/log1p(20)`. Other standardized inputs use a 0.1 standard
+deviation floor, and all normalized values retain the finite ±10 guard. The initial clone fit masks core 40:55 and
+their presence bits. A later closed-loop refit may unmask only indices whose content-hashed corpus has at least 256
+present finite rows and transformed range at least 1e-3. Support is computed from row values plus unique transition
+IDs, policy versions and producer digest; callers cannot nominate supported indices. Constant legitimate flags may
+therefore remain masked without blocking support collection or critic-only warmup. Actor-update gates request the
+specific history indices they need rather than treating partial support as global readiness.
+
+This is an engineering support floor, not calibration or readiness evidence. Requested/corrected/executed feedback
+schema changes are deferred to the separately reviewed labor/retry contract; PPO continues to score the sampled
+request and never substitutes compiler output as the action.

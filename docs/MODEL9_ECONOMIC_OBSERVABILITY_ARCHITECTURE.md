@@ -134,6 +134,12 @@ An opt-in `--economic-trace <directory>` writes a content-addressed rollout arti
 - raw simulator objective outcomes, explicit shaping debits, shaped rewards that enter GAE, objective reference scales, value-head units, population scaling and normalizer moments;
 
 - actor means/log-stds or logits, sampled action, head log-probability, entropy and active masks;
+- when the trace is enabled, bounded policy-input health read from the exact tensors supplied to the actor: raw,
+  symlog-transformed, affine and final normalized values for previous-decision core coordinates 40--55 and movement
+  core coordinate 144; bound normalizer mean/std/guard/dead status; per-input-group maxima/non-finite counts; and the
+  largest eight normalized coordinates. Boolean masks and critic-only privileged tensors are excluded from the
+  outlier ranking, and older cores expose unavailable coordinates explicitly. This telemetry is descriptive and
+  never feeds policy inputs, actions, rewards, RNG or optimizer state;
 - requested/accepted/realised action sidecars and interventions;
 - the simulator economic sidecar;
 - per-objective critic prediction at `s_t`, bootstrap prediction at its declared destination, raw TD residual, GAE/lambda target, raw advantage, reference-scaled advantage and objective-clipped advantage;
@@ -212,6 +218,26 @@ If exact T3 artifacts cannot be bound, the report says so. Evidence classes use 
 - Every test fixture validates the machine-readable field dictionary, missingness reasons, stable good ordering and source-phase/unit tags.
 
 ## 8. Proposed two-objective personality learner (not yet implemented)
+
+### Reviewed observational implementation note (23 October 2026)
+
+Two additive, capture-only observations are authorized before any broader
+source-allocation ledger. First, the herding-development control may report
+executed worker-years as the resolver's authoritative
+`ResolvedHerdDevelopmentPeople` multiplied by the already-bound turn duration.
+Second, physical camp demography may emit separate Plant Food, Animal Food and
+Aquatic Food human-consumption debits measured from the existing component
+envelope and its existing refund result. The component rows describe the camp
+food compartment at the needs-after-production phase; they do not cover
+detached hunters' local or carried food and do not establish source or causal
+attribution.
+
+Both observations are reporting-only, gated by economic capture and bounded by
+`O(active camps)`. They introduce no save state, simulator mechanics, action or
+observation input, reward, policy, RNG, allocation convention or proportional
+causal claim. Missing source/request/receipt joins remain explicitly missing;
+the new rows do not by themselves complete terminal attribution or authorize a
+Gate 2 pass.
 
 This section specifies a candidate experiment, not the diagnostic implementation. It removes `welfare` and `trade_utility` from both policy advantage and primary value heads. Welfare and realised trade utility remain mandatory evaluation outcomes. An auxiliary predictor, if later justified, is a disclosed extra treatment and cannot feed policy advantage.
 

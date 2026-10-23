@@ -12,6 +12,15 @@ from pathlib import Path
 from .diagnostics import canonical
 
 SCHEMA_VERSION = 1
+POLICY_INPUT_HEALTH_SCHEMA_VERSION = 1
+POLICY_INPUT_OUTLIER_LIMIT = 8
+PREVIOUS_DECISION_CORE_INDICES = tuple(range(40, 56))
+MOVEMENT_CORE_INDEX = 144
+_KNOWN_CORE_LABELS = {
+    47: "previous-development-request",
+    53: "compiler-intervention-count",
+    144: "movement-flag",
+}
 
 
 def canonical_bytes(value) -> bytes:
@@ -44,7 +53,9 @@ def _finite(value, path=""):
         raise ValueError(f"nonfinite diagnostic field {path}")
 
 
-def validate_economic_step(step: dict, *, required=False, initial=False) -> dict[int, dict]:
+def validate_economic_step(
+    step: dict, *, required=False, initial=False, gate2_required=False
+) -> dict[int, dict]:
     raw = step.get("economicDiagnostics", {})
     if not isinstance(raw, dict):
         raise ValueError("economic diagnostics must be keyed by camp")
@@ -60,12 +71,14 @@ def validate_economic_step(step: dict, *, required=False, initial=False) -> dict
     for key, value in raw.items():
         row = canonical(value)
         if (
-            row.get("schemaVersion") != 1
+            row.get("schemaVersion") not in {1, 2}
             or row.get("campId") != int(key)
             or row.get("decisionTurn") != int(step["turn"]) - 1
             or row.get("trajectoryId") != step.get("trajectoryId")
         ):
             raise ValueError("economic schema/camp/turn/trajectory mismatch")
+        if gate2_required and row.get("schemaVersion") != 2:
+            raise ValueError("Gate 2 requires economic accounting schema 2")
         identity = row.get("transitionId")
         if not identity or identity in seen:
             raise ValueError("missing/duplicate economic transition identity")
@@ -100,6 +113,10 @@ def validate_economic_step(step: dict, *, required=False, initial=False) -> dict
             identities = [r[field] for r in row.get(group, [])]
             if len(set(identities)) != len(identities):
                 raise ValueError(f"duplicate economic {group}")
+        if row.get("schemaVersion") == 2:
+            from .economic_accounting import validate_economic_accounting
+
+            validate_economic_accounting(row)
         result[int(key)] = row
     if required and not result:
         raise ValueError("missing economic diagnostics")
@@ -133,6 +150,7 @@ class EconomicTraceWriter:
         self.policy_version = 0
         self.rollout = 0
         self.snapshot_hashes = set()
+        self.normalizer_moment_hashes = set()
         self._snapshot_lock = threading.Lock()
 
     def store_snapshot(self, raw: bytes) -> str:
@@ -147,6 +165,22 @@ class EconomicTraceWriter:
             elif hashlib.sha256(target.read_bytes()).hexdigest() != identity:
                 raise ValueError("content-addressed snapshot changed")
             self.snapshot_hashes.add(identity)
+        return identity
+
+    def store_normalizer_moments(self, state: dict) -> str:
+        """Store immutable moments once per distinct state and return their digest."""
+        blob = canonical_bytes(state)
+        identity = hashlib.sha256(blob).hexdigest()
+        with self._snapshot_lock:
+            folder = self.directory / "normalizers"
+            folder.mkdir(exist_ok=True)
+            target = folder / f"{identity}.json"
+            if not target.exists():
+                with target.open("xb") as stream:
+                    stream.write(blob)
+            elif hashlib.sha256(target.read_bytes()).hexdigest() != identity:
+                raise ValueError("content-addressed normalizer moments changed")
+            self.normalizer_moment_hashes.add(identity)
         return identity
 
     def write(self, stream: str, row: dict):
@@ -188,6 +222,7 @@ class EconomicTraceWriter:
             },
             "merkleRoot": merkle_root(self.leaves["transitions"] + self.leaves["updates"]),
             "snapshotHashes": sorted(self.snapshot_hashes),
+            "normalizerMomentHashes": sorted(self.normalizer_moment_hashes),
         }
         (self.directory / "done.json").write_bytes(canonical_bytes(done) + b"\n")
 
@@ -204,6 +239,352 @@ def state_digest(module) -> str:
         digest.update(str(tuple(tensor.shape)).encode())
         digest.update(tensor.detach().cpu().contiguous().numpy().tobytes())
     return digest.hexdigest()
+
+
+def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
+    """Describe the exact float tensors supplied to the actor, without mutating them.
+
+    Raw/transformed/affine values are retained only for the small, reviewed core
+    coordinate set.  Every reported final normalized value is read from ``tensors``
+    itself, after float32 conversion, presence masking, clipping and dead-feature
+    zeroing by :func:`model.to_tensors`.  The full input is represented only by
+    bounded group summaries and the largest normalized coordinates.
+    """
+    import numpy as np
+    import torch
+
+    from . import contracts
+    from .model import BOUNDED_FEATURE_CONTRACT, PHYSICAL_CORE_FEATURES
+
+    raw_core = np.asarray(batch["core"])
+    if raw_core.ndim != 2:
+        raise ValueError("policy input health requires a two-dimensional core batch")
+    rows, core_width = raw_core.shape
+    core_tensor = tensors.get("core")
+    if (
+        not isinstance(core_tensor, torch.Tensor)
+        or core_tensor.ndim != 2
+        or tuple(core_tensor.shape) != (rows, 2 * core_width)
+    ):
+        raise ValueError("policy input health core tensor layout differs from to_tensors")
+    core_actual = core_tensor.detach().cpu().numpy()
+    normalized_core = core_actual[:, :core_width]
+    core_presence = core_actual[:, core_width:]
+    transformed_core = np.sign(raw_core) * np.log1p(np.abs(raw_core))
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        affine_core = (transformed_core - normalizer.core_mean) / normalizer.core_std
+    bounded_contract = normalizer.normalization_contract
+    physical_features = {feature.index: feature for feature in PHYSICAL_CORE_FEATURES}
+    supported_history = (set(bounded_contract.supported_history_indices) if bounded_contract is not None else set())
+
+    def optional_number(value):
+        result = float(value)
+        return result if math.isfinite(result) else None
+
+    def group_rows(name, values, *, normalized):
+        array = values.detach().cpu().numpy()
+        if len(array) != rows:
+            raise ValueError(f"policy input health row mismatch for {name}")
+        flat = array.reshape(rows, -1)
+        output = []
+        for row in flat:
+            finite = np.isfinite(row)
+            magnitudes = np.abs(row[finite])
+            output.append(
+                {
+                    "group": name,
+                    "semantics": (
+                        "symlog-affine-normalized-actual-actor-input"
+                        if normalized
+                        else "identity-actual-actor-input"
+                    ),
+                    "scalarCount": int(row.size),
+                    "finiteCount": int(finite.sum()),
+                    "nonfiniteCount": int(row.size - finite.sum()),
+                    "maximumAbsolute": float(magnitudes.max()) if magnitudes.size else None,
+                }
+            )
+        return output
+
+    normalized_groups: list[tuple[str, torch.Tensor]] = [("core", core_tensor[:, :core_width])]
+    identity_groups: list[tuple[str, torch.Tensor]] = [
+        ("corePresence", core_tensor[:, core_width:])
+    ]
+    for name, _set_rows, _width in contracts.SETS:
+        value = tensors.get(name)
+        if not isinstance(value, torch.Tensor) or value.dtype == torch.bool:
+            raise ValueError(f"policy input health missing float actor set {name}")
+        normalized_groups.append((name, value))
+    personality = tensors.get("personality")
+    if not isinstance(personality, torch.Tensor) or personality.dtype == torch.bool:
+        raise ValueError("policy input health missing float actor personality")
+    identity_groups.append(("personality", personality))
+
+    group_health = {
+        name: group_rows(name, value, normalized=True)
+        for name, value in normalized_groups
+    }
+    if bounded_contract is not None:
+        for row in group_health["core"]:
+            row["semantics"] = "registered-physical-or-symlog-affine-actual-actor-input"
+    group_health.update(
+        {
+            name: group_rows(name, value, normalized=False)
+            for name, value in identity_groups
+        }
+    )
+
+    outliers: list[list[dict]] = [[] for _ in range(rows)]
+    for group, value in normalized_groups:
+        array = value.detach().cpu().numpy()
+        for row_index in range(rows):
+            for coordinate in np.ndindex(array.shape[1:]):
+                number = float(array[(row_index, *coordinate)])
+                if math.isfinite(number):
+                    outliers[row_index].append(
+                        {
+                            "group": group,
+                            "coordinate": [int(index) for index in coordinate],
+                            "normalized": number,
+                            "absoluteNormalized": abs(number),
+                        }
+                    )
+    for row in outliers:
+        row.sort(
+            key=lambda item: (
+                -item["absoluteNormalized"],
+                item["group"],
+                item["coordinate"],
+            )
+        )
+        del row[POLICY_INPUT_OUTLIER_LIMIT:]
+
+    dead = normalizer.dead.get("core") if normalizer.guard is not None else None
+
+    def core_coordinate(row_index: int, index: int) -> dict:
+        raw = raw_core[row_index, index]
+        actual = normalized_core[row_index, index]
+        present = core_presence[row_index, index]
+        is_dead = bool(dead[index]) if dead is not None and index < len(dead) else None
+        feature = physical_features.get(index) if bounded_contract is not None else None
+        if feature is None:
+            transformed = transformed_core[row_index, index]
+            before_guard = affine_core[row_index, index]
+            transform = "symlog-affine"
+            reference = None
+            support_status = "not-gated"
+            mean = optional_number(normalizer.core_mean[index])
+            std = optional_number(normalizer.core_std[index])
+            affine = optional_number(before_guard)
+        else:
+            if feature.transform in ("bool", "fraction"):
+                transformed = float(raw)
+            else:
+                transformed = float(np.log1p(raw) / np.log1p(feature.reference))
+            before_guard = transformed
+            transform = feature.transform
+            reference = feature.reference
+            support_status = ("supported" if index in supported_history else "masked-unsupported"
+                              if 40 <= index <= 55 else "not-gated")
+            mean = std = affine = None  # fitted affine is not executed for registered physical coordinates
+        result = {
+            "index": index,
+            "label": _KNOWN_CORE_LABELS.get(index, f"core[{index}]"),
+            "raw": optional_number(raw),
+            "rawFinite": bool(np.isfinite(raw)),
+            "transformed": optional_number(transformed),
+            "transformedFinite": bool(np.isfinite(transformed)),
+            "normalizerMean": mean,
+            "normalizerStd": std,
+            "affineBeforeGuard": affine,
+            "affineBeforeGuardFinite": bool(np.isfinite(before_guard)) if feature is None else None,
+            "normalized": optional_number(actual),
+            "normalizedFinite": bool(np.isfinite(actual)),
+            "corePresent": bool(present != 0),
+            "guardEnabled": normalizer.guard is not None,
+            "guardLimit": float(normalizer.guard) if normalizer.guard is not None else None,
+            "dead": is_dead,
+            "clippedByGuard": bool(
+                normalizer.guard is not None
+                and np.isfinite(before_guard)
+                and abs(float(before_guard)) > float(normalizer.guard)
+            ),
+            # Registered physical coordinates bypass the fitted dead mask. History may instead be zeroed by its
+            # explicit closed-loop support mask; movement 144 remains live even when constant in the fit corpus.
+            "zeroedByDeadMask": (False if feature is not None else bool(is_dead)
+                                  if is_dead is not None else None),
+            "zeroedBySupportMask": bool(feature is not None and support_status == "masked-unsupported"),
+            "zeroedByPresenceMask": bool(present == 0),
+        }
+        if feature is not None:
+            result.update({
+                "normalizationContract": BOUNDED_FEATURE_CONTRACT,
+                "transform": transform,
+                "transformReference": reference,
+                "beforeGuard": optional_number(before_guard),
+                "supportStatus": support_status,
+            })
+        return result
+
+    output = []
+    for row_index in range(rows):
+        previous_indices = [
+            index for index in PREVIOUS_DECISION_CORE_INDICES if index < core_width
+        ]
+        previous_absent = [
+            index for index in PREVIOUS_DECISION_CORE_INDICES if index >= core_width
+        ]
+        previous_status = (
+            "complete"
+            if not previous_absent
+            else "absent-legacy-core-width"
+            if not previous_indices
+            else "partial-legacy-core-width"
+        )
+        movement_available = MOVEMENT_CORE_INDEX < core_width
+        groups = [
+            group_health[name][row_index]
+            for name, _value in [*normalized_groups, *identity_groups]
+        ]
+        actor_nonfinite = sum(group["nonfiniteCount"] for group in groups)
+        normalized_nonfinite = sum(
+            group_health[name][row_index]["nonfiniteCount"]
+            for name, _value in normalized_groups
+        )
+        row_output = {
+                "schemaVersion": POLICY_INPUT_HEALTH_SCHEMA_VERSION,
+                "source": "exact-actor-input-tensors",
+                "floatTensorScope": (
+                    "actor-consumed core, entity sets, and personality; boolean masks excluded; "
+                    "critic-only privileged tensor excluded"
+                ),
+                "previousDecision": {
+                    "status": previous_status,
+                    "expectedIndices": list(PREVIOUS_DECISION_CORE_INDICES),
+                    "absentIndices": previous_absent,
+                    "coordinates": [
+                        core_coordinate(row_index, index) for index in previous_indices
+                    ],
+                },
+                "movement": {
+                    "status": "complete" if movement_available else "absent-legacy-core-width",
+                    "expectedIndex": MOVEMENT_CORE_INDEX,
+                    "coordinate": (
+                        core_coordinate(row_index, MOVEMENT_CORE_INDEX)
+                        if movement_available
+                        else None
+                    ),
+                },
+                "groups": groups,
+                "actorFloatInputNonfiniteCount": actor_nonfinite,
+                "normalizedInputNonfiniteCount": normalized_nonfinite,
+                "maximumAbsoluteNormalized": (
+                    outliers[row_index][0]["absoluteNormalized"]
+                    if outliers[row_index]
+                    else None
+                ),
+                "topNormalizedOutliers": outliers[row_index],
+            }
+        if bounded_contract is not None:
+            row_output["normalizationContract"] = BOUNDED_FEATURE_CONTRACT
+        output.append(row_output)
+    return output
+
+
+def _objective_combination_details(objectives, batch, hyper):
+    """Mirror PPO objective combination for diagnostics without changing the update.
+
+    Returned component contributions sum to the *pre-standardization* actor
+    objective advantage.  They are deliberately kept separate from the cost
+    constraint and the later regime/global balancing performed by ``ppo.update``.
+    """
+    import numpy as np
+
+    from . import contracts
+
+    advantages = {
+        name: np.asarray(values[4], dtype=np.float64) for name, values in objectives.items()
+    }
+    if not advantages:
+        raise ValueError("economic trace requires at least one objective")
+    row_count = len(next(iter(advantages.values())))
+    if any(len(value) != row_count for value in advantages.values()):
+        raise ValueError("objective advantages have inconsistent row counts")
+
+    personal = "personality" in batch
+    if not personal:
+        mode = "configured-objective-weights"
+        scales = {name: 1.0 for name in advantages}
+        outer = 1.0
+        personality = None
+    else:
+        personality = np.asarray(batch["personality"], dtype=np.float64)
+        if personality.shape != (row_count, len(contracts.OBJECTIVES)):
+            raise ValueError("personality rows do not match objective contract")
+        if hyper.personality_scales == "reference":
+            mode = "personality-reference-normalized"
+            scales = {
+                name: float(contracts.OBJECTIVE_REFERENCE_SCALES[name]) for name in advantages
+            }
+            outer = 1.0
+        elif hyper.personality_scales == "batch":
+            mode = "personality-batch-normalized-welfare-rescaled"
+            scales = {name: float(np.std(value)) + 1e-9 for name, value in advantages.items()}
+            outer = scales.get("welfare", 1.0)
+        else:
+            raise ValueError(f"unknown personality scales {hyper.personality_scales!r}")
+
+    total = np.zeros(row_count, dtype=np.float64)
+    components = {}
+    names = (
+        [name for name in contracts.OBJECTIVES if name in advantages]
+        if personal
+        else list(advantages)
+    )
+    for name in names:
+        advantage = advantages[name]
+        configured = float(hyper.objective_weights.get(name, 0.0))
+        scale = scales[name]
+        scaled = advantage / scale
+        clipped = scaled
+        personality_weight = None
+        if personal:
+            objective_index = contracts.OBJECTIVES.index(name)
+            personality_weight = personality[:, objective_index]
+            if hyper.personality_scales == "reference" and hyper.personality_clip > 0:
+                clipped = np.clip(scaled, -hyper.personality_clip, hyper.personality_clip)
+            contribution = personality_weight * clipped * outer
+            pre_clip_weight = personality_weight * outer / scale
+        else:
+            contribution = configured * advantage
+            pre_clip_weight = np.full(row_count, configured, dtype=np.float64)
+        effective_weight = np.divide(
+            contribution,
+            advantage,
+            out=pre_clip_weight.copy(),
+            where=advantage != 0,
+        )
+        total = total + contribution
+        components[name] = {
+            "scale": scale,
+            "scaled": scaled,
+            "clipped": clipped,
+            "clipApplied": clipped != scaled,
+            "personalityWeight": personality_weight,
+            "preClipEffectiveWeight": pre_clip_weight,
+            "effectiveWeight": effective_weight,
+            "contribution": contribution,
+            "configuredWeight": configured,
+        }
+    return {
+        "mode": mode,
+        "configuredWeightsApplied": not personal,
+        "batchWelfareSpreadMultiplier": outer
+        if personal and hyper.personality_scales == "batch"
+        else None,
+        "total": total,
+        "components": components,
+    }
 
 
 def emit_rollout(
@@ -234,16 +615,26 @@ def emit_rollout(
         "criticCheckpointHash": state_digest(critic),
         "costCheckpointHash": state_digest(cost_critic),
     }
-    if hasattr(normalizer, "state_dict"):
-        provenance["normalizerHash"] = hashlib.sha256(
-            canonical_bytes(normalizer.state_dict())
-        ).hexdigest()
-    else:
-        provenance["normalizerHash"] = (
-            hashlib.sha256(canonical_bytes(normalizer.state())).hexdigest()
-            if hasattr(normalizer, "state")
-            else None
-        )
+    normalizer_state = (
+        normalizer.state_dict()
+        if hasattr(normalizer, "state_dict")
+        else normalizer.state()
+        if hasattr(normalizer, "state")
+        else None
+    )
+    provenance["normalizerHash"] = (
+        writer.store_normalizer_moments(normalizer_state)
+        if normalizer_state is not None
+        else None
+    )
+    combination = _objective_combination_details(objectives, batch, hyper)
+    objective_advantage = combination["total"]
+    objective_scale = max(1e-8, float(np.std(objective_advantage)))
+    cv, cb, ca, ct = cost
+    constraint_scale = max(1e-8, float(np.std(ca)) + 1e-8)
+    objective_standardized = objective_advantage / objective_scale
+    constraint_contribution = -float(lagrange) * np.asarray(ca) / constraint_scale
+    pre_balance_advantage = objective_standardized + constraint_contribution
     next_rows = {}
     for sequence in data.sequences(batch):
         for i, successor in pairwise(sequence):
@@ -265,6 +656,7 @@ def emit_rollout(
         output_objectives = {}
         for name, values in objectives.items():
             reward, raw_reward, prediction, bootstrap, advantage, target = values
+            detail = combination["components"][name]
             vnext = (
                 0.0
                 if batch["terminated"][i]
@@ -273,16 +665,8 @@ def emit_rollout(
                 else bootstrap[i]
             )
             reference_scale = contracts.OBJECTIVE_REFERENCE_SCALES.get(name)
-            scale = (
-                (
-                    reference_scale
-                    if hyper.personality_scales == "reference"
-                    else float(np.std(advantage)) + 1e-9
-                )
-                if "personality" in batch
-                else 1.0
-            )
-            scaled = advantage[i] / scale if scale else None
+            scale = detail["scale"]
+            scaled = detail["scaled"][i]
             output_objectives[name] = {
                 "reward": float(raw_reward[i]),
                 "shapedReward": float(reward[i]),
@@ -299,23 +683,35 @@ def emit_rollout(
                 "referenceScaledAdvantage": float(advantage[i] / reference_scale)
                 if reference_scale
                 else None,
+                # Compatibility field: this is the configured static weight, not
+                # the applied per-row personality coefficient.
                 "objectiveWeight": float(hyper.objective_weights.get(name, 0.0)),
+                "configuredObjectiveWeight": float(detail["configuredWeight"]),
+                "configuredObjectiveWeightApplied": bool(
+                    combination["configuredWeightsApplied"]
+                ),
+                "personalityWeight": float(detail["personalityWeight"][i])
+                if detail["personalityWeight"] is not None
+                else None,
+                "preClipEffectiveCombinationWeight": float(
+                    detail["preClipEffectiveWeight"][i]
+                ),
+                "effectiveCombinationWeight": float(detail["effectiveWeight"][i]),
+                "effectiveCombinationWeightSemantics": (
+                    "weighted-contribution/advantage; zero-advantage rows use the "
+                    "pre-clip linear coefficient"
+                ),
+                "weightedAdvantageContribution": float(detail["contribution"][i]),
+                "combinationClipApplied": bool(detail["clipApplied"][i]),
                 "valuePopulationScale": 1.0
                 if name == "qol_years"
                 else float(max(1, batch["prior_population"][i])),
                 "scaledAdvantage": float(scaled) if scaled is not None else None,
-                "clippedAdvantage": float(
-                    np.clip(scaled, -hyper.personality_clip, hyper.personality_clip)
-                )
-                if scaled is not None
-                and "personality" in batch
-                and hyper.personality_clip > 0
-                and hyper.personality_scales == "reference"
-                else float(scaled)
-                if scaled is not None
-                else None,
+                "clippedAdvantage": float(detail["clipped"][i]),
+                "zeroShapedRewardNonzeroBootstrap": bool(
+                    float(reward[i]) == 0.0 and float(vnext) != 0.0
+                ),
             }
-        cv, cb, ca, ct = cost
         cost_next = (
             0.0 if batch["terminated"][i] else cv[successor] if successor is not None else cb[i]
         )
@@ -330,6 +726,9 @@ def emit_rollout(
         }
         if provenance["normalizerHash"] is None:
             unavailable["provenance.normalizerHash"] = "normalizer-state-api-unavailable"
+        policy_input_health = captured.get("policyInputHealth")
+        if policy_input_health is None:
+            unavailable["policyInputHealth"] = "not-emitted-by-legacy-economic-trace"
         row = {
             "schemaVersion": 1,
             "evidenceClass": "prospective_diagnostic_training_trace",
@@ -367,7 +766,26 @@ def emit_rollout(
             "economicDiagnostics": economic,
             "actionDiagnostics": captured.get("actionDiagnostics"),
             "actorPolicyActiveMask": captured.get("actorPolicyActiveMask"),
+            "policyInputHealth": policy_input_health,
             "objectives": output_objectives,
+            "objectiveCombinationMode": combination["mode"],
+            "objectiveCombination": {
+                "mode": combination["mode"],
+                "configuredWeightsApplied": bool(combination["configuredWeightsApplied"]),
+                "batchWelfareSpreadMultiplier": combination[
+                    "batchWelfareSpreadMultiplier"
+                ],
+                "preStandardizationObjectiveAdvantage": float(objective_advantage[i]),
+                "objectiveStandardizationScale": float(objective_scale),
+                "objectiveAfterStandardization": float(objective_standardized[i]),
+                "costAdvantageStandardizationScale": float(constraint_scale),
+                "costConstraintContributionBeforeBalancing": float(
+                    constraint_contribution[i]
+                ),
+                "preBalanceActorAdvantage": float(pre_balance_advantage[i]),
+                "finalPolicyAdvantage": float(combined[i]),
+                "balanceWeightIsSeparateLossWeight": True,
+            },
             "finalPolicyAdvantage": float(combined[i]),
             "balanceWeight": float(weights[i]),
             "lagrangeMultiplier": float(lagrange),
@@ -394,7 +812,7 @@ def emit_rollout(
                 "workerContract": roll.worker_contracts[world],
                 "worldContract": roll.world_contracts[world],
             },
-            "normalizerMoments": normalizer.state_dict(),
+            "normalizerMomentsRef": provenance["normalizerHash"],
             "costBootstrapEnabled": hyper.cost_bootstrap,
             "unavailable": unavailable,
         }

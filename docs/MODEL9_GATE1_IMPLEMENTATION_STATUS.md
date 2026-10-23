@@ -1,10 +1,15 @@
 # Model9 Gate 1 implementation status
 
-Status: the Gate 1 fail-closed validation framework and the Astra-authorized
-diagnostic evaluator capability phase are implemented for independent Astra
-High re-review, but implementation-quality approval has not been issued and
-production evidence remains incomplete. Evidence
-collection and post-collection review have not run. The gate remains `HOLD`. This work
+Status: Astra High acceptance6 approved the Gate 1 fail-closed validation
+framework and diagnostic evaluator capability implementation recorded at commit
+`2a6565e46c43b425b1f9cc6d220995818d42061d`. That approval was implementation
+quality approval only; production evidence remains incomplete. The new
+production evidence freeze-protocol draft, executable retrieval preflight and
+portable/VM freeze-candidate runner are unreviewed implementation/governance
+deltas and do not inherit acceptance6. The local hash-verified VM retrieval is
+present (396/396 files with zero source/local mismatch), but no checkpoint
+evaluation or benchmark has run. Evidence collection and
+post-collection review have not run. The gate remains `HOLD`. This work
 does not authorize a VM start, training launch, checkpoint promotion,
 model-architecture change or implementation of Gates 2-4.
 
@@ -15,15 +20,124 @@ Authority: Astra High approved the diagnostic-only architecture on 22 October
 only; the architecture's explicit VM, training, promotion and model-change
 prohibitions remain in force.
 
+`MODEL9_GATE1_PRODUCTION_PROTOCOL.md` now specifies the pre-VM freeze and
+collection procedure. The executable candidate proposes a fresh
+evaluation-only cohort, exact nonempty contract-8 comparator corpus, recovered
+artifact hashes, relative paired-performance profiles and portable-to-VM
+runtime materialization. These proposal values remain unreviewed and do not
+authorize collection. A separately hash-verified T2m retrieval now supplies
+nine guarded actor-only BC phases with original normalizers, but no recovered
+completed critic checkpoint. Seed 6 is an independent fresh-evaluation node,
+not a T3 ancestor; completed-clone critic provenance remains a required HOLD.
+It is a design procedure, not a replacement for the required schema-1 reviewed
+JSON artifacts, and it authorizes no retrieval or evaluation.
+
+The fresh-common-producer diagnostic and historical-replay/provenance claims
+are classified separately. If the reviewed fresh-current collection completes
+all required 20 nodes, worlds, metrics, comparators and verification, that scope
+may receive `PASS` for current-diagnostic progression into Gates 2-4 while the
+historical claim remains `HOLD`. Neither status is training readiness, selection
+or promotion authority.
+
 ## Implemented surface
 
-`anthropocene_rl.autonomous_v7.initialization_lineage` provides three commands:
+`anthropocene_rl.autonomous_v7.initialization_lineage` provides four commands:
 
 ```text
 python -m anthropocene_rl.autonomous_v7.initialization_lineage validate --manifest initialization_lineage.json --out validation.json
 python -m anthropocene_rl.autonomous_v7.initialization_lineage evaluate --manifest initialization_lineage.json --node NODE --pane PANE --out evaluation.json
 python -m anthropocene_rl.autonomous_v7.initialization_lineage packet --manifest initialization_lineage.json --evaluations evaluations.json --verification verification.json --implementation implementation.json --out PACKET_ROOT
+python -m anthropocene_rl.autonomous_v7.initialization_lineage preflight --inventory gate1-retrieval-inventory.json --out gate1-preflight-report.json
 ```
+
+The new preflight command is local and read-only. Its earlier current-state
+historical-endpoint input contains `prior-reference`, an explicit completed
+guarded-clone slot and all 15 disjoint/unpaired historical T3 arm/seed runs.
+That completed-clone slot remains `missing`: raw inspection proves recovered
+`stage1-token-s6.pt` is the unguarded T3 initialization clone, while the later
+T2m retrieval contains only guarded actor/normalizer BC phases and no recovered
+completed critic checkpoint. The executable freeze DAG now carries 20 present
+diagnostic nodes: prior, BC phase, unguarded initialization, independent T2m
+seed-6 guarded actor-only BC phase, a prospective guard/dead-only composition
+on the bitwise T3-init actor, and 15 T3 endpoints. The composition is not a
+historical artifact or ancestor. The DAG also carries an explicit conversion status,
+and every named retrieval slot. An unretrieved node may honestly retain a null
+producer run ID and therefore remains an explicit `HOLD`; evidence-dependent
+answerability requires an exact producer identity.
+
+The recovered T3 initializer has `experts=false`, while PPO endpoints use the
+`experts=true` architecture. The initialization-to-endpoint boundary is now
+explicitly a reconstructed expert-parameter expansion followed by training,
+not a decoder flag and not a pure-PPO causal contrast. The expansion's expected
+behavior preservation is now supported on a bound fixed teacher-state/mask
+corpus for all seeds 70-84 by the separate pinned-source/weight audit. That is
+corpus-scoped equivalence, not a closed-loop outcome claim, and it does not add
+a twenty-first rollout node.
+
+The preflight rehashes
+regular non-reparse files, binds size/original-path metadata, uses typed and
+length-framed hashes for embedded checkpoint sections, and rejects both
+cross-slot aliases and a producer artifact inventory that substitutes identical
+bytes at another path or acquisition identity. The observed local modification
+time is mandatory. A missing source modification time needs an explicit
+unavailability reason bound into the acquisition receipt, except for
+`pre-existing-local`: there the source time must exactly equal observed
+`st_mtime_ns` and an unavailability reason is forbidden. Original paths and
+every ancestor are checked before resolution; symlink and reparse aliases are
+rejected. Sensitive slots bind their exact
+checkpoint section and semantic schema; actor bytes cannot stand in for a
+normalizer, critic, arguments or producer provenance. It uses an exact schema-1
+acquisition receipt to bind every copied/downloaded source URI/generation/
+metadata to the exact node, slot, artifact role, path, destination hash/size,
+read-only method, time and tool identity. A remote producer inventory must also
+carry and validate its own slot-specific acquisition receipt; a receipt for an
+identical byte stream in another slot is not transferable. It uses
+weights-only checkpoint inspection and the existing sealed economic trace
+loader to cross-check run/arm/optimizer identity and classify endpoint bytes,
+critic identity, inventoried resume sections, original transition and
+optimization-target critic estimands, and joined optimizer update boundaries
+independently. Trace evidence repeats and verifies the exact endpoint,
+normalizer, run-manifest, producer, transition/update payload and endpoint actor
+hashes. Structural consistency and historical answerability are reported
+separately: internally consistent synthetic rows cannot make an individual
+historical transition, target or update diagnostic answerable while producer
+completeness/provenance remains unreviewed. Each update input batch must consist
+of transitions produced by an evidenced behavior-policy actor/version no later
+than that update's before-policy version; legitimate PPO rollout reuse across
+later updates is allowed, but a future or update-after policy is not. The final
+completed event in raw file order—not the numerically largest version—must bind
+its after-actor to the endpoint. Every start precedes its matching completion,
+each policy-version delta is zero or one, and the next before-version/hashes
+must exactly equal the preceding completed after-version/hashes. Update
+answerability additionally requires exact batch
+linkage, policy versions and actor/critic/optimizer pre/post hashes. Resume
+section inventory checks require non-null typed optimizer, iteration, RNG,
+data-order, scheduler/scaler and run-manifest state; absent components and
+negative iterations block even that inventory claim. Exact endpoint continuation
+remains blocked because no separately reviewed historical restoration contract
+binds supported optimizer, RNG, data-order and simulator-state schemas. A
+shape-valid self-authored resume dictionary is not restoration evidence.
+Independent-return critic accuracy and course-correction remain blocked
+without separately frozen continuation-return evidence. An endpoint resume
+inventory does not establish continuation eligibility; historical optimizer-sequence
+reconstruction remains blocked without the ordered pre-update states, batches
+and RNG chain. Missing resume state blocks exact continuation; complete original transition/
+update rows can still support only the estimands they directly contain.
+Expected-but-lost critic bytes also block endpoint completeness and therefore
+force overall `HOLD` and `ready_for_protocol_freeze=false`. Producer
+`complete=true` and content-hashed `not-applicable` prose are also self-authored
+claims: until separately reviewed acquisition/completeness and historical
+nonexistence provenance are bound, both remain unverified and blocking.
+
+The preflight never invokes the evaluator and always records
+`evaluation_authorized=false`, `gate1_readiness_claimed=false` and production
+Gate 1 `HOLD`. `PASS-PREFLIGHT-ONLY` is reserved for a future report whose
+completeness and historical nonexistence authorities have been separately
+reviewed; the current implementation deliberately cannot reach it from a
+self-authored inventory. It expressly does not establish strict
+loader/adapter/producer compatibility. A complete report is only a candidate
+for independent freeze review. This command, schema and its tests are a new
+post-acceptance6 delta requiring Astra review.
 
 The manifest is schema 1, kind `initialization_lineage`, and is sealed by a
 canonical `digest`. A separately content-addressed lineage inventory protocol is
@@ -302,11 +416,14 @@ outcome classifications, a one-page decision, and a completion record binding
 the output files. The implementation input is itself a content-addressed,
 digest-sealed `gate1_implementation_identity` artifact. It records the clean Git
 commit, exact source-file hashes and Git-porcelain dirty-state proof for the Gate
-1 modules, evaluator, focused capability/lineage/bridge tests, this status file and both governing design
-documents. Packet construction rehashes those executing sources and recomputes
+1 modules, evaluator, focused capability/lineage/bridge tests, this status file,
+both governing architecture documents and the production freeze-protocol draft.
+Packet construction rehashes those executing sources and recomputes
 the commit and dirty-state proof. An omitted source, dirty tree or identity/hash
 mismatch is `HOLD`; caller-supplied assertions cannot establish implementation
-identity. Test success is not accepted as a caller assertion. The manifest
+identity. The source list now also binds the draft production freeze protocol;
+that source-list change is an unreviewed implementation delta. Test success is
+not accepted as a caller assertion. The manifest
 instead binds a digest-sealed `gate1_verification_protocol` whose coverage,
 performance and peak-memory thresholds are frozen independently of results. A
 verification artifact binds the implementation commit and protocol, declares
@@ -354,27 +471,58 @@ estimate optimizer uncertainty.
 ## Evidence and capability gaps
 
 No production lineage manifest, reviewed evaluation/claim or equivalence
-execution protocol, frozen verification protocol, historical
-checkpoint inventory, migration/default records, semantic comparators,
-evaluation corpus, evaluation rows, implementation identity, verification
-artifact or review packet was collected by this implementation task. The known
-historical contract-8 prior itself was not copied, changed or executed during
-this implementation, and it still needs its checkpoint-specific reviewed adapter
-protocol, default-resolution/migration record, historical worker contract or
-reviewed producer comparator, and frozen equivalence corpus/receipts. No
-production snapshot cohort or policy RNG schedule has been preregistered, and no
-production service/missingness, trajectory or integral rows exist. The capability
-tests and local bridge parity checks are diagnostic implementation evidence only;
-they are not lineage evidence and make no selection/readiness claim.
+execution protocol, frozen verification protocol, migration/default records,
+semantic comparator result, evaluation rows, verification evidence or review
+packet has been collected by this implementation task. The exact historical
+checkpoint inventory is now locally present and hash verified: 396/396 copied
+files match the preserved source/local SHA-256 manifests. It contains the
+contract-8 prior, actor-only learned BC phase, unguarded
+`stage1-token-s6.pt`, and all 15 T3 `latest.pt`/`best.pt`/resume groups. Raw
+inspection shows `stage1-token-s6.pt` and representative T3 normalizers have no
+guard/dead fields. It therefore cannot be called the T2m guarded clone. The
+separate T2m retrieval supplies seed-6 actor/normalizer bytes with `guard=10`
+and exact dead masks, plus eight other actor-only BC seeds. T2m logs stop during
+critic fitting and no completed critic checkpoint/evaluation was recovered, so
+the actor-only node cannot prove completed-clone critic identity or a T3 parent
+join. The guard-only intervention first proves the T3-init and T2m seed-6
+affine fields literally equal and then changes only guard/dead settings; it is a
+prospective diagnostic composition motivated before outcomes.
+
+The contract-8 prior was not changed or evaluated. Its bytes match the named
+immutable GCS object generation `1792308001259477`; weights-only inspection
+confirmed contract 8, core width 207, present actor/critic/normalizer sections
+and exact actor/normalizer identities, but no embedded worker contract. The
+new proposal binds pinned contract-8 model/contracts sources and a nonempty
+typed comparator corpus; executing that comparator still requires approval of
+the exact VM-materialized candidate. No production service/missingness,
+trajectory or integral rows exist. Capability tests and local bridge parity
+checks are diagnostic implementation evidence only; they are not outcome or
+readiness evidence.
+
+The prior-session GCS search reported no named T3per/T3def/T3lo or
+`stage1-token-s6` matches in its searched scope. That is neither archive
+completeness nor historical nonexistence evidence; the endpoint bytes were
+subsequently recovered from the VM disk and verified locally. The archived
+prior `train-2.txt` log candidate may preserve
+optimization-target critic-fit evidence after hashing, but it has no independent
+continuation-return identity and cannot establish Gate 3 course-correction.
+Its exact GCS generation is `1792495448019703` (8,736 bytes); the empty stderr
+candidate is generation `1792495447816742` (0 bytes).
 
 The architecture requires its stated relative-throughput and incremental-RSS
-budgets to be applied through preregistered profiles. This implementation
-supplies bounded-capture receipts and the packet's structured benchmark evidence
-path, but no production benchmark manifest has yet bound and executed the exact
-scenarios, baselines, machine identity and measurement method against those
-budgets. Total process working set alone is not accepted as incremental capture
-cost. This is a remaining evidence/protocol `HOLD`, not an inferred performance
-pass.
+budgets to be applied through preregistered paired profiles. The existing
+generic verification schema can carry fixture-only absolute throughput and
+memory bounds, but that is not production-compliant evidence for these budgets.
+Before production collection, a reviewed schema must bind same-machine baseline
+pairs, raw repetitions and median aggregation, and subtract each paired baseline
+peak worker RSS. Optional baseline-only calibration may derive pre-frozen
+absolute operational guardrails, but those receipts cannot be reused as final
+acceptance pairs; acceptance is computed directly from the subsequently
+collected frozen per-pair ratios and incremental RSS. No production benchmark
+manifest has yet frozen or executed the exact repetitions, scenarios, fixture
+hashes, baselines, machine identity or measurement method.
+Total process working set alone is not accepted as incremental capture cost.
+This is a remaining evidence/protocol `HOLD`, not an inferred performance pass.
 
 Therefore any packet built from the repository without those production inputs
 remains `HOLD`. No VM was

@@ -16,7 +16,7 @@ import itertools
 import json
 import math
 import re
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -289,9 +289,7 @@ def _validate_action_diagnostics(row: dict[str, Any]) -> None:
                 mask = raw_mask if isinstance(raw_mask, list) else [raw_mask]
                 for index, value in enumerate(vector):
                     if index < len(mask) and mask[index] and _number(value) is None:
-                        raise ValueError(
-                            f"action diagnostic {phase}/{head}[{index}] is not finite"
-                        )
+                        raise ValueError(f"action diagnostic {phase}/{head}[{index}] is not finite")
 
 
 def _validate_actor_policy_active_mask(row: dict[str, Any]) -> None:
@@ -347,15 +345,20 @@ def validate_transition(row: dict[str, Any]) -> None:
     for name in ("transitionId", "trajectoryId", "decisionTurn", "campId", "societyId"):
         if economic.get(name) != row[name]:
             raise ValueError(f"economic sidecar identity differs: {name}")
-    if economic.get("schemaVersion") != SCHEMA_VERSION:
+    if economic.get("schemaVersion") not in {1, 2}:
         raise ValueError("unsupported economic sidecar schema")
     _validate_action_diagnostics(row)
     _validate_actor_policy_active_mask(row)
     for _path, _value in _finite_numbers(row):
         pass
-    for path in _null_paths(economic, "economicDiagnostics"):
-        if _unavailable_reason(row, economic, path) is None:
-            raise ValueError(f"null economic field has no unavailable reason: {path}")
+    if economic.get("schemaVersion") == 2:
+        from .economic_accounting import validate_economic_accounting
+
+        validate_economic_accounting(economic)
+    else:
+        for path in _null_paths(economic, "economicDiagnostics"):
+            if _unavailable_reason(row, economic, path) is None:
+                raise ValueError(f"null economic field has no unavailable reason: {path}")
     for good in economic.get("goods", []):
         if not isinstance(good, dict) or "good" not in good:
             raise ValueError("invalid physical good diagnostic")
@@ -453,8 +456,10 @@ def validate_update(row: dict[str, Any], transition_ids: set[str]) -> None:
         if not isinstance(row.get(name), int) or isinstance(row.get(name), bool):
             raise ValueError(f"optimizer event missing/invalid {name}")
     batch_ids = row.get("batchTransitionIds")
-    if not isinstance(batch_ids, list) or not batch_ids or not all(
-        isinstance(identity, str) for identity in batch_ids
+    if (
+        not isinstance(batch_ids, list)
+        or not batch_ids
+        or not all(isinstance(identity, str) for identity in batch_ids)
     ):
         raise ValueError("optimizer event has no exact batch transition identities")
     if len(batch_ids) != len(set(batch_ids)):
@@ -465,8 +470,7 @@ def validate_update(row: dict[str, Any], transition_ids: set[str]) -> None:
     if row.get("batchRowDigest") != expected_digest:
         raise ValueError("optimizer event batch-row digest differs")
     if event.startswith("mutation-") and (
-        not isinstance(row.get("minibatch"), int)
-        or isinstance(row.get("minibatch"), bool)
+        not isinstance(row.get("minibatch"), int) or isinstance(row.get("minibatch"), bool)
     ):
         raise ValueError("optimizer mutation has no minibatch identity")
     if event.endswith("complete"):
@@ -654,15 +658,11 @@ def optimizer_update_rows(
             ]
             for field in ("prediction", "target", "tdResidual", "advantage"):
                 numbers = [
-                    number
-                    for value in values
-                    if (number := _number(value.get(field))) is not None
+                    number for value in values if (number := _number(value.get(field))) is not None
                 ]
                 if numbers:
                     result[f"batch.{objective}.{field}Mean"] = float(np.mean(numbers))
-                    result[f"batch.{objective}.{field}AbsMean"] = float(
-                        np.mean(np.abs(numbers))
-                    )
+                    result[f"batch.{objective}.{field}AbsMean"] = float(np.mean(np.abs(numbers)))
         output.append(result)
     return output
 
@@ -723,12 +723,8 @@ def optimizer_update_rollup(rows: Sequence[dict[str, Any]]) -> list[dict[str, An
                 for row in records
                 if isinstance(row.get(f"{component}HashChanged"), bool)
             ]
-            result[f"{component}HashChangedRate"] = (
-                float(np.mean(values)) if values else None
-            )
-        critic_updates = [
-            _number(row.get("parameterUpdateNorms.critic")) for row in records
-        ]
+            result[f"{component}HashChangedRate"] = float(np.mean(values)) if values else None
+        critic_updates = [_number(row.get("parameterUpdateNorms.critic")) for row in records]
         known_critic_updates = [value for value in critic_updates if value is not None]
         result["zeroCriticUpdateRate"] = (
             float(np.mean([value == 0 for value in known_critic_updates]))
@@ -922,6 +918,21 @@ def _implicit_funnels(domain: str, block: dict[str, Any]) -> Iterator[dict[str, 
 
 def _row_funnels(row: dict[str, Any]) -> Iterator[dict[str, Any]]:
     economic = row["economicDiagnostics"]
+    for control in economic.get("controls", []):
+        if not isinstance(control, dict) or not isinstance(control.get("phases"), dict):
+            continue
+        phases = control["phases"]
+        yield {
+            "domain": control.get("domain"),
+            "metric": control.get("identity"),
+            "unit": control.get("nativeUnit"),
+            "nativeDemand": phases.get("nativeDemand"),
+            "actorCappedRequest": phases.get("actorCappedRequest"),
+            "compilerGrant": phases.get("compilerGrant"),
+            "executedWork": phases.get("executedWorkerOrInputClaim"),
+            "physicalReceipt": phases.get("committedPhysicalReceipt"),
+            "finalService": phases.get("consumptionOrFinalService"),
+        }
     for domain, block in economic.get("domains", {}).items():
         if not isinstance(block, dict):
             continue
@@ -1371,9 +1382,7 @@ def _alignment_record(
         "affectedConstraintReasons": ";".join(reasons),
         "constraintReasonRows": reason_rows,
         "constraintReasonDenominator": len(mapped_reasons),
-        "constraintReasonCoverage": reason_rows / len(mapped_reasons)
-        if mapped_reasons
-        else None,
+        "constraintReasonCoverage": reason_rows / len(mapped_reasons) if mapped_reasons else None,
         "constraintReasonSource": "economic-funnel-map"
         if head in HEAD_FUNNEL_MAP
         else "unavailable-no-direct-funnel-map",
@@ -1616,6 +1625,651 @@ def _trade_signal(row: dict[str, Any]) -> float:
     return total
 
 
+def _gate2_control_matrix(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    output: list[dict[str, Any]] = []
+    for transition in rows:
+        economic = transition["economicDiagnostics"]
+        for control in economic.get("controls", []):
+            phases = control["phases"]
+            actor_head = str(control["actorHead"])
+            head_name = actor_head.split("[", 1)[0].split("+", 1)[0]
+            output.append(
+                {
+                    **{name: transition.get(name) for name in IDENTITY_COLUMNS},
+                    "controlId": control["controlId"],
+                    "domain": control["domain"],
+                    "identity": control["identity"],
+                    "nativeUnit": control["nativeUnit"],
+                    "actorHead": actor_head,
+                    "actorDistribution": json.dumps(
+                        transition.get("actorDistribution", {}).get(head_name),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                    "actorSample": json.dumps(
+                        transition.get("sampledAction", {}).get(head_name),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        allow_nan=False,
+                    ),
+                    **phases,
+                    "phaseUnits": json.dumps(
+                        control["phaseUnits"], sort_keys=True, separators=(",", ":")
+                    ),
+                    "unavailable": json.dumps(
+                        control["unavailable"], sort_keys=True, separators=(",", ":")
+                    ),
+                    "metadata": json.dumps(
+                        control["metadata"], sort_keys=True, separators=(",", ":")
+                    ),
+                }
+            )
+    return sorted(output, key=lambda row: (str(_sort_key(row)), row["controlId"]))
+
+
+def _gate2_conservation_rows(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    output = []
+    for transition in rows:
+        for item in transition["economicDiagnostics"].get("conservationRows", []):
+            output.append(
+                {
+                    **{name: transition.get(name) for name in IDENTITY_COLUMNS},
+                    **item,
+                }
+            )
+    return sorted(
+        output,
+        key=lambda row: (
+            str(_sort_key(row)),
+            str(row["domain"]),
+            str(row["item"]),
+        ),
+    )
+
+
+def _gate2_physical_events(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    output = []
+    for transition in rows:
+        for event in transition["economicDiagnostics"].get("physicalEvents", []):
+            output.append(
+                {
+                    **{name: transition.get(name) for name in IDENTITY_COLUMNS},
+                    **event,
+                }
+            )
+    return sorted(
+        output,
+        key=lambda row: (str(_sort_key(row)), str(row["eventId"])),
+    )
+
+
+def _gate2_trade_lifecycle(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate bilateral endpoint copies and reject conflicting evidence."""
+
+    records: dict[tuple[str, str], dict[str, Any]] = {}
+    sources: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for transition in rows:
+        for record in transition["economicDiagnostics"].get("trades", []):
+            kind = str(record["recordType"])
+            identity_name = {
+                "eligibility": "eventId",
+                "requisition": "requestId",
+                "transaction": "transactionId",
+            }[kind]
+            identity = str(record[identity_name])
+            key = (kind, identity)
+            if key in records and canonical_bytes(records[key]) != canonical_bytes(record):
+                raise ValueError(f"conflicting endpoint copies of trade lifecycle {identity}")
+            records[key] = record
+            sources[key].add(int(transition["campId"]))
+    output = []
+    for key, record in sorted(records.items()):
+        if key[0] in {"requisition", "transaction"}:
+            endpoints = {int(record["requester"]), int(record["responder"])}
+            if sources[key] != endpoints:
+                raise ValueError(f"trade lifecycle {key[1]} is missing a reciprocal endpoint copy")
+        output.append(
+            {
+                "recordType": key[0],
+                "identity": key[1],
+                "sourceCampIds": json.dumps(sorted(sources[key]), separators=(",", ":")),
+                "record": json.dumps(
+                    record, sort_keys=True, separators=(",", ":"), allow_nan=False
+                ),
+            }
+        )
+    return output
+
+
+def _gate2_trade_provenance(
+    rows: Sequence[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Allocate accepted imports to later physical use without claiming causality.
+
+    The simulator's fungible inventory does not preserve ownership.  This is a
+    deterministic imported-first FIFO bookkeeping view, never an assertion that
+    a particular imported atom caused a service or outcome.  Identities are
+    scoped to the captured trajectory, so the ledger ends explicitly at the
+    evaluation horizon rather than pretending to survive an unbound save.
+    """
+
+    ordered = sorted(
+        rows,
+        key=lambda row: (
+            str(row["trajectoryId"]),
+            int(row["decisionTurn"]),
+            int(row["campId"]),
+            str(row["transitionId"]),
+        ),
+    )
+    row_by_id = {str(row["transitionId"]): row for row in ordered}
+    final_by_camp: dict[tuple[str, int], dict[str, Any]] = {}
+    lots: list[dict[str, Any]] = []
+    lots_by_item: dict[tuple[str, int, str], deque[dict[str, Any]]] = defaultdict(deque)
+    active_items_by_camp: dict[tuple[str, int], set[str]] = defaultdict(set)
+    allocations: list[dict[str, Any]] = []
+    seen_legs: set[tuple[str, str]] = set()
+    previous_by_camp: dict[tuple[str, int], dict[str, Any]] = {}
+
+    def unit(item: str) -> str:
+        if item in {"PlantFood", "AnimalFood", "AquaticFood"}:
+            return "food"
+        if item in {"Stone", "Clay", "Wood"}:
+            return "material-units"
+        return "good-units"
+
+    food_items = {"PlantFood", "AnimalFood", "AquaticFood"}
+
+    def stocks(economic: dict[str, Any], boundary: str) -> dict[str, float]:
+        suffix = "openingStock" if boundary == "opening" else "endingStock"
+        result = {str(row["good"]): float(row[suffix]) for row in economic.get("goods", [])}
+        result.update(
+            {str(row["material"]): float(row[suffix]) for row in economic.get("materials", [])}
+        )
+        population = economic.get("domains", {}).get("population", {})
+        prefix = "opening" if boundary == "opening" else "ending"
+        for item in ("PlantFood", "AnimalFood", "AquaticFood"):
+            value = population.get(f"{prefix}{item}")
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                result[item] = float(value)
+        return result
+
+    def terminate_queue(
+        key: tuple[str, int, str], *, reason: str, terminal_transition_id: str
+    ) -> None:
+        queue = lots_by_item.get(key)
+        if queue is None:
+            return
+        while queue:
+            lot = queue.popleft()
+            lot["horizonStatus"] = "unresolved-continuity"
+            lot["continuityStatus"] = "unresolved"
+            lot["continuityUnavailableReason"] = reason
+            lot["terminalTransitionId"] = terminal_transition_id
+        del lots_by_item[key]
+        camp_items = active_items_by_camp.get(key[:2])
+        if camp_items is not None:
+            camp_items.discard(key[2])
+            if not camp_items:
+                del active_items_by_camp[key[:2]]
+
+    def allocate_fifo(
+        key: tuple[str, int, str],
+        quantity: float,
+        *,
+        transition: dict[str, Any],
+        event_id: str,
+        category: str,
+    ) -> None:
+        remaining = max(0.0, quantity)
+        queue = lots_by_item.get(key)
+        if queue is None:
+            return
+        while remaining > 1e-12 and queue:
+            lot = queue[0]
+            allocated = min(float(lot["remainingQuantity"]), remaining)
+            lot["remainingQuantity"] -= allocated
+            remaining -= allocated
+            allocations.append(
+                {
+                    "allocationId": f"{lot['lotId']}/allocation/{len(allocations)}",
+                    "lotId": lot["lotId"],
+                    "trajectoryId": lot["trajectoryId"],
+                    "transactionId": lot["transactionId"],
+                    "legId": lot["legId"],
+                    "receiverCampId": lot["receiverCampId"],
+                    "item": lot["item"],
+                    "unit": lot["unit"],
+                    "consumptionTransitionId": transition["transitionId"],
+                    "consumptionTurn": int(transition["decisionTurn"]),
+                    "consumptionEventId": event_id,
+                    "consumptionCategory": category,
+                    "allocatedQuantity": allocated,
+                    "allocationRule": "imported-first-fifo-adjacent-stock-continuity",
+                    "causal": False,
+                }
+            )
+            if lot["remainingQuantity"] <= 1e-12:
+                lot["remainingQuantity"] = 0.0
+                queue.popleft()
+        if not queue:
+            del lots_by_item[key]
+            camp_items = active_items_by_camp.get(key[:2])
+            if camp_items is not None:
+                camp_items.discard(key[2])
+                if not camp_items:
+                    del active_items_by_camp[key[:2]]
+
+    for transition in ordered:
+        trajectory = str(transition["trajectoryId"])
+        camp = int(transition["campId"])
+        turn = int(transition["decisionTurn"])
+        final_by_camp[(trajectory, camp)] = transition
+        economic = transition["economicDiagnostics"]
+        camp_key = (trajectory, camp)
+        previous = previous_by_camp.get(camp_key)
+        active_keys = [
+            (trajectory, camp, item) for item in sorted(active_items_by_camp.get(camp_key, ()))
+        ]
+        if previous is not None and active_keys:
+            adjacent_turn = int(previous["decisionTurn"]) + 1 == turn
+            parent = transition.get("economicDiagnostics", {}).get("parentTransitionId")
+            adjacent_parent = parent is None or str(parent) == str(previous["transitionId"])
+            if not adjacent_turn or not adjacent_parent:
+                reason = (
+                    f"non-adjacent-successor:{previous['decisionTurn']}->{turn}"
+                    if not adjacent_turn
+                    else "parent-transition-does-not-bind-adjacent-predecessor"
+                )
+                for key in active_keys:
+                    terminate_queue(
+                        key,
+                        reason=reason,
+                        terminal_transition_id=str(previous["transitionId"]),
+                    )
+            else:
+                previous_closing = stocks(previous["economicDiagnostics"], "closing")
+                current_opening = stocks(economic, "opening")
+                for key in active_keys:
+                    item = key[2]
+                    if (
+                        item not in previous_closing
+                        or item not in current_opening
+                        or not math.isclose(
+                            previous_closing[item], current_opening[item], rel_tol=0.0, abs_tol=1e-8
+                        )
+                    ):
+                        terminate_queue(
+                            key,
+                            reason="opening-stock-does-not-bind-predecessor-closing-stock",
+                            terminal_transition_id=str(previous["transitionId"]),
+                        )
+        previous_by_camp[camp_key] = transition
+        imports_by_phase: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        exports_by_phase: dict[str, list[tuple[str, float, str]]] = defaultdict(list)
+        for transaction in sorted(
+            (
+                value
+                for value in economic.get("trades", [])
+                if value.get("recordType") == "transaction"
+            ),
+            key=lambda value: str(value["transactionId"]),
+        ):
+            for leg in sorted(transaction["legs"], key=lambda value: str(value["legId"])):
+                receiver = int(leg["receiver"])
+                sender = int(leg["sender"])
+                if receiver != camp and sender != camp:
+                    continue
+                leg_key = (trajectory, str(leg["legId"]))
+                if receiver == camp:
+                    if leg_key in seen_legs:
+                        raise ValueError("trade import leg appears more than once for its receiver")
+                    seen_legs.add(leg_key)
+                for part_index, part in enumerate(leg["parts"]):
+                    quantity = float(part["deliveredQuantity"])
+                    if quantity <= 0:
+                        continue
+                    item = str(part["item"])
+                    if sender == camp:
+                        exports_by_phase[str(leg["deliveryPhase"])].append(
+                            (item, quantity, f"{leg['legId']}/export/part/{part_index}")
+                        )
+                    if receiver != camp:
+                        continue
+                    utility_value = transaction[
+                        "requesterImmediateUtility"
+                        if camp == int(transaction["requester"])
+                        else "responderImmediateUtility"
+                    ]
+                    lot = {
+                        "lotId": f"{leg['legId']}/part/{part_index}",
+                        "trajectoryId": trajectory,
+                        "receiptTransitionId": transition["transitionId"],
+                        "receiptTurn": turn,
+                        "transactionId": transaction["transactionId"],
+                        "legId": leg["legId"],
+                        "requestId": transaction["requestId"],
+                        "senderCampId": int(leg["sender"]),
+                        "receiverCampId": camp,
+                        "item": item,
+                        "unit": unit(item),
+                        "deliveryPhase": leg["deliveryPhase"],
+                        "escrowedLegQuantity": float(leg["escrowedQuantity"]),
+                        "receivedQuantity": quantity,
+                        "storageBlockedLegQuantity": float(leg["storageBlockedQuantity"]),
+                        "refundedOrReturnedLegQuantity": float(leg["refundedOrReturnedQuantity"]),
+                        "remainingQuantity": None if item in food_items else quantity,
+                        "immediateUtility": None if utility_value is None else float(utility_value),
+                        "attributionClass": "deterministic-imported-first-bookkeeping-not-causal",
+                        "causalDelayedUtility": None,
+                        "causalUnavailableReason": (
+                            "requires a transaction-bound matched intervention; "
+                            "observational continuation is not causal"
+                        ),
+                        "continuityStatus": "bound",
+                        "continuityUnavailableReason": None,
+                        "consumptionAttributionStatus": (
+                            "unresolved" if item in food_items else "available"
+                        ),
+                        "consumptionAttributionUnavailableReason": (
+                            "human/manufacturing food consumption is emitted only as "
+                            "linked-food-reserves; no authoritative component partition exists"
+                            if item in food_items
+                            else None
+                        ),
+                        "terminalTransitionId": None,
+                    }
+                    lots.append(lot)
+                    imports_by_phase[str(leg["deliveryPhase"])].append(lot)
+
+        def receive(
+            phase: str,
+            *,
+            phase_imports: dict[str, list[dict[str, Any]]] = imports_by_phase,
+            bound_trajectory: str = trajectory,
+            bound_camp: int = camp,
+            bound_camp_key: tuple[str, int] = camp_key,
+        ) -> None:
+            for lot in sorted(phase_imports[phase], key=lambda entry: str(entry["lotId"])):
+                item = str(lot["item"])
+                # Component food receipt is authoritative, but native consumption is
+                # emitted only against the fungible linked-food reserve.  Until that
+                # exit is partitioned by component, putting this receipt into FIFO
+                # would let a later replacement stock/export fabricate exact lot
+                # survival and retirement.
+                if item in food_items:
+                    continue
+                lots_by_item[(bound_trajectory, bound_camp, item)].append(lot)
+                active_items_by_camp[bound_camp_key].add(item)
+
+        def export(
+            phase: str,
+            *,
+            phase_exports: dict[str, list[tuple[str, float, str]]] = exports_by_phase,
+            bound_trajectory: str = trajectory,
+            bound_camp: int = camp,
+            bound_transition: dict[str, Any] = transition,
+        ) -> None:
+            for item, quantity, event_id in sorted(phase_exports[phase]):
+                allocate_fifo(
+                    (bound_trajectory, bound_camp, item),
+                    quantity,
+                    transition=bound_transition,
+                    event_id=event_id,
+                    category=f"trade-export-{phase}",
+                )
+
+        receive("opening")
+        export("opening")
+        events = sorted(economic.get("physicalEvents", []), key=lambda value: str(value["eventId"]))
+        for event in events:
+            if (
+                event["category"] == "final-service-fulfilment"
+                and event["phase"] == "work-before-production"
+            ):
+                allocate_fifo(
+                    (trajectory, camp, str(event["item"])),
+                    float(event["quantity"]),
+                    transition=transition,
+                    event_id=str(event["eventId"]),
+                    category=str(event["category"]),
+                )
+        # Housing/pot wear is committed before recipe production.  A later
+        # after-production import cannot be back-attributed to this stock exit.
+        for event in events:
+            if event["category"] == "wear-depreciation":
+                allocate_fifo(
+                    (trajectory, camp, str(event["item"])),
+                    float(event["quantity"]),
+                    transition=transition,
+                    event_id=str(event["eventId"]),
+                    category="wear-depreciation",
+                )
+        for event in events:
+            if event["category"] == "intermediate-recipe-consumption":
+                allocate_fifo(
+                    (trajectory, camp, str(event["item"])),
+                    float(event["quantity"]),
+                    transition=transition,
+                    event_id=str(event["eventId"]),
+                    category=str(event["category"]),
+                )
+        receive("after-production")
+        export("after-production")
+        for event in events:
+            if (
+                event["category"] == "final-service-fulfilment"
+                and event["phase"] == "needs-after-production"
+            ):
+                allocate_fifo(
+                    (trajectory, camp, str(event["item"])),
+                    float(event["quantity"]),
+                    transition=transition,
+                    event_id=str(event["eventId"]),
+                    category=str(event["category"]),
+                )
+        # Needs/discard settle before closing migration/fission inventory
+        # transfer.  Retire FIFO lots in that authoritative order.
+        for category in ("discard-loss", "transfer-out"):
+            for event in events:
+                if event["category"] != category:
+                    continue
+                allocate_fifo(
+                    (trajectory, camp, str(event["item"])),
+                    float(event["quantity"]),
+                    transition=transition,
+                    event_id=str(event["eventId"]),
+                    category=category,
+                )
+        closing_items = sorted(active_items_by_camp.get(camp_key, ()))
+        closing_stocks = stocks(economic, "closing") if closing_items else {}
+        for item in closing_items:
+            key = (trajectory, camp, item)
+            retained = sum(float(lot["remainingQuantity"]) for lot in lots_by_item[key])
+            if key[2] not in closing_stocks or retained > closing_stocks[key[2]] + 1e-8:
+                terminate_queue(
+                    key,
+                    reason="retained-import-lots-exceed-authoritative-closing-stock",
+                    terminal_transition_id=str(transition["transitionId"]),
+                )
+
+    allocation_by_lot: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for allocation in allocations:
+        allocation_by_lot[str(allocation["lotId"])].append(allocation)
+    windows: list[dict[str, Any]] = []
+    public_lots: list[dict[str, Any]] = []
+    for lot in lots:
+        lot_allocations = allocation_by_lot[str(lot["lotId"])]
+        if lot["item"] in food_items:
+            unavailable_reason = (
+                "component-food consumption is not authoritatively partitioned, so "
+                "retained and later retirement quantities cannot be attributed"
+            )
+            lot["consumedQuantity"] = None
+            lot["remainingQuantity"] = None
+            lot["exportedQuantity"] = None
+            lot["transferredQuantity"] = None
+            lot["lostQuantity"] = None
+            lot["totalRetiredQuantity"] = None
+            lot["retirementAttributionStatus"] = "unresolved"
+            lot["retirementAttributionUnavailableReason"] = unavailable_reason
+            lot["horizonStatus"] = "unresolved-component-consumption"
+            lot["horizonUnavailableReason"] = unavailable_reason
+        else:
+            lot["retirementAttributionStatus"] = "available"
+            lot["retirementAttributionUnavailableReason"] = None
+            lot["horizonUnavailableReason"] = None
+            lot["consumedQuantity"] = sum(
+                float(row["allocatedQuantity"])
+                for row in lot_allocations
+                if row["consumptionCategory"]
+                in {"intermediate-recipe-consumption", "final-service-fulfilment"}
+            )
+            lot["exportedQuantity"] = sum(
+                float(row["allocatedQuantity"])
+                for row in lot_allocations
+                if str(row["consumptionCategory"]).startswith("trade-export-")
+            )
+            lot["transferredQuantity"] = sum(
+                float(row["allocatedQuantity"])
+                for row in lot_allocations
+                if row["consumptionCategory"] == "transfer-out"
+            )
+            lot["lostQuantity"] = sum(
+                float(row["allocatedQuantity"])
+                for row in lot_allocations
+                if row["consumptionCategory"] in {"wear-depreciation", "discard-loss"}
+            )
+            lot["totalRetiredQuantity"] = sum(
+                float(row["allocatedQuantity"]) for row in lot_allocations
+            )
+            if "horizonStatus" not in lot:
+                terminal_categories = {
+                    str(row["consumptionCategory"]) for row in lot_allocations
+                }
+                outward = any(
+                    category.startswith("trade-export-")
+                    or category in {"transfer-out", "wear-depreciation", "discard-loss"}
+                    for category in terminal_categories
+                )
+                lot["horizonStatus"] = (
+                    "fully-retired-by-export-transfer-or-loss"
+                    if lot["remainingQuantity"] <= 1e-8 and outward
+                    else "fully-consumed"
+                    if lot["remainingQuantity"] <= 1e-8
+                    else "partially-retired-at-evaluation-horizon"
+                    if lot["totalRetiredQuantity"] > 1e-8
+                    else "unconsumed-at-evaluation-horizon"
+                )
+        public_lots.append(dict(lot))
+        observation_ids = {str(lot["receiptTransitionId"])}
+        observation_ids.update(
+            str(allocation["consumptionTransitionId"])
+            for allocation in allocation_by_lot[str(lot["lotId"])]
+        )
+        final = final_by_camp[(str(lot["trajectoryId"]), int(lot["receiverCampId"]))]
+        if lot.get("terminalTransitionId") is not None:
+            final = row_by_id[str(lot["terminalTransitionId"])]
+        observation_ids.add(str(final["transitionId"]))
+        for transition_id in sorted(
+            observation_ids,
+            key=lambda identity: (
+                int(row_by_id[identity]["decisionTurn"]),
+                identity,
+            ),
+        ):
+            observation = row_by_id[transition_id]
+            population = observation["economicDiagnostics"]["domains"]["population"]
+            windows.append(
+                {
+                    "lotId": lot["lotId"],
+                    "transactionId": lot["transactionId"],
+                    "trajectoryId": lot["trajectoryId"],
+                    "receiverCampId": lot["receiverCampId"],
+                    "item": lot["item"],
+                    "receiptTurn": lot["receiptTurn"],
+                    "observationTransitionId": transition_id,
+                    "observationTurn": int(observation["decisionTurn"]),
+                    "lagTurns": int(observation["decisionTurn"]) - int(lot["receiptTurn"]),
+                    "endingPopulation": population.get(
+                        "endingLinked", population.get("endingResidents")
+                    ),
+                    "endingQol": population.get("qol"),
+                    "observedNotCausal": True,
+                    "causalUnavailableReason": lot["causalUnavailableReason"],
+                    "physicalAttributionStatus": lot["consumptionAttributionStatus"],
+                    "physicalAttributionUnavailableReason": lot[
+                        "consumptionAttributionUnavailableReason"
+                    ],
+                }
+            )
+
+    def lot_sort(row: dict[str, Any]) -> tuple[str, int, int, str]:
+        return (
+            str(row["trajectoryId"]),
+            int(row["receiverCampId"]),
+            int(row["receiptTurn"]),
+            str(row["lotId"]),
+        )
+
+    return (
+        sorted(public_lots, key=lot_sort),
+        sorted(
+            allocations,
+            key=lambda row: (
+                str(row["trajectoryId"]),
+                int(row["consumptionTurn"]),
+                str(row["consumptionEventId"]),
+                str(row["lotId"]),
+            ),
+        ),
+        sorted(
+            windows,
+            key=lambda row: (
+                str(row["trajectoryId"]),
+                str(row["lotId"]),
+                int(row["observationTurn"]),
+                str(row["observationTransitionId"]),
+            ),
+        ),
+    )
+
+
+def _gate2_status(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    from .economic_accounting import accounting_completeness
+
+    reasons: list[str] = []
+    supported = 0
+    for row in rows:
+        economic = row["economicDiagnostics"]
+        if economic.get("schemaVersion") != 2:
+            reasons.append(f"{row['transitionId']}: economic accounting schema 2 unavailable")
+            continue
+        supported += 1
+        result = accounting_completeness(economic)
+        reasons.extend(f"{row['transitionId']}: {reason}" for reason in result["reasons"])
+    if not rows:
+        reasons.append("no transitions")
+    if rows and not any(
+        trade.get("recordType") == "transaction"
+        for row in rows
+        for trade in row["economicDiagnostics"].get("trades", [])
+    ):
+        reasons.append("no bilateral transaction evidence in the captured cohort")
+    return {
+        "status": "PASS-ACCOUNTING-ONLY" if rows and not reasons else "HOLD",
+        "complete": bool(rows) and not reasons,
+        "supportedTransitions": supported,
+        "totalTransitions": len(rows),
+        "reasons": sorted(set(reasons)),
+        "interpretation": (
+            "Schema/conservation completeness only; this is not training, readiness, "
+            "or causal-intervention approval."
+        ),
+    }
+
+
 def trade_credit_latency(
     rows: Sequence[dict[str, Any]], manifests: Sequence[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -1684,6 +2338,24 @@ def _conservation_failures(
 ) -> list[dict[str, Any]]:
     failures = []
     for row in rows:
+        detailed = row["economicDiagnostics"].get("conservationRows", [])
+        if detailed:
+            for item in detailed:
+                residual = _number(item.get("residual"))
+                if (
+                    item.get("complete") is not True
+                    or residual is None
+                    or abs(residual) > tolerance
+                ):
+                    failures.append(
+                        {
+                            "transitionId": row["transitionId"],
+                            "field": f"{item.get('domain')}:{item.get('item')}",
+                            "residual": residual,
+                            "unavailableReason": item.get("unavailableReason"),
+                        }
+                    )
+            continue
         conservation = _nested(row, "economicDiagnostics", "conservation")
         if not isinstance(conservation, dict):
             continue
@@ -1701,6 +2373,28 @@ def _conservation_failures(
 
 
 def _conservation_coverage(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    detailed = _gate2_conservation_rows(rows)
+    if detailed:
+        grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+        for row in detailed:
+            grouped[(str(row["domain"]), str(row["item"]), str(row["unit"]))].append(row)
+        return [
+            {
+                "field": f"{domain}:{item}",
+                "domain": domain,
+                "item": item,
+                "unit": unit,
+                "available": sum(row["complete"] is True for row in records),
+                "unavailable": sum(row["complete"] is not True for row in records),
+                "total": len(records),
+                "availabilityRate": sum(row["complete"] is True for row in records) / len(records),
+                "nonzero": sum(
+                    row["complete"] is True and abs(float(row["residual"])) > 1e-8
+                    for row in records
+                ),
+            }
+            for (domain, item, unit), records in sorted(grouped.items())
+        ]
     names = sorted(
         {
             name
@@ -1831,6 +2525,9 @@ def _markdown(report: dict[str, Any]) -> str:
         f"Cohort classification: {report['cohortStatus']['classification']}; "
         f"supports arm selection: {report['cohortStatus']['supportsArmSelection']}; "
         f"supports readiness: {report['cohortStatus']['supportsReadiness']}.",
+        f"Gate 2 accounting classification: {report['gate2Accounting']['status']} "
+        f"({report['gate2Accounting']['supportedTransitions']}/"
+        f"{report['gate2Accounting']['totalTransitions']} schema-2 transitions).",
         "",
         "## Interpretation boundary",
         "",
@@ -1871,6 +2568,12 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
     mutation_rollup = optimizer_update_rollup(mutation_rows)
     failures = _conservation_failures(transitions)
     conservation_coverage = _conservation_coverage(transitions)
+    control_matrix = _gate2_control_matrix(transitions)
+    conservation_terms = _gate2_conservation_rows(transitions)
+    physical_events = _gate2_physical_events(transitions)
+    trade_lifecycle = _gate2_trade_lifecycle(transitions)
+    trade_lots, trade_allocations, trade_windows = _gate2_trade_provenance(transitions)
+    gate2_status = _gate2_status(transitions)
     cohort_status = _cohort_status(manifests, transitions)
     domains = _qualify_summary_rows(domains, cohort_status)
     mutation_rollup = _qualify_summary_rows(mutation_rollup, cohort_status)
@@ -1889,6 +2592,13 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
     _write_csv(destination / "optimizer_mutations.csv", mutation_rows)
     _write_csv(destination / "optimizer_update_summary.csv", mutation_rollup)
     _write_csv(destination / "domain_summary.csv", domains)
+    _write_csv(destination / "control_matrix.csv", control_matrix, IDENTITY_COLUMNS)
+    _write_csv(destination / "conservation_terms.csv", conservation_terms, IDENTITY_COLUMNS)
+    _write_csv(destination / "physical_events.csv", physical_events, IDENTITY_COLUMNS)
+    _write_csv(destination / "trade_lifecycle.csv", trade_lifecycle)
+    _write_csv(destination / "trade_provenance_lots.csv", trade_lots)
+    _write_csv(destination / "trade_provenance_allocations.csv", trade_allocations)
+    _write_csv(destination / "trade_downstream_windows.csv", trade_windows)
     _write_csv(destination / "conservation_coverage.csv", conservation_coverage)
     _write_csv(destination / "critic_calibration.csv", calibration)
     _write_csv(destination / "action_alignment.csv", alignment)
@@ -1988,11 +2698,26 @@ def aggregate_trace_directories(paths: Sequence[str | Path], output: str | Path)
         "conservationFailures": failures,
         "conservationCoverage": conservation_coverage,
         "cohortStatus": cohort_status,
-        "missingCapabilities": _missing_capabilities(
-            manifests, transitions, calibration, forks, contrasts, latency, mutation_rows
-        ),
+        "missingCapabilities": [
+            *_missing_capabilities(
+                manifests, transitions, calibration, forks, contrasts, latency, mutation_rows
+            ),
+            *(
+                []
+                if gate2_status["complete"]
+                else ["complete Gate 2 causal accounting unavailable"]
+            ),
+        ],
+        "gate2Accounting": gate2_status,
         "counts": {
             "domainSummary": len(domains),
+            "controlMatrix": len(control_matrix),
+            "conservationTerms": len(conservation_terms),
+            "physicalEvents": len(physical_events),
+            "tradeLifecycle": len(trade_lifecycle),
+            "tradeProvenanceLots": len(trade_lots),
+            "tradeProvenanceAllocations": len(trade_allocations),
+            "tradeDownstreamWindows": len(trade_windows),
             "conservationCoverage": len(conservation_coverage),
             "criticCalibration": len(calibration),
             "actionAlignment": len(alignment),
