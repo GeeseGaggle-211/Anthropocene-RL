@@ -35,6 +35,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from .labor_personality import LaborPersonalityConditioning, personality_for_world
 from .labor_bc import (
     LABOR_LABEL_CONTRACT,
     LaborResetOptions,
@@ -168,7 +169,12 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
     torch.set_num_threads(1)
     normalizer = load_normalizer(Path(job["normalizer_checkpoint"]))
     options = LaborResetOptions.from_mapping(job["reset_options"])
-    personality = LaborPersonality.from_mapping(job["personality"])
+    personality: Any = LaborPersonality.from_mapping(job["personality"])
+    conditioning = LaborPersonalityConditioning.from_state(job.get("personality_conditioning"))
+    if conditioning.alpha is not None:
+        # A declared distribution: one keyed draw per founding lineage in this world
+        # (docs/LABOR_PERSONALITY.md); heuristic labels stay personality-agnostic.
+        personality = personality_for_world(conditioning.assignment(0), int(job["world_seed"]))
     started = time.perf_counter()
 
     def progress(state: Any) -> None:
@@ -338,6 +344,9 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-movement", action="store_true", help="named mechanical fixture only")
     parser.add_argument("--qol-weight", type=float, default=0.5)
     parser.add_argument("--population-weight", type=float, default=0.5)
+    parser.add_argument("--personality", default="balanced", help="'balanced' or 'dirichlet:ALPHA'")
+    parser.add_argument("--personality-key", type=int, default=0)
+    parser.add_argument("--personality-drift", type=float, default=200.0)
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     parser.add_argument(
         "--allow-dirty",
@@ -365,6 +374,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     personality = LaborPersonality(
         qol_years=args.qol_weight, population_years=args.population_weight
     ).state_dict()
+    conditioning = LaborPersonalityConditioning(
+        args.personality, args.personality_key, args.personality_drift
+    )
     normalizer = load_normalizer(args.normalizer_checkpoint)
     from .bridge import DEFAULT_BRIDGE
     from .labor_bridge import LaborModel9Bridge
@@ -378,6 +390,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "turns": int(args.turns),
         "reset_options": reset.state_dict(),
         "personality": personality,
+        "personality_conditioning": conditioning.state_dict(),
         "normalizer_digest": normalizer_digest(normalizer),
         "normalizer_checkpoint_sha256": checkpoint_hash(args.normalizer_checkpoint),
         "opening_limit": 40,
@@ -392,6 +405,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "normalizer_digest": options["normalizer_digest"],
             "reset_options": reset.state_dict(),
             "personality": personality,
+            "personality_conditioning": conditioning.state_dict(),
             "world_seed": world,
             "turns": int(args.turns),
             "source_run": source["source_run"],

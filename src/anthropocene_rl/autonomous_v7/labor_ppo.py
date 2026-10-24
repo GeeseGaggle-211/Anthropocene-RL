@@ -30,6 +30,7 @@ from .labor_bridge import (
 )
 from .labor_model import (
     LABOR_COSTS,
+    LABOR_OBJECTIVE_REFERENCE_SCALES,
     LABOR_OBJECTIVES,
     LaborPersonality,
     labor_entropy,
@@ -404,19 +405,28 @@ def combine_labor_advantages(
     *,
     personality: LaborPersonality,
     cost_multipliers: Mapping[str, float],
+    row_weights: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Combine task and cost advantages in their declared fixed units.
 
     Positive cost advantages are undesirable and therefore enter with a
     negative sign.  This is policy-gradient accounting, not a claim that a
     positive task GAE was independently beneficial.
+
+    ``row_weights`` (N x 2, over LABOR_OBJECTIVES) gives each row its own
+    personality: A = wq * Aq / sq + wp * Ap / sp - costs. When omitted, the
+    fixed ``personality`` weights every row. Balanced rows reproduce the fixed
+    balanced combination bitwise.
     """
 
     if set(task) != set(LABOR_OBJECTIVES):
         raise ValueError(f"task advantages must be exactly {list(LABOR_OBJECTIVES)}")
     if set(costs) != set(LABOR_COSTS) or set(cost_multipliers) != set(LABOR_COSTS):
         raise ValueError(f"cost advantages/multipliers must be exactly {list(LABOR_COSTS)}")
-    combined = personality.combine(task)
+    if row_weights is None:
+        combined = personality.combine(task)
+    else:
+        combined = combine_personal_task_advantages(task, row_weights)
     for name in LABOR_COSTS:
         value = _vector(costs[name], len(combined), f"{name} advantage")
         multiplier = cost_multipliers[name]
@@ -427,6 +437,32 @@ def combine_labor_advantages(
             raise ValueError(f"{name} multiplier must be finite and nonnegative")
         combined = combined - multiplier * value
     return combined
+
+
+def combine_personal_task_advantages(
+    task: Mapping[str, torch.Tensor], row_weights: torch.Tensor
+) -> torch.Tensor:
+    """Per-row personality weighting of scale-normalised task advantages."""
+
+    first = task[LABOR_OBJECTIVES[0]]
+    if (
+        not isinstance(row_weights, torch.Tensor)
+        or not row_weights.is_floating_point()
+        or row_weights.shape != (len(first), len(LABOR_OBJECTIVES))
+        or not bool(torch.isfinite(row_weights).all())
+        or bool((row_weights < 0).any())
+    ):
+        raise ValueError("labor row personality weights must be a finite N x 2 tensor")
+    result = torch.zeros_like(first)
+    for index, name in enumerate(LABOR_OBJECTIVES):
+        value = _vector(task[name], len(first), f"{name} advantage")
+        # Coefficients are formed in float64 and rounded once, as the fixed path's
+        # python-float scalar is, so balanced rows match it bitwise.
+        coefficient = (
+            row_weights[:, index].to(torch.float64) / LABOR_OBJECTIVE_REFERENCE_SCALES[name]
+        ).to(value.dtype)
+        result = result + coefficient * value
+    return result
 
 
 def _clipped_surrogate(ratio: torch.Tensor, advantage: torch.Tensor, clip: float) -> torch.Tensor:

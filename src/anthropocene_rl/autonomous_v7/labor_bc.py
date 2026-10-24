@@ -56,6 +56,7 @@ from .labor_model import (
     _masks,
     labor_policy_tensors,
 )
+from .labor_personality import personality_for_world
 from .labor_ppo import (
     RetainedLaborAction,
     execute_labor_decision,
@@ -913,7 +914,7 @@ def collect_heuristic_world(
             if not live:
                 break
             contexts, tensors = labor_policy_tensors(
-                live, normalizer, personality=declared_personality
+                live, normalizer, personality=personality_for_world(declared_personality, int(world_seed))
             )
             catalogs = {context[0].camp_id: context[0] for context in contexts}
             decision_turn = int(step["turn"])

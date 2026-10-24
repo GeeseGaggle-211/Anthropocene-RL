@@ -54,6 +54,7 @@ from .labor_model import (
     LaborTaskCritic,
     Normalizer,
     labor_checkpoint_payload,
+    labor_checkpoint_personality,
     labor_log_prob,
     labor_policy_tensors,
     load_labor_checkpoint_models,
@@ -63,6 +64,13 @@ from .labor_model import (
     sample_nonlabor_policy,
     schema12_initial_action,
     schema12_retry_action,
+    set_labor_film_bound,
+)
+from .labor_personality import (
+    LaborPersonalityAssignment,
+    LaborPersonalityConditioning,
+    WorldPersonalities,
+    personality_for_world,
 )
 from .labor_ppo import (
     LaborActorGate,
@@ -133,9 +141,20 @@ def _normalization_digest(normalizer: Any) -> str:
     return digest({"semantics": "labor-normalizer-binding-v1", "state": normalizer.state_dict()})
 
 
-def labor_behavior_configuration(personality: LaborPersonality) -> dict[str, object]:
-    """Complete behavior signature for sampled schema-12 policy data."""
+def labor_behavior_configuration(
+    personality: LaborPersonality | LaborPersonalityAssignment,
+) -> dict[str, object]:
+    """Complete behavior signature for sampled schema-12 policy data.
 
+    A fixed personality keeps its historical signature. A declared
+    distribution adds its conditioning record (and the balanced reference).
+    """
+
+    if isinstance(personality, LaborPersonalityAssignment):
+        configuration = labor_behavior_configuration(LaborPersonality())
+        configuration["personalityConditioning"] = personality.conditioning.state_dict()
+        configuration["personalityIteration"] = int(personality.iteration)
+        return configuration
     return {
         "contract": LABOR_TRAINING_CONTRACT,
         "laborRegistryDigest": LABOR_REGISTRY_DIGEST,
@@ -277,7 +296,7 @@ def _execute_single_step_detailed(
     task_critic: LaborTaskCritic | None = None,
     cost_critics: LaborCostCritics | None = None,
     normalizer: Any,
-    personality: LaborPersonality,
+    personality: LaborPersonality | WorldPersonalities,
     generator: torch.Generator,
     world_seed: int,
     world_index: int,
@@ -387,6 +406,7 @@ def _execute_single_step_detailed(
     )
     outcomes = {int(village["camp"]): village for village in next_step["villages"]}
     rows: list[LaborRolloutRow] = []
+    # Each row records its own personality in initial_tensors["labor_personality"].
     for camp in catalogs:
         row = row_by_camp[camp]
         retry = retry_rows.get(camp)
@@ -435,7 +455,7 @@ def _sample_world_step(
     task_critic: LaborTaskCritic | None = None,
     cost_critics: LaborCostCritics | None = None,
     normalizer: Any,
-    personality: LaborPersonality,
+    personality: LaborPersonality | WorldPersonalities,
     generator: torch.Generator,
     world_seed: int,
     world_index: int,
@@ -506,7 +526,7 @@ def _sample_world_step(
 
 def _bootstrap_values(
     step: Mapping[str, Any], normalizer: Any, task_critic: LaborTaskCritic,
-    cost_critics: LaborCostCritics, personality: LaborPersonality,
+    cost_critics: LaborCostCritics, personality: LaborPersonality | WorldPersonalities,
 ) -> dict[int, dict[str, float]]:
     live = [
         village for village in step["villages"]
@@ -535,7 +555,7 @@ def collect_labor_rollout(
     world_seeds: Sequence[int],
     turns: int,
     generator: torch.Generator,
-    personality: LaborPersonality | None = None,
+    personality: LaborPersonality | LaborPersonalityAssignment | None = None,
     bridge_factory: Any = LaborModel9Bridge,
     economic_trace: Any | None = None,
     max_self_destruct_rewinds: int = 0,
@@ -562,6 +582,7 @@ def collect_labor_rollout(
         try:
             step = bridge.reset(seed)
             founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
+            world_personality = personality_for_world(declared, seed)
             for _ in range(turns):
                 step, rows = _sample_world_step(
                     bridge=bridge,
@@ -570,7 +591,7 @@ def collect_labor_rollout(
                     task_critic=task_critic,
                     cost_critics=cost_critics,
                     normalizer=normalizer,
-                    personality=declared,
+                    personality=world_personality,
                     generator=generator,
                     world_seed=seed,
                     world_index=world_index,
@@ -603,7 +624,7 @@ def collect_labor_rollout(
                 if not rows:
                     break
             for camp, values in _bootstrap_values(
-                step, normalizer, task_critic, cost_critics, declared
+                step, normalizer, task_critic, cost_critics, world_personality
             ).items():
                 bootstrap[(seed, camp)] = values
         finally:
@@ -741,17 +762,24 @@ def build_labor_training_batch(
             else:
                 retry_cost_targets[name].append(targets[name])
 
+    # Each row's combined advantage uses that row's own recorded personality
+    # (A = wq Aq/sq + wp Ap/sp - costs); a retry uses its parent's row.
+    initial_weights = _row_personality_weights(rows)
     initial_combined = combine_labor_advantages(
         {name: initial_advantages[name] for name in LABOR_OBJECTIVES},
         {name: initial_advantages[name] for name in LABOR_COSTS},
         personality=personality,
         cost_multipliers=cost_multipliers,
+        row_weights=initial_weights,
     )
     retry_combined = combine_labor_advantages(
         {name: torch.tensor(retry_advantages[name]) for name in LABOR_OBJECTIVES},
         {name: torch.tensor(retry_advantages[name]) for name in LABOR_COSTS},
         personality=personality,
         cost_multipliers=cost_multipliers,
+        row_weights=initial_weights.index_select(
+            0, torch.tensor(retry_parent, dtype=torch.long)
+        ),
     )
     initial_tensor_rows = [row.initial_tensors for row in rows]
     initial_labor_rows = [row.initial_labor_sample for row in rows]
@@ -796,6 +824,24 @@ def build_labor_training_batch(
         },
     }
     return batch, task_targets, cost_targets
+
+
+def _row_personality_weights(rows: Sequence[LaborRolloutRow]) -> torch.Tensor:
+    weights = []
+    for row in rows:
+        value = row.initial_tensors.get("labor_personality")
+        if (
+            not isinstance(value, torch.Tensor)
+            or value.shape != (1, len(LABOR_OBJECTIVES))
+            or not value.is_floating_point()
+        ):
+            raise ValueError("labor rollout row lacks its recorded personality")
+        if row.retry_tensors is not None and not torch.equal(
+            row.retry_tensors.get("labor_personality", value), value
+        ):
+            raise ValueError("labor retry personality differs from its parent decision")
+        weights.append(value[0])
+    return torch.stack(weights)
 
 
 def _state_dict_rollout(
@@ -851,6 +897,7 @@ def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
     actor = LaborActor(layout)
     task = LaborTaskCritic(layout)
     costs = LaborCostCritics(layout)
+    # Also applies the contract's optional FiLM bound to all four encoders.
     _, normalizer = load_labor_checkpoint_models(
         state, actor, task, costs, expected_layout=layout
     )
@@ -866,7 +913,7 @@ def _trainer_checkpoint(
     actor_optimizer: torch.optim.Optimizer,
     critic_optimizer: torch.optim.Optimizer,
     *,
-    personality: LaborPersonality,
+    personality: LaborPersonality | LaborPersonalityAssignment,
     optimizer_seed: int,
     iteration: int,
     sampling_generator: torch.Generator,
@@ -1101,6 +1148,20 @@ def _command_initialize(args: argparse.Namespace) -> None:
     )
     torch.manual_seed(args.optimizer_seed)
     actor, task, costs = LaborActor(layout), LaborTaskCritic(layout), LaborCostCritics(layout)
+    conditioning = LaborPersonalityConditioning(
+        getattr(args, "personality", "balanced"),
+        key=(
+            args.optimizer_seed
+            if getattr(args, "personality_key", None) is None
+            else args.personality_key
+        ),
+        daughter_drift=getattr(args, "personality_drift", 200.0),
+        film_bound=getattr(args, "film_bound", None),
+    )
+    set_labor_film_bound(conditioning.film_bound, actor, task, costs)
+    run_personality: LaborPersonality | LaborPersonalityAssignment = (
+        LaborPersonality() if conditioning.alpha is None else conditioning.assignment(0)
+    )
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=args.critic_lr
@@ -1115,7 +1176,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
             normalizer=normalizer,
             world_seeds=[world],
             turns=args.pretrain_bc_turns,
-            personality=LaborPersonality(),
+            personality=run_personality,
             allow_vm_scale=False,
         )
         bc_summary = pretrain_labor_actor_bc(
@@ -1139,7 +1200,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
         layout,
         actor_optimizer,
         critic_optimizer,
-        personality=LaborPersonality(),
+        personality=run_personality,
         optimizer_seed=args.optimizer_seed,
         iteration=0,
         sampling_generator=sampling,
@@ -1158,9 +1219,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
-    personality = LaborPersonality.from_mapping(
-        state["labor_model_contract"]["personality"]
-    )
+    personality = labor_checkpoint_personality(state)
 
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=3e-4
@@ -1252,9 +1311,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
-    personality = LaborPersonality.from_mapping(
-        state["labor_model_contract"]["personality"]
-    )
+    personality = labor_checkpoint_personality(state)
 
     sampling = torch.Generator()
     sampling.set_state(state["sampling_generator_state"])
@@ -1338,7 +1395,7 @@ def _command_collect(args: argparse.Namespace) -> None:
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     _, actor, task, costs, normalizer = _models_from_checkpoint(state)
-    personality = LaborPersonality.from_mapping(state["labor_model_contract"]["personality"])
+    personality = labor_checkpoint_personality(state)
     sampling = torch.Generator()
     sampling.set_state(state["sampling_generator_state"])
     before_rng = sampling.get_state().clone()
@@ -1409,7 +1466,7 @@ def _command_train(args: argparse.Namespace) -> None:
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
-    personality = LaborPersonality.from_mapping(state["labor_model_contract"]["personality"])
+    personality = labor_checkpoint_personality(state)
     batch, task_targets, cost_targets, rollout_metadata = _load_rollout(args.rollout)
     behavior = labor_behavior_configuration(personality)
     if rollout_metadata.get("sourceCheckpointSha256") != checkpoint_hash(args.checkpoint):
@@ -1613,6 +1670,30 @@ def argument_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--pretrain-bc-inactive-role-weight", type=float, default=0.0)
     initialize.add_argument("--pretrain-bc-label-smoothing", type=float, default=1e-6)
     initialize.add_argument("--pretrain-bc-inverse-freq-power", type=float, default=0.5)
+    initialize.add_argument(
+        "--personality",
+        default="balanced",
+        help="labor personality distribution: 'balanced' or 'dirichlet:ALPHA' "
+        "(per founding lineage, keyed; docs/LABOR_PERSONALITY.md)",
+    )
+    initialize.add_argument(
+        "--personality-key",
+        type=int,
+        default=None,
+        help="keyed personality stream (default: the optimizer seed)",
+    )
+    initialize.add_argument(
+        "--personality-drift",
+        type=float,
+        default=200.0,
+        help="fission-daughter Dirichlet drift concentration (0 copies the parent)",
+    )
+    initialize.add_argument(
+        "--film-bound",
+        type=float,
+        default=None,
+        help="optional tanh bound on FiLM gamma/beta (off by default)",
+    )
     initialize.add_argument("--out", type=Path, required=True)
     initialize.set_defaults(handler=_command_initialize)
 

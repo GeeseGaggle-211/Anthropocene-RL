@@ -40,8 +40,10 @@ from .labor_model import (
     LABOR_OBJECTIVE_REFERENCE_SCALES,
     LABOR_OBJECTIVES,
     LaborPersonality,
+    labor_checkpoint_personality,
     labor_policy_tensors,
 )
+from .labor_personality import WorldPersonalities, personality_for_world
 from .labor_training import (
     LOCAL_WORLD_LIMIT,
     _models_from_checkpoint,
@@ -220,7 +222,7 @@ def _combine_paths(paths: Sequence[PathHeadReturn]) -> tuple[float, float, str, 
 
 
 def _successor_inputs(
-    step: Mapping[str, Any], normalizer: Any, personality: LaborPersonality
+    step: Mapping[str, Any], normalizer: Any, personality: LaborPersonality | WorldPersonalities
 ) -> dict[int, dict[str, np.ndarray]]:
     live = [
         village for village in step["villages"]
@@ -243,7 +245,7 @@ def _run_continuation(
     task_critic: Any = None,
     cost_critics: Any = None,
     normalizer: Any,
-    personality: LaborPersonality,
+    personality: LaborPersonality | WorldPersonalities,
     initial_seed: int,
     future_seed: int,
     world_seed: int,
@@ -384,7 +386,7 @@ def collect_labor_anchor_arrays(
         raise ValueError("labor anchor policy expectation requires at least two paths")
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
     del layout
-    personality = LaborPersonality.from_mapping(state["labor_model_contract"]["personality"])
+    personality = labor_checkpoint_personality(state)
     behavior = labor_behavior_configuration(personality)
     actor_tensor_digest = __import__(
         "anthropocene_rl.autonomous_v7.economic_trace", fromlist=["state_digest"]
@@ -437,8 +439,9 @@ def collect_labor_anchor_arrays(
                 village for village in parent_step["villages"]
                 if village.get("observation") is not None and not village.get("terminated")
             ]
+            world_personality = personality_for_world(personality, world)
             contexts, parent_tensors = labor_policy_tensors(
-                live, normalizer, personality=personality
+                live, normalizer, personality=world_personality
             )
             opening = [context[0].camp_id for context in contexts]
             if len(opening) != len(set(opening)):
@@ -471,7 +474,7 @@ def collect_labor_anchor_arrays(
                                 task_critic=task,
                                 cost_critics=costs,
                                 normalizer=normalizer,
-                                personality=personality,
+                                personality=world_personality,
                                 initial_seed=continuation_seed * 100 + alternative_index,
                                 future_seed=continuation_seed * 100 + 99,
                                 world_seed=world,
