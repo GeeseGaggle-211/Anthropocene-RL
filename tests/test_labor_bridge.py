@@ -773,3 +773,148 @@ def test_opt_in_process_wrapper_validates_sidecar_and_owns_reset_flag(monkeypatc
     assert client._bridge.dropped == [5]
     client.close()
     assert client._bridge.closed
+
+
+def test_step_labor_and_step_catalogs_handle_terminated_villages() -> None:
+    catalog_payload = _catalog_payload()
+    catalog = LaborCatalog.from_payload(catalog_payload)
+    feedback_payload = _feedback_payload(catalog_payload)
+
+    class FakeBridge:
+        def __init__(self, step_payload) -> None:
+            self.step_payload = step_payload
+
+        def request(self, payload):
+            if payload["op"] == "step_labor":
+                return {
+                    "ok": True,
+                    "op": "step_labor",
+                    "step": self.step_payload,
+                    "laborFeedback": {"7": feedback_payload},
+                }
+            raise AssertionError(payload)
+
+    living_village = {
+        "camp": 7,
+        "terminated": False,
+        "observation": {
+            "laborCatalog": catalog_payload,
+            "laborPrevious": feedback_payload,
+        },
+    }
+    terminated_village = {
+        "camp": 16,
+        "terminated": True,
+        "observation": None,
+    }
+    bridge = FakeBridge({
+        "turn": 5,
+        "villages": [living_village, terminated_village],
+    })
+    runtime = LaborBridgeRuntime(bridge, {7: catalog})
+    initial = {
+        "schemaVersion": 12,
+        "movement": -1,
+        "fission": 0,
+        "tradeValue": [1.0] * 7,
+        "tradeGate": [0] * 7,
+        "tradeShare": 0.0,
+        **_payload(catalog.masks),
+    }
+    step, _feedback = runtime.step_labor({7: initial})
+    assert step["turn"] == 5
+    assert set(runtime.catalogs) == {7}
+    assert 16 not in runtime.catalogs
+
+    bad_bridge1 = FakeBridge({
+        "turn": 5,
+        "villages": [living_village, {"camp": 16, "terminated": False, "observation": None}],
+    })
+    bad_runtime1 = LaborBridgeRuntime(bad_bridge1, {7: catalog})
+    with pytest.raises(ValueError, match="malformed"):
+        bad_runtime1.step_labor({7: initial})
+
+    bad_bridge2 = FakeBridge({
+        "turn": 5,
+        "villages": [
+            living_village,
+            {
+                "camp": 16,
+                "terminated": True,
+                "observation": {"laborCatalog": catalog_payload, "laborPrevious": None},
+            },
+        ],
+    })
+    bad_runtime2 = LaborBridgeRuntime(bad_bridge2, {7: catalog})
+    with pytest.raises(ValueError, match="malformed"):
+        bad_runtime2.step_labor({7: initial})
+
+    step_dict = {"turn": 5, "villages": [living_village, terminated_village]}
+    catalogs = LaborModel9Bridge._step_catalogs(step_dict)
+    assert set(catalogs) == {7}
+
+    with pytest.raises(ValueError, match="malformed"):
+        LaborModel9Bridge._step_catalogs({
+            "turn": 5,
+            "villages": [
+                living_village,
+                {"camp": 16, "terminated": False, "observation": None},
+            ],
+        })
+
+    with pytest.raises(ValueError, match="malformed"):
+        LaborModel9Bridge._step_catalogs({
+            "turn": 5,
+            "villages": [
+                living_village,
+                {
+                    "camp": 16,
+                    "terminated": True,
+                    "observation": {"laborCatalog": catalog_payload, "laborPrevious": None},
+                },
+            ],
+        })
+
+
+def test_step_labor_handles_extraneous_feedback_for_unsubmitted_camps() -> None:
+    catalog_payload = _catalog_payload()
+    catalog = LaborCatalog.from_payload(catalog_payload)
+    feedback_payload = _feedback_payload(catalog_payload)
+
+    class FakeBridge:
+        def request(self, payload):
+            if payload["op"] == "step_labor":
+                return {
+                    "ok": True,
+                    "op": "step_labor",
+                    "step": {
+                        "turn": 5,
+                        "villages": [
+                            {
+                                "camp": 7,
+                                "terminated": False,
+                                "observation": {
+                                    "laborCatalog": catalog_payload,
+                                    "laborPrevious": feedback_payload,
+                                },
+                            }
+                        ],
+                    },
+                    "laborFeedback": {
+                        "7": feedback_payload,
+                        "11": feedback_payload,
+                    },
+                }
+            raise AssertionError(payload["op"])
+
+    runtime = LaborBridgeRuntime(FakeBridge(), {7: catalog})
+    initial = {
+        "movementCandidate": -1,
+        "fissionPolicy": -1,
+        **_payload(catalog.masks),
+    }
+    step, feedback = runtime.step_labor({7: initial})
+    assert step["turn"] == 5
+    assert set(feedback) == {7}
+
+
