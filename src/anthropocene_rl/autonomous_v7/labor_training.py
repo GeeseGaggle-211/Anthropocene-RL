@@ -1060,6 +1060,27 @@ def _validate_training_data_separation(
     return current_training_worlds, current_training_units
 
 
+def _labor_reset_options(args: argparse.Namespace) -> Any:
+    """Manifest-driven reset options for heuristic BC/critic collection (movement on)."""
+    from .labor_bc import LaborResetOptions
+
+    return LaborResetOptions(
+        players=getattr(args, "players", 8),
+        movement=not getattr(args, "no_movement", False),
+        width=getattr(args, "width", None),
+        height=getattr(args, "height", None),
+        separation=getattr(args, "separation", None),
+    )
+
+
+def _load_labor_teacher_dataset(args: argparse.Namespace, normalizer: Any) -> dict[str, Any]:
+    from .labor_teacher_data import load_labor_dataset
+
+    return load_labor_dataset(
+        args.dataset, expected_normalizer_digest=_normalization_digest(normalizer)
+    )
+
+
 def _command_initialize(args: argparse.Namespace) -> None:
     source = torch.load(args.normalizer_checkpoint, map_location="cpu", weights_only=True)
     normalizer = load_checkpoint_normalizer(
@@ -1151,8 +1172,13 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     shuffle = np.random.default_rng(state["optimizer_seed"])
     shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
 
-    worlds = _parse_worlds(
-        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+    dataset_dir = getattr(args, "dataset", None)
+    if (dataset_dir is None) == (getattr(args, "worlds", None) is None):
+        raise ValueError("pretrain-bc requires exactly one of --dataset or --worlds")
+    worlds = (
+        []
+        if dataset_dir is not None
+        else _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False))
     )
 
     writer = None
@@ -1167,14 +1193,18 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
             },
         )
 
-    dataset = collect_heuristic_bc_dataset(
-        normalizer=normalizer,
-        world_seeds=worlds,
-        turns=args.turns,
-        personality=personality,
-        economic_trace=writer,
-        allow_vm_scale=getattr(args, "allow_vm_scale", False),
-    )
+    if dataset_dir is not None:
+        dataset = _load_labor_teacher_dataset(args, normalizer)
+    else:
+        dataset = collect_heuristic_bc_dataset(
+            normalizer=normalizer,
+            world_seeds=worlds,
+            turns=args.turns,
+            personality=personality,
+            economic_trace=writer,
+            allow_vm_scale=getattr(args, "allow_vm_scale", False),
+            reset_options=_labor_reset_options(args),
+        )
     bc_summary = pretrain_labor_actor_bc(
         actor=actor,
         dataset=dataset,
@@ -1231,24 +1261,44 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     shuffle = np.random.default_rng(state["optimizer_seed"])
     shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
 
-    worlds = _parse_worlds(
-        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
-    )
+    dataset_dir = getattr(args, "dataset", None)
+    if (dataset_dir is None) == (getattr(args, "worlds", None) is None):
+        raise ValueError("pretrain-critic requires exactly one of --dataset or --worlds")
+    if dataset_dir is not None:
+        from .labor_bc import pretrain_critic_on_dataset
 
-    summary = pretrain_critic_on_heuristic_next_states(
-        task_critic=task,
-        cost_critics=costs,
-        normalizer=normalizer,
-        world_seeds=worlds,
-        turns=args.turns,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        max_grad_norm=args.max_grad_norm,
-        personality=personality,
-        rng=shuffle,
-        allow_vm_scale=getattr(args, "allow_vm_scale", False),
-    )
+        teacher = _load_labor_teacher_dataset(args, normalizer)
+        worlds = list(teacher["collection"]["world_seeds"])
+        summary = pretrain_critic_on_dataset(
+            task_critic=task,
+            cost_critics=costs,
+            dataset=teacher,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            lr=args.lr,
+            max_grad_norm=args.max_grad_norm,
+            rng=shuffle,
+        )
+        summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
+    else:
+        worlds = _parse_worlds(
+            args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+        )
+        summary = pretrain_critic_on_heuristic_next_states(
+            task_critic=task,
+            cost_critics=costs,
+            normalizer=normalizer,
+            world_seeds=worlds,
+            turns=args.turns,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            lr=args.lr,
+            max_grad_norm=args.max_grad_norm,
+            personality=personality,
+            rng=shuffle,
+            allow_vm_scale=getattr(args, "allow_vm_scale", False),
+            reset_options=_labor_reset_options(args),
+        )
 
     actor_lr = float(
         state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
@@ -1569,7 +1619,19 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_bc = commands.add_parser("pretrain-bc")
     pretrain_bc.add_argument("--checkpoint", type=Path, required=True)
     pretrain_bc.add_argument(
-        "--worlds", required=True, help="comma-separated local diagnostic seeds"
+        "--worlds", default=None, help="comma-separated local diagnostic seeds"
+    )
+    pretrain_bc.add_argument(
+        "--dataset", type=Path, default=None,
+        help="published labor_teacher_data directory (alternative to --worlds)",
+    )
+    pretrain_bc.add_argument("--players", type=int, default=8)
+    pretrain_bc.add_argument("--width", type=int, default=None)
+    pretrain_bc.add_argument("--height", type=int, default=None)
+    pretrain_bc.add_argument("--separation", type=int, default=None)
+    pretrain_bc.add_argument(
+        "--no-movement", action="store_true", default=False,
+        help="named mechanical fixture only; movement is on for real data",
     )
     pretrain_bc.add_argument("--turns", type=int, default=25)
     pretrain_bc.add_argument("--epochs", type=int, default=25)
@@ -1593,7 +1655,19 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic = commands.add_parser("pretrain-critic")
     pretrain_critic.add_argument("--checkpoint", type=Path, required=True)
     pretrain_critic.add_argument(
-        "--worlds", required=True, help="comma-separated local diagnostic seeds"
+        "--worlds", default=None, help="comma-separated local diagnostic seeds"
+    )
+    pretrain_critic.add_argument(
+        "--dataset", type=Path, default=None,
+        help="published labor_teacher_data directory (alternative to --worlds)",
+    )
+    pretrain_critic.add_argument("--players", type=int, default=8)
+    pretrain_critic.add_argument("--width", type=int, default=None)
+    pretrain_critic.add_argument("--height", type=int, default=None)
+    pretrain_critic.add_argument("--separation", type=int, default=None)
+    pretrain_critic.add_argument(
+        "--no-movement", action="store_true", default=False,
+        help="named mechanical fixture only; movement is on for real data",
     )
     pretrain_critic.add_argument("--turns", type=int, default=25)
     pretrain_critic.add_argument("--epochs", type=int, default=50)

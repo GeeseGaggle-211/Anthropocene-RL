@@ -345,8 +345,16 @@ def collect_labor_anchor_arrays(
     path_count: int = DEFAULT_PATHS,
     bridge_factory: Any = LaborModel9Bridge,
     allow_vm_scale: bool = False,
+    reset_options: Any = None,
 ) -> dict[str, np.ndarray]:
-    """Collect a strict NPZ payload without using any critic value as a target."""
+    """Collect a strict NPZ payload without using any critic value as a target.
+
+    ``reset_options`` (a :class:`labor_bc.LaborResetOptions`) is the manifest's
+    native reset contract; its default enables movement.
+    """
+    from .labor_bc import LaborResetOptions
+
+    reset = reset_options if reset_options is not None else LaborResetOptions()
 
     worlds = checked_seeds(list(world_seeds), "labor anchor worlds")
     continuations = checked_seeds(
@@ -423,7 +431,7 @@ def collect_labor_anchor_arrays(
     for world_index, world in enumerate(worlds):
         bridge = bridge_factory()
         try:
-            parent_step = bridge.reset(world)
+            parent_step = bridge.reset(world, **reset.reset_kwargs())
             runtime_identities[str(world)] = bridge.runtime_identity()
             live = [
                 village for village in parent_step["villages"]
@@ -619,6 +627,7 @@ def collect_labor_anchor_arrays(
         "rankSemantics": LABOR_RANK_SEMANTICS,
         "source": source,
         "scope": "local-independent-return-diagnostic-not-readiness",
+        "resetOptions": reset.state_dict(),
     }
     arrays: dict[str, np.ndarray] = {
         "metadata_json": np.asarray(
@@ -688,11 +697,18 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tail-cap", type=int, default=DEFAULT_TAIL_CAP)
     parser.add_argument("--paths", type=int, default=DEFAULT_PATHS)
     parser.add_argument("--allow-vm-scale", action="store_true", default=False)
+    parser.add_argument("--players", type=int, default=8)
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--height", type=int, default=None)
+    parser.add_argument("--separation", type=int, default=None)
+    parser.add_argument("--no-movement", action="store_true", default=False)
     parser.add_argument("--out", type=Path, required=True)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    from .labor_bc import LaborResetOptions
+
     torch.set_num_threads(4)
     args = argument_parser().parse_args(argv)
     worlds = [int(value) for value in args.worlds.split(",") if value]
@@ -710,6 +726,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         tail_cap=args.tail_cap,
         path_count=args.paths,
         allow_vm_scale=args.allow_vm_scale,
+        reset_options=LaborResetOptions(
+            players=args.players,
+            movement=not args.no_movement,
+            width=args.width,
+            height=args.height,
+            separation=args.separation,
+        ),
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.out, **arrays)

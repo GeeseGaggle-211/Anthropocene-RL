@@ -3,6 +3,23 @@
 Reconstructs native heuristic specialty and activity simplexes from shadow
 simulation steps with economic diagnostics, and trains the LaborActor model
 via masked supervised behavioral cloning before RL rollouts.
+
+G1 corrections (brief v1.9 sections 4.2, 5.1 and 5.4):
+
+* label conversion preserves unused role time as explicit idle, never divides
+  work by the extracted work total, and never turns missing, unknown or
+  over-budget work into residual Gatherers; such rows are typed unavailable;
+* Herder staffing comes from the native assigned residents and planned
+  worker-years, never from tool-covered service;
+* every head carries an explicit label validity, resolved against the
+  original pre-action catalog; invalid movement and inactive/default trade
+  labels contribute no loss;
+* rows whose initial recommendation the native validator rejected are
+  quarantined with their violation evidence, never trained as demonstrations;
+* allocation cross-entropies use a stable masked log-softmax;
+* collection is manifest driven (movement on, explicit worlds, configurable
+  players/size) and every row carries world/camp/turn/attempt identity with a
+  world-balanced weight.
 """
 
 from __future__ import annotations
@@ -11,6 +28,7 @@ import copy
 import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -47,7 +65,13 @@ from .labor_ppo import (
 from .protocol import scan
 from .protocol import seeds as checked_seeds
 
-LABOR_BC_CONTRACT = "model9-heuristic-labor-bc-v1"
+LABOR_BC_CONTRACT = "model9-heuristic-labor-bc-v2"
+LABOR_LABEL_CONTRACT = "model9-heuristic-labor-label-v2"
+LABOR_CRITIC_CONTRACT = "model9-heuristic-critic-pretraining-v2"
+LABEL_TOLERANCE = 1e-6
+DEVELOPMENT_WORLDS = range(2000, 2060)
+SEALED_WORLDS = range(3000, 3060)
+CRITIC_DISCOUNT_DAYS = 400.0
 
 
 def _get(mapping: Mapping[str, Any] | None, *keys: str, default: Any = None) -> Any:
@@ -61,6 +85,28 @@ def _get(mapping: Mapping[str, Any] | None, *keys: str, default: Any = None) -> 
             if alt in mapping and mapping[alt] is not None:
                 return mapping[alt]
     return default
+
+
+def _num(mapping: Mapping[str, Any] | None, key: str) -> float | None:
+    """An explicit finite numeric field, or None when absent/null.
+
+    Unlike ``_get(...) or fallback`` this keeps a recorded zero distinct from a
+    missing value, so a legitimate zero is never replaced by another stage's
+    grant or coverage.
+    """
+    if not isinstance(mapping, Mapping):
+        return None
+    for alt in (key, key[:1].upper() + key[1:], key[:1].lower() + key[1:]):
+        if alt in mapping:
+            value = mapping[alt]
+            if value is None or isinstance(value, bool):
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return number if math.isfinite(number) else None
+    return None
 
 
 def _one_row(values: Mapping[str, torch.Tensor], row: int) -> dict[str, torch.Tensor]:
@@ -81,448 +127,991 @@ def _concat(rows: Sequence[Mapping[str, torch.Tensor]], label: str) -> dict[str,
     return {key: torch.cat([row[key] for row in rows], dim=0) for key in sorted(keys)}
 
 
-def extract_heuristic_labor_action(
+# ---------------------------------------------------------------------------
+# Manifest-driven reset options
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class LaborResetOptions:
+    """Native reset options shared by labor BC, critic and anchor collection.
+
+    Movement is on by default: a movement-disabled reset is a named
+    mechanical fixture only. ``players`` sets the generated opening's player
+    count; ``width``/``height``/``separation`` optionally enlarge the map
+    (absent keeps the native Small training world).
+    """
+
+    players: int = 8
+    movement: bool = True
+    withheld: int = 0
+    width: int | None = None
+    height: int | None = None
+    separation: int | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.players, bool) or int(self.players) < 1:
+            raise ValueError("reset players must be a positive integer")
+        if not isinstance(self.movement, bool):
+            raise ValueError("reset movement must be boolean")
+        for name in ("width", "height", "separation"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or int(value) < 1):
+                raise ValueError(f"reset {name} must be positive when present")
+
+    @property
+    def size(self) -> tuple[int, int, int] | None:
+        if self.width is None and self.height is None and self.separation is None:
+            return None
+        return (int(self.width or 0), int(self.height or 0), int(self.separation or 0))
+
+    def reset_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "players": int(self.players),
+            "movement": bool(self.movement),
+            "withheld": int(self.withheld),
+        }
+        if self.size is not None:
+            kwargs["size"] = self.size
+        return kwargs
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "players": int(self.players),
+            "movement": bool(self.movement),
+            "withheld": int(self.withheld),
+            "width": self.width,
+            "height": self.height,
+            "separation": self.separation,
+        }
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any] | None) -> LaborResetOptions:
+        if value is None:
+            return cls()
+        return cls(**{key: value[key] for key in cls().state_dict() if key in value})
+
+
+def validate_fitting_worlds(world_seeds: Sequence[int], context: str) -> list[int]:
+    """Fitting worlds exclude sealed confirmation and development-only seeds."""
+    worlds = checked_seeds(list(world_seeds), context)
+    scan({"worldSeeds": worlds}, context)
+    if len(set(worlds)) != len(worlds):
+        raise ValueError(f"{context} repeats a world seed")
+    for seed in worlds:
+        if seed in SEALED_WORLDS:
+            raise ValueError(f"{context}: sealed confirmation world {seed} is not fitting data")
+        if seed in DEVELOPMENT_WORLDS:
+            raise ValueError(f"{context}: development world {seed} is development-only")
+    return worlds
+
+
+# ---------------------------------------------------------------------------
+# Native heuristic -> action-12 label conversion
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class HeuristicLaborLabel:
+    """One converted heuristic recommendation with per-head validity.
+
+    ``specialty``/``activity`` are the faithful label simplexes (role idle
+    retains unused worker-time). ``action`` is always an executable schema-12
+    payload; when a label is unavailable it is only a drive action used to
+    advance the world and must not be trained as a demonstration.
+    """
+
+    specialty: np.ndarray
+    activity: np.ndarray
+    action: dict[str, Any]
+    specialty_counts: np.ndarray
+    planned_worker_years: np.ndarray
+    specialty_valid: bool
+    activity_role_valid: np.ndarray
+    movement_code: int
+    movement_valid: bool
+    fission_valid: bool
+    trade_gate_valid: np.ndarray
+    trade_value_active: np.ndarray
+    trade_share_active: bool
+    over_budget: bool
+    reasons: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def labor_valid(self) -> bool:
+        return bool(self.specialty_valid)
+
+    @property
+    def full_action_valid(self) -> bool:
+        return bool(
+            self.specialty_valid
+            and self.movement_valid
+            and self.fission_valid
+            and bool(np.all(self.trade_gate_valid))
+        )
+
+
+def _movement_legal(raw: int, observation: Mapping[str, Any] | None) -> bool:
+    """Resolve a movement code against the original pre-action masks."""
+    if raw == -1:
+        return True
+    if not isinstance(observation, Mapping):
+        return False
+    m_mask = observation.get("movementMask") or []
+    r_mask = observation.get("regionMovementMask") or []
+    if 0 <= raw < contracts.MOVEMENT_SLOTS - 1:
+        return raw + 1 < len(m_mask) and bool(m_mask[raw + 1])
+    if raw == contracts.KEEP_INTENT:
+        return len(r_mask) > 1 and bool(r_mask[1])
+    if raw >= contracts.REGION_BASE:
+        index = 2 + raw - contracts.REGION_BASE
+        return index < len(r_mask) and bool(r_mask[index])
+    return False  # includes the forbidden native sentinel -2
+
+
+def convert_heuristic_labor_label(
     catalog: LaborCatalog,
     village_heur: Mapping[str, Any],
     econ_diag: Mapping[str, Any] | None,
-) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
-    """Reconstruct native heuristic specialty/activity allocations and action dict.
+    *,
+    pre_observation: Mapping[str, Any] | None = None,
+) -> HeuristicLaborLabel:
+    """Convert one native heuristic decision into an action-12 label.
 
-    Returns:
-        (specialty_simplex, activity_simplex, schema12_action_dict)
+    Specialty shares are integer staffed residents over P. For a staffed role
+    the activity share of each activity is its worker-years over
+    ``n_r * dt`` and role idle is the nonnegative residual. Unstaffed roles
+    emit canonical role idle and are excluded from the activity loss. Native
+    residual fallback gathering stays Gatherer work; missing, unmapped or
+    over-budget work makes the labor label unavailable instead.
     """
-    P = max(1, int(catalog.population))
-    Y = max(1e-9, float(catalog.turn_years))
+
+    reasons: list[str] = []
+    population = int(catalog.population)
+    years = float(catalog.turn_years)
+    if population <= 0:
+        reasons.append("zero-population")
+    if not years > 0.0:
+        reasons.append("nonpositive-turn-years")
+        years = 1.0
     spec_mask = np.asarray(catalog.masks.specialty, dtype=bool)
     act_mask = np.asarray(catalog.masks.activity, dtype=bool)
+    specialties = len(catalog.specialty_rows)
+    roles, activities = act_mask.shape
+    spec_row = {row["id"]: int(row["row"]) for row in catalog.specialty_rows}
 
-    spec_id_to_spec_idx: dict[str, int] = {
-        row["id"]: row["row"] for row in catalog.specialty_rows
-    }
-    spec_id_to_role_idx: dict[str, int] = {
-        row["id"]: row["row"] - 1 for row in catalog.specialty_rows if row["row"] > 0
-    }
-    idle_spec = spec_id_to_spec_idx.get("idle", 0)
-    gatherer_role = spec_id_to_role_idx.get("Gatherer", 0)
-    gatherer_spec = spec_id_to_spec_idx.get("Gatherer", 1)
-    farmer_role = spec_id_to_role_idx.get("Farmer", 1)
-    farmer_spec = spec_id_to_spec_idx.get("Farmer", 2)
-    herder_role = spec_id_to_role_idx.get("Herder", 2)
-    herder_spec = spec_id_to_spec_idx.get("Herder", 3)
-    fisher_role = spec_id_to_role_idx.get("Fisher", 3)
-    fisher_spec = spec_id_to_spec_idx.get("Fisher", 4)
+    def role_of(name: str) -> int | None:
+        row = spec_row.get(name)
+        return None if row is None or row <= 0 else row - 1
 
-    farmer_op_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == farmer_role
-            and r.get("isOperationOrHarvest")
-            and act_mask[farmer_role, r["activityRow"]]
-        ),
-        5,
-    )
-    farmer_exp_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == farmer_role
-            and r.get("isDevelopmentOrExpansion")
-            and act_mask[farmer_role, r["activityRow"]]
-        ),
-        6,
-    )
+    def legal(role: int | None) -> bool:
+        return role is not None and bool(spec_mask[role + 1])
 
-    herder_op_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == herder_role
-            and r.get("isOperationOrHarvest")
-            and act_mask[herder_role, r["activityRow"]]
-        ),
-        7,
-    )
-    herder_exp_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == herder_role
-            and r.get("isDevelopmentOrExpansion")
-            and act_mask[herder_role, r["activityRow"]]
-        ),
-        8,
-    )
+    def role_activity(role: int | None, activity_id: str) -> int | None:
+        """The legal activity row of ``role`` with the stable registry ID."""
+        if role is None:
+            return None
+        for row in catalog.activity_rows:
+            if int(row["specialtyRow"]) == role and row.get("activityId") == activity_id:
+                index = int(row["activityRow"])
+                return index if act_mask[role, index] else None
+        return None
 
-    fisher_op_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == fisher_role
-            and r.get("isOperationOrHarvest")
-            and act_mask[fisher_role, r["activityRow"]]
-        ),
-        9,
-    )
-    fisher_exp_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == fisher_role
-            and r.get("isDevelopmentOrExpansion")
-            and act_mask[fisher_role, r["activityRow"]]
-        ),
-        10,
-    )
+    counts = np.zeros(specialties, dtype=np.int64)
+    work = np.zeros((roles, activities), dtype=np.float64)
 
+    def place(role: int, activity: int | None, worker_years: float, name: str) -> None:
+        if not worker_years > LABEL_TOLERANCE:
+            return
+        if activity is None:
+            reasons.append(f"{name}-activity-unavailable")
+            return
+        work[role, activity] += worker_years
+
+    if not isinstance(econ_diag, Mapping) or not econ_diag:
+        reasons.append("economic-diagnostics-unavailable")
+        econ_diag = {}
     domains = _get(econ_diag, "domains", default={})
+    domains = domains if isinstance(domains, Mapping) else {}
+    unavailable = _get(econ_diag, "unavailable", default={})
+    unavailable = unavailable if isinstance(unavailable, Mapping) else {}
 
-    # 1. Farmer
-    cult = _get(domains, "cultivation", default={})
-    assigned_farmer_wy = float(_get(cult, "assignedFarmerYears", default=0.0))
-    field_exp_wy = float(_get(cult, "expansionWorkerYears", default=0.0))
-    if field_exp_wy <= 0.0:
-        funnels = _get(cult, "funnels", default=[])
-        for f in funnels:
-            if _get(f, "metric") == "fieldDevelopment":
-                work = float(_get(f, "executedWork") or _get(f, "compilerGrant") or 0.0)
-                field_exp_wy = work * Y
-                break
-    field_op_wy = max(0.0, assigned_farmer_wy - field_exp_wy)
-    farmers_people = (
-        max(0, round(assigned_farmer_wy / Y)) if spec_mask[farmer_spec] else 0
-    )
-    farmer_act_wy = np.zeros(22, dtype=np.float64)
-    if assigned_farmer_wy > 1e-8:
-        farmer_act_wy[farmer_op_act] = field_op_wy
-        farmer_act_wy[farmer_exp_act] = field_exp_wy
+    # 1. Farmer: assigned farmer worker-years split into operation and expansion.
+    farmer = role_of("Farmer")
+    cultivation = domains.get("cultivation")
+    assigned_farmer = _num(cultivation, "assignedFarmerYears")
+    if assigned_farmer is None:
+        reason = unavailable.get("domains.cultivation.assignedFarmerYears")
+        if legal(farmer) and reason != "no-active-field-work":
+            reasons.append("farmer-work-unavailable")
+        assigned_farmer = 0.0
+    if assigned_farmer > LABEL_TOLERANCE:
+        if not legal(farmer):
+            reasons.append("farmer-work-on-illegal-specialty")
+        else:
+            expansion = _num(cultivation, "expansionWorkerYears")
+            if expansion is None:
+                for funnel in _get(cultivation, "funnels", default=[]) or []:
+                    if _get(funnel, "metric") == "fieldDevelopment":
+                        people = _num(funnel, "executedWork")
+                        if people is None:
+                            people = _num(funnel, "compilerGrant")
+                        if people is not None:
+                            expansion = people * years
+                        break
+            if expansion is None:
+                reasons.append("field-expansion-work-unavailable")
+                expansion = 0.0
+            if expansion > assigned_farmer + LABEL_TOLERANCE:
+                reasons.append("field-expansion-exceeds-assigned-farmer-work")
+            assert farmer is not None
+            counts[farmer + 1] = math.ceil(assigned_farmer / years - LABEL_TOLERANCE)
+            place(
+                farmer,
+                role_activity(farmer, "field.operation"),
+                max(0.0, assigned_farmer - expansion),
+                "field-operation",
+            )
+            place(farmer, role_activity(farmer, "field.expansion"), expansion, "field-expansion")
 
-    # 2. Herder
-    herd = _get(domains, "herding", default={})
-    herd_mgmt_wy = float(
-        _get(herd, "plannedHerderYears") or _get(herd, "coveredHerderYears") or 0.0
-    )
-    herd_exp_wy = 0.0
-    funnels = _get(herd, "funnels", default=[])
-    for f in funnels:
-        if _get(f, "metric") == "herdDevelopment":
-            dev_people = float(_get(f, "executedWork") or _get(f, "compilerGrant") or 0.0)
-            herd_exp_wy = max(0.0, dev_people * Y)
-            break
-    herders_people = (
-        max(0, round((herd_mgmt_wy + herd_exp_wy) / Y)) if spec_mask[herder_spec] else 0
-    )
-    herder_act_wy = np.zeros(22, dtype=np.float64)
-    if (herd_mgmt_wy + herd_exp_wy) > 1e-8:
-        herder_act_wy[herder_op_act] = herd_mgmt_wy
-        herder_act_wy[herder_exp_act] = herd_exp_wy
+    # 2. Herder: the native assigned residents and their planned worker-years.
+    herder = role_of("Herder")
+    herding = domains.get("herding")
+    assigned_herders = _num(herding, "assignedHerderResidents")
+    if legal(herder):
+        management = _num(herding, "managementHerderWorkerYears")
+        development = _num(herding, "developmentHerderWorkerYears")
+        if assigned_herders is None or management is None or development is None:
+            reasons.append("herder-staffing-unavailable")
+        else:
+            whole = int(round(assigned_herders))
+            if whole < 0 or abs(whole - assigned_herders) > LABEL_TOLERANCE:
+                reasons.append("herder-staffing-not-whole-residents")
+            assert herder is not None
+            counts[herder + 1] = max(0, whole)
+            place(herder, role_activity(herder, "herd.management"), management, "herd-management")
+            place(herder, role_activity(herder, "herd.expansion"), development, "herd-expansion")
+    elif assigned_herders is not None and assigned_herders > LABEL_TOLERANCE:
+        reasons.append("herder-staffing-on-illegal-specialty")
 
-    # 3. Fisher
-    fisher_harv_people = 0
-    fisher_dev_people = 0
-    obs = village_heur.get("observation")
-    if obs is not None:
-        pop_after = max(1, int(village_heur.get("population", catalog.population)))
-        core = obs.get("core", [])
-        core_present = obs.get("corePresent", [])
-        if len(core) > 202 and (len(core_present) <= 202 or core_present[202]):
-            fisher_harv_people = max(0, round(float(core[202]) * pop_after))
-        if len(core) > 206 and (len(core_present) <= 206 or core_present[206]):
-            fisher_dev_people = max(0, round(float(core[206]) * pop_after))
-    else:
-        reqs = _get(econ_diag, "requests", default=[])
-        sum_grant = sum(
-            float(_get(r, "compilerGrant", default=0.0))
-            for r in reqs
-            if _get(r, "role") == "Fisher"
-        )
-        fisher_harv_people = max(0, round(sum_grant))
-    fishers_people = (fisher_harv_people + fisher_dev_people) if spec_mask[fisher_spec] else 0
-    fisher_act_wy = np.zeros(22, dtype=np.float64)
-    fisher_act_wy[fisher_op_act] = fisher_harv_people * Y
-    fisher_act_wy[fisher_exp_act] = fisher_dev_people * Y
+    # 3. Fisher: harvest and development staffing.
+    fisher = role_of("Fisher")
+    if legal(fisher):
+        assert fisher is not None
+        harvest_people: int | None = None
+        development_people: int | None = None
+        observation = village_heur.get("observation")
+        if isinstance(observation, Mapping):
+            pop_after = max(1, int(village_heur.get("population", catalog.population)))
+            core = observation.get("core", []) or []
+            present = observation.get("corePresent", []) or []
 
-    # 4. Craft Goods
-    goods = _get(econ_diag, "goods", default=[])
-    craft_wy = np.zeros((13, 22), dtype=np.float64)
-    craft_people: dict[int, int] = {}
-    for item in goods:
-        good_name = _get(item, "good")
-        if not good_name or good_name == "none":
+            def staffed(index: int) -> int | None:
+                if len(core) > index and (len(present) <= index or present[index]):
+                    return max(0, round(float(core[index]) * pop_after))
+                return None
+
+            harvest_people, development_people = staffed(202), staffed(206)
+        else:
+            requests = _get(econ_diag, "requests")
+            if isinstance(requests, list):
+                harvest_people = max(
+                    0,
+                    round(
+                        sum(
+                            float(_num(r, "compilerGrant") or 0.0)
+                            for r in requests
+                            if _get(r, "role") == "Fisher"
+                        )
+                    ),
+                )
+                development_people = 0
+        if harvest_people is None or development_people is None:
+            reasons.append("fisher-staffing-unavailable")
+        else:
+            counts[fisher + 1] = harvest_people + development_people
+            place(fisher, role_activity(fisher, "fishing.harvest"), harvest_people * years, "fishing-harvest")
+            place(
+                fisher,
+                role_activity(fisher, "fishing.development"),
+                development_people * years,
+                "fishing-development",
+            )
+
+    # 4. Craft goods and 5. raw materials: worker-years mapped to specialist roles.
+    specialist_work = np.zeros((roles, activities), dtype=np.float64)
+    gatherer = role_of("Gatherer")
+    gatherer_material = np.zeros(activities, dtype=np.float64)
+
+    def normalized(text: Any) -> str:
+        return str(text or "").lower().replace("-", "").replace("_", "").replace(" ", "")
+
+    for item in _get(econ_diag, "goods", default=[]) or []:
+        name = _get(item, "good")
+        if not name or name == "none":
             continue
-        norm_name = str(good_name).lower().replace("-", "").replace("_", "").replace(" ", "")
-        matching_rows = [
+        matching = [
             row
             for row in catalog.activity_rows
-            if str(row.get("outputGood") or "")
-            .lower()
-            .replace("-", "")
-            .replace("_", "")
-            .replace(" ", "")
-            == norm_name
-            and spec_mask[row["specialtyRow"] + 1]
-            and act_mask[row["specialtyRow"], row["activityRow"]]
+            if normalized(row.get("outputGood")) == normalized(name)
+            and spec_mask[int(row["specialtyRow"]) + 1]
+            and act_mask[int(row["specialtyRow"]), int(row["activityRow"])]
         ]
-        if not matching_rows:
+        target = None
+        if matching:
+            specialist = [r for r in matching if r.get("specialistOnly")]
+            crafted = [r for r in matching if r.get("specialtyId") != "Craftsperson"]
+            target = (specialist or crafted or matching)[0]
+        worker_years = _num(item, "workerYears")
+        if worker_years is None or worker_years <= LABEL_TOLERANCE:
+            ceiling = _num(item, "plannedOutputCeiling")
+            if ceiling is not None and ceiling > LABEL_TOLERANCE:
+                features = target.get("features", []) if target is not None else []
+                rate = float(features[13]) if len(features) > 13 else 0.0
+                if target is None or not rate > 1e-6:
+                    reasons.append(f"craft-work-unknown:{name}")
+                    continue
+                worker_years = ceiling / rate
+            elif worker_years is None:
+                reasons.append(f"craft-work-unavailable:{name}")
+                continue
+            else:
+                continue
+        if target is None:
+            reasons.append(f"craft-work-unmapped:{name}")
             continue
-        specialist_matches = [r for r in matching_rows if r.get("specialistOnly")]
-        if specialist_matches:
-            target_row = specialist_matches[0]
-        else:
-            craft_specialists = [
-                r for r in matching_rows if r.get("specialtyId") != "Craftsperson"
-            ]
-            target_row = craft_specialists[0] if craft_specialists else matching_rows[0]
-        target_role = target_row["specialtyRow"]
-        target_act = target_row["activityRow"]
+        specialist_work[int(target["specialtyRow"]), int(target["activityRow"])] += worker_years
 
-        wy = float(_get(item, "workerYears", default=0.0))
-        if wy <= 0.0:
-            ceiling = float(_get(item, "plannedOutputCeiling", default=0.0))
-            features = target_row.get("features", [])
-            rate = float(features[13]) if len(features) > 13 else 0.0
-            if ceiling > 0.0 and rate > 1e-6:
-                wy = ceiling / rate
-        craft_wy[target_role, target_act] += max(0.0, wy)
-
-    for r in range(13):
-        total_r = craft_wy[r].sum()
-        if total_r > 1e-8 and spec_mask[r + 1]:
-            craft_people[r] = math.ceil(total_r / Y - 1e-8)
-
-    # 5. Raw Materials
-    materials = _get(econ_diag, "materials", default=[])
-    ext_wy = np.zeros((13, 22), dtype=np.float64)
-    ext_people: dict[int, int] = {}
-    gatherer_mat_wy: dict[int, float] = {}
-    for item in materials:
-        mat_name = _get(item, "material")
-        mat_wy = max(0.0, float(_get(item, "workerYears", default=0.0)))
-        if not mat_name or mat_wy <= 0.0:
+    material_flags = {"Stone": "outputsStone", "Clay": "outputsClay", "Wood": "outputsWood"}
+    for item in _get(econ_diag, "materials", default=[]) or []:
+        name = _get(item, "material")
+        worker_years = _num(item, "workerYears")
+        if not name:
             continue
-        if mat_name == "Stone":
-            flag = "outputsStone"
-        elif mat_name == "Clay":
-            flag = "outputsClay"
-        elif mat_name == "Wood":
-            flag = "outputsWood"
-        else:
+        if worker_years is None:
+            reasons.append(f"material-work-unavailable:{name}")
             continue
-
-        matching_rows = [
+        if worker_years <= LABEL_TOLERANCE:
+            continue
+        flag = material_flags.get(str(name))
+        if flag is None:
+            reasons.append(f"material-work-unmapped:{name}")
+            continue
+        matching = [
             row
             for row in catalog.activity_rows
             if row.get(flag)
-            and spec_mask[row["specialtyRow"] + 1]
-            and act_mask[row["specialtyRow"], row["activityRow"]]
+            and spec_mask[int(row["specialtyRow"]) + 1]
+            and act_mask[int(row["specialtyRow"]), int(row["activityRow"])]
         ]
-        if not matching_rows:
+        if not matching:
+            reasons.append(f"material-work-unmapped:{name}")
             continue
-        specialist_matches = [r for r in matching_rows if r.get("specialistOnly")]
-        if specialist_matches:
-            target_row = specialist_matches[0]
-            target_role = target_row["specialtyRow"]
-            target_act = target_row["activityRow"]
-            ext_wy[target_role, target_act] += mat_wy
-            ext_people[target_role] = math.ceil(ext_wy[target_role].sum() / Y - 1e-8)
+        specialist = [r for r in matching if r.get("specialistOnly")]
+        non_gatherer = [r for r in matching if int(r["specialtyRow"]) != gatherer]
+        target = (specialist or non_gatherer or matching)[0]
+        role, activity = int(target["specialtyRow"]), int(target["activityRow"])
+        if role == gatherer:
+            gatherer_material[activity] += worker_years
         else:
-            material_specialists = [
-                r for r in matching_rows if r.get("specialtyRow") != gatherer_role
-            ]
-            if material_specialists:
-                target_row = material_specialists[0]
-                target_role = target_row["specialtyRow"]
-                target_act = target_row["activityRow"]
-                ext_wy[target_role, target_act] += mat_wy
-                ext_people[target_role] = math.ceil(ext_wy[target_role].sum() / Y - 1e-8)
-            else:
-                target_row = matching_rows[0]
-                target_role = target_row["specialtyRow"]
-                target_act = target_row["activityRow"]
-                if target_role == gatherer_role:
-                    gatherer_mat_wy[target_act] = gatherer_mat_wy.get(target_act, 0.0) + mat_wy
-                else:
-                    ext_wy[target_role, target_act] += mat_wy
-                    ext_people[target_role] = math.ceil(ext_wy[target_role].sum() / Y - 1e-8)
+            specialist_work[role, activity] += worker_years
 
-    # 6. Gatherer & Population Budget
-    non_gatherer_people = (
-        farmers_people
-        + herders_people
-        + fishers_people
-        + sum(craft_people.values())
-        + sum(ext_people.values())
-    )
-    if non_gatherer_people > P:
-        scale = P / float(non_gatherer_people)
-        farmers_people = math.floor(farmers_people * scale)
-        herders_people = math.floor(herders_people * scale)
-        fishers_people = math.floor(fishers_people * scale)
-        for r in craft_people:
-            craft_people[r] = math.floor(craft_people[r] * scale)
-        for r in ext_people:
-            ext_people[r] = math.floor(ext_people[r] * scale)
-        non_gatherer_people = (
-            farmers_people
-            + herders_people
-            + fishers_people
-            + sum(craft_people.values())
-            + sum(ext_people.values())
-        )
+    for role in range(roles):
+        total = float(specialist_work[role].sum())
+        if total > LABEL_TOLERANCE:
+            counts[role + 1] += math.ceil(total / years - LABEL_TOLERANCE)
+            work[role] += specialist_work[role]
 
-    gatherer_people = max(0, P - non_gatherer_people) if spec_mask[gatherer_spec] else 0
-    idle_people = max(0, P - non_gatherer_people - gatherer_people)
-
-    gather_food_act = next(
-        (
-            r["activityRow"]
-            for r in catalog.activity_rows
-            if r["specialtyRow"] == gatherer_role
-            and r.get("isOperationOrHarvest")
-            and not (r.get("outputsStone") or r.get("outputsClay") or r.get("outputsWood"))
-            and act_mask[gatherer_role, r["activityRow"]]
-        ),
-        1,
-    )
-    gatherer_wy = max(0.0, gatherer_people * Y - sum(gatherer_mat_wy.values()))
-    gather_cond = (
-        act_mask[gatherer_role, gather_food_act]
-        and gatherer_wy <= 0.0
-        and sum(gatherer_mat_wy.values()) <= 0.0
-    )
-    if gather_cond:
-        gatherer_wy = 1.0
-
-    gatherer_act_wy = np.zeros(22, dtype=np.float64)
-    gatherer_act_wy[gather_food_act] = gatherer_wy
-    for act_idx, m_wy in gatherer_mat_wy.items():
-        gatherer_act_wy[act_idx] = m_wy
-
-    # Combine role activities
-    role_acts = [np.zeros(22, dtype=np.float64) for _ in range(13)]
-    role_acts[gatherer_role] = gatherer_act_wy
-    role_acts[farmer_role] = farmer_act_wy
-    role_acts[herder_role] = herder_act_wy
-    role_acts[fisher_role] = fisher_act_wy
-    for r in range(13):
-        if craft_wy[r].sum() > 0:
-            role_acts[r] += craft_wy[r]
-        if ext_wy[r].sum() > 0:
-            role_acts[r] += ext_wy[r]
-
-    activity_simplex_list: list[tuple[float, ...]] = []
-    for r in range(13):
-        vec = role_acts[r].copy()
-        vec[~act_mask[r]] = 0.0
-        if spec_mask[r + 1]:
-            if vec.sum() <= 1e-8:
-                legal_act_rows = [
-                    row
-                    for row in catalog.activity_rows
-                    if row["specialtyRow"] == r
-                    and row["activityRow"] > 0
-                    and act_mask[r, row["activityRow"]]
-                ]
-                op_harvest_acts = [
-                    row["activityRow"]
-                    for row in legal_act_rows
-                    if row.get("isOperationOrHarvest")
-                ]
-                if op_harvest_acts:
-                    chosen_acts = op_harvest_acts
-                elif legal_act_rows:
-                    chosen_acts = [row["activityRow"] for row in legal_act_rows]
-                else:
-                    chosen_acts = [0] if act_mask[r, 0] else []
-
-                if chosen_acts:
-                    for a in chosen_acts:
-                        vec[a] = 1.0 / len(chosen_acts)
-                else:
-                    vec[0] = 1.0
-        else:
-            vec[0] = 1.0
-        vec = vec / vec.sum()
-        simplex_r = _simplex(tuple(vec), tuple(act_mask[r]), f"activity[{r}]")
-        activity_simplex_list.append(simplex_r)
-
-    # 7. Specialty simplex (length 14)
-    spec_counts = np.zeros(len(catalog.specialty_rows), dtype=np.float64)
-    spec_counts[idle_spec] += idle_people
-    spec_counts[gatherer_spec] += gatherer_people
-    spec_counts[farmer_spec] += farmers_people
-    spec_counts[herder_spec] += herders_people
-    spec_counts[fisher_spec] += fishers_people
-    for r, count in craft_people.items():
-        spec_counts[r + 1] += count
-    for r, count in ext_people.items():
-        spec_counts[r + 1] += count
-    spec_counts[~spec_mask] = 0.0
-
-    if spec_counts.sum() > 0:
-        spec_vec = spec_counts / spec_counts.sum()
+    # 6. Population budget: residual residents are native fallback Gatherers.
+    idle_spec = spec_row.get("idle", 0)
+    non_gatherers = int(counts.sum())
+    over_budget = non_gatherers > max(0, population)
+    if over_budget:
+        reasons.append("over-budget-staffing")
+    residual = max(0, population - non_gatherers)
+    if legal(gatherer):
+        assert gatherer is not None
+        counts[gatherer + 1] = residual
+        material = float(gatherer_material.sum())
+        capacity = residual * years
+        if material > capacity + LABEL_TOLERANCE:
+            reasons.append("gatherer-material-over-budget")
+            over_budget = True
+        work[gatherer] += gatherer_material
+        food = role_activity(gatherer, "food.gather")
+        place(gatherer, food, max(0.0, capacity - material), "gathering")
     else:
-        spec_vec = np.zeros(len(catalog.specialty_rows), dtype=np.float64)
-        if spec_mask[gatherer_spec]:
-            spec_vec[gatherer_spec] = 1.0
-        else:
-            spec_vec[idle_spec] = 1.0
-    specialty_simplex_tuple = _simplex(tuple(spec_vec), tuple(spec_mask), "specialty")
+        if gatherer_material.sum() > LABEL_TOLERANCE:
+            reasons.append("gatherer-material-on-illegal-specialty")
+        counts[idle_spec] += residual
+    counts[~spec_mask] = 0
 
-    # 8. Non-labor teacher fields
-    teacher = village_heur.get("teacher") or {}
-    raw_movement = int(teacher.get("movement", -1))
-    obs_heur = village_heur.get("observation") or {}
-    m_mask = obs_heur.get("movementMask")
-    r_mask = obs_heur.get("regionMovementMask")
-    if raw_movement >= 0 and raw_movement < 7:
-        if m_mask and (raw_movement + 1 < len(m_mask)) and m_mask[raw_movement + 1]:
-            movement = raw_movement
+    # 7. Activity shares over available worker-time (role idle keeps the residual).
+    label_activity = np.zeros((roles, activities), dtype=np.float64)
+    drive_activity = np.zeros((roles, activities), dtype=np.float64)
+    role_valid = np.zeros(roles, dtype=bool)
+    for role in range(roles):
+        staffed = int(counts[role + 1]) if spec_mask[role + 1] else 0
+        if staffed <= 0:
+            if work[role].sum() > LABEL_TOLERANCE:
+                reasons.append(f"work-without-staff:role{role}")
+            label_activity[role, 0] = 1.0
+            drive_activity[role, 0] = 1.0
+            continue
+        vec = work[role].copy()
+        if np.any(vec[~act_mask[role]] > LABEL_TOLERANCE):
+            reasons.append(f"work-on-illegal-activity:role{role}")
+        vec[~act_mask[role]] = 0.0
+        shares = vec / (staffed * years)
+        used = float(shares.sum())
+        if used > 1.0 + LABEL_TOLERANCE:
+            # Over-budget work is flagged, never rescaled into a training target.
+            reasons.append(f"activity-over-budget:role{role}")
+            over_budget = True
+            shares = shares / used
         else:
-            movement = -1
-    elif raw_movement == -3:
-        movement = raw_movement if r_mask and len(r_mask) > 1 and r_mask[1] else -1
-    elif raw_movement >= 100:
-        r_idx = 2 + (raw_movement - 100)
-        movement = raw_movement if r_mask and r_idx < len(r_mask) and r_mask[r_idx] else -1
+            shares[0] = max(0.0, 1.0 - float(shares[1:].sum()))
+            role_valid[role] = True
+        label_activity[role] = shares
+        drive_activity[role] = shares
+
+    def to_simplex(matrix: np.ndarray) -> list[tuple[float, ...]]:
+        return [
+            _simplex(tuple(np.clip(matrix[r], 0.0, 1.0)), tuple(act_mask[r]), f"activity[{r}]")
+            for r in range(roles)
+        ]
+
+    # 8. Specialty shares n/P (label) and an executable drive allocation.
+    spec_label = np.zeros(specialties, dtype=np.float64)
+    if population > 0 and not over_budget:
+        spec_label = counts / float(population)
+    drive_counts = counts.astype(np.float64).copy()
+    if over_budget or population <= 0:
+        drive_counts = _drive_counts(counts, spec_mask, population, idle_spec, gatherer)
+    drive_spec = drive_counts / max(1.0, drive_counts.sum())
+    if population > 0 and not over_budget:
+        spec_label_tuple = _simplex(tuple(spec_label), tuple(spec_mask), "specialty")
     else:
-        movement = -1
-    fission = int(np.clip(int(teacher.get("fission", 0)), 0, 2))
-    tv_raw = teacher.get("tradeValue")
-    if tv_raw is not None and len(tv_raw) == 7:
+        spec_label_tuple = _simplex(tuple(drive_spec), tuple(spec_mask), "specialty")
+    drive_spec_tuple = _simplex(tuple(drive_spec), tuple(spec_mask), "specialty")
+    label_activity_list = to_simplex(label_activity)
+    drive_activity_list = to_simplex(drive_activity)
+
+    # 9. Nonlabor heads against the original pre-action catalog.
+    teacher = village_heur.get("teacher") if isinstance(village_heur, Mapping) else None
+    teacher = teacher if isinstance(teacher, Mapping) else None
+    if teacher is None:
+        reasons.append("teacher-unavailable")
+    observation = pre_observation if pre_observation is not None else (
+        village_heur.get("observation") if isinstance(village_heur, Mapping) else None
+    )
+    raw_movement = teacher.get("movement") if teacher is not None else None
+    movement_valid = (
+        teacher is not None
+        and isinstance(raw_movement, int)
+        and not isinstance(raw_movement, bool)
+        and teacher.get("movementLabel", True) is True
+        and _movement_legal(int(raw_movement), observation)
+    )
+    if teacher is not None and not movement_valid:
+        reasons.append(f"movement-label-unavailable:{raw_movement}")
+    movement = int(raw_movement) if movement_valid else -1
+
+    raw_fission = teacher.get("fission") if teacher is not None else None
+    fission_valid = (
+        isinstance(raw_fission, int) and not isinstance(raw_fission, bool) and 0 <= raw_fission <= 2
+    )
+    fission = int(raw_fission) if fission_valid else 0
+    if teacher is not None and not fission_valid:
+        reasons.append("fission-label-unavailable")
+
+    tv_raw = teacher.get("tradeValue") if teacher is not None else None
+    tg_raw = teacher.get("tradeGate") if teacher is not None else None
+    ts_raw = teacher.get("tradeShare") if teacher is not None else None
+    trade_labelled = (
+        teacher is not None
+        and teacher.get("tradeLabel", True) is True
+        and isinstance(tv_raw, Sequence)
+        and len(tv_raw) == len(contracts.TRADE_GROUPS)
+        and isinstance(tg_raw, Sequence)
+        and len(tg_raw) == len(contracts.TRADE_GROUPS)
+        and all(isinstance(x, (int, float)) and 0 <= int(x) <= 2 and int(x) == x for x in tg_raw)
+        and all(isinstance(x, (int, float)) and math.isfinite(float(x)) for x in tv_raw)
+    )
+    groups = len(contracts.TRADE_GROUPS)
+    if trade_labelled:
         trade_value = [
             float(np.clip(float(x), contracts.TRADE_VALUE_RANGE[0], contracts.TRADE_VALUE_RANGE[1]))
             for x in tv_raw
         ]
+        trade_gate = [int(x) for x in tg_raw]
+        gate_valid = np.ones(groups, dtype=bool)
+        value_active = np.asarray([gate > 0 for gate in trade_gate], dtype=bool)
     else:
-        trade_value = [1.0] * 7
-    tg_raw = teacher.get("tradeGate")
-    if tg_raw is not None and len(tg_raw) == 7:
-        trade_gate = [int(np.clip(int(x), 0, 2)) for x in tg_raw]
-    else:
-        trade_gate = [1] * 7
-    trade_share = float(np.clip(float(teacher.get("tradeShare", 0.5)), 1e-4, 1.0 - 1e-4))
-
-    # Assemble schema12 action
-    policy_sample = LaborPolicySample(
-        specialty_simplex_tuple, tuple(activity_simplex_list)
+        if teacher is not None:
+            reasons.append("trade-label-unavailable")
+        trade_value = [1.0] * groups
+        trade_gate = [1] * groups
+        gate_valid = np.zeros(groups, dtype=bool)
+        value_active = np.zeros(groups, dtype=bool)
+    share_valid = (
+        trade_labelled
+        and isinstance(ts_raw, (int, float))
+        and not isinstance(ts_raw, bool)
+        and math.isfinite(float(ts_raw))
     )
-    payload = policy_sample.payload()
-    schema12_action = {
+    trade_share = float(np.clip(float(ts_raw) if share_valid else 0.5, 1e-4, 1.0 - 1e-4))
+    share_active = bool(share_valid and value_active.any())
+
+    labor_valid = not reasons_block_labor(reasons) and population > 0 and not over_budget
+    drive_sample = LaborPolicySample(drive_spec_tuple, tuple(drive_activity_list))
+    action = {
         "schemaVersion": 12,
         "movement": movement,
         "fission": fission,
         "tradeValue": trade_value,
         "tradeGate": trade_gate,
         "tradeShare": trade_share,
-        **payload,
+        **drive_sample.payload(),
+    }
+    return HeuristicLaborLabel(
+        specialty=np.asarray(spec_label_tuple, dtype=np.float64),
+        activity=np.asarray(label_activity_list, dtype=np.float64),
+        action=action,
+        specialty_counts=counts.copy(),
+        planned_worker_years=work.copy(),
+        specialty_valid=bool(labor_valid),
+        activity_role_valid=role_valid & bool(labor_valid),
+        movement_code=movement,
+        movement_valid=bool(movement_valid),
+        fission_valid=bool(fission_valid),
+        trade_gate_valid=gate_valid,
+        trade_value_active=value_active & gate_valid,
+        trade_share_active=share_active,
+        over_budget=bool(over_budget),
+        reasons=tuple(reasons),
+    )
+
+
+_NONLABOR_REASONS = ("movement-label-unavailable", "fission-label-unavailable", "trade-label-unavailable")
+
+
+def reasons_block_labor(reasons: Sequence[str]) -> bool:
+    """Whether any recorded reason makes the labor (specialty/activity) label unavailable."""
+    return any(not reason.startswith(_NONLABOR_REASONS) for reason in reasons)
+
+
+def _drive_counts(
+    counts: np.ndarray,
+    spec_mask: np.ndarray,
+    population: int,
+    idle_spec: int,
+    gatherer: int | None,
+) -> np.ndarray:
+    """Executable drive staffing for an over-budget label (never a training target)."""
+    result = counts.astype(np.float64).copy()
+    population = max(1, population)
+    if gatherer is not None:
+        result[gatherer + 1] = 0.0
+    result[idle_spec] = 0.0
+    total = result.sum()
+    if total > population:
+        result = np.floor(result * (population / total))
+    rest = population - result.sum()
+    if gatherer is not None and spec_mask[gatherer + 1]:
+        result[gatherer + 1] += rest
+    else:
+        result[idle_spec] += rest
+    result[~spec_mask] = 0.0
+    return result
+
+
+def extract_heuristic_labor_action(
+    catalog: LaborCatalog,
+    village_heur: Mapping[str, Any],
+    econ_diag: Mapping[str, Any] | None,
+    *,
+    pre_observation: Mapping[str, Any] | None = None,
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """Compatibility wrapper: (specialty label, activity label, executable action).
+
+    Callers that train on the result must use :func:`convert_heuristic_labor_label`
+    and honour its validity flags; this wrapper exists for world driving only.
+    """
+    label = convert_heuristic_labor_label(
+        catalog, village_heur, econ_diag, pre_observation=pre_observation
+    )
+    return label.specialty, label.activity, label.action
+
+
+# ---------------------------------------------------------------------------
+# Collection
+# ---------------------------------------------------------------------------
+
+
+def _retained_action(
+    label: HeuristicLaborLabel,
+    catalog: LaborCatalog,
+    movement_mask: torch.Tensor,
+) -> RetainedLaborAction:
+    action = label.action
+    tv = [math.log(float(np.clip(float(x), 0.25, 4.0))) for x in action["tradeValue"]]
+    ts = float(np.clip(float(action["tradeShare"]), 1e-4, 1.0 - 1e-4))
+    executed = LaborPolicySample.from_payload(
+        {
+            "laborSpecialtyAllocation": action["laborSpecialtyAllocation"],
+            "laborActivityAllocation": action["laborActivityAllocation"],
+        },
+        catalog.masks,
+    )
+    return RetainedLaborAction(
+        payload=action,
+        labor_sample={
+            "specialty_allocation": torch.as_tensor(
+                executed.specialty_allocation, dtype=torch.float64
+            ).unsqueeze(0),
+            "activity_allocation": torch.as_tensor(
+                executed.activity_allocation, dtype=torch.float64
+            ).unsqueeze(0),
+            "specialty_latent": torch.zeros((1, 14), dtype=torch.float32),
+            "activity_latent": torch.zeros((1, 13, 22), dtype=torch.float32),
+            "specialty_mask": torch.tensor([catalog.masks.specialty], dtype=torch.bool),
+            "activity_mask": torch.tensor([catalog.masks.activity], dtype=torch.bool),
+        },
+        behavior_labor_logp=0.0,
+        nonlabor_sample={
+            "movement_index": torch.tensor([0], dtype=torch.long),
+            "movement": torch.tensor([int(action["movement"])], dtype=torch.long),
+            "fission": torch.tensor([int(action["fission"])], dtype=torch.long),
+            "trade_value_latent": torch.tensor(tv, dtype=torch.float32).unsqueeze(0),
+            "trade_gate": torch.tensor(
+                [int(x) for x in action["tradeGate"]], dtype=torch.long
+            ).unsqueeze(0),
+            "trade_share_latent": torch.tensor(
+                [math.log(ts / (1.0 - ts))], dtype=torch.float32
+            ),
+            "movement_mask": movement_mask,
+            "movement_codes": torch.tensor([-1], dtype=torch.long),
+        },
+        behavior_nonlabor_logp=0.0,
+    )
+
+
+def _idle_retry(camp: int, catalog: LaborCatalog, attempt: LaborAttempt) -> RetainedLaborAction:
+    del camp, attempt
+    idle_spec = np.zeros(14, dtype=np.float64)
+    idle_spec[0] = 1.0
+    idle_act = np.zeros((13, 22), dtype=np.float64)
+    idle_act[:, 0] = 1.0
+    safe_sample = LaborPolicySample(tuple(idle_spec), tuple(tuple(r) for r in idle_act))
+    return RetainedLaborAction(
+        payload=safe_sample.payload(),
+        labor_sample={
+            "specialty_allocation": torch.as_tensor(idle_spec, dtype=torch.float64).unsqueeze(0),
+            "activity_allocation": torch.as_tensor(idle_act, dtype=torch.float64).unsqueeze(0),
+            "specialty_latent": torch.zeros((1, 14), dtype=torch.float32),
+            "activity_latent": torch.zeros((1, 13, 22), dtype=torch.float32),
+            "specialty_mask": torch.tensor([catalog.masks.specialty], dtype=torch.bool),
+            "activity_mask": torch.tensor([catalog.masks.activity], dtype=torch.bool),
+        },
+        behavior_labor_logp=0.0,
+        nonlabor_sample=None,
+        behavior_nonlabor_logp=None,
+    )
+
+
+def _label_tensors(label: HeuristicLaborLabel) -> dict[str, torch.Tensor]:
+    tv = [math.log(float(np.clip(float(x), 0.25, 4.0))) for x in label.action["tradeValue"]]
+    ts = float(np.clip(float(label.action["tradeShare"]), 1e-4, 1.0 - 1e-4))
+    return {
+        "target_specialty": torch.tensor(label.specialty, dtype=torch.float32).unsqueeze(0),
+        "target_activity": torch.tensor(label.activity, dtype=torch.float32).unsqueeze(0),
+        "target_specialty_counts": torch.tensor(
+            label.specialty_counts, dtype=torch.float32
+        ).unsqueeze(0),
+        "target_planned_worker_years": torch.tensor(
+            label.planned_worker_years, dtype=torch.float32
+        ).unsqueeze(0),
+        "target_movement_code": torch.tensor([int(label.movement_code)], dtype=torch.long),
+        "target_fission": torch.tensor([int(label.action["fission"])], dtype=torch.long),
+        "target_trade_value_latent": torch.tensor(tv, dtype=torch.float32).unsqueeze(0),
+        "target_trade_gate": torch.tensor(
+            [int(x) for x in label.action["tradeGate"]], dtype=torch.long
+        ).unsqueeze(0),
+        "target_trade_share_latent": torch.tensor(
+            [math.log(ts / (1.0 - ts))], dtype=torch.float32
+        ),
+        "label_specialty_valid": torch.tensor([label.specialty_valid], dtype=torch.bool),
+        "label_activity_role_valid": torch.tensor(
+            label.activity_role_valid, dtype=torch.bool
+        ).unsqueeze(0),
+        "label_movement_valid": torch.tensor([label.movement_valid], dtype=torch.bool),
+        "label_fission_valid": torch.tensor([label.fission_valid], dtype=torch.bool),
+        "label_trade_gate_valid": torch.tensor(
+            label.trade_gate_valid, dtype=torch.bool
+        ).unsqueeze(0),
+        "label_trade_value_active": torch.tensor(
+            label.trade_value_active, dtype=torch.bool
+        ).unsqueeze(0),
+        "label_trade_share_active": torch.tensor([label.trade_share_active], dtype=torch.bool),
     }
 
-    return (
-        np.asarray(specialty_simplex_tuple, dtype=np.float64),
-        np.asarray(activity_simplex_list, dtype=np.float64),
-        schema12_action,
+
+@dataclass
+class WorldCollection:
+    """All rows of one collected world, including quarantined ones."""
+
+    world_seed: int
+    rows: list[dict[str, torch.Tensor]] = field(default_factory=list)
+    quarantine: list[dict[str, Any]] = field(default_factory=list)
+    counters: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    reasons: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    surviving_camps: int = 0
+    reset_identity: dict[str, Any] = field(default_factory=dict)
+    decisions: int = 0
+    native_resolves: int = 0
+
+
+def collect_heuristic_world(
+    *,
+    normalizer: Any,
+    world_seed: int,
+    turns: int,
+    reset_options: LaborResetOptions | None = None,
+    personality: LaborPersonality | None = None,
+    labor_bridge_factory: Any = LaborModel9Bridge,
+    heuristic_bridge_factory: Any = None,
+    economic_trace: Any | None = None,
+) -> WorldCollection:
+    """Advance one world under converted heuristic actions and record every row.
+
+    Each row records pre-action inputs, the converted label with per-head
+    validity, identity (world, camp, turn, attempt=0), the transition rewards
+    used for critic returns, and whether the initial recommendation was
+    accepted. Rejected initial recommendations are quarantined: the all-idle
+    retry that executes instead never becomes their label.
+    """
+
+    options = reset_options or LaborResetOptions()
+    declared_personality = LaborPersonality() if personality is None else personality
+    heur_factory = heuristic_bridge_factory or (lambda: Model9Bridge(economic_diagnostics=True))
+    from .labor_training import _settlement_guard, _transition_rewards
+
+    result = WorldCollection(world_seed=int(world_seed))
+    with labor_bridge_factory() as labor_bridge, heur_factory() as heur_bridge:
+        step = labor_bridge.reset(int(world_seed), **options.reset_kwargs())
+        identity = getattr(labor_bridge, "last_reset_identity", None)
+        result.reset_identity = dict(identity) if isinstance(identity, Mapping) else {}
+        founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
+        for _ in range(turns):
+            live = [
+                v
+                for v in step["villages"]
+                if v.get("observation") is not None and not v.get("terminated")
+            ]
+            if not live:
+                break
+            contexts, tensors = labor_policy_tensors(
+                live, normalizer, personality=declared_personality
+            )
+            catalogs = {context[0].camp_id: context[0] for context in contexts}
+            decision_turn = int(step["turn"])
+
+            # Shadow heuristic step from the captured boundary, same reset rules.
+            snap = labor_bridge._bridge.capture()
+            heur_bridge.reset(
+                int(world_seed), movement=options.movement, withheld=options.withheld, snapshot=snap
+            )
+            h_step = heur_bridge.step({})
+            result.native_resolves += 1
+            h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+            econ_by_camp = h_step.get("economicDiagnostics") or {}
+            if economic_trace is not None and getattr(heur_bridge, "economic_diagnostics", None):
+                for camp_id, diag in heur_bridge.economic_diagnostics.items():
+                    trans_id = diag.get("transitionId") or f"{world_seed}:{camp_id}:{decision_turn}"
+                    if trans_id not in economic_trace.transition_ids:
+                        economic_trace.transition_ids.append(trans_id)
+                    economic_trace.write(
+                        "transitions",
+                        {
+                            "campId": int(camp_id),
+                            "turn": decision_turn,
+                            "worldSeed": int(world_seed),
+                            "transitionId": trans_id,
+                            "economic": diag,
+                        },
+                    )
+
+            retained: dict[int, RetainedLaborAction] = {}
+            pending: dict[int, tuple[int, HeuristicLaborLabel]] = {}
+            for row, (village, context) in enumerate(zip(live, contexts, strict=True)):
+                camp = int(village["camp"])
+                catalog = context[0]
+                label = convert_heuristic_labor_label(
+                    catalog,
+                    h_villages.get(camp, {}),
+                    econ_by_camp.get(str(camp)),
+                    pre_observation=village["observation"],
+                )
+                for reason in label.reasons:
+                    result.reasons[reason.split(":", 1)[0]] += 1
+                pending[camp] = (row, label)
+                retained[camp] = _retained_action(
+                    label, catalog, tensors["movement_mask"][row : row + 1]
+                )
+
+            execution = execute_labor_decision(labor_bridge, catalogs, retained, _idle_retry)
+            next_step = execution.step
+            result.native_resolves += 1
+            result.decisions += 1
+            rewards, terminal, elapsed = _transition_rewards(
+                next_step, tuple(catalogs), founded, world_index=0, decision_turn=decision_turn
+            )
+            outcomes = {int(v["camp"]): v for v in next_step["villages"]}
+            for camp, (row, label) in pending.items():
+                attempt = execution.initial_attempts[camp]
+                accepted = bool(attempt.valid)
+                result.counters["total_decisions"] += 1
+                result.counters["initial_accepted" if accepted else "initial_rejected"] += 1
+                if not accepted:
+                    result.counters["quarantined"] += 1
+                    result.quarantine.append(
+                        {
+                            "world": int(world_seed),
+                            "camp": camp,
+                            "turn": decision_turn,
+                            "attempt": 0,
+                            "violations": [
+                                {"reasonCode": v.reason_code, "reason": v.reason}
+                                for v in attempt.violations
+                            ],
+                            "labelReasons": list(label.reasons),
+                        }
+                    )
+                if label.specialty_valid:
+                    result.counters["labor_label_valid"] += 1
+                if label.full_action_valid:
+                    result.counters["full_action_label_valid"] += 1
+                row_tensors = _one_row(tensors, row)
+                row_tensors.update(_label_tensors(label))
+                guard = _settlement_guard(
+                    outcomes[camp], founded.get(camp, decision_turn), int(next_step["turn"])
+                )
+                row_tensors.update(
+                    {
+                        "row_world": torch.tensor([int(world_seed)], dtype=torch.long),
+                        "row_camp": torch.tensor([camp], dtype=torch.long),
+                        "row_turn": torch.tensor([decision_turn], dtype=torch.long),
+                        "row_attempt": torch.tensor([0], dtype=torch.long),
+                        "row_quarantined": torch.tensor([not accepted], dtype=torch.bool),
+                        "reward_qol_years": torch.tensor(
+                            [rewards[camp]["qol_years"]], dtype=torch.float64
+                        ),
+                        "reward_population_years": torch.tensor(
+                            [rewards[camp]["population_years"]], dtype=torch.float64
+                        ),
+                        "reward_feasibility": torch.tensor(
+                            [float(attempt.feasibility_cost)], dtype=torch.float64
+                        ),
+                        "reward_settlement_guard": torch.tensor([float(guard)], dtype=torch.float64),
+                        "transition_elapsed_days": torch.tensor(
+                            [float(elapsed[camp])], dtype=torch.float64
+                        ),
+                        "transition_terminal": torch.tensor([bool(terminal[camp])], dtype=torch.bool),
+                    }
+                )
+                result.rows.append(row_tensors)
+            step = next_step
+        result.surviving_camps = len([v for v in step.get("villages", []) if not v.get("terminated")])
+    return result
+
+
+def world_balanced_weights(worlds: torch.Tensor, keep: torch.Tensor | None = None) -> torch.Tensor:
+    """Per-row weights giving every world equal total mass (mean weight one)."""
+    worlds = worlds.reshape(-1)
+    keep = torch.ones_like(worlds, dtype=torch.bool) if keep is None else keep.reshape(-1)
+    weights = torch.zeros(len(worlds), dtype=torch.float32)
+    kept_worlds = torch.unique(worlds[keep])
+    if len(kept_worlds) == 0:
+        return weights
+    total_rows = int(keep.sum())
+    for world in kept_worlds.tolist():
+        rows = (worlds == world) & keep
+        weights[rows] = total_rows / (len(kept_worlds) * float(rows.sum()))
+    return weights
+
+
+def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Per (world, camp) trajectory discounted returns (truncated, no bootstrap)."""
+    names = {
+        "qol_years": "reward_qol_years",
+        "population_years": "reward_population_years",
+        "feasibility": "reward_feasibility",
+        "settlement_guard": "reward_settlement_guard",
+    }
+    n = int(dataset["row_world"].shape[0])
+    returns = {name: torch.zeros(n, dtype=torch.float64) for name in names}
+    groups: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for index, (world, camp) in enumerate(
+        zip(dataset["row_world"].tolist(), dataset["row_camp"].tolist(), strict=True)
+    ):
+        groups[(int(world), int(camp))].append(index)
+    turns = dataset["row_turn"].tolist()
+    elapsed = dataset["transition_elapsed_days"].reshape(-1).tolist()
+    terminal = dataset["transition_terminal"].reshape(-1).tolist()
+    for indices in groups.values():
+        indices.sort(key=lambda i: turns[i])
+        running = dict.fromkeys(names, 0.0)
+        for i in reversed(indices):
+            gamma = math.exp(-float(elapsed[i]) / CRITIC_DISCOUNT_DAYS)
+            if terminal[i]:
+                running = dict.fromkeys(names, 0.0)
+            for name, key in names.items():
+                running[name] = float(dataset[key].reshape(-1)[i]) + gamma * running[name]
+                returns[name][i] = running[name]
+    return {name: value.to(torch.float32) for name, value in returns.items()}
+
+
+def _finish_dataset(collections: Sequence[WorldCollection], turns: int) -> dict[str, Any]:
+    rows = [row for c in collections for row in c.rows]
+    if not rows:
+        raise ValueError("heuristic BC collection produced zero training rows")
+    dataset: dict[str, Any] = _concat(rows, "heuristic BC dataset")
+    keep = ~dataset["row_quarantined"].reshape(-1)
+    dataset["row_weight"] = world_balanced_weights(dataset["row_world"], keep)
+    counters: dict[str, int] = defaultdict(int)
+    reasons: dict[str, int] = defaultdict(int)
+    for c in collections:
+        for key, value in c.counters.items():
+            counters[key] += int(value)
+        for key, value in c.reasons.items():
+            reasons[key] += int(value)
+    valid = dataset["label_specialty_valid"] & keep
+    mean_spec = (
+        dataset["target_specialty"][valid].double().mean(dim=0).tolist() if bool(valid.any()) else []
     )
+    dataset["collection"] = {
+        "label_contract": LABOR_LABEL_CONTRACT,
+        "total_decisions": int(counters["total_decisions"]),
+        "initial_accepted": int(counters["initial_accepted"]),
+        "initial_rejected": int(counters["initial_rejected"]),
+        "quarantined_rows": int(counters["quarantined"]),
+        "labor_label_valid_rows": int(counters["labor_label_valid"]),
+        "full_action_label_valid_rows": int(counters["full_action_label_valid"]),
+        "label_unavailable_reasons": dict(sorted(reasons.items())),
+        "quarantine": [q for c in collections for q in c.quarantine],
+        "surviving_camps_by_world": {str(c.world_seed): int(c.surviving_camps) for c in collections},
+        "rows_by_world": {
+            str(c.world_seed): len(c.rows) for c in collections
+        },
+        "decisions_by_world": {str(c.world_seed): int(c.decisions) for c in collections},
+        "native_resolves": int(sum(c.native_resolves for c in collections)),
+        "mean_specialty_target": mean_spec,
+        "world_seeds": [int(c.world_seed) for c in collections],
+        "turns": int(turns),
+        "sampling": "world-balanced-row-weights",
+    }
+    return dataset
 
 
 def collect_heuristic_bc_dataset(
@@ -535,6 +1124,7 @@ def collect_heuristic_bc_dataset(
     heuristic_bridge_factory: Any = None,
     economic_trace: Any | None = None,
     allow_vm_scale: bool = False,
+    reset_options: LaborResetOptions | None = None,
 ) -> dict[str, Any]:
     """Collect closed-loop heuristic labor trajectories for behavioral cloning."""
     worlds = checked_seeds(list(world_seeds), "labor heuristic bc worlds")
@@ -545,221 +1135,52 @@ def collect_heuristic_bc_dataset(
         raise ValueError("labor heuristic bc requires at least one world seed")
     if turns < 1:
         raise ValueError("turns must be >= 1")
-
-    declared_personality = LaborPersonality() if personality is None else personality
-    heur_factory = heuristic_bridge_factory or (
-        lambda: Model9Bridge(economic_diagnostics=True)
-    )
-
-    all_rows: list[dict[str, torch.Tensor]] = []
-    total_decisions = 0
-    initial_accepted = 0
-    initial_rejected = 0
-    surviving_camps_by_world: dict[str, int] = {}
-    specialty_targets_accum: list[np.ndarray] = []
-
-    for seed in worlds:
-        with labor_bridge_factory() as labor_bridge, heur_factory() as heur_bridge:
-            step = labor_bridge.reset(seed)
-            for _ in range(turns):
-                live = [
-                    v
-                    for v in step["villages"]
-                    if v.get("observation") is not None and not v.get("terminated")
-                ]
-                if not live:
-                    break
-                contexts, tensors = labor_policy_tensors(
-                    live, normalizer, personality=declared_personality
-                )
-                catalogs = {context[0].camp_id: context[0] for context in contexts}
-
-                # Capture pre-step snapshot and advance shadow heuristic
-                snap = labor_bridge._bridge.capture()
-                heur_bridge.reset(seed, snapshot=snap)
-                h_step = heur_bridge.step({})
-                h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
-                econ_by_camp = h_step.get("economicDiagnostics") or {}
-
-                if economic_trace is not None and getattr(
-                    heur_bridge, "economic_diagnostics", None
-                ):
-                    for camp_id, diag in heur_bridge.economic_diagnostics.items():
-                        turn_m1 = int(h_step["turn"]) - 1
-                        trans_id = diag.get("transitionId") or f"{seed}:{camp_id}:{turn_m1}"
-                        if trans_id not in economic_trace.transition_ids:
-                            economic_trace.transition_ids.append(trans_id)
-                        economic_trace.write(
-                            "transitions",
-                            {
-                                "campId": int(camp_id),
-                                "turn": int(h_step["turn"]) - 1,
-                                "worldSeed": seed,
-                                "transitionId": trans_id,
-                                "economic": diag,
-                            },
-                        )
-
-                retained: dict[int, RetainedLaborAction] = {}
-                for row, (village, context) in enumerate(zip(live, contexts, strict=True)):
-                    camp = int(village["camp"])
-                    catalog = context[0]
-                    h_v = h_villages.get(camp, {})
-                    econ = econ_by_camp.get(str(camp))
-
-                    spec_target, act_target, schema12_action = (
-                        extract_heuristic_labor_action(catalog, h_v, econ)
-                    )
-                    specialty_targets_accum.append(spec_target)
-
-                    row_tensors = _one_row(tensors, row)
-                    row_tensors["target_specialty"] = torch.tensor(
-                        spec_target, dtype=torch.float32
-                    ).unsqueeze(0)
-                    row_tensors["target_activity"] = torch.tensor(
-                        act_target, dtype=torch.float32
-                    ).unsqueeze(0)
-                    row_tensors["target_movement_code"] = torch.tensor(
-                        [int(schema12_action["movement"])], dtype=torch.long
-                    )
-                    row_tensors["target_fission"] = torch.tensor(
-                        [int(schema12_action["fission"])], dtype=torch.long
-                    )
-                    tv = [
-                        math.log(np.clip(float(x), 0.25, 4.0))
-                        for x in schema12_action["tradeValue"]
-                    ]
-                    row_tensors["target_trade_value_latent"] = torch.tensor(
-                        tv, dtype=torch.float32
-                    ).unsqueeze(0)
-                    row_tensors["target_trade_gate"] = torch.tensor(
-                        [int(x) for x in schema12_action["tradeGate"]],
-                        dtype=torch.long,
-                    ).unsqueeze(0)
-                    ts = float(schema12_action["tradeShare"])
-                    ts_clamped = np.clip(ts, 1e-4, 1.0 - 1e-4)
-                    row_tensors["target_trade_share_latent"] = torch.tensor(
-                        [math.log(ts_clamped / (1.0 - ts_clamped))],
-                        dtype=torch.float32,
-                    )
-                    all_rows.append(row_tensors)
-
-                    retained[camp] = RetainedLaborAction(
-                        payload=schema12_action,
-                        labor_sample={
-                            "specialty_allocation": torch.as_tensor(
-                                spec_target, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "activity_allocation": torch.as_tensor(
-                                act_target, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "specialty_latent": torch.zeros((1, 14), dtype=torch.float32),
-                            "activity_latent": torch.zeros(
-                                (1, 13, 22), dtype=torch.float32
-                            ),
-                            "specialty_mask": torch.tensor(
-                                [catalog.masks.specialty], dtype=torch.bool
-                            ),
-                            "activity_mask": torch.tensor(
-                                [catalog.masks.activity], dtype=torch.bool
-                            ),
-                        },
-                        behavior_labor_logp=0.0,
-                        nonlabor_sample={
-                            "movement_index": torch.tensor([0], dtype=torch.long),
-                            "movement": torch.tensor(
-                                [int(schema12_action["movement"])], dtype=torch.long
-                            ),
-                            "fission": torch.tensor(
-                                [int(schema12_action["fission"])], dtype=torch.long
-                            ),
-                            "trade_value_latent": torch.tensor(
-                                tv, dtype=torch.float32
-                            ).unsqueeze(0),
-                            "trade_gate": torch.tensor(
-                                [int(x) for x in schema12_action["tradeGate"]],
-                                dtype=torch.long,
-                            ).unsqueeze(0),
-                            "trade_share_latent": torch.tensor(
-                                [math.log(ts_clamped / (1.0 - ts_clamped))],
-                                dtype=torch.float32,
-                            ),
-                            "movement_mask": row_tensors["movement_mask"],
-                            "movement_codes": torch.tensor([-1], dtype=torch.long),
-                        },
-                        behavior_nonlabor_logp=0.0,
-                    )
-
-                def retry_factory(
-                    camp: int, catalog: LaborCatalog, attempt: LaborAttempt
-                ) -> RetainedLaborAction:
-                    idle_spec = np.zeros(14, dtype=np.float64)
-                    idle_spec[0] = 1.0
-                    idle_act = np.zeros((13, 22), dtype=np.float64)
-                    idle_act[:, 0] = 1.0
-                    safe_sample = LaborPolicySample(
-                        tuple(idle_spec), tuple(tuple(r) for r in idle_act)
-                    )
-                    return RetainedLaborAction(
-                        payload=safe_sample.payload(),
-                        labor_sample={
-                            "specialty_allocation": torch.as_tensor(
-                                idle_spec, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "activity_allocation": torch.as_tensor(
-                                idle_act, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "specialty_latent": torch.zeros((1, 14), dtype=torch.float32),
-                            "activity_latent": torch.zeros(
-                                (1, 13, 22), dtype=torch.float32
-                            ),
-                            "specialty_mask": torch.tensor(
-                                [catalog.masks.specialty], dtype=torch.bool
-                            ),
-                            "activity_mask": torch.tensor(
-                                [catalog.masks.activity], dtype=torch.bool
-                            ),
-                        },
-                        behavior_labor_logp=0.0,
-                        nonlabor_sample=None,
-                        behavior_nonlabor_logp=None,
-                    )
-
-                execution = execute_labor_decision(
-                    labor_bridge, catalogs, retained, retry_factory
-                )
-                step = execution.step
-                for att in execution.initial_attempts.values():
-                    total_decisions += 1
-                    if att.valid:
-                        initial_accepted += 1
-                    else:
-                        initial_rejected += 1
-
-            surviving = len([v for v in step.get("villages", []) if not v.get("terminated")])
-            surviving_camps_by_world[str(seed)] = surviving
-
-    if not all_rows:
-        raise ValueError("heuristic BC collection produced zero training rows")
-
-    dataset = _concat(all_rows, "heuristic BC dataset")
-    mean_spec = (
-        np.mean(specialty_targets_accum, axis=0).tolist()
-        if specialty_targets_accum
-        else []
-    )
-    dataset["collection"] = {
-        "total_decisions": int(total_decisions),
-        "initial_accepted": int(initial_accepted),
-        "initial_rejected": int(initial_rejected),
-        "surviving_camps_by_world": surviving_camps_by_world,
-        "mean_specialty_target": mean_spec,
-        "world_seeds": list(worlds),
-        "turns": int(turns),
-    }
+    collections = [
+        collect_heuristic_world(
+            normalizer=normalizer,
+            world_seed=seed,
+            turns=turns,
+            reset_options=reset_options,
+            personality=personality,
+            labor_bridge_factory=labor_bridge_factory,
+            heuristic_bridge_factory=heuristic_bridge_factory,
+            economic_trace=economic_trace,
+        )
+        for seed in worlds
+    ]
     if economic_trace is not None:
         economic_trace.close()
+    dataset = _finish_dataset(collections, turns)
+    dataset["collection"]["reset_options"] = (reset_options or LaborResetOptions()).state_dict()
     return dataset
+
+
+# ---------------------------------------------------------------------------
+# Loss
+# ---------------------------------------------------------------------------
+
+
+def masked_allocation_cross_entropy(
+    logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    """-sum_i target_i log softmax_mask(logits)_i over legal coordinates only.
+
+    Uses a stable masked log-softmax (no probability clamp), so a
+    positive-target coordinate keeps its corrective gradient however small its
+    probability. Rows with no legal coordinate return zero.
+    """
+    if logits.shape != target.shape or logits.shape != mask.shape:
+        raise ValueError("allocation logits, targets and masks must share a shape")
+    has_legal = mask.any(dim=-1, keepdim=True)
+    safe_mask = mask | ~has_legal
+    log_probs = torch.log_softmax(logits.masked_fill(~safe_mask, -torch.inf), dim=-1)
+    log_probs = log_probs.masked_fill(~mask, 0.0)
+    return -(target.masked_fill(~mask, 0.0) * log_probs).sum(dim=-1)
+
+
+def _weighted_mean(values: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
+    weights = weights.to(values.dtype)
+    return (values * weights).sum() / weights.sum().clamp(min=1e-12)
 
 
 def _batch_loss_and_l1(
@@ -771,103 +1192,133 @@ def _batch_loss_and_l1(
     label_smoothing: float = 1e-6,
     spec_weights: torch.Tensor | None = None,
     act_weights: torch.Tensor | None = None,
-) -> tuple[torch.Tensor, float, float]:
+) -> tuple[torch.Tensor, float, float, dict[str, float]]:
     B = len(batch_tensors["target_specialty"])
     output = actor(batch_tensors)
     spec_mask, act_mask = _masks(batch_tensors, B)
+    device = output["specialty_logits"].device
 
-    # 1. Specialty loss
+    def flag(name: str, shape: tuple[int, ...]) -> torch.Tensor:
+        value = batch_tensors.get(name)
+        if value is None:
+            return torch.ones(shape, dtype=torch.bool, device=device)
+        return value.to(device).reshape(shape).bool()
+
+    row_weight = batch_tensors.get("row_weight")
+    row_weight = (
+        torch.ones(B, dtype=torch.float32, device=device)
+        if row_weight is None
+        else row_weight.to(device).reshape(B).float()
+    )
+    if "row_quarantined" in batch_tensors:
+        row_weight = row_weight * (~flag("row_quarantined", (B,))).float()
+    spec_valid = flag("label_specialty_valid", (B,))
+    role_valid = flag("label_activity_role_valid", (B, act_mask.shape[1]))
+
+    # 1. Specialty loss (stable masked log-softmax).
     pred_spec = _masked_softmax(output["specialty_logits"], spec_mask)
-    uniform_spec = spec_mask.float() / spec_mask.float().sum(
-        dim=-1, keepdim=True
-    ).clamp(min=1.0)
+    uniform_spec = spec_mask.float() / spec_mask.float().sum(dim=-1, keepdim=True).clamp(min=1.0)
     target_spec = batch_tensors["target_specialty"]
     smoothed_target_spec = (1.0 - label_smoothing) * target_spec + label_smoothing * uniform_spec
-    spec_ce = -(smoothed_target_spec * torch.log(pred_spec.clamp(min=1e-12))).sum(
-        dim=-1
+    spec_ce = masked_allocation_cross_entropy(
+        output["specialty_logits"], smoothed_target_spec, spec_mask
     )
+    spec_row_w = row_weight * spec_valid.float()
     if spec_weights is not None:
-        sw = spec_weights.to(pred_spec.device)
-        row_spec_w = (target_spec * sw).sum(dim=-1).detach()
-        spec_loss = (spec_ce * row_spec_w).sum() / row_spec_w.sum().clamp(min=1e-6)
-    else:
-        spec_loss = spec_ce.mean()
+        sw = spec_weights.to(device)
+        spec_row_w = spec_row_w * (target_spec * sw).sum(dim=-1).detach()
+    spec_loss = _weighted_mean(spec_ce, spec_row_w)
     gauge_anchor_spec = 0.01 * (output["specialty_logits"][:, 0] ** 2).mean()
     total_spec_loss = spec_loss + gauge_anchor_spec
-    spec_l1 = (
-        (torch.abs(pred_spec - target_spec) * spec_mask.float())
-        .sum(dim=-1)
-        .mean()
-        .item()
-    )
+    spec_l1_rows = (torch.abs(pred_spec - target_spec) * spec_mask.float()).sum(dim=-1)
+    spec_l1 = float(_weighted_mean(spec_l1_rows, row_weight * spec_valid.float()).item())
 
-    # 2. Activity loss
+    # 2. Activity loss: sum_r (n_r/P) CE_r per row, reduced over weighted rows.
     pred_act = _masked_softmax(output["activity_logits"], act_mask)
-    uniform_act = act_mask.float() / act_mask.float().sum(dim=-1, keepdim=True).clamp(
-        min=1.0
-    )
+    uniform_act = act_mask.float() / act_mask.float().sum(dim=-1, keepdim=True).clamp(min=1.0)
     target_act = batch_tensors["target_activity"]
     smoothed_target_act = (1.0 - label_smoothing) * target_act + label_smoothing * uniform_act
-    act_role_ce = -(smoothed_target_act * torch.log(pred_act.clamp(min=1e-12))).sum(
-        dim=-1
+    act_role_ce = masked_allocation_cross_entropy(
+        output["activity_logits"], smoothed_target_act, act_mask
     )  # (B, 13)
-    legal_roles = act_mask.any(dim=-1)  # (B, 13)
-    if act_weights is not None:
-        aw = act_weights.to(pred_act.device)
-        role_act_w = (target_act * aw).sum(dim=-1).detach()
-    else:
-        role_act_w = torch.ones_like(act_role_ce)
-    base_role_weights = (target_spec[:, 1:] + inactive_role_weight) * legal_roles.float()
-    role_weights = base_role_weights * role_act_w
-    act_loss = (act_role_ce * role_weights).sum() / role_weights.sum().clamp(min=1e-6)
+    legal_roles = act_mask.any(dim=-1)
+    role_act_w = (
+        (target_act * act_weights.to(device)).sum(dim=-1).detach()
+        if act_weights is not None
+        else torch.ones_like(act_role_ce)
+    )
+    base_role_weights = (
+        (target_spec[:, 1:] + inactive_role_weight)
+        * legal_roles.float()
+        * role_valid.float()
+        * spec_valid.float().unsqueeze(-1)
+    )
+    act_row = (act_role_ce * base_role_weights * role_act_w).sum(dim=-1)
+    act_row_w = row_weight * (base_role_weights.sum(dim=-1) > 0).float()
+    act_loss = _weighted_mean(act_row, act_row_w)
     gauge_anchor_act = 0.01 * (output["activity_logits"][..., 0] ** 2).mean()
     total_act_loss = act_loss + gauge_anchor_act
     act_role_l1 = (torch.abs(pred_act - target_act) * act_mask.float()).sum(dim=-1)
-    act_l1 = (
-        ((act_role_l1 * base_role_weights).sum() / base_role_weights.sum().clamp(min=1e-6)).item()
+    act_l1 = float(
+        (
+            (act_role_l1 * base_role_weights * row_weight.unsqueeze(-1)).sum()
+            / (base_role_weights * row_weight.unsqueeze(-1)).sum().clamp(min=1e-6)
+        ).item()
     )
 
-    # 3. Log std regularization
+    # 3. Log std regularization (unchanged prototype objective).
     target_std_val = float(target_log_std)
     spec_std_loss = ((output["specialty_log_std"] - target_std_val) ** 2)[spec_mask].mean()
     act_std_loss = ((output["activity_log_std"] - target_std_val) ** 2)[act_mask].mean()
     std_reg_loss = spec_std_loss + act_std_loss
 
-    # 4. Movement loss
+    # 4. Movement: unmatched or illegal targets are invalid, never index zero.
     codes = output["movement_codes"]
-    target_codes = batch_tensors["target_movement_code"]
+    target_codes = batch_tensors["target_movement_code"].to(device).reshape(B)
     union_mask = output["movement_union_mask"]
-    target_idx = torch.zeros(B, dtype=torch.long, device=codes.device)
-    for b in range(B):
-        matches = (codes == target_codes[b]).nonzero(as_tuple=True)[0]
-        if len(matches) > 0 and union_mask[b, matches[0]]:
-            target_idx[b] = matches[0]
-        else:
-            target_idx[b] = 0
-    masked_movement_logits = output["movement_union_logits"].masked_fill(
-        ~union_mask, -1e9
+    matches = codes.unsqueeze(0) == target_codes.unsqueeze(1)  # (B, K)
+    matched = matches.any(dim=1)
+    target_idx = matches.float().argmax(dim=1)
+    legal_target = union_mask.gather(1, target_idx.unsqueeze(1)).squeeze(1) & matched
+    move_valid = flag("label_movement_valid", (B,)) & legal_target
+    masked_movement_logits = output["movement_union_logits"].masked_fill(~union_mask, -1e9)
+    move_ce = F.cross_entropy(masked_movement_logits, target_idx, reduction="none")
+    move_w = row_weight * move_valid.float()
+    move_loss = _weighted_mean(move_ce, move_w)
+
+    # 5. Fission loss.
+    fission_ce = F.cross_entropy(
+        output["fission"], batch_tensors["target_fission"].to(device).reshape(B), reduction="none"
     )
-    move_loss = F.cross_entropy(masked_movement_logits, target_idx)
+    fission_w = row_weight * flag("label_fission_valid", (B,)).float()
+    fission_loss = _weighted_mean(fission_ce, fission_w)
 
-    # 5. Fission loss
-    fission_loss = F.cross_entropy(output["fission"], batch_tensors["target_fission"])
+    # 6. Trade gates: every valid gate (including inactive gates), averaged per row.
+    groups = len(contracts.TRADE_GROUPS)
+    gate_logits = output["trade_gate"].view(B * groups, contracts.TRADE_GATES)
+    gate_targets = batch_tensors["target_trade_gate"].to(device).view(-1)
+    gate_ce = F.cross_entropy(gate_logits, gate_targets, reduction="none").view(B, groups)
+    gate_valid = flag("label_trade_gate_valid", (B, groups)).float()
+    gate_row = (gate_ce * gate_valid).sum(dim=-1) / gate_valid.sum(dim=-1).clamp(min=1.0)
+    gate_w = row_weight * (gate_valid.sum(dim=-1) > 0).float()
+    trade_gate_loss = _weighted_mean(gate_row, gate_w)
 
-    # 6. Trade gate loss
-    gate_logits = output["trade_gate"].view(-1, contracts.TRADE_GATES)
-    gate_targets = batch_tensors["target_trade_gate"].view(-1)
-    trade_gate_loss = F.cross_entropy(gate_logits, gate_targets)
-
-    # 7. Trade value loss
-    tv_mean_loss = (
-        (output["trade_value_mean"] - batch_tensors["target_trade_value_latent"]) ** 2
-    ).mean()
+    # 7. Trade values: valid active groups only.
+    value_active = flag("label_trade_value_active", (B, groups)).float()
+    tv_err = (output["trade_value_mean"] - batch_tensors["target_trade_value_latent"].to(device)) ** 2
+    tv_row = (tv_err * value_active).sum(dim=-1) / value_active.sum(dim=-1).clamp(min=1.0)
+    tv_w = row_weight * (value_active.sum(dim=-1) > 0).float()
+    tv_mean_loss = _weighted_mean(tv_row, tv_w)
     tv_std_loss = ((output["trade_value_log_std"] - (-1.5)) ** 2).mean()
     trade_value_loss = tv_mean_loss + tv_std_loss
 
-    # 8. Trade share loss
-    ts_mean_loss = (
-        (output["trade_share_mean"] - batch_tensors["target_trade_share_latent"]) ** 2
-    ).mean()
+    # 8. Trade share: only when at least one valid gate is active.
+    share_active = flag("label_trade_share_active", (B,)).float()
+    ts_err = (
+        output["trade_share_mean"].reshape(B)
+        - batch_tensors["target_trade_share_latent"].to(device).reshape(B)
+    ) ** 2
+    ts_mean_loss = _weighted_mean(ts_err, row_weight * share_active)
     ts_std_loss = ((output["trade_share_log_std"] - (-1.5)) ** 2).mean()
     trade_share_loss = ts_mean_loss + ts_std_loss
 
@@ -881,7 +1332,25 @@ def _batch_loss_and_l1(
         + trade_value_loss
         + trade_share_loss
     )
-    return total_loss, spec_l1, act_l1
+    components = {
+        "specialty": float(spec_loss.detach()),
+        "activity": float(act_loss.detach()),
+        "std_regularization": float(std_reg_loss.detach()),
+        "movement": float(move_loss.detach()),
+        "fission": float(fission_loss.detach()),
+        "trade_gate": float(trade_gate_loss.detach()),
+        "trade_value": float(tv_mean_loss.detach()),
+        "trade_share": float(ts_mean_loss.detach()),
+        "count_specialty": float((spec_row_w > 0).sum()),
+        "count_activity_rows": float((act_row_w > 0).sum()),
+        "count_movement": float((move_w > 0).sum()),
+        "count_fission": float((fission_w > 0).sum()),
+        "count_trade_gate_rows": float((gate_w > 0).sum()),
+        "count_trade_value_rows": float((tv_w > 0).sum()),
+        "count_trade_share": float(((row_weight * share_active) > 0).sum()),
+        "weight_specialty": float(spec_row_w.sum()),
+    }
+    return total_loss, spec_l1, act_l1, components
 
 
 def _evaluate_dataset(
@@ -894,23 +1363,22 @@ def _evaluate_dataset(
     label_smoothing: float = 1e-6,
     spec_weights: torch.Tensor | None = None,
     act_weights: torch.Tensor | None = None,
-) -> tuple[float, float, float]:
+) -> tuple[float, float, float, dict[str, float]]:
     actor.eval()
-    tensor_keys = [
-        k for k, v in dataset.items() if isinstance(v, torch.Tensor)
-    ]
+    tensor_keys = [k for k, v in dataset.items() if isinstance(v, torch.Tensor)]
     N = dataset["target_specialty"].shape[0]
     total_loss_sum = 0.0
     spec_l1_sum = 0.0
     act_l1_sum = 0.0
     total_count = 0
+    component_sums: dict[str, float] = defaultdict(float)
 
     with torch.no_grad():
         for start in range(0, N, batch_size):
             end = min(N, start + batch_size)
             batch = {k: dataset[k][start:end] for k in tensor_keys}
             count = end - start
-            loss, spec_l1, act_l1 = _batch_loss_and_l1(
+            loss, spec_l1, act_l1, components = _batch_loss_and_l1(
                 actor,
                 batch,
                 target_log_std=target_log_std,
@@ -923,11 +1391,19 @@ def _evaluate_dataset(
             spec_l1_sum += spec_l1 * count
             act_l1_sum += act_l1 * count
             total_count += count
+            for key, value in components.items():
+                component_sums[key] += value * (1 if key.startswith(("count_", "weight_")) else count)
 
+    denominator = max(1, total_count)
+    components = {
+        key: (value if key.startswith(("count_", "weight_")) else value / denominator)
+        for key, value in component_sums.items()
+    }
     return (
-        total_loss_sum / max(1, total_count),
-        spec_l1_sum / max(1, total_count),
-        act_l1_sum / max(1, total_count),
+        total_loss_sum / denominator,
+        spec_l1_sum / denominator,
+        act_l1_sum / denominator,
+        components,
     )
 
 
@@ -953,35 +1429,41 @@ def pretrain_labor_actor_bc(
     if N == 0:
         raise ValueError("cannot pretrain on empty dataset")
 
-    opt = (
-        optimizer
-        if optimizer is not None
-        else torch.optim.Adam(actor.parameters(), lr=lr)
-    )
+    opt = optimizer if optimizer is not None else torch.optim.Adam(actor.parameters(), lr=lr)
     generator = rng if rng is not None else np.random.default_rng(0)
     tensor_keys = [k for k, v in dataset.items() if isinstance(v, torch.Tensor)]
 
     spec_weights: torch.Tensor | None = None
     act_weights: torch.Tensor | None = None
     if inverse_freq_power > 0.0:
-        mean_spec = dataset["target_specialty"].mean(dim=0)
+        valid = dataset.get("label_specialty_valid")
+        keep = (
+            torch.ones(N, dtype=torch.bool)
+            if valid is None
+            else valid.reshape(N).bool()
+        )
+        if "row_quarantined" in dataset:
+            keep = keep & ~dataset["row_quarantined"].reshape(N).bool()
+        if not bool(keep.any()):
+            keep = torch.ones(N, dtype=torch.bool)
+        mean_spec = dataset["target_specialty"][keep].mean(dim=0)
         spec_weights = (mean_spec + 0.02).pow(-inverse_freq_power)
         spec_weights = spec_weights / spec_weights.mean().clamp(min=1e-8)
 
-        mean_act = dataset["target_activity"].mean(dim=0)
+        mean_act = dataset["target_activity"][keep].mean(dim=0)
         act_weights = (mean_act + 0.02).pow(-inverse_freq_power)
         act_weights = act_weights / act_weights.mean().clamp(min=1e-8)
 
-    # Compute baseline metrics before training
-    init_loss, spec_l1_before, act_l1_before = _evaluate_dataset(
-        actor,
-        dataset,
-        batch_size=batch_size,
-        target_log_std=target_log_std,
-        inactive_role_weight=inactive_role_weight,
-        label_smoothing=label_smoothing,
-        spec_weights=spec_weights,
-        act_weights=act_weights,
+    evaluation = {
+        "batch_size": batch_size,
+        "target_log_std": target_log_std,
+        "inactive_role_weight": inactive_role_weight,
+        "label_smoothing": label_smoothing,
+        "spec_weights": spec_weights,
+        "act_weights": act_weights,
+    }
+    init_loss, spec_l1_before, act_l1_before, components_before = _evaluate_dataset(
+        actor, dataset, **evaluation
     )
 
     actor.train()
@@ -992,7 +1474,7 @@ def pretrain_labor_actor_bc(
             batch_idx = torch.as_tensor(indices[start:end], dtype=torch.long)
             batch = {k: dataset[k][batch_idx] for k in tensor_keys}
 
-            loss, _, _ = _batch_loss_and_l1(
+            loss, _, _, _ = _batch_loss_and_l1(
                 actor,
                 batch,
                 target_log_std=target_log_std,
@@ -1001,20 +1483,15 @@ def pretrain_labor_actor_bc(
                 spec_weights=spec_weights,
                 act_weights=act_weights,
             )
+            if not torch.isfinite(loss):
+                raise ValueError("labor BC produced a nonfinite loss")
             opt.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(actor.parameters(), max_grad_norm)
             opt.step()
 
-    final_loss, spec_l1_after, act_l1_after = _evaluate_dataset(
-        actor,
-        dataset,
-        batch_size=batch_size,
-        target_log_std=target_log_std,
-        inactive_role_weight=inactive_role_weight,
-        label_smoothing=label_smoothing,
-        spec_weights=spec_weights,
-        act_weights=act_weights,
+    final_loss, spec_l1_after, act_l1_after, components_after = _evaluate_dataset(
+        actor, dataset, **evaluation
     )
 
     return {
@@ -1027,10 +1504,104 @@ def pretrain_labor_actor_bc(
         "specialty_l1_after": float(spec_l1_after),
         "activity_l1_before": float(act_l1_before),
         "activity_l1_after": float(act_l1_after),
+        "components_before": components_before,
+        "components_after": components_after,
         "inactive_role_weight": float(inactive_role_weight),
         "label_smoothing": float(label_smoothing),
         "inverse_freq_power": float(inverse_freq_power),
         "collection": copy.deepcopy(dataset.get("collection", {})),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Critic pretraining on heuristic returns
+# ---------------------------------------------------------------------------
+
+
+def pretrain_critic_on_dataset(
+    *,
+    task_critic: LaborTaskCritic,
+    cost_critics: LaborCostCritics,
+    dataset: Mapping[str, Any],
+    epochs: int = 50,
+    batch_size: int = 64,
+    lr: float = 1e-3,
+    max_grad_norm: float = 1.0,
+    rng: np.random.Generator | None = None,
+) -> dict[str, Any]:
+    """Fit task/cost critics on truncated heuristic returns, world-balanced.
+
+    Returns are computed over every row of each (world, camp) trajectory;
+    rows whose initial recommendation was rejected (an idle retry executed)
+    are excluded from fitting because their continuation is not the
+    heuristic's. Minibatches are drawn with world-balanced probabilities.
+    """
+    returns = discounted_returns(dataset)
+    n = int(dataset["row_world"].shape[0])
+    keep = ~dataset["row_quarantined"].reshape(n).bool()
+    if not bool(keep.any()):
+        raise ValueError("heuristic critic dataset has no admitted rows")
+    kept = torch.nonzero(keep).reshape(-1)
+    tensor_keys = [
+        k
+        for k, v in dataset.items()
+        if isinstance(v, torch.Tensor) and not k.startswith(("target_", "label_", "reward_", "transition_", "row_"))
+    ]
+    tensors = {k: dataset[k][kept] for k in tensor_keys}
+    task_targets = {name: returns[name][kept] for name in LABOR_OBJECTIVES}
+    cost_targets = {name: returns[name][kept] for name in LABOR_COSTS}
+    weights = world_balanced_weights(dataset["row_world"][kept]).double().numpy()
+    probabilities = weights / weights.sum()
+    N = len(kept)
+
+    critic_params = list(task_critic.parameters()) + list(cost_critics.parameters())
+    optimizer = torch.optim.Adam(critic_params, lr=lr)
+
+    def losses(index: torch.Tensor | None = None) -> tuple[float, float]:
+        with torch.no_grad():
+            select = (lambda v: v) if index is None else (lambda v: v[index])
+            t = {k: select(v) for k, v in tensors.items()}
+            return (
+                float(labor_task_value_loss(task_critic, t, {k: select(v) for k, v in task_targets.items()})),
+                float(labor_cost_value_loss(cost_critics, t, {k: select(v) for k, v in cost_targets.items()})),
+            )
+
+    init_task, init_cost = losses()
+    generator = rng if rng is not None else np.random.default_rng(0)
+    for _ in range(epochs):
+        draws = generator.choice(N, size=N, replace=True, p=probabilities)
+        for start in range(0, N, batch_size):
+            batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
+            b_tensors = {k: v[batch_idx] for k, v in tensors.items()}
+            optimizer.zero_grad()
+            loss = labor_task_value_loss(
+                task_critic, b_tensors, {k: v[batch_idx] for k, v in task_targets.items()}
+            ) + labor_cost_value_loss(
+                cost_critics, b_tensors, {k: v[batch_idx] for k, v in cost_targets.items()}
+            )
+            if not torch.isfinite(loss):
+                raise ValueError("heuristic critic pretraining produced a nonfinite loss")
+            loss.backward()
+            nn.utils.clip_grad_norm_(critic_params, max_grad_norm)
+            optimizer.step()
+    final_task, final_cost = losses()
+    collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
+    return {
+        "contract": LABOR_CRITIC_CONTRACT,
+        "epochs": int(epochs),
+        "rows": int(N),
+        "excluded_quarantined_rows": int(n - N),
+        "initial_loss": init_task + init_cost,
+        "final_loss": final_task + final_cost,
+        "initial_task_loss": init_task,
+        "final_task_loss": final_task,
+        "initial_cost_loss": init_cost,
+        "final_cost_loss": final_cost,
+        "world_seeds": list(collection.get("world_seeds", [])),
+        "turns": int(collection.get("turns", 0)),
+        "return_tail": "truncated-zero-at-collection-horizon",
+        "sampling": "world-balanced-with-replacement",
+        "discount_days": CRITIC_DISCOUNT_DAYS,
     }
 
 
@@ -1050,8 +1621,9 @@ def pretrain_critic_on_heuristic_next_states(
     labor_bridge_factory: Any = LaborModel9Bridge,
     heuristic_bridge_factory: Any = None,
     allow_vm_scale: bool = False,
+    reset_options: LaborResetOptions | None = None,
 ) -> dict[str, Any]:
-    """Train value critics directly on heuristic next-state discounted returns."""
+    """Collect heuristic trajectories and train value critics on their returns."""
     worlds = checked_seeds(list(world_seeds), "labor heuristic critic worlds")
     scan({"worldSeeds": worlds}, "labor heuristic critic worlds")
     if not allow_vm_scale and len(worlds) > 3:
@@ -1060,258 +1632,25 @@ def pretrain_critic_on_heuristic_next_states(
         raise ValueError("world seeds cannot be empty")
     if turns < 1:
         raise ValueError("turns must be >= 1")
-
-    from .labor_training import _settlement_guard, _transition_rewards
-
-    declared_personality = LaborPersonality() if personality is None else personality
-    heur_factory = heuristic_bridge_factory or (
-        lambda: Model9Bridge(economic_diagnostics=True)
+    dataset = collect_heuristic_bc_dataset(
+        normalizer=normalizer,
+        world_seeds=worlds,
+        turns=turns,
+        personality=personality,
+        labor_bridge_factory=labor_bridge_factory,
+        heuristic_bridge_factory=heuristic_bridge_factory,
+        allow_vm_scale=allow_vm_scale,
+        reset_options=reset_options,
     )
-
-    all_tensors_by_camp: dict[tuple[int, int], list[dict[str, torch.Tensor]]] = defaultdict(list)
-    all_rewards_by_camp: dict[tuple[int, int], list[dict[str, float]]] = defaultdict(list)
-    all_elapsed_by_camp: dict[tuple[int, int], list[float]] = defaultdict(list)
-    all_terminal_by_camp: dict[tuple[int, int], list[bool]] = defaultdict(list)
-
-    for seed in worlds:
-        with labor_bridge_factory() as labor_bridge, heur_factory() as heur_bridge:
-            step = labor_bridge.reset(seed)
-            founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
-            for _ in range(turns):
-                live = [
-                    v
-                    for v in step["villages"]
-                    if v.get("observation") is not None and not v.get("terminated")
-                ]
-                if not live:
-                    break
-                contexts, tensors = labor_policy_tensors(
-                    live, normalizer, personality=declared_personality
-                )
-                catalogs = {context[0].camp_id: context[0] for context in contexts}
-
-                # Shadow heuristic step to extract heuristic action
-                snap = labor_bridge._bridge.capture()
-                heur_bridge.reset(seed, snapshot=snap)
-                h_step = heur_bridge.step({})
-                h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
-                econ_by_camp = h_step.get("economicDiagnostics") or {}
-
-                retained: dict[int, RetainedLaborAction] = {}
-                row_by_camp: dict[int, int] = {}
-                for row, (village, context) in enumerate(zip(live, contexts, strict=True)):
-                    camp = int(village["camp"])
-                    row_by_camp[camp] = row
-                    catalog = context[0]
-                    h_v = h_villages.get(camp, {})
-                    econ = econ_by_camp.get(str(camp))
-                    spec_target, act_target, schema12_action = (
-                        extract_heuristic_labor_action(catalog, h_v, econ)
-                    )
-                    tv = [math.log(max(1e-4, float(x))) for x in schema12_action["tradeValue"]]
-                    ts = float(schema12_action["tradeShare"])
-                    ts_clamped = float(np.clip(ts, 1e-4, 1.0 - 1e-4))
-                    retained[camp] = RetainedLaborAction(
-                        payload=schema12_action,
-                        labor_sample={
-                            "specialty_allocation": torch.as_tensor(
-                                spec_target, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "activity_allocation": torch.as_tensor(
-                                act_target, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "specialty_latent": torch.zeros((1, 14), dtype=torch.float32),
-                            "activity_latent": torch.zeros((1, 13, 22), dtype=torch.float32),
-                            "specialty_mask": torch.tensor(
-                                [catalog.masks.specialty], dtype=torch.bool
-                            ),
-                            "activity_mask": torch.tensor(
-                                [catalog.masks.activity], dtype=torch.bool
-                            ),
-                        },
-                        behavior_labor_logp=0.0,
-                        nonlabor_sample={
-                            "movement_index": torch.tensor([0], dtype=torch.long),
-                            "movement": torch.tensor(
-                                [int(schema12_action["movement"])], dtype=torch.long
-                            ),
-                            "fission": torch.tensor(
-                                [int(schema12_action["fission"])], dtype=torch.long
-                            ),
-                            "trade_value_latent": torch.tensor(
-                                tv, dtype=torch.float32
-                            ).unsqueeze(0),
-                            "trade_gate": torch.tensor(
-                                [int(x) for x in schema12_action["tradeGate"]],
-                                dtype=torch.long,
-                            ).unsqueeze(0),
-                            "trade_share_latent": torch.tensor(
-                                [math.log(ts_clamped / (1.0 - ts_clamped))],
-                                dtype=torch.float32,
-                            ),
-                            "movement_mask": tensors["movement_mask"][row : row + 1],
-                            "movement_codes": torch.tensor([-1], dtype=torch.long),
-                        },
-                        behavior_nonlabor_logp=0.0,
-                    )
-
-                def retry_factory(
-                    camp: int, catalog: LaborCatalog, attempt: LaborAttempt
-                ) -> RetainedLaborAction:
-                    idle_spec = np.zeros(14, dtype=np.float64)
-                    idle_spec[0] = 1.0
-                    idle_act = np.zeros((13, 22), dtype=np.float64)
-                    idle_act[:, 0] = 1.0
-                    safe_sample = LaborPolicySample(
-                        tuple(idle_spec), tuple(tuple(r) for r in idle_act)
-                    )
-                    return RetainedLaborAction(
-                        payload=safe_sample.payload(),
-                        labor_sample={
-                            "specialty_allocation": torch.as_tensor(
-                                idle_spec, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "activity_allocation": torch.as_tensor(
-                                idle_act, dtype=torch.float64
-                            ).unsqueeze(0),
-                            "specialty_latent": torch.zeros((1, 14), dtype=torch.float32),
-                            "activity_latent": torch.zeros(
-                                (1, 13, 22), dtype=torch.float32
-                            ),
-                            "specialty_mask": torch.tensor(
-                                [catalog.masks.specialty], dtype=torch.bool
-                            ),
-                            "activity_mask": torch.tensor(
-                                [catalog.masks.activity], dtype=torch.bool
-                            ),
-                        },
-                        behavior_labor_logp=0.0,
-                        nonlabor_sample=None,
-                        behavior_nonlabor_logp=None,
-                    )
-
-                execution = execute_labor_decision(
-                    labor_bridge, catalogs, retained, retry_factory
-                )
-                next_step = execution.step
-                rewards, terminal, elapsed = _transition_rewards(
-                    next_step,
-                    tuple(catalogs),
-                    founded,
-                    world_index=0,
-                    decision_turn=int(step["turn"]),
-                )
-                outcomes = {int(village["camp"]): village for village in next_step["villages"]}
-
-                for camp in catalogs:
-                    row = row_by_camp[camp]
-                    camp_key = (seed, camp)
-                    all_tensors_by_camp[camp_key].append(_one_row(tensors, row))
-                    outcome = outcomes[camp]
-                    feas = float(execution.initial_attempts[camp].feasibility_cost)
-                    guard = _settlement_guard(
-                        outcome, founded.get(camp, int(step["turn"])), int(next_step["turn"])
-                    )
-                    all_rewards_by_camp[camp_key].append(
-                        {
-                            "qol_years": rewards[camp]["qol_years"],
-                            "population_years": rewards[camp]["population_years"],
-                            "feasibility": feas,
-                            "settlement_guard": guard,
-                        }
-                    )
-                    all_elapsed_by_camp[camp_key].append(elapsed[camp])
-                    all_terminal_by_camp[camp_key].append(terminal[camp])
-
-                step = next_step
-
-    dataset_tensor_rows: list[dict[str, torch.Tensor]] = []
-    task_targets_list: dict[str, list[float]] = {"qol_years": [], "population_years": []}
-    cost_targets_list: dict[str, list[float]] = {"feasibility": [], "settlement_guard": []}
-
-    for camp_key, camp_tensors in all_tensors_by_camp.items():
-        T = len(camp_tensors)
-        camp_rewards = all_rewards_by_camp[camp_key]
-        camp_elapsed = all_elapsed_by_camp[camp_key]
-        camp_terminal = all_terminal_by_camp[camp_key]
-
-        returns = {name: [0.0] * T for name in (*LABOR_OBJECTIVES, *LABOR_COSTS)}
-        running = {name: 0.0 for name in (*LABOR_OBJECTIVES, *LABOR_COSTS)}
-
-        for t in reversed(range(T)):
-            gamma = math.exp(-camp_elapsed[t] / 400.0)
-            if camp_terminal[t]:
-                running = {name: 0.0 for name in (*LABOR_OBJECTIVES, *LABOR_COSTS)}
-            for name in (*LABOR_OBJECTIVES, *LABOR_COSTS):
-                running[name] = camp_rewards[t][name] + gamma * running[name]
-                returns[name][t] = running[name]
-
-        for t in range(T):
-            dataset_tensor_rows.append(camp_tensors[t])
-            task_targets_list["qol_years"].append(returns["qol_years"][t])
-            task_targets_list["population_years"].append(returns["population_years"][t])
-            cost_targets_list["feasibility"].append(returns["feasibility"][t])
-            cost_targets_list["settlement_guard"].append(returns["settlement_guard"][t])
-
-    if not dataset_tensor_rows:
-        raise ValueError("heuristic critic collection produced zero training rows")
-
-    dataset_tensors = _concat(dataset_tensor_rows, "heuristic critic dataset")
-    task_targets = {
-        name: torch.tensor(vals, dtype=torch.float32)
-        for name, vals in task_targets_list.items()
-    }
-    cost_targets = {
-        name: torch.tensor(vals, dtype=torch.float32)
-        for name, vals in cost_targets_list.items()
-    }
-    N = len(task_targets["qol_years"])
-
-    critic_params = list(task_critic.parameters()) + list(cost_critics.parameters())
-    optimizer = torch.optim.Adam(critic_params, lr=lr)
-
-    with torch.no_grad():
-        init_td_task = float(
-            labor_task_value_loss(task_critic, dataset_tensors, task_targets).detach()
-        )
-        init_td_cost = float(
-            labor_cost_value_loss(cost_critics, dataset_tensors, cost_targets).detach()
-        )
-        init_loss = init_td_task + init_td_cost
-
-    generator = rng if rng is not None else np.random.default_rng(0)
-    for _ in range(epochs):
-        perm = generator.permutation(N)
-        for start in range(0, N, batch_size):
-            end = min(N, start + batch_size)
-            batch_idx = torch.as_tensor(perm[start:end], dtype=torch.long)
-            b_tensors = {k: v[batch_idx] for k, v in dataset_tensors.items()}
-            b_task = {k: v[batch_idx] for k, v in task_targets.items()}
-            b_cost = {k: v[batch_idx] for k, v in cost_targets.items()}
-
-            optimizer.zero_grad()
-            td_t = labor_task_value_loss(task_critic, b_tensors, b_task)
-            td_c = labor_cost_value_loss(cost_critics, b_tensors, b_cost)
-            loss = td_t + td_c
-            loss.backward()
-            nn.utils.clip_grad_norm_(critic_params, max_grad_norm)
-            optimizer.step()
-
-    with torch.no_grad():
-        final_td_task = float(
-            labor_task_value_loss(task_critic, dataset_tensors, task_targets).detach()
-        )
-        final_td_cost = float(
-            labor_cost_value_loss(cost_critics, dataset_tensors, cost_targets).detach()
-        )
-        final_loss = final_td_task + final_td_cost
-
-    return {
-        "contract": "model9-heuristic-critic-pretraining-v1",
-        "epochs": int(epochs),
-        "rows": int(N),
-        "initial_loss": float(init_loss),
-        "final_loss": float(final_loss),
-        "world_seeds": list(worlds),
-        "turns": int(turns),
-    }
+    summary = pretrain_critic_on_dataset(
+        task_critic=task_critic,
+        cost_critics=cost_critics,
+        dataset=dataset,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        max_grad_norm=max_grad_norm,
+        rng=rng,
+    )
+    summary["reset_options"] = (reset_options or LaborResetOptions()).state_dict()
+    return summary

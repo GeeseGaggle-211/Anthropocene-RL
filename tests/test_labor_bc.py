@@ -11,6 +11,7 @@ from anthropocene_rl.autonomous_v7.bridge import observation_batch
 from anthropocene_rl.autonomous_v7.labor_bc import (
     LABOR_BC_CONTRACT,
     collect_heuristic_bc_dataset,
+    convert_heuristic_labor_label,
     extract_heuristic_labor_action,
     pretrain_labor_actor_bc,
 )
@@ -124,6 +125,12 @@ def test_extract_heuristic_labor_action_synthetic_domains() -> None:
             "herding": {
                 "plannedHerderYears": 20.0,
                 "coveredHerderYears": 20.0,
+                "assignedHerderResidents": 2.0,
+                "managementHerderResidents": 1.0,
+                "developmentHerderResidents": 1.0,
+                "managementHerderWorkerYears": 20.0,
+                "developmentHerderWorkerYears": 20.0,
+                "assignedHerderWorkerYears": 40.0,
                 "funnels": [
                     {
                         "metric": "herdDevelopment",
@@ -170,15 +177,27 @@ def test_extract_heuristic_labor_action_synthetic_domains() -> None:
     assert math.isclose(act[3, 9], 0.50, abs_tol=1e-4)
     assert math.isclose(act[3, 10], 0.50, abs_tol=1e-4)
 
-    # Toolmaker activity: act 11 (HandTools) = 10 wy (2/3), act 12 (Pots) = 5 wy (1/3)
-    assert math.isclose(act[5, 11], 10.0 / 15.0, abs_tol=1e-4)
-    assert math.isclose(act[5, 12], 5.0 / 15.0, abs_tol=1e-4)
+    # Toolmaker: one worker over 20 years with 10 and 5 worker-years keeps its
+    # unused time as role idle (0.50 / 0.25 / idle 0.25), not 2/3 and 1/3.
+    assert math.isclose(act[5, 11], 0.50, abs_tol=1e-9)
+    assert math.isclose(act[5, 12], 0.25, abs_tol=1e-9)
+    assert math.isclose(act[5, 0], 0.25, abs_tol=1e-9)
 
-    # Woodcutter: act 4 (stock.wood) = 1.0
-    assert math.isclose(act[10, 4], 1.0, abs_tol=1e-4)
+    # Woodcutter: 4 of 20 worker-years on stock.wood, the rest idle
+    assert math.isclose(act[10, 4], 0.20, abs_tol=1e-9)
+    assert math.isclose(act[10, 0], 0.80, abs_tol=1e-9)
 
-    # Stonecutter: act 2 (stock.stone) = 1.0
-    assert math.isclose(act[11, 2], 1.0, abs_tol=1e-4)
+    # Stonecutter: 6 of 20 worker-years on stock.stone
+    assert math.isclose(act[11, 2], 0.30, abs_tol=1e-9)
+    assert math.isclose(act[11, 0], 0.70, abs_tol=1e-9)
+
+    # Unstaffed roles emit canonical role idle (masked out of the activity loss)
+    assert act[4, 0] == 1.0  # Craftsperson has no staff
+
+    label = convert_heuristic_labor_label(catalog, village_heur, econ_diag)
+    assert label.specialty_valid and not label.over_budget, label.reasons
+    assert label.specialty_counts.sum() == 100
+    assert bool(label.activity_role_valid[5]) and not bool(label.activity_role_valid[4])
 
     # Schema-12 action checks
     assert action["schemaVersion"] == 12
@@ -213,15 +232,24 @@ def test_extract_heuristic_labor_action_scaled_population_budget() -> None:
     econ_diag = {
         "domains": {
             "cultivation": {"assignedFarmerYears": 40.0, "expansionWorkerYears": 0.0},
-            "herding": {"plannedHerderYears": 40.0, "funnels": []},
+            "herding": {
+                "plannedHerderYears": 40.0,
+                "assignedHerderResidents": 2.0,
+                "managementHerderWorkerYears": 40.0,
+                "developmentHerderWorkerYears": 0.0,
+                "funnels": [],
+            },
         },
     }
 
-    spec, _act, action = extract_heuristic_labor_action(catalog, village_heur, econ_diag)
-    assert spec.shape == (14,)
-    assert math.isclose(float(spec.sum()), 1.0, abs_tol=1e-7)
-    # Total assigned non-gatherers must not exceed P=10, and specialty simplex must sum to 1.0
-    decoded = validate_schema12_action(action, catalog, retry=False)
+    label = convert_heuristic_labor_label(catalog, village_heur, econ_diag)
+    # Over-budget staffing is flagged, never rescaled into new Gatherers.
+    assert label.over_budget
+    assert not label.specialty_valid
+    assert not label.activity_role_valid.any()
+    assert "over-budget-staffing" in label.reasons
+    # The drive action stays executable for advancing the world only.
+    decoded = validate_schema12_action(label.action, catalog, retry=False)
     assert len(decoded.specialty_allocation) == 14
 
 
@@ -471,27 +499,22 @@ def test_extract_heuristic_action_registry_driven_fallback() -> None:
         },
     }
 
-    # Completely empty domains, goods, materials -> all roles receive 0 workers
-    spec, act, action = extract_heuristic_labor_action(catalog, village_heur, {})
+    # Completely empty diagnostics: missing work is unavailable, never an
+    # all-Gatherer demonstration.
+    label = convert_heuristic_labor_label(catalog, village_heur, {})
+    assert not label.specialty_valid
+    assert "economic-diagnostics-unavailable" in label.reasons
+    assert "herder-staffing-unavailable" in label.reasons
+    assert not label.activity_role_valid.any()
+    # Nonlabor heads remain separately valid.
+    assert label.movement_valid and label.fission_valid and label.trade_gate_valid.all()
 
-    assert spec.shape == (14,)
-    assert math.isclose(float(spec.sum()), 1.0, abs_tol=1e-7)
-    # Gatherer gets the population budget
-    assert math.isclose(spec[1], 1.0, abs_tol=1e-7)
+    # Roles without staff emit canonical idle, not fabricated operation defaults.
+    for r in (1, 2, 3):
+        assert label.activity[r, 0] == 1.0
 
-    assert act.shape == (13, 22)
-    for r in range(13):
-        assert math.isclose(float(act[r].sum()), 1.0, abs_tol=1e-7)
-
-    # Primary activities selected by isOperationOrHarvest:
-    assert math.isclose(act[0, 1], 1.0, abs_tol=1e-7)  # Gatherer -> food.gather
-    assert math.isclose(act[1, 5], 1.0, abs_tol=1e-7)  # Farmer -> field.operation
-    assert math.isclose(act[2, 7], 1.0, abs_tol=1e-7)  # Herder -> herd.management
-    assert math.isclose(act[3, 9], 1.0, abs_tol=1e-7)  # Fisher -> fishing.harvest
-
-    # Wire validation must pass
-    decoded = validate_schema12_action(action, catalog, retry=False)
-    assert decoded.specialty_allocation == tuple(spec)
+    # The drive action still validates.
+    validate_schema12_action(label.action, catalog, retry=False)
 
 
 def test_pretrain_labor_actor_bc_inactive_role_weight_and_inverse_freq() -> None:

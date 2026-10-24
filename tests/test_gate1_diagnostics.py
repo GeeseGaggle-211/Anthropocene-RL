@@ -836,7 +836,7 @@ def _migration_evidence() -> tuple[dict, dict]:
     transfer = {"kind": "migration", "phase": "close-after-demography",
                 "sourceCamp": 1, "destinationCamp": 2, "people": 2,
                 "plantFood": 0.0, "animalFood": 0.0, "aquaticFood": 0.0,
-                "carriedFood": 0.0}
+                "carriedFoodPersonEquivalents": 0.0}
     rows = []
     for camp, society, opening_people, linked, emigrated, immigrated, ending in (
             (1, 1, 10, 10, 2, 0, 8), (2, 2, 20, 20, 0, 2, 22)):
@@ -912,7 +912,7 @@ def test_migration_rejects_incomplete_or_unreconciled_endpoint_evidence(attack):
     if attack == "one-sided":
         steps[0]["economic"][1]["transfers"] = []
     elif attack == "inconsistent-copy":
-        right["carriedFood"] = 1.0
+        right["carriedFoodPersonEquivalents"] = 1.0
     elif attack == "nonexistent-endpoint":
         left["destinationCamp"] = right["destinationCamp"] = 99
     elif attack == "alias":
