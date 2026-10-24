@@ -1561,14 +1561,21 @@ def pretrain_critic_on_dataset(
     critic_params = list(task_critic.parameters()) + list(cost_critics.parameters())
     optimizer = torch.optim.Adam(critic_params, lr=lr)
 
-    def losses(index: torch.Tensor | None = None) -> tuple[float, float]:
+    def losses(chunk: int = 512) -> tuple[float, float]:
+        # Chunked: one forward pass over every row needed ~100 GB of activations at 96k rows.
+        task_sum = cost_sum = 0.0
         with torch.no_grad():
-            select = (lambda v: v) if index is None else (lambda v: v[index])
-            t = {k: select(v) for k, v in tensors.items()}
-            return (
-                float(labor_task_value_loss(task_critic, t, {k: select(v) for k, v in task_targets.items()})),
-                float(labor_cost_value_loss(cost_critics, t, {k: select(v) for k, v in cost_targets.items()})),
-            )
+            for start in range(0, N, chunk):
+                index = torch.arange(start, min(N, start + chunk))
+                t = {k: v[index] for k, v in tensors.items()}
+                count = len(index)
+                task_sum += count * float(
+                    labor_task_value_loss(task_critic, t, {k: v[index] for k, v in task_targets.items()})
+                )
+                cost_sum += count * float(
+                    labor_cost_value_loss(cost_critics, t, {k: v[index] for k, v in cost_targets.items()})
+                )
+        return task_sum / N, cost_sum / N
 
     init_task, init_cost = losses()
     generator = rng if rng is not None else np.random.default_rng(0)
