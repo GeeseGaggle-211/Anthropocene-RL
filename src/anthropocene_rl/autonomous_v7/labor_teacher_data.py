@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -169,7 +170,25 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
     options = LaborResetOptions.from_mapping(job["reset_options"])
     personality = LaborPersonality.from_mapping(job["personality"])
     started = time.perf_counter()
+
+    def progress(state: Any) -> None:
+        elapsed = time.perf_counter() - started
+        print(
+            json.dumps(
+                {
+                    "world": int(job["world_seed"]),
+                    "decisions": state.decisions,
+                    "rows": len(state.rows),
+                    "native_resolves": state.native_resolves,
+                    "wall_seconds": round(elapsed, 2),
+                }
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
+
     collection = collect_heuristic_world(
+        progress=progress,
         normalizer=normalizer,
         world_seed=int(job["world_seed"]),
         turns=int(job["turns"]),

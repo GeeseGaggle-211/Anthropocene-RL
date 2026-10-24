@@ -882,6 +882,7 @@ def collect_heuristic_world(
     labor_bridge_factory: Any = LaborModel9Bridge,
     heuristic_bridge_factory: Any = None,
     economic_trace: Any | None = None,
+    progress: Any | None = None,
 ) -> WorldCollection:
     """Advance one world under converted heuristic actions and record every row.
 
@@ -1022,6 +1023,8 @@ def collect_heuristic_world(
                 )
                 result.rows.append(row_tensors)
             step = next_step
+            if progress is not None:
+                progress(result)
         result.surviving_camps = len([v for v in step.get("villages", []) if not v.get("terminated")])
     return result
 
