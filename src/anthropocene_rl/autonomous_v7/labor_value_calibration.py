@@ -775,7 +775,7 @@ def main(argv: list[str] | None = None) -> None:
     """Emit a machine-consumable current-policy gate report; never a readiness claim."""
 
     # Local imports avoid a labor_training -> labor_value_calibration cycle.
-    from .labor_model import LaborPersonality
+    from .labor_model import labor_checkpoint_personality
     from .labor_training import (
         _models_from_checkpoint,
         _normalization_digest,
@@ -787,9 +787,7 @@ def main(argv: list[str] | None = None) -> None:
     args = argument_parser().parse_args(argv)
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _, actor, task_critic, cost_critics, normalizer = _models_from_checkpoint(state)
-    personality = LaborPersonality.from_mapping(
-        state["labor_model_contract"]["personality"]
-    )
+    personality = labor_checkpoint_personality(state)
     behavior = labor_behavior_configuration(personality)
     data = load_labor_anchor(args.anchor, "actor-gate")
     thresholds = CalibrationThresholds(

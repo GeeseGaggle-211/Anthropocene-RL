@@ -69,6 +69,7 @@ DEFAULT_GATE_WORLDS = "50001,50002"
 DEFAULT_THREADS = 18
 DEFAULT_PRIORITY = 0
 DEFAULT_ITERATIONS = 5
+DEFAULT_PERSONALITY = "balanced"
 
 
 def check_not_confirmation_seed(seed: int, context: str = "seed") -> int:
@@ -85,6 +86,30 @@ def check_seed_string(seed_str: str, context: str = "seed list") -> str:
         if part:
             check_not_confirmation_seed(int(part), context)
     return seed_str
+
+
+def personality_flags(personality: str, film_bound: float | None) -> str:
+    """initialize flags for the declared labor personality distribution (docs/LABOR_PERSONALITY.md).
+
+    Only ``initialize`` takes them: the distribution is stored in the checkpoint
+    contract and every later phase reads it from there. The balanced default
+    emits nothing, so existing manifests are byte-identical.
+    """
+    if personality == DEFAULT_PERSONALITY:
+        flags = ""
+    elif re.fullmatch(r"dirichlet:[0-9]*\.?[0-9]+(e[-+]?[0-9]+)?", personality) and float(
+        personality.partition(":")[2]
+    ) > 0:
+        flags = f"--personality {personality} "
+    else:
+        raise ValueError(
+            f"labor personality must be 'balanced' or 'dirichlet:ALPHA', not {personality!r}"
+        )
+    if film_bound is not None:
+        if not film_bound > 0:
+            raise ValueError("FiLM bound must be positive")
+        flags += f"--film-bound {float(film_bound)!r} "
+    return flags
 
 
 def build_phase(name: str, run_cmd: str, done_marker: str) -> dict[str, str]:
@@ -115,6 +140,8 @@ def build_arm_phases(
     gate_worlds: str = DEFAULT_GATE_WORLDS,
     python_bin: str = DEFAULT_PYTHON_BIN,
     env_prefix: str = DEFAULT_ENV_PREFIX,
+    personality: str = DEFAULT_PERSONALITY,
+    film_bound: float | None = None,
 ) -> list[dict[str, str]]:
     """Build the ordered list of idempotent phases for an arm and optimizer seed."""
     if arm not in ARM_NAMES:
@@ -146,6 +173,7 @@ def build_arm_phases(
         f"--normalizer-checkpoint {normalizer_checkpoint} "
         f"--world-seed {world_seed0} "
         f"--optimizer-seed {optimizer_seed} "
+        f"{personality_flags(personality, film_bound)}"
         f"--out $RESULTS/checkpoint-000-raw.pt"
     )
     phases.append(build_phase("phase0a-init", init_cmd, "checkpoint-000-raw.pt"))
@@ -297,6 +325,8 @@ def build_job_dict(
     gate_worlds: str = DEFAULT_GATE_WORLDS,
     python_bin: str = DEFAULT_PYTHON_BIN,
     env_prefix: str = DEFAULT_ENV_PREFIX,
+    personality: str = DEFAULT_PERSONALITY,
+    film_bound: float | None = None,
 ) -> dict[str, Any]:
     name = job_name_for(arm, optimizer_seed)
     phases = build_arm_phases(
@@ -310,6 +340,8 @@ def build_job_dict(
         gate_worlds=gate_worlds,
         python_bin=python_bin,
         env_prefix=env_prefix,
+        personality=personality,
+        film_bound=film_bound,
     )
     job: dict[str, Any] = {
         "name": name,
@@ -367,6 +399,8 @@ def build_all_3x5_manifests(
     gate_worlds: str = DEFAULT_GATE_WORLDS,
     python_bin: str = DEFAULT_PYTHON_BIN,
     env_prefix: str = DEFAULT_ENV_PREFIX,
+    personality: str = DEFAULT_PERSONALITY,
+    film_bound: float | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Generate all 3-arm x 5-seed (15 runs) job specifications."""
     manifests: dict[str, dict[str, Any]] = {}
@@ -387,6 +421,8 @@ def build_all_3x5_manifests(
                 gate_worlds=gate_worlds,
                 python_bin=python_bin,
                 env_prefix=env_prefix,
+                personality=personality,
+                film_bound=film_bound,
             )
             manifests[job["name"]] = job
     return manifests
@@ -515,6 +551,17 @@ def argument_parser() -> argparse.ArgumentParser:
         help="Environment variables prefix for phase commands",
     )
     p.add_argument(
+        "--personality",
+        default=DEFAULT_PERSONALITY,
+        help="labor personality distribution passed to initialize: 'balanced' or 'dirichlet:ALPHA'",
+    )
+    p.add_argument(
+        "--film-bound",
+        type=float,
+        default=None,
+        help="optional tanh bound on labor FiLM gamma/beta (off by default)",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Print summary and first job manifest to stdout without writing files",
@@ -543,6 +590,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         gate_worlds=args.gate_worlds,
         python_bin=args.python_bin,
         env_prefix=args.env_prefix,
+        personality=args.personality,
+        film_bound=args.film_bound,
     )
 
     if args.dry_run:

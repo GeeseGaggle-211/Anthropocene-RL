@@ -33,7 +33,7 @@ def _tensors(rows: int) -> dict[str, torch.Tensor]:
     t = {
         "core": torch.arange(rows * 3, dtype=torch.float32).reshape(rows, 3),
         "mask": torch.ones(rows, 2, dtype=torch.bool),
-        "labor_personality": torch.tensor([[1.0, 0.0]], dtype=torch.float32).repeat(rows, 1),
+        "labor_personality": torch.tensor([[0.5, 0.5]], dtype=torch.float32).repeat(rows, 1),
     }
     from anthropocene_rl.autonomous_v7 import contracts
     from anthropocene_rl.autonomous_v7.labor_bridge import (

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -28,6 +28,12 @@ from .labor_bridge import (
     LaborPolicySample,
     LaborProducerContract,
     labor_observation_batch,
+)
+from .labor_personality import (
+    DEFAULT_PAIR,
+    LaborPersonalityAssignment,
+    LaborPersonalityConditioning,
+    WorldPersonalities,
 )
 from .model import (
     BIN_HIGH,
@@ -143,8 +149,20 @@ class LaborModelContract:
     """
 
     personality: LaborPersonality = LaborPersonality()
+    # Manifest-declared personality distribution and FiLM bound
+    # (docs/LABOR_PERSONALITY.md). The default (balanced, unbounded) is not
+    # serialized, so default checkpoints keep their pre-FiLM contract bytes.
+    conditioning: LaborPersonalityConditioning = field(
+        default_factory=LaborPersonalityConditioning
+    )
 
     def state_dict(self) -> dict[str, Any]:
+        state = self._base_state()
+        if not self.conditioning.is_default:
+            state["personalityConditioning"] = self.conditioning.state_dict()
+        return state
+
+    def _base_state(self) -> dict[str, Any]:
         return {
             "schemaVersion": LABOR_MODEL_CONTRACT_SCHEMA,
             "artifactKind": LABOR_ARTIFACT_KIND,
@@ -183,7 +201,9 @@ class LaborModelContract:
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> LaborModelContract:
         template = cls().state_dict()
-        if not isinstance(state, Mapping) or set(state) != set(template):
+        if not isinstance(state, Mapping) or set(state) - {"personalityConditioning"} != set(
+            template
+        ):
             raise ValueError(f"labor model contract fields must be exactly {sorted(template)}")
         for key in (
             "schemaVersion",
@@ -207,7 +227,10 @@ class LaborModelContract:
         ):
             if state[key] != template[key]:
                 raise ValueError(f"labor model contract {key} is unsupported")
-        return cls(LaborPersonality.from_mapping(state["personality"]))
+        return cls(
+            LaborPersonality.from_mapping(state["personality"]),
+            LaborPersonalityConditioning.from_state(state.get("personalityConditioning")),
+        )
 
 
 def labor_checkpoint_contract(
@@ -292,7 +315,7 @@ def labor_policy_tensors(
     normalizer: Normalizer,
     *,
     device: torch.device | str = "cpu",
-    personality: LaborPersonality | None = None,
+    personality: LaborPersonality | WorldPersonalities | Sequence[LaborPersonality] | None = None,
     retry_responses: Sequence[Mapping[str, Any] | None] | None = None,
     rejected_attempts: Sequence[LaborAttempt | None] | None = None,
 ) -> tuple[
@@ -328,9 +351,93 @@ def labor_policy_tensors(
     for name, values in labor_batch.items():
         dtype = torch.bool if values.dtype == bool else torch.float32
         tensors[name] = torch.as_tensor(values, dtype=dtype, device=device)
-    declared = LaborPersonality() if personality is None else personality
-    tensors["labor_personality"] = declared.tensor(device=device).expand(len(villages), -1).clone()
+    tensors["labor_personality"] = labor_personality_rows(villages, personality, device=device)
     return contexts, tensors
+
+
+def labor_personality_rows(
+    villages: Sequence[Mapping[str, Any]],
+    personality: LaborPersonality | WorldPersonalities | Sequence[LaborPersonality] | None,
+    *,
+    device: torch.device | str = "cpu",
+) -> torch.Tensor:
+    """Each village row's personality (qol_years, population_years) as float32.
+
+    ``personality`` is one fixed personality for every row (the historical
+    path, also used when ``None``), a :class:`WorldPersonalities` lineage
+    resolver from a manifest-declared distribution, or one personality per row.
+    """
+    if personality is None or isinstance(personality, LaborPersonality):
+        declared = LaborPersonality() if personality is None else personality
+        return declared.tensor(device=device).expand(len(villages), -1).clone()
+    if isinstance(personality, WorldPersonalities):
+        pairs = personality.resolve(villages)
+        rows = [LaborPersonality(*pair) for pair in pairs]
+    elif isinstance(personality, Sequence) and not isinstance(personality, (str, bytes)):
+        rows = list(personality)
+    else:
+        raise ValueError("labor personality must be fixed, per-row or a world resolver")
+    if len(rows) != len(villages) or any(not isinstance(row, LaborPersonality) for row in rows):
+        raise ValueError("labor per-row personalities must align with the village rows")
+    return torch.stack([row.tensor(device=device) for row in rows])
+
+
+def labor_checkpoint_personality(
+    state: Mapping[str, Any],
+) -> LaborPersonality | LaborPersonalityAssignment:
+    """The checkpoint's declared personality: its fixed personality, or its
+    distribution's assignment at the checkpoint iteration.
+
+    Balanced runs and older checkpoints (no conditioning field) return the
+    fixed contract personality, which reproduces their historical behavior
+    exactly. Only a non-balanced distribution returns an assignment.
+    """
+    # Strict contract validation happens when the models load; this reads only
+    # the two personality fields, as the historical fixed-personality read did.
+    contract_state = state["labor_model_contract"]
+    fixed = LaborPersonality.from_mapping(contract_state["personality"])
+    conditioning = LaborPersonalityConditioning.from_state(
+        contract_state.get("personalityConditioning")
+    )
+    if conditioning.alpha is None:
+        return fixed
+    if fixed != LaborPersonality():
+        raise ValueError("a labor personality distribution requires the balanced reference")
+    return conditioning.assignment(int(state.get("iteration", 0)))
+
+
+def labor_personality_conditioning(
+    personality: LaborPersonality | LaborPersonalityAssignment | None,
+    film_bound: float | None = None,
+) -> tuple[LaborPersonality, LaborPersonalityConditioning]:
+    """Split a run personality into the contract's (reference, conditioning) pair."""
+    if isinstance(personality, LaborPersonalityAssignment):
+        conditioning = personality.conditioning
+        if film_bound is not None and conditioning.film_bound != film_bound:
+            raise ValueError("labor FiLM bound differs from the declared conditioning")
+        return LaborPersonality(), conditioning
+    fixed = LaborPersonality() if personality is None else personality
+    return fixed, LaborPersonalityConditioning(film_bound=film_bound)
+
+
+def set_labor_film_bound(bound: float | None, *modules: nn.Module) -> None:
+    """Set the optional tanh FiLM bound on every labor encoder inside ``modules``."""
+    if bound is not None and (not math.isfinite(float(bound)) or float(bound) <= 0):
+        raise ValueError("labor FiLM bound must be finite and positive")
+    for module in modules:
+        for child in module.modules():
+            if isinstance(child, LaborObservationEncoder):
+                child.film_bound = None if bound is None else float(bound)
+
+
+def labor_film_extent(module: nn.Module, tensors: Mapping[str, torch.Tensor]) -> float:
+    """Largest |gamma| or |beta| any labor FiLM layer in ``module`` applies on this batch."""
+    extents = [
+        child.film_extent(tensors)
+        for child in module.modules()
+        if isinstance(child, LaborObservationEncoder)
+    ]
+    return max(extents) if extents else 0.0
 
 
 class LaborObservationEncoder(nn.Module):
@@ -409,6 +516,94 @@ class LaborObservationEncoder(nn.Module):
         self.width = width
         for embedding in self.legacy_position.values():
             nn.init.normal_(embedding.weight, std=0.02)
+        # FiLM personality conditioning (docs/LABOR_PERSONALITY.md), ported from
+        # the contract-12 TokenEncoder. The condition is c = p - (0.5, 0.5). A
+        # bias-free, zero-initialised linear map of c gives a per-channel scale
+        # gamma and shift beta, h -> h * (1 + gamma) + beta, applied before every
+        # local-activity attention layer, every global attention layer and each
+        # trunk linear layer. At c = 0, and in any checkpoint saved before FiLM
+        # (the load hook fills zero weights), it is exactly the identity. They
+        # are built under a forked CPU RNG and zero-filled, so the global torch
+        # RNG stream, and therefore every historical parameter's initial value
+        # for a given seed (including heads built after this encoder), is
+        # unchanged.
+        objectives = len(LABOR_OBJECTIVES)
+        with torch.random.fork_rng(devices=[]):
+            self.film_local = nn.ModuleList(
+                nn.Linear(objectives, 2 * token_width, bias=False) for _ in range(layers)
+            )
+            self.film_global = nn.ModuleList(
+                nn.Linear(objectives, 2 * token_width, bias=False) for _ in range(layers)
+            )
+            self.film_trunk = nn.ModuleList(
+                [
+                    nn.Linear(objectives, 2 * token_width, bias=False),
+                    nn.Linear(objectives, 2 * width, bias=False),
+                ]
+            )
+        for film in self._films():
+            nn.init.zeros_(film.weight)
+        self.register_buffer(
+            "default_personality",
+            torch.tensor([DEFAULT_PAIR], dtype=torch.float32),
+            persistent=False,
+        )
+        self._register_load_state_dict_pre_hook(self._identity_film)
+        # Optional bound on gamma/beta (bound * tanh(x / bound)); off by default.
+        self.film_bound: float | None = None
+
+    def _films(self) -> list[nn.Linear]:
+        return [*self.film_local, *self.film_global, *self.film_trunk]
+
+    def _identity_film(self, state_dict, prefix, *args) -> None:
+        """Checkpoints saved before FiLM load with identity (zero) FiLM weights."""
+        for name, parameter in self.named_parameters():
+            if name.startswith("film_") and prefix + name not in state_dict:
+                state_dict[prefix + name] = torch.zeros_like(parameter)
+
+    def film_condition(self, tensors: Mapping[str, torch.Tensor]) -> torch.Tensor:
+        return tensors["labor_personality"] - self.default_personality
+
+    def film_extent(self, tensors: Mapping[str, torch.Tensor]) -> float:
+        """The largest |gamma| or |beta| any FiLM layer applies on this batch."""
+        condition = self.film_condition(tensors)
+        with torch.no_grad():
+            return float(
+                max(self._bounded(film(condition)).abs().max() for film in self._films())
+            )
+
+    def _bounded(self, values: torch.Tensor) -> torch.Tensor:
+        if self.film_bound:
+            return self.film_bound * torch.tanh(values / self.film_bound)
+        return values
+
+    def _film(
+        self, hidden: torch.Tensor, film: nn.Linear, condition: torch.Tensor
+    ) -> torch.Tensor:
+        scale, shift = self._bounded(film(condition)).chunk(2, dim=-1)
+        if hidden.dim() == 3:
+            scale, shift = scale.unsqueeze(1), shift.unsqueeze(1)
+        return hidden * (1 + scale) + shift
+
+    def _attend(
+        self,
+        encoder: nn.TransformerEncoder,
+        films: nn.ModuleList | None,
+        values: torch.Tensor,
+        padding: torch.Tensor,
+        condition: torch.Tensor | None,
+    ) -> torch.Tensor:
+        if films is None or condition is None:  # pre-FiLM reference path (parity tests)
+            return encoder(values, src_key_padding_mask=padding)
+        for layer, film in zip(encoder.layers, films, strict=True):
+            values = layer(self._film(values, film, condition), src_key_padding_mask=padding)
+        return values
+
+    def _trunk(self, hidden: torch.Tensor, condition: torch.Tensor | None) -> torch.Tensor:
+        if condition is None:  # pre-FiLM reference path (parity tests)
+            return self.trunk(hidden)
+        hidden = self.trunk[:3](self._film(hidden, self.film_trunk[0], condition))
+        return self.trunk[3:](self._film(hidden, self.film_trunk[1], condition))
 
     @staticmethod
     def _tokens(
@@ -438,6 +633,12 @@ class LaborObservationEncoder(nn.Module):
     def forward(
         self, tensors: Mapping[str, torch.Tensor]
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        return self.encode(tensors, film=True)
+
+    def encode(
+        self, tensors: Mapping[str, torch.Tensor], *, film: bool = True
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        """``film=False`` is the exact pre-FiLM computation, kept as a parity reference."""
         core, personality = tensors.get("core"), tensors.get("labor_personality")
         if (
             not isinstance(core, torch.Tensor)
@@ -461,6 +662,7 @@ class LaborObservationEncoder(nn.Module):
             )
         ):
             raise ValueError("labor personality must be a two-objective simplex")
+        condition = personality - self.default_personality if film else None
         tokens = [self.village(torch.cat([core, personality], dim=1)).unsqueeze(1)]
         present = [torch.ones(len(core), 1, dtype=torch.bool, device=core.device)]
         for name, rows, columns in contracts.SETS:
@@ -505,7 +707,13 @@ class LaborObservationEncoder(nn.Module):
         safe_mask[no_rows, 0] = True
         flat_local = flat_local.clone()
         flat_local[no_rows, 0] = 0.0
-        local_output = self.local_activity_attention(flat_local, src_key_padding_mask=~safe_mask)
+        local_output = self._attend(
+            self.local_activity_attention,
+            self.film_local,
+            flat_local,
+            ~safe_mask,
+            None if condition is None else condition.repeat_interleave(role_count, dim=0),
+        )
         local_output = self.local_activity_norm(local_output).reshape(local_shape)
         local_output = local_output * activity_mask.unsqueeze(-1)
         divisor = activity_mask.sum(dim=2, keepdim=True).clamp_min(1).to(local_output.dtype)
@@ -525,7 +733,9 @@ class LaborObservationEncoder(nn.Module):
         present.extend([specialty_present, resource_present])
         lengths = [part.shape[1] for part in tokens]
         joined, mask = torch.cat(tokens, dim=1), torch.cat(present, dim=1)
-        output = self.norm(self.attention(joined, src_key_padding_mask=~mask))
+        output = self.norm(
+            self._attend(self.attention, self.film_global, joined, ~mask, condition)
+        )
         output = output * mask.unsqueeze(-1)
         offsets = []
         cursor = 0
@@ -545,7 +755,7 @@ class LaborObservationEncoder(nn.Module):
         )
         contextual_activity = contextual_activity * activity_mask.unsqueeze(-1)
         return (
-            self.trunk(output[:, 0]),
+            self._trunk(output[:, 0], condition),
             specialty_tokens,
             contextual_activity.reshape(len(core), role_count * activities_per_role, -1),
             resource_tokens,
@@ -627,7 +837,7 @@ def labor_checkpoint_payload(
     normalizer: Normalizer,
     layout: LaborEncoderLayout,
     *,
-    personality: LaborPersonality | None = None,
+    personality: LaborPersonality | LaborPersonalityAssignment | None = None,
 ) -> dict[str, Any]:
     """Build the strict model/normalizer portion of a new labor checkpoint.
 
@@ -637,7 +847,9 @@ def labor_checkpoint_payload(
     """
     if normalizer_feature_contract(normalizer) != BOUNDED_FEATURE_CONTRACT:
         raise ValueError("labor checkpoints require a bounded normalizer")
-    contract = LaborModelContract(LaborPersonality() if personality is None else personality)
+    contract = LaborModelContract(
+        *labor_personality_conditioning(personality, actor.encoder.film_bound)
+    )
     return {
         "artifact_kind": LABOR_ARTIFACT_KIND,
         "feature_contract": BOUNDED_FEATURE_CONTRACT,
@@ -673,6 +885,7 @@ def load_labor_checkpoint_models(
     actor.load_state_dict(state["actor"], strict=True)
     task_critic.load_state_dict(state["task_critic"], strict=True)
     cost_critics.load_state_dict(state["cost_critics"], strict=True)
+    set_labor_film_bound(contract.conditioning.film_bound, actor, task_critic, cost_critics)
     return contract, normalizer
 
 

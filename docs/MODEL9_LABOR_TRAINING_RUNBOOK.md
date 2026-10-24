@@ -60,6 +60,11 @@ normalizer, registry, and empty critic-training-history bindings.
   --out (Join-Path $taskOutput 'checkpoint-000.pt')
 ```
 
+Personality conditioning is declared here and nowhere else: add `--personality dirichlet:ALPHA`
+(optionally `--personality-key`, `--personality-drift`, `--film-bound`) to sample a personality per
+founding lineage; every later phase reads the distribution from the checkpoint. The default
+`balanced` reproduces the pre-FiLM model bitwise. See `docs/LABOR_PERSONALITY.md`.
+
 ## 2. Collect one frozen-behavior physical rollout
 
 Collection uses the typed two-proposal bridge. An initial proposal scores labor plus retained

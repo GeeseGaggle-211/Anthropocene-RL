@@ -38,6 +38,7 @@ from .labor_model import (
     _masks,
     labor_policy_tensors,
 )
+from .labor_personality import personality_for_world
 from .labor_ppo import (
     RetainedLaborAction,
     execute_labor_decision,
@@ -569,8 +570,11 @@ def collect_heuristic_bc_dataset(
                 ]
                 if not live:
                     break
+                # Rows record their sampled personality, but the heuristic teacher is
+                # personality-agnostic: these labels carry no personality signal
+                # (docs/LABOR_PERSONALITY.md).
                 contexts, tensors = labor_policy_tensors(
-                    live, normalizer, personality=declared_personality
+                    live, normalizer, personality=personality_for_world(declared_personality, seed)
                 )
                 catalogs = {context[0].camp_id: context[0] for context in contexts}
 
@@ -1086,7 +1090,7 @@ def pretrain_critic_on_heuristic_next_states(
                 if not live:
                     break
                 contexts, tensors = labor_policy_tensors(
-                    live, normalizer, personality=declared_personality
+                    live, normalizer, personality=personality_for_world(declared_personality, seed)
                 )
                 catalogs = {context[0].camp_id: context[0] for context in contexts}
 
