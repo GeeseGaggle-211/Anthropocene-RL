@@ -130,8 +130,11 @@ def _number(value: Any, label: str, *, nonnegative: bool = False) -> float:
     number = float(value)
     if not math.isfinite(number):
         raise ValueError(f"{label} must be finite")
-    if nonnegative and number < 0:
-        raise ValueError(f"{label} must be nonnegative")
+    if nonnegative:
+        if number < -TOLERANCE:
+            raise ValueError(f"{label} must be nonnegative")
+        if number < 0.0:
+            number = 0.0
     return number
 
 
@@ -272,7 +275,7 @@ def _validate_physical_rows(sidecar: dict[str, Any]) -> None:
         }:
             raise ValueError(f"goods[{index}] stock kind differs")
         for name in good_numeric:
-            _number(row.get(name), f"goods[{index}].{name}", nonnegative=True)
+            row[name] = _number(row.get(name), f"goods[{index}].{name}", nonnegative=True)
         if row["plannedOutputCeiling"] is not None:
             _number(
                 row["plannedOutputCeiling"],
@@ -326,7 +329,7 @@ def _validate_physical_rows(sidecar: dict[str, Any]) -> None:
             "workerIntervals",
             "workerYears",
         ):
-            _number(row.get(name), f"materials[{index}].{name}", nonnegative=True)
+            row[name] = _number(row.get(name), f"materials[{index}].{name}", nonnegative=True)
         for name in ("requested", "granted", "phaseBRequested", "phaseBGranted", "phaseBReceived"):
             if row[name] is not None:
                 _number(row[name], f"materials[{index}].{name}", nonnegative=True)

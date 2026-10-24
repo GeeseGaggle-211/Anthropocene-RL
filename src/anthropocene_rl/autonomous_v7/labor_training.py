@@ -21,6 +21,7 @@ import argparse
 import copy
 import json
 import math
+import os
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -31,6 +32,8 @@ import numpy as np
 import torch
 
 from . import contracts, data
+from .bridge import Model9Bridge, observation_batch
+from .labor_bc import extract_heuristic_labor_action
 from .labor_bridge import (
     LABOR_ACTIVITY_FEATURE_WIDTH,
     LABOR_REGISTRY_DIGEST,
@@ -39,6 +42,7 @@ from .labor_bridge import (
     LaborAttempt,
     LaborCatalog,
     LaborModel9Bridge,
+    labor_observation_fields,
 )
 from .labor_model import (
     LABOR_COSTS,
@@ -48,6 +52,7 @@ from .labor_model import (
     LaborEncoderLayout,
     LaborPersonality,
     LaborTaskCritic,
+    Normalizer,
     labor_checkpoint_payload,
     labor_log_prob,
     labor_policy_tensors,
@@ -92,6 +97,9 @@ def _cpu_rows(values: Mapping[str, torch.Tensor], rows: torch.Tensor) -> dict[st
     for name, value in values.items():
         if not isinstance(value, torch.Tensor) or value.ndim < 1:
             raise ValueError(f"{name} is not a row-aligned tensor")
+        if name == "movement_codes" and value.ndim == 1:
+            result[name] = value.detach().cpu().clone()
+            continue
         result[name] = value.index_select(0, rows.to(value.device)).detach().cpu().clone()
     return result
 
@@ -106,7 +114,12 @@ def _concat(rows: Sequence[Mapping[str, torch.Tensor]], label: str) -> dict[str,
     names = set(rows[0])
     if any(set(row) != names for row in rows):
         raise ValueError(f"{label} tensor fields differ between rows")
-    result = {name: torch.cat([row[name] for row in rows], dim=0) for name in sorted(names)}
+    result: dict[str, torch.Tensor] = {}
+    for name in sorted(names):
+        if name == "movement_codes" and rows[0][name].ndim == 1:
+            result[name] = rows[0][name].clone()
+        else:
+            result[name] = torch.cat([row[name] for row in rows], dim=0)
     if any(value.requires_grad for value in result.values()):
         raise ValueError(f"{label} unexpectedly retained an autograd graph")
     return result
@@ -256,38 +269,46 @@ def _settlement_guard(village: Mapping[str, Any], founded_turn: int, turn: int) 
     )
 
 
-def _sample_world_step(
+def _execute_single_step_detailed(
     *,
     bridge: LaborModel9Bridge,
     step: Mapping[str, Any],
     actor: LaborActor,
-    task_critic: LaborTaskCritic,
-    cost_critics: LaborCostCritics,
+    task_critic: LaborTaskCritic | None = None,
+    cost_critics: LaborCostCritics | None = None,
     normalizer: Any,
     personality: LaborPersonality,
     generator: torch.Generator,
     world_seed: int,
     world_index: int,
     founded_turns: dict[int, int],
-) -> tuple[Mapping[str, Any], list[LaborRolloutRow]]:
+) -> tuple[Mapping[str, Any], list[LaborRolloutRow], dict[int, bool]]:
     live = [
         village
         for village in step["villages"]
         if village.get("observation") is not None and not village.get("terminated")
     ]
     if not live:
-        return step, []
+        return step, [], {}
     contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
     catalogs = {context[0].camp_id: context[0] for context in contexts}
     if len(catalogs) != len(live):
         raise ValueError("labor rollout has duplicate live camp identities")
-    output = actor(tensors)
-    initial_labor = sample_labor_policy(output, tensors, generator=generator)
-    initial_nonlabor = sample_nonlabor_policy(output, generator=generator)
-    labor_lp = labor_log_prob(output, initial_labor, tensors)["joint"].detach().cpu()
-    nonlabor_lp = nonlabor_log_prob(output, initial_nonlabor)["joint"].detach().cpu()
-    initial_task = _task_values(task_critic, tensors)
-    initial_cost = _cost_values(cost_critics, tensors)
+
+    with torch.no_grad():
+        output = actor(tensors)
+        initial_labor = sample_labor_policy(output, tensors, generator=generator)
+        initial_nonlabor = sample_nonlabor_policy(output, generator=generator)
+        labor_lp = labor_log_prob(output, initial_labor, tensors)["joint"].detach().cpu()
+        nonlabor_lp = nonlabor_log_prob(output, initial_nonlabor)["joint"].detach().cpu()
+        if task_critic is not None:
+            initial_task = _task_values(task_critic, tensors)
+        else:
+            initial_task = {name: torch.zeros(len(live)) for name in LABOR_OBJECTIVES}
+        if cost_critics is not None:
+            initial_cost = _cost_values(cost_critics, tensors)
+        else:
+            initial_cost = {name: torch.zeros(len(live)) for name in LABOR_COSTS}
 
     retained: dict[int, RetainedLaborAction] = {}
     village_by_camp: dict[int, Mapping[str, Any]] = {}
@@ -320,15 +341,26 @@ def _sample_world_step(
         )
         if retry_contexts[0][0].digest != catalog.digest or retry_contexts[0][2] != attempt:
             raise ValueError("labor retry tensor context differs from typed rejection")
-        retry_output = actor(retry_tensors)
-        retry_sample = sample_labor_policy(retry_output, retry_tensors, generator=generator)
-        retry_logp = float(
-            labor_log_prob(retry_output, retry_sample, retry_tensors)["joint"].detach().cpu()[0]
-        )
-        task_values = {name: float(value[0]) for name, value in _task_values(
-            task_critic, retry_tensors).items()}
-        cost_values = {name: float(value[0]) for name, value in _cost_values(
-            cost_critics, retry_tensors).items()}
+        with torch.no_grad():
+            retry_output = actor(retry_tensors)
+            retry_sample = sample_labor_policy(retry_output, retry_tensors, generator=generator)
+            retry_logp = float(
+                labor_log_prob(retry_output, retry_sample, retry_tensors)["joint"].detach().cpu()[0]
+            )
+            if task_critic is not None:
+                task_values = {
+                    name: float(value[0])
+                    for name, value in _task_values(task_critic, retry_tensors).items()
+                }
+            else:
+                task_values = {name: 0.0 for name in LABOR_OBJECTIVES}
+            if cost_critics is not None:
+                cost_values = {
+                    name: float(value[0])
+                    for name, value in _cost_values(cost_critics, retry_tensors).items()
+                }
+            else:
+                cost_values = {name: 0.0 for name in LABOR_COSTS}
         retry_rows[camp] = (
             _one_row(retry_tensors, 0),
             _one_row(retry_sample, 0),
@@ -392,7 +424,84 @@ def _sample_world_step(
                 ),
             )
         )
-    return next_step, rows
+    return next_step, rows, terminal
+
+
+def _sample_world_step(
+    *,
+    bridge: LaborModel9Bridge,
+    step: Mapping[str, Any],
+    actor: LaborActor,
+    task_critic: LaborTaskCritic | None = None,
+    cost_critics: LaborCostCritics | None = None,
+    normalizer: Any,
+    personality: LaborPersonality,
+    generator: torch.Generator,
+    world_seed: int,
+    world_index: int,
+    founded_turns: dict[int, int],
+    max_self_destruct_rewinds: int = 0,
+) -> tuple[Mapping[str, Any], list[LaborRolloutRow]]:
+    if max_self_destruct_rewinds <= 0:
+        next_step, rows, _ = _execute_single_step_detailed(
+            bridge=bridge,
+            step=step,
+            actor=actor,
+            task_critic=task_critic,
+            cost_critics=cost_critics,
+            normalizer=normalizer,
+            personality=personality,
+            generator=generator,
+            world_seed=world_seed,
+            world_index=world_index,
+            founded_turns=founded_turns,
+        )
+        return next_step, rows
+
+    fork, _ = bridge.fork()
+    accumulated_rows: list[LaborRolloutRow] = []
+    current_step = step
+    saved_founded = dict(founded_turns)
+
+    for rewind_idx in range(1 + max_self_destruct_rewinds):
+        next_step, attempt_rows, terminal = _execute_single_step_detailed(
+            bridge=bridge,
+            step=current_step,
+            actor=actor,
+            task_critic=task_critic,
+            cost_critics=cost_critics,
+            normalizer=normalizer,
+            personality=personality,
+            generator=generator,
+            world_seed=world_seed,
+            world_index=world_index,
+            founded_turns=founded_turns,
+        )
+        if not attempt_rows:
+            bridge.drop(fork)
+            return next_step, accumulated_rows
+
+        is_self_destruct = any(terminal.values()) or any(
+            r.settlement_guard > 0.0 for r in attempt_rows
+        )
+        if not is_self_destruct or rewind_idx == max_self_destruct_rewinds:
+            bridge.drop(fork)
+            accumulated_rows.extend(attempt_rows)
+            return next_step, accumulated_rows
+        else:
+            for r in attempt_rows:
+                if terminal.get(r.camp_id, False) or r.settlement_guard > 0.0:
+                    turn_num = int(current_step["turn"])
+                    synth_camp = -(r.camp_id * 1_000_000 + turn_num * 100 + rewind_idx + 1)
+                    failed_row = copy.copy(r)
+                    failed_row.camp_id = synth_camp
+                    failed_row.terminated = True
+                    accumulated_rows.append(failed_row)
+            founded_turns.clear()
+            founded_turns.update(saved_founded)
+            current_step = bridge.restore(fork)
+
+    return current_step, accumulated_rows
 
 
 def _bootstrap_values(
@@ -428,19 +537,28 @@ def collect_labor_rollout(
     generator: torch.Generator,
     personality: LaborPersonality | None = None,
     bridge_factory: Any = LaborModel9Bridge,
+    economic_trace: Any | None = None,
+    max_self_destruct_rewinds: int = 0,
+    allow_vm_scale: bool = False,
 ) -> tuple[list[LaborRolloutRow], dict[tuple[int, int], dict[str, float]]]:
     """Collect diagnostic local worlds without performing any optimizer step."""
 
     worlds = checked_seeds(list(world_seeds), "labor local rollout worlds")
-    if not worlds or len(worlds) > LOCAL_WORLD_LIMIT:
+    if not allow_vm_scale and (not worlds or len(worlds) > LOCAL_WORLD_LIMIT):
         raise ValueError(f"local labor collection requires 1..{LOCAL_WORLD_LIMIT} world seeds")
+    if not worlds:
+        raise ValueError("world seeds cannot be empty")
     if isinstance(turns, bool) or not isinstance(turns, int) or turns <= 0:
         raise ValueError("labor rollout turns must be a positive integer")
     declared = LaborPersonality() if personality is None else personality
     collected: list[LaborRolloutRow] = []
     bootstrap: dict[tuple[int, int], dict[str, float]] = {}
     for world_index, seed in enumerate(worlds):
-        bridge = bridge_factory()
+        bridge = (
+            bridge_factory(economic_diagnostics=True)
+            if economic_trace is not None
+            else bridge_factory()
+        )
         try:
             step = bridge.reset(seed)
             founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
@@ -457,7 +575,30 @@ def collect_labor_rollout(
                     world_seed=seed,
                     world_index=world_index,
                     founded_turns=founded,
+                    max_self_destruct_rewinds=max_self_destruct_rewinds,
                 )
+                if (
+                    economic_trace is not None
+                    and getattr(bridge, "_bridge", None)
+                    and getattr(bridge._bridge, "economic_diagnostics", None)
+                ):
+                    for camp_id, diag in bridge._bridge.economic_diagnostics.items():
+                        trans_id = (
+                            diag.get("transitionId")
+                            or f"{seed}:{camp_id}:{int(step['turn'])-1}"
+                        )
+                        if trans_id not in economic_trace.transition_ids:
+                            economic_trace.transition_ids.append(trans_id)
+                        economic_trace.write(
+                            "transitions",
+                            {
+                                "campId": int(camp_id),
+                                "turn": int(step["turn"]) - 1,
+                                "worldSeed": seed,
+                                "transitionId": trans_id,
+                                "economic": diag,
+                            },
+                        )
                 collected.extend(rows)
                 if not rows:
                     break
@@ -467,6 +608,8 @@ def collect_labor_rollout(
                 bootstrap[(seed, camp)] = values
         finally:
             bridge.close()
+    if economic_trace is not None:
+        economic_trace.close()
     if not collected:
         raise ValueError("labor rollout collected no policy decisions")
     return collected, bootstrap
@@ -791,12 +934,14 @@ def _require_trainer_checkpoint(state: Mapping[str, Any]) -> None:
     )
 
 
-def _parse_worlds(text: str) -> list[int]:
+def _parse_worlds(text: str, *, allow_vm_scale: bool = False) -> list[int]:
     values = [int(value) for value in text.split(",") if value]
     scan({"worldSeeds": values}, "labor local CLI seeds")
     checked = checked_seeds(values, "labor local CLI seeds")
-    if not checked or len(checked) > LOCAL_WORLD_LIMIT:
+    if not allow_vm_scale and (not checked or len(checked) > LOCAL_WORLD_LIMIT):
         raise ValueError(f"local labor CLI requires 1..{LOCAL_WORLD_LIMIT} seeds")
+    if not checked:
+        raise ValueError("world seeds cannot be empty")
     return checked
 
 
@@ -811,7 +956,7 @@ def _save_checkpoint(path: Path, state: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     torch.save(dict(state), temporary)
-    temporary.replace(path)
+    os.replace(temporary, path)
 
 
 def _critic_td_losses(
@@ -941,25 +1086,202 @@ def _command_initialize(args: argparse.Namespace) -> None:
     )
     sampling = torch.Generator().manual_seed(args.optimizer_seed)
     shuffle = np.random.default_rng(args.optimizer_seed)
-    _save_checkpoint(
-        args.out,
-        _trainer_checkpoint(
-            actor,
-            task,
-            costs,
-            normalizer,
-            layout,
-            actor_optimizer,
-            critic_optimizer,
+    bc_summary = None
+    if getattr(args, "pretrain_bc_turns", 0) > 0:
+        from .labor_bc import collect_heuristic_bc_dataset, pretrain_labor_actor_bc
+
+        ds = collect_heuristic_bc_dataset(
+            normalizer=normalizer,
+            world_seeds=[world],
+            turns=args.pretrain_bc_turns,
             personality=LaborPersonality(),
-            optimizer_seed=args.optimizer_seed,
-            iteration=0,
-            sampling_generator=sampling,
-            shuffle_rng=shuffle,
-            critic_training_world_seeds=(),
-            critic_training_independent_unit_ids=(),
-        ),
+            allow_vm_scale=False,
+        )
+        bc_summary = pretrain_labor_actor_bc(
+            actor=actor,
+            dataset=ds,
+            lr=args.pretrain_bc_lr,
+            epochs=args.pretrain_bc_epochs,
+            target_log_std=args.pretrain_bc_target_log_std,
+            rng=shuffle,
+            inactive_role_weight=getattr(args, "pretrain_bc_inactive_role_weight", 0.0),
+            label_smoothing=getattr(args, "pretrain_bc_label_smoothing", 1e-6),
+            inverse_freq_power=getattr(args, "pretrain_bc_inverse_freq_power", 0.5),
+        )
+        actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+
+    trainer_state = _trainer_checkpoint(
+        actor,
+        task,
+        costs,
+        normalizer,
+        layout,
+        actor_optimizer,
+        critic_optimizer,
+        personality=LaborPersonality(),
+        optimizer_seed=args.optimizer_seed,
+        iteration=0,
+        sampling_generator=sampling,
+        shuffle_rng=shuffle,
+        critic_training_world_seeds=(),
+        critic_training_independent_unit_ids=(),
     )
+    if bc_summary is not None:
+        trainer_state["heuristic_bc_pretraining"] = bc_summary
+    _save_checkpoint(args.out, trainer_state)
+
+
+def _command_pretrain_bc(args: argparse.Namespace) -> None:
+    from .labor_bc import collect_heuristic_bc_dataset, pretrain_labor_actor_bc
+
+    state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    _require_trainer_checkpoint(state)
+    layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
+    personality = LaborPersonality.from_mapping(
+        state["labor_model_contract"]["personality"]
+    )
+
+    critic_optimizer = torch.optim.Adam(
+        list(task.parameters()) + list(costs.parameters()), lr=3e-4
+    )
+    critic_optimizer.load_state_dict(state["critic_optimizer"])
+
+    sampling = torch.Generator()
+    sampling.set_state(state["sampling_generator_state"])
+    shuffle = np.random.default_rng(state["optimizer_seed"])
+    shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+
+    worlds = _parse_worlds(
+        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+    )
+
+    writer = None
+    if getattr(args, "economic_trace", None) is not None:
+        from .economic_trace import EconomicTraceWriter
+
+        writer = EconomicTraceWriter(
+            args.economic_trace,
+            {
+                "sourceCheckpoint": str(args.checkpoint),
+                "scope": "labor-pretrain-bc-economic-trace",
+            },
+        )
+
+    dataset = collect_heuristic_bc_dataset(
+        normalizer=normalizer,
+        world_seeds=worlds,
+        turns=args.turns,
+        personality=personality,
+        economic_trace=writer,
+        allow_vm_scale=getattr(args, "allow_vm_scale", False),
+    )
+    bc_summary = pretrain_labor_actor_bc(
+        actor=actor,
+        dataset=dataset,
+        lr=args.lr,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        target_log_std=args.target_log_std,
+        max_grad_norm=args.max_grad_norm,
+        rng=shuffle,
+        inactive_role_weight=getattr(args, "inactive_role_weight", 0.0),
+        label_smoothing=getattr(args, "label_smoothing", 1e-6),
+        inverse_freq_power=getattr(args, "inverse_freq_power", 0.5),
+    )
+    if getattr(args, "economic_trace", None) is not None:
+        bc_summary["economic_trace_dir"] = str(args.economic_trace)
+
+    actor_lr = float(
+        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
+    )
+    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
+
+    trainer_state = _trainer_checkpoint(
+        actor,
+        task,
+        costs,
+        normalizer,
+        layout,
+        actor_optimizer,
+        critic_optimizer,
+        personality=personality,
+        optimizer_seed=int(state["optimizer_seed"]),
+        iteration=int(state["iteration"]),
+        sampling_generator=sampling,
+        shuffle_rng=shuffle,
+        critic_training_world_seeds=state["critic_training_world_seeds"],
+        critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
+    )
+    trainer_state["heuristic_bc_pretraining"] = bc_summary
+    _save_checkpoint(args.out, trainer_state)
+
+
+def _command_pretrain_critic(args: argparse.Namespace) -> None:
+    from .labor_bc import pretrain_critic_on_heuristic_next_states
+
+    state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    _require_trainer_checkpoint(state)
+    layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
+    personality = LaborPersonality.from_mapping(
+        state["labor_model_contract"]["personality"]
+    )
+
+    sampling = torch.Generator()
+    sampling.set_state(state["sampling_generator_state"])
+    shuffle = np.random.default_rng(state["optimizer_seed"])
+    shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+
+    worlds = _parse_worlds(
+        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+    )
+
+    summary = pretrain_critic_on_heuristic_next_states(
+        task_critic=task,
+        cost_critics=costs,
+        normalizer=normalizer,
+        world_seeds=worlds,
+        turns=args.turns,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        max_grad_norm=args.max_grad_norm,
+        personality=personality,
+        rng=shuffle,
+        allow_vm_scale=getattr(args, "allow_vm_scale", False),
+    )
+
+    actor_lr = float(
+        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
+    )
+    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
+    actor_optimizer.load_state_dict(state["actor_optimizer"])
+
+    critic_lr = float(
+        state.get("critic_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
+    )
+    critic_optimizer = torch.optim.Adam(
+        list(task.parameters()) + list(costs.parameters()), lr=critic_lr
+    )
+
+    updated_critic_worlds = sorted(set(state["critic_training_world_seeds"]) | set(worlds))
+    trainer_state = _trainer_checkpoint(
+        actor,
+        task,
+        costs,
+        normalizer,
+        layout,
+        actor_optimizer,
+        critic_optimizer,
+        personality=personality,
+        optimizer_seed=int(state["optimizer_seed"]),
+        iteration=int(state["iteration"]),
+        sampling_generator=sampling,
+        shuffle_rng=shuffle,
+        critic_training_world_seeds=updated_critic_worlds,
+        critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
+    )
+    trainer_state["heuristic_critic_pretraining"] = summary
+    _save_checkpoint(args.out, trainer_state)
 
 
 def _command_collect(args: argparse.Namespace) -> None:
@@ -970,7 +1292,20 @@ def _command_collect(args: argparse.Namespace) -> None:
     sampling = torch.Generator()
     sampling.set_state(state["sampling_generator_state"])
     before_rng = sampling.get_state().clone()
-    worlds = _parse_worlds(args.worlds)
+    worlds = _parse_worlds(
+        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+    )
+    writer = None
+    if getattr(args, "economic_trace", None) is not None:
+        from .economic_trace import EconomicTraceWriter
+
+        writer = EconomicTraceWriter(
+            args.economic_trace,
+            {
+                "sourceCheckpoint": str(args.checkpoint),
+                "scope": "labor-rollout-economic-trace",
+            },
+        )
     rows, bootstrap = collect_labor_rollout(
         actor=actor,
         task_critic=task,
@@ -980,6 +1315,9 @@ def _command_collect(args: argparse.Namespace) -> None:
         turns=args.turns,
         generator=sampling,
         personality=personality,
+        economic_trace=writer,
+        max_self_destruct_rewinds=getattr(args, "max_self_destruct_rewinds", 0),
+        allow_vm_scale=getattr(args, "allow_vm_scale", False),
     )
     behavior = labor_behavior_configuration(personality)
     policy_sha = behavior_policy_digest(actor, behavior)
@@ -1009,11 +1347,15 @@ def _command_collect(args: argparse.Namespace) -> None:
         "samplingGeneratorStateAfter": sampling.get_state(),
         "scope": "local-diagnostic-rollout-not-readiness",
     }
+    if getattr(args, "economic_trace", None) is not None:
+        metadata["economicTraceDir"] = str(args.economic_trace)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(_state_dict_rollout(batch, task_targets, cost_targets, metadata), args.out)
 
 
 def _command_train(args: argparse.Namespace) -> None:
+    if getattr(args, "critic_epochs", 1) < 1:
+        raise ValueError("critic_epochs must be >= 1")
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
@@ -1060,15 +1402,22 @@ def _command_train(args: argparse.Namespace) -> None:
             batch.normalization_binding_digest,
         )
     anchor_rows = np.arange(len(anchor), dtype=np.int64)
-    critic_optimizer.zero_grad()
-    td_task, td_cost = _critic_td_losses(task, costs, batch, task_targets, cost_targets)
-    independent, independent_heads = labor_anchor_loss(task, costs, anchor, anchor_rows)
-    critic_loss = td_task + td_cost + args.anchor_weight * independent
-    critic_loss.backward()
-    torch.nn.utils.clip_grad_norm_(
-        list(task.parameters()) + list(costs.parameters()), args.max_grad_norm
-    )
-    critic_optimizer.step()
+    critic_epochs = getattr(args, "critic_epochs", 1)
+    initial_critic_loss: float | None = None
+    critic_loss = torch.tensor(0.0)
+    independent_heads: dict[str, torch.Tensor] = {}
+    for _ in range(critic_epochs):
+        critic_optimizer.zero_grad()
+        td_task, td_cost = _critic_td_losses(task, costs, batch, task_targets, cost_targets)
+        independent, independent_heads = labor_anchor_loss(task, costs, anchor, anchor_rows)
+        critic_loss = td_task + td_cost + args.anchor_weight * independent
+        if initial_critic_loss is None:
+            initial_critic_loss = float(critic_loss.detach())
+        critic_loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            list(task.parameters()) + list(costs.parameters()), args.max_grad_norm
+        )
+        critic_optimizer.step()
 
     actor_stats: dict[str, Any]
     if args.calibration_report is None:
@@ -1125,6 +1474,8 @@ def _command_train(args: argparse.Namespace) -> None:
     next_state["last_update"] = {
         "rolloutSha256": checkpoint_hash(args.rollout),
         "anchorSha256": checkpoint_hash(args.anchor),
+        "criticEpochs": int(critic_epochs),
+        "initialCriticLoss": float(initial_critic_loss),
         "criticLoss": float(critic_loss.detach()),
         "independentHeadLosses": {
             name: float(value.detach()) for name, value in independent_heads.items()
@@ -1133,6 +1484,67 @@ def _command_train(args: argparse.Namespace) -> None:
         "scope": "local-update-validation-not-readiness",
     }
     _save_checkpoint(args.out, next_state)
+
+
+def _command_fit_normalizer(args: argparse.Namespace) -> None:
+    worlds = _parse_worlds(args.worlds, allow_vm_scale=args.allow_vm_scale)
+    turns = int(args.turns)
+    if turns < 1:
+        raise ValueError("turns must be >= 1")
+
+    all_live: list[Mapping[str, Any]] = []
+    for seed in worlds:
+        with (
+            LaborModel9Bridge() as labor_bridge,
+            Model9Bridge(economic_diagnostics=True) as heur_bridge,
+        ):
+            step = labor_bridge.reset(seed)
+            for turn in range(turns):
+                live = [
+                    v
+                    for v in step.get("villages", [])
+                    if v.get("observation") is not None and not v.get("terminated")
+                ]
+                if not live:
+                    break
+                all_live.extend(live)
+                if turn == turns - 1:
+                    break
+
+                snap = labor_bridge._bridge.capture()
+                heur_bridge.reset(seed, snapshot=snap)
+                h_step = heur_bridge.step({})
+                h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+                econ_by_camp = h_step.get("economicDiagnostics") or {}
+
+                actions: dict[int, Mapping[str, Any]] = {}
+                for v in live:
+                    camp = int(v["camp"])
+                    cat, _ = labor_observation_fields(v["observation"])
+                    h_v = h_villages.get(camp, {})
+                    econ = econ_by_camp.get(str(camp))
+                    _, _, action = extract_heuristic_labor_action(cat, h_v, econ)
+                    actions[camp] = action
+
+                step, _ = labor_bridge.step_labor(actions)
+
+    if not all_live:
+        raise ValueError("no live villages observed to fit normalizer")
+
+    batch = observation_batch(all_live)
+    normalizer = Normalizer.fit_bounded(batch)
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = out_path.with_suffix(out_path.suffix + ".tmp")
+    torch.save(
+        {
+            "feature_contract": BOUNDED_FEATURE_CONTRACT,
+            "normalizer": normalizer.state_dict(),
+        },
+        temporary,
+    )
+    os.replace(temporary, out_path)
 
 
 def argument_parser() -> argparse.ArgumentParser:
@@ -1144,8 +1556,53 @@ def argument_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--optimizer-seed", type=int, required=True)
     initialize.add_argument("--actor-lr", type=float, default=3e-4)
     initialize.add_argument("--critic-lr", type=float, default=3e-4)
+    initialize.add_argument("--pretrain-bc-turns", type=int, default=0)
+    initialize.add_argument("--pretrain-bc-epochs", type=int, default=25)
+    initialize.add_argument("--pretrain-bc-lr", type=float, default=1e-3)
+    initialize.add_argument("--pretrain-bc-target-log-std", type=float, default=-2.0)
+    initialize.add_argument("--pretrain-bc-inactive-role-weight", type=float, default=0.0)
+    initialize.add_argument("--pretrain-bc-label-smoothing", type=float, default=1e-6)
+    initialize.add_argument("--pretrain-bc-inverse-freq-power", type=float, default=0.5)
     initialize.add_argument("--out", type=Path, required=True)
     initialize.set_defaults(handler=_command_initialize)
+
+    pretrain_bc = commands.add_parser("pretrain-bc")
+    pretrain_bc.add_argument("--checkpoint", type=Path, required=True)
+    pretrain_bc.add_argument(
+        "--worlds", required=True, help="comma-separated local diagnostic seeds"
+    )
+    pretrain_bc.add_argument("--turns", type=int, default=25)
+    pretrain_bc.add_argument("--epochs", type=int, default=25)
+    pretrain_bc.add_argument("--batch-size", type=int, default=64)
+    pretrain_bc.add_argument("--lr", type=float, default=1e-3)
+    pretrain_bc.add_argument("--target-log-std", type=float, default=-2.0)
+    pretrain_bc.add_argument("--max-grad-norm", type=float, default=1.0)
+    pretrain_bc.add_argument("--inactive-role-weight", type=float, default=0.0)
+    pretrain_bc.add_argument("--label-smoothing", type=float, default=1e-6)
+    pretrain_bc.add_argument("--inverse-freq-power", type=float, default=0.5)
+    pretrain_bc.add_argument("--allow-vm-scale", action="store_true", default=False)
+    pretrain_bc.add_argument(
+        "--economic-trace",
+        type=Path,
+        default=None,
+        help="opt-in directory to stream prospective economic diagnostics trace",
+    )
+    pretrain_bc.add_argument("--out", type=Path, required=True)
+    pretrain_bc.set_defaults(handler=_command_pretrain_bc)
+
+    pretrain_critic = commands.add_parser("pretrain-critic")
+    pretrain_critic.add_argument("--checkpoint", type=Path, required=True)
+    pretrain_critic.add_argument(
+        "--worlds", required=True, help="comma-separated local diagnostic seeds"
+    )
+    pretrain_critic.add_argument("--turns", type=int, default=25)
+    pretrain_critic.add_argument("--epochs", type=int, default=50)
+    pretrain_critic.add_argument("--batch-size", type=int, default=64)
+    pretrain_critic.add_argument("--lr", type=float, default=1e-3)
+    pretrain_critic.add_argument("--max-grad-norm", type=float, default=1.0)
+    pretrain_critic.add_argument("--allow-vm-scale", action="store_true", default=False)
+    pretrain_critic.add_argument("--out", type=Path, required=True)
+    pretrain_critic.set_defaults(handler=_command_pretrain_critic)
 
     collect = commands.add_parser("collect")
     collect.add_argument("--checkpoint", type=Path, required=True)
@@ -1154,6 +1611,14 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--lam", type=float, default=0.95)
     collect.add_argument("--feasibility-multiplier", type=float, default=1.0)
     collect.add_argument("--guard-multiplier", type=float, default=1.0)
+    collect.add_argument("--max-self-destruct-rewinds", type=int, default=0)
+    collect.add_argument("--allow-vm-scale", action="store_true", default=False)
+    collect.add_argument(
+        "--economic-trace",
+        type=Path,
+        default=None,
+        help="opt-in directory to stream prospective economic diagnostics trace",
+    )
     collect.add_argument("--out", type=Path, required=True)
     collect.set_defaults(handler=_command_collect)
 
@@ -1165,6 +1630,7 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--anchor-weight", type=float, default=1.0)
     train.add_argument("--actor-lr", type=float, default=3e-4)
     train.add_argument("--critic-lr", type=float, default=3e-4)
+    train.add_argument("--critic-epochs", type=int, default=1)
     train.add_argument("--epochs", type=int, default=4)
     train.add_argument("--batch-size", type=int, default=256)
     train.add_argument("--clip", type=float, default=0.2)
@@ -1174,6 +1640,15 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--audit-rows", type=int, default=64)
     train.add_argument("--out", type=Path, required=True)
     train.set_defaults(handler=_command_train)
+
+    fit_normalizer = commands.add_parser("fit-normalizer")
+    fit_normalizer.add_argument(
+        "--worlds", required=True, help="comma-separated local diagnostic seeds"
+    )
+    fit_normalizer.add_argument("--turns", type=int, default=25)
+    fit_normalizer.add_argument("--allow-vm-scale", action="store_true", default=False)
+    fit_normalizer.add_argument("--out", type=Path, required=True)
+    fit_normalizer.set_defaults(handler=_command_fit_normalizer)
     return parser
 
 

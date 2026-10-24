@@ -428,6 +428,19 @@ def _simplex(value: Any, mask: tuple[bool, ...], label: str) -> tuple[float, ...
         item for index, item in enumerate(canonical) if index != reference
     )
     if canonical[reference] < 0.0:
+        reference = max(
+            (
+                index
+                for index, (item, legal) in enumerate(zip(result, mask, strict=True))
+                if legal and item > 0.0
+            ),
+            key=lambda idx: result[idx],
+        )
+        canonical = list(result)
+        canonical[reference] = 1.0 - math.fsum(
+            item for index, item in enumerate(canonical) if index != reference
+        )
+    if canonical[reference] < 0.0:
         raise ValueError(f"{label} cannot be canonicalized as a simplex")
     return tuple(canonical)
 
@@ -544,9 +557,15 @@ class LaborPolicySample:
             if not nonzero:
                 raise ValueError("cannot serialize an empty labor simplex")
             reference = nonzero[-1]
-            result[reference] = 1.0 - math.fsum(
+            ref_val = 1.0 - math.fsum(
                 item for index, item in enumerate(result) if index != reference
             )
+            if ref_val < 0.0:
+                reference = max(nonzero, key=lambda idx: result[idx])
+                ref_val = 1.0 - math.fsum(
+                    item for index, item in enumerate(result) if index != reference
+                )
+            result[reference] = ref_val
             if result[reference] < 0 or not math.isclose(
                 math.fsum(result), 1.0, rel_tol=0.0, abs_tol=SIMPLEX_TOLERANCE
             ):
@@ -1891,15 +1910,20 @@ class LaborBridgeRuntime:
         if not isinstance(step, Mapping) or not isinstance(step.get("villages"), list):
             raise ValueError("native labor step lacks an ordinary encoded step")
         raw_feedback = _camp_payloads(response["laborFeedback"], "labor feedback")
-        if set(raw_feedback) != set(initial_actions):
+        if not set(initial_actions).issubset(raw_feedback):
             raise ValueError("native labor step feedback differs from the submitted camp set")
+        raw_feedback = {camp: raw_feedback[camp] for camp in initial_actions}
         feedback = {
             camp: LaborFeedback.from_payload(payload, self.catalogs[camp])
             for camp, payload in raw_feedback.items()
         }
         successor: dict[int, LaborCatalog] = {}
         for village in step["villages"]:
-            if not isinstance(village, Mapping) or not isinstance(
+            if not isinstance(village, Mapping):
+                raise ValueError("native labor successor village is malformed")
+            if village.get("terminated") is True and village.get("observation") is None:
+                continue
+            if village.get("terminated") is True or not isinstance(
                 village.get("observation"), Mapping
             ):
                 raise ValueError("native labor successor village is malformed")
@@ -2029,7 +2053,11 @@ class LaborModel9Bridge:
             raise ValueError("actor-labor fork/restore returned a malformed step")
         catalogs: dict[int, LaborCatalog] = {}
         for village in step["villages"]:
-            if not isinstance(village, Mapping) or not isinstance(
+            if not isinstance(village, Mapping):
+                raise ValueError("actor-labor fork/restore returned a malformed village")
+            if village.get("terminated") is True and village.get("observation") is None:
+                continue
+            if village.get("terminated") is True or not isinstance(
                 village.get("observation"), Mapping
             ):
                 raise ValueError("actor-labor fork/restore returned a malformed village")

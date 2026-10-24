@@ -183,7 +183,7 @@ class Model9Bridge:
 
     def _check_alignment(self, actual: dict, saved: dict) -> None:
         def sidecars(s):
-            return {int(v["camp"]): v.get("decisionDiagnostics") for v in s["villages"]}
+            return {int(v["camp"]): v.get("decisionDiagnostics") for v in s["villages"] if not v.get("terminated")}
         if (self.schema.decision_diagnostics_schema >= 1
                 and (int(actual["turn"]) != int(saved["turn"]) or sidecars(actual) != sidecars(saved))):
             raise ValueError("fork/restore changed decision diagnostics alignment")

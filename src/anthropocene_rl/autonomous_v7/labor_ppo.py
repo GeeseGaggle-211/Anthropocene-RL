@@ -574,6 +574,9 @@ def _rows(value: Mapping[str, torch.Tensor], index: torch.Tensor) -> dict[str, t
     for name, tensor in value.items():
         if not isinstance(tensor, torch.Tensor) or tensor.ndim < 1:
             raise ValueError(f"{name} must be a row-aligned tensor")
+        if name == "movement_codes" and tensor.ndim == 1:
+            result[name] = tensor
+            continue
         result[name] = tensor.index_select(0, index.to(tensor.device))
     return result
 
@@ -715,8 +718,17 @@ class LaborAttemptPolicyBatch:
             ("initial_nonlabor_sample", self.initial_nonlabor_sample),
         ):
             if not values or any(
-                not isinstance(value, torch.Tensor) or value.shape[0] != n or value.requires_grad
-                for value in values.values()
+                not isinstance(value, torch.Tensor)
+                or (
+                    value.shape[0] != n
+                    and not (
+                        label == "initial_nonlabor_sample"
+                        and name == "movement_codes"
+                        and value.ndim == 1
+                    )
+                )
+                or value.requires_grad
+                for name, value in values.items()
             ):
                 raise ValueError(f"{label} must contain {n} row-aligned tensors")
         if (

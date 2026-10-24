@@ -240,8 +240,8 @@ def _run_continuation(
     bridge: LaborModel9Bridge,
     step: Mapping[str, Any],
     actor: Any,
-    task_critic: Any,
-    cost_critics: Any,
+    task_critic: Any = None,
+    cost_critics: Any = None,
     normalizer: Any,
     personality: LaborPersonality,
     initial_seed: int,
@@ -270,8 +270,8 @@ def _run_continuation(
             bridge=bridge,
             step=step,
             actor=actor,
-            task_critic=task_critic,
-            cost_critics=cost_critics,
+            task_critic=None,
+            cost_critics=None,
             normalizer=normalizer,
             personality=personality,
             generator=initial_generator if term == 0 else future_generator,
@@ -344,6 +344,7 @@ def collect_labor_anchor_arrays(
     tail_cap: int = DEFAULT_TAIL_CAP,
     path_count: int = DEFAULT_PATHS,
     bridge_factory: Any = LaborModel9Bridge,
+    allow_vm_scale: bool = False,
 ) -> dict[str, np.ndarray]:
     """Collect a strict NPZ payload without using any critic value as a target."""
 
@@ -365,8 +366,10 @@ def collect_labor_anchor_arrays(
         },
         "labor anchor seeds",
     )
-    if not worlds or len(worlds) > LOCAL_WORLD_LIMIT:
+    if not allow_vm_scale and (not worlds or len(worlds) > LOCAL_WORLD_LIMIT):
         raise ValueError(f"local labor anchor collection requires 1..{LOCAL_WORLD_LIMIT} worlds")
+    if not worlds:
+        raise ValueError("world seeds cannot be empty")
     if role not in {"train-anchor", "actor-gate"}:
         raise ValueError("labor anchor role must be train-anchor or actor-gate")
     if path_count < 2:
@@ -684,6 +687,7 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tail-rho", type=float, default=DEFAULT_TAIL_RHO)
     parser.add_argument("--tail-cap", type=int, default=DEFAULT_TAIL_CAP)
     parser.add_argument("--paths", type=int, default=DEFAULT_PATHS)
+    parser.add_argument("--allow-vm-scale", action="store_true", default=False)
     parser.add_argument("--out", type=Path, required=True)
     return parser
 
@@ -705,6 +709,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         tail_rho=args.tail_rho,
         tail_cap=args.tail_cap,
         path_count=args.paths,
+        allow_vm_scale=args.allow_vm_scale,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.out, **arrays)
