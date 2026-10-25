@@ -587,8 +587,15 @@ def summarize_actor(report: Mapping[str, Any]) -> str:
 
 
 def critic_predictions(
-    task: Any, costs: Any, dataset: Mapping[str, Any], rows: np.ndarray, batch_size: int = 256
+    task: Any,
+    costs: Any,
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    batch_size: int = 256,
+    observed_max: Mapping[str, float] | None = None,
 ) -> dict[str, np.ndarray]:
+    """Decoded predictions; with ``observed_max`` (normalized target max per task
+    head) also per-row value-support tail terms keyed ``"<head>/<term>"``."""
     from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES
 
     tensors = _input_tensors(dataset)
@@ -598,10 +605,53 @@ def critic_predictions(
             logits = task(batch)
             for name in LABOR_OBJECTIVES:
                 out[name].append(task.expectation(name, logits[name]).double().numpy())
+                if observed_max is not None:
+                    terms = task.support_diagnostics(name, logits[name], observed_max[name])
+                    for term, value in terms.items():
+                        out[f"{name}/{term}"].append(value.numpy())
             for name, value in costs(batch).items():
                 out[name].append(value.double().numpy())
     names = tuple(LABOR_OBJECTIVES) + tuple(LABOR_COSTS)
+    names += tuple(key for key in out if "/" in key)
     return {name: np.concatenate(out[name]) if out[name] else np.zeros(0) for name in names}
+
+
+def value_support_metrics(
+    task: Any,
+    preds: Mapping[str, np.ndarray],
+    targets: Mapping[str, np.ndarray],
+    worlds: np.ndarray,
+) -> dict[str, Any]:
+    """Brief section 17.2 support report: clipping and decoded upper-bin tails.
+
+    Means are world-balanced like nMAE/bias and in reference-scale units, so
+    ``upper_excess`` is directly comparable with the head's bias.
+    """
+    from .labor_model import LABOR_OBJECTIVE_REFERENCE_SCALES, LABOR_OBJECTIVES
+
+    support = task.support
+    weights = world_balanced(worlds, np.ones(len(worlds), dtype=bool))
+    report: dict[str, Any] = {
+        "support": {"low": support.low, "high": support.high, "bins": support.bins},
+        "decoded_max_reference_scales": float(math.expm1(support.high)),
+    }
+    for name in LABOR_OBJECTIVES:
+        normalized = targets[name] / LABOR_OBJECTIVE_REFERENCE_SCALES[name]
+        y = np.sign(normalized) * np.log1p(np.abs(normalized))
+        head: dict[str, Any] = {
+            "observed_normalized_max": float(normalized.max()) if len(y) else None,
+            "observed_symlog_min": float(y.min()) if len(y) else None,
+            "observed_symlog_max": float(y.max()) if len(y) else None,
+            "clip_below_fraction": float((y < support.low).mean()) if len(y) else 0.0,
+            "clip_above_fraction": float((y > support.high).mean()) if len(y) else 0.0,
+        }
+        for term in ("upper_mass", "upper_contribution", "upper_excess", "top_bin_mass"):
+            values = preds.get(f"{name}/{term}")
+            head[term] = None if values is None or not len(values) else weighted_mean(values, weights)
+        excess = preds.get(f"{name}/upper_excess")
+        head["upper_excess_max"] = None if excess is None or not len(excess) else float(excess.max())
+        report[name] = head
+    return report
 
 
 def critic_head_metrics(
@@ -653,7 +703,13 @@ def critic_dataset_report(
     farmer_unlocked = _np(dataset, "labor_specialty_mask")[rows, farmer].astype(bool)
     index, count = decision_index(worlds, turns)
     early = index < (count + 1) // 2
-    preds = critic_predictions(task, costs, dataset, rows, batch_size)
+    observed_max = {
+        name: float((returns[name][rows] / LABOR_OBJECTIVE_REFERENCE_SCALES[name]).max())
+        if len(rows)
+        else 0.0
+        for name in LABOR_OBJECTIVE_REFERENCE_SCALES
+    }
+    preds = critic_predictions(task, costs, dataset, rows, batch_size, observed_max)
     scales = {**LABOR_OBJECTIVE_REFERENCE_SCALES, **LABOR_COST_REFERENCE_SCALES}
     strata = {
         "all": np.ones(len(rows), dtype=bool),
@@ -679,6 +735,9 @@ def critic_dataset_report(
         "worlds": len(np.unique(worlds)),
         "dataset_digest": dataset["collection"]["dataset_digest"],
         "heads": heads,
+        "value_support": value_support_metrics(
+            task, preds, {name: returns[name][rows] for name in observed_max}, worlds
+        ),
     }
 
 
@@ -749,6 +808,19 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                     f"  {name:<17} {stratum:<16} {m['gate']:<4} nMAE={_fmt(m['nmae'])} bias={_fmt(m['bias'])} "
                     f"rank={_fmt(rank['accuracy'])} pairs={rank['informative_pairs']} "
                     f"groups={rank['informative_groups']} worlds={m['worlds']}{extra}"
+                )
+        support = section.get("value_support")
+        if support:
+            s = support["support"]
+            for name, h in support.items():
+                if name in ("support", "decoded_max_reference_scales"):
+                    continue
+                lines.append(
+                    f"  support [{s['low']:g},{s['high']:g}]x{s['bins']} {name:<17} "
+                    f"y=[{_fmt(h['observed_symlog_min'])},{_fmt(h['observed_symlog_max'])}] "
+                    f"clip<={_fmt(h['clip_below_fraction'], 4)} clip>={_fmt(h['clip_above_fraction'], 4)} "
+                    f"mass>max={_fmt(h['upper_mass'], 4)} top-bin={_fmt(h['top_bin_mass'], 5)} "
+                    f"decoded>max={_fmt(h['upper_contribution'])} excess={_fmt(h['upper_excess'])}"
                 )
     for name, gap in (report.get("generalisation_gap") or {}).items():
         lines.append(

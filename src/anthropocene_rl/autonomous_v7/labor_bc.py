@@ -1558,6 +1558,7 @@ def pretrain_critic_on_dataset(
     lr: float = 1e-3,
     max_grad_norm: float = 1.0,
     rng: np.random.Generator | None = None,
+    cost_loss_weight: float = 1.0,
 ) -> dict[str, Any]:
     """Fit task/cost critics on truncated heuristic returns, world-balanced.
 
@@ -1566,6 +1567,8 @@ def pretrain_critic_on_dataset(
     are excluded from fitting because their continuation is not the
     heuristic's. Minibatches are drawn with world-balanced probabilities.
     """
+    if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
+        raise ValueError("cost_loss_weight must be finite and non-negative")
     returns = discounted_returns(dataset)
     n = int(dataset["row_world"].shape[0])
     keep = ~dataset["row_quarantined"].reshape(n).bool()
@@ -1613,7 +1616,7 @@ def pretrain_critic_on_dataset(
             optimizer.zero_grad()
             loss = labor_task_value_loss(
                 task_critic, b_tensors, {k: v[batch_idx] for k, v in task_targets.items()}
-            ) + labor_cost_value_loss(
+            ) + cost_loss_weight * labor_cost_value_loss(
                 cost_critics, b_tensors, {k: v[batch_idx] for k, v in cost_targets.items()}
             )
             if not torch.isfinite(loss):
@@ -1639,6 +1642,8 @@ def pretrain_critic_on_dataset(
         "return_tail": "truncated-zero-at-collection-horizon",
         "sampling": "world-balanced-with-replacement",
         "discount_days": CRITIC_DISCOUNT_DAYS,
+        # Reported losses above are unweighted; only a non-default weight is recorded.
+        **({} if cost_loss_weight == 1.0 else {"cost_loss_weight": float(cost_loss_weight)}),
     }
 
 

@@ -76,6 +76,89 @@ def _finite_number(value: Any, label: str) -> float:
     return result
 
 
+# Versioned task-critic value representation (brief section 17.2). The
+# historical clamp [-2, 9] with 255 two-hot bins (shared with Model 9) is the
+# default and is never serialized, so existing checkpoints and contracts keep
+# their exact bytes. Any other support is a declared, versioned representation
+# change recorded in the checkpoint's labor model contract.
+LABOR_VALUE_SUPPORT_VERSION = "labor-task-symlog-two-hot-support-v2"
+LABOR_VALUE_SUPPORT_TRANSFORM = "symlog-of-return-over-reference-scale"
+
+
+@dataclass(frozen=True)
+class LaborValueSupport:
+    """Clamp and bin count of the two-hot task-critic target ``symlog(G / s)``.
+
+    Targets are clamped to ``[low, high]`` in symlog space and decoded as
+    ``s * sum_j p_j symexp(b_j)`` with ``b_j = linspace(low, high, bins)``.
+    Narrowing ``high`` removes decodable tail mass (``symexp(9)`` is about
+    8102 reference scales); it is a representation change, not a tuning knob,
+    so a checkpoint's support is fixed by its contract.
+    """
+
+    low: float = BIN_LOW
+    high: float = BIN_HIGH
+    bins: int = BINS
+
+    def __post_init__(self) -> None:
+        low = _finite_number(self.low, "value support low")
+        high = _finite_number(self.high, "value support high")
+        if isinstance(self.bins, bool) or not isinstance(self.bins, int) or self.bins < 3:
+            raise ValueError("value support bins must be an integer >= 3")
+        if not low < 0.0 < high:
+            raise ValueError("value support must satisfy low < 0 < high in symlog space")
+        object.__setattr__(self, "low", low)
+        object.__setattr__(self, "high", high)
+
+    @property
+    def is_default(self) -> bool:
+        return (self.low, self.high, self.bins) == (BIN_LOW, BIN_HIGH, BINS)
+
+    def bin_values(self) -> torch.Tensor:
+        return torch.linspace(self.low, self.high, self.bins)
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "version": LABOR_VALUE_SUPPORT_VERSION,
+            "transform": LABOR_VALUE_SUPPORT_TRANSFORM,
+            "low": self.low,
+            "high": self.high,
+            "bins": self.bins,
+        }
+
+    @classmethod
+    def from_state(cls, state: Mapping[str, Any] | None) -> LaborValueSupport:
+        if state is None:
+            return cls()
+        if not isinstance(state, Mapping) or set(state) != {
+            "version",
+            "transform",
+            "low",
+            "high",
+            "bins",
+        }:
+            raise ValueError("labor value support fields are malformed")
+        if (
+            state["version"] != LABOR_VALUE_SUPPORT_VERSION
+            or state["transform"] != LABOR_VALUE_SUPPORT_TRANSFORM
+        ):
+            raise ValueError("labor value support version is unsupported")
+        support = cls(state["low"], state["high"], state["bins"])
+        if support.is_default:
+            raise ValueError("the default value support is implicit and must not be serialized")
+        return support
+
+    @classmethod
+    def parse(cls, text: str | None) -> LaborValueSupport:
+        """Parse a ``LOW,HIGH,BINS`` command-line value (``None`` = default)."""
+        if text is None:
+            return cls()
+        parts = [part.strip() for part in str(text).split(",")]
+        if len(parts) != 3:
+            raise ValueError("value support must be LOW,HIGH,BINS")
+        return cls(float(parts[0]), float(parts[1]), int(parts[2]))
+
+
 @dataclass(frozen=True)
 class LaborPersonality:
     """Declared fixed weighting over the two terminal task objectives.
@@ -155,11 +238,16 @@ class LaborModelContract:
     conditioning: LaborPersonalityConditioning = field(
         default_factory=LaborPersonalityConditioning
     )
+    # Task-critic value support (brief section 17.2). The historical default
+    # is not serialized, so default checkpoints keep their contract bytes.
+    value_support: LaborValueSupport = field(default_factory=LaborValueSupport)
 
     def state_dict(self) -> dict[str, Any]:
         state = self._base_state()
         if not self.conditioning.is_default:
             state["personalityConditioning"] = self.conditioning.state_dict()
+        if not self.value_support.is_default:
+            state["criticValueSupport"] = self.value_support.state_dict()
         return state
 
     def _base_state(self) -> dict[str, Any]:
@@ -201,9 +289,10 @@ class LaborModelContract:
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> LaborModelContract:
         template = cls().state_dict()
-        if not isinstance(state, Mapping) or set(state) - {"personalityConditioning"} != set(
-            template
-        ):
+        if not isinstance(state, Mapping) or set(state) - {
+            "personalityConditioning",
+            "criticValueSupport",
+        } != set(template):
             raise ValueError(f"labor model contract fields must be exactly {sorted(template)}")
         for key in (
             "schemaVersion",
@@ -230,6 +319,7 @@ class LaborModelContract:
         return cls(
             LaborPersonality.from_mapping(state["personality"]),
             LaborPersonalityConditioning.from_state(state.get("personalityConditioning")),
+            LaborValueSupport.from_state(state.get("criticValueSupport")),
         )
 
 
@@ -251,6 +341,13 @@ def labor_checkpoint_contract(
     if expected_layout is not None and layout != expected_layout:
         raise ValueError("labor checkpoint encoder layout differs from the executing model")
     return contract
+
+
+def labor_checkpoint_value_support(state: Mapping[str, Any]) -> LaborValueSupport:
+    """The task-critic value support declared by a labor checkpoint's contract."""
+    if not isinstance(state, Mapping) or "labor_model_contract" not in state:
+        raise ValueError("checkpoint is not an explicit labor/retry artifact")
+    return LaborModelContract.from_state(state["labor_model_contract"]).value_support
 
 
 @dataclass(frozen=True)
@@ -764,15 +861,59 @@ class LaborObservationEncoder(nn.Module):
 
 
 class LaborTaskCritic(nn.Module):
-    """One shared task-state encoder and one two-hot head per terminal objective."""
+    """One shared task-state encoder and one two-hot head per terminal objective.
+
+    ``support`` is the declared, versioned value representation (clamp and bin
+    count); the default reproduces the historical [-2, 9] x 255 critic exactly.
+    """
 
     def __init__(
-        self, layout: LaborEncoderLayout, width: int = 256, token_width: int = 128
+        self,
+        layout: LaborEncoderLayout,
+        width: int = 256,
+        token_width: int = 128,
+        *,
+        support: LaborValueSupport | None = None,
     ) -> None:
         super().__init__()
+        self.support = LaborValueSupport() if support is None else support
+        if not isinstance(self.support, LaborValueSupport):
+            raise ValueError("task critic support must be a LaborValueSupport")
         self.encoder = LaborObservationEncoder(layout, width, token_width)
-        self.heads = nn.ModuleDict({name: nn.Linear(width, BINS) for name in LABOR_OBJECTIVES})
-        self.register_buffer("bins", torch.linspace(BIN_LOW, BIN_HIGH, BINS))
+        self.heads = nn.ModuleDict(
+            {name: nn.Linear(width, self.support.bins) for name in LABOR_OBJECTIVES}
+        )
+        self.register_buffer("bins", self.support.bin_values())
+
+    def check_support(self) -> None:
+        """Reject a bins buffer (e.g. a loaded one) that differs from the declared support."""
+        if self.bins.shape != (self.support.bins,) or not torch.equal(
+            self.bins.detach().cpu(), self.support.bin_values()
+        ):
+            raise ValueError("task critic bins differ from its declared value support")
+
+    def support_diagnostics(
+        self, objective: str, logits: torch.Tensor, observed_max: float
+    ) -> dict[str, torch.Tensor]:
+        """Per-row decoded tail terms in reference-scale (normalized) units.
+
+        ``observed_max`` is the largest observed normalized target ``G / s``.
+        ``upper_mass`` is the probability above it, ``upper_contribution`` the
+        decoded value those bins add and ``upper_excess`` the part of it beyond
+        placing the same mass at ``observed_max`` (bias no target can justify).
+        """
+        if objective not in LABOR_OBJECTIVES:
+            raise ValueError(f"unknown labor objective {objective!r}")
+        probabilities = torch.softmax(logits.double(), dim=-1)
+        values = symexp(self.bins.double())
+        upper = values > float(observed_max)
+        upper_probability = probabilities * upper
+        return {
+            "upper_mass": upper_probability.sum(dim=-1),
+            "upper_contribution": (upper_probability * values).sum(dim=-1),
+            "upper_excess": (upper_probability * (values - float(observed_max))).sum(dim=-1),
+            "top_bin_mass": probabilities[..., -1],
+        }
 
     def forward(self, tensors: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         hidden, _, _, _, _ = self.encoder(tensors)
@@ -795,13 +936,14 @@ class LaborTaskCritic(nn.Module):
             or not torch.isfinite(values).all()
         ):
             raise ValueError("labor objective targets must be a finite vector")
+        support = self.support
         normalized = values / LABOR_OBJECTIVE_REFERENCE_SCALES[objective]
-        transformed = symlog(normalized).clamp(BIN_LOW, BIN_HIGH)
-        step = (BIN_HIGH - BIN_LOW) / (BINS - 1)
-        position = (transformed - BIN_LOW) / step
-        low = position.floor().long().clamp(0, BINS - 2)
+        transformed = symlog(normalized).clamp(support.low, support.high)
+        step = (support.high - support.low) / (support.bins - 1)
+        position = (transformed - support.low) / step
+        low = position.floor().long().clamp(0, support.bins - 2)
         upper = (position - low.float()).clamp(0, 1)
-        target = torch.zeros(values.shape[0], BINS, device=values.device)
+        target = torch.zeros(values.shape[0], support.bins, device=values.device)
         target.scatter_(1, low.unsqueeze(1), (1 - upper).unsqueeze(1))
         target.scatter_add_(1, (low + 1).unsqueeze(1), upper.unsqueeze(1))
         return target
@@ -848,7 +990,8 @@ def labor_checkpoint_payload(
     if normalizer_feature_contract(normalizer) != BOUNDED_FEATURE_CONTRACT:
         raise ValueError("labor checkpoints require a bounded normalizer")
     contract = LaborModelContract(
-        *labor_personality_conditioning(personality, actor.encoder.film_bound)
+        *labor_personality_conditioning(personality, actor.encoder.film_bound),
+        value_support=task_critic.support,
     )
     return {
         "artifact_kind": LABOR_ARTIFACT_KIND,
@@ -882,8 +1025,14 @@ def load_labor_checkpoint_models(
     for name in ("actor", "task_critic", "cost_critics"):
         if not isinstance(state.get(name), Mapping):
             raise ValueError(f"labor checkpoint is missing strict {name} tensors")
+    if contract.value_support != task_critic.support:
+        raise ValueError(
+            "labor checkpoint declares a different task-critic value support; construct "
+            "the critic with labor_checkpoint_value_support(state)"
+        )
     actor.load_state_dict(state["actor"], strict=True)
     task_critic.load_state_dict(state["task_critic"], strict=True)
+    task_critic.check_support()
     cost_critics.load_state_dict(state["cost_critics"], strict=True)
     set_labor_film_bound(contract.conditioning.film_bound, actor, task_critic, cost_critics)
     return contract, normalizer
