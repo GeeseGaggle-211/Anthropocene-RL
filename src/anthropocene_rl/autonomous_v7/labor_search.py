@@ -1,0 +1,2097 @@
+"""G3 native search teacher for the action-12 specialty-labor actor.
+
+The search improves on the converted heuristic (H12) labels so the pretrained
+actor and critics do not inherit heuristic bias. It never enumerates the
+action space. For one focal camp at one protected root it builds at most M
+complete, coherent, natively validated schema-12 actions (the H12 action, the
+actor's deterministic and sampled actions, structured single-block
+perturbations of H12 and a few a-priori joint perturbations), then evaluates
+them by successive halving over the horizon with paired continuations:
+
+* restore the root, execute the candidate for the focal camp while every other
+  camp takes its root H12 action, then continue every camp under H12;
+* score the focal camp's discounted four-component return (QoL-years,
+  population-years, feasibility cost, settlement guard), credited exactly as
+  ``labor_training._transition_rewards``/``_settlement_guard`` and
+  ``labor_bc.discounted_returns`` do (tau = 400 years, zero after the focal
+  camp terminates);
+* store each candidate's return vector once and score it under several
+  personalities (U_p = w_q G_q/s_q + w_p G_p/s_p - eta_f C_f - eta_s C_s with
+  the frozen labor reference scales). Halving keeps candidates by their best
+  rank over personalities, so no personality's best is pruned early;
+* per personality, the best-found candidate becomes the label only if it beats
+  H12 on fresh, independent continuation streams by the declared margin plus
+  ``se_multiplier`` paired standard errors. Otherwise the label stays H12.
+
+Continuation streams. The native simulator and the converted H12 controller
+are deterministic, so stream 0 (selection) is the deterministic H12
+continuation and every candidate at a root shares it exactly. Independent
+re-evaluation needs stochastic streams; streams >= 1 therefore use the declared
+``h12-dither`` controller: H12 with a keyed, natively validated transfer of a
+few residents between Gatherer and one staffed role for each camp with
+probability ``dither_probability``. A stream's draws are keyed by (world,
+root, focal, stream, step, camp), so the winner and H12 see common random
+numbers. The focal camp's first action is never dithered.
+
+Selected labels are "best found within the search specification", never
+"optimal". Forced-first-action finite-window returns live in the candidate
+table; they are not policy V returns.
+
+Example::
+
+    python -m anthropocene_rl.autonomous_v7.labor_search \\
+        --normalizer-checkpoint ckpt.pt --actor-checkpoint ckpt.pt \\
+        --worlds 90100-90159 --roots-per-world 8 --jobs 30 --out datasets/labor-search-r0
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import json
+import math
+import os
+import re
+import sys
+import time
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import numpy as np
+import orjson
+import torch
+
+from . import contracts
+from .labor_bc import (
+    LABOR_LABEL_CONTRACT,
+    HeuristicLaborLabel,
+    LaborResetOptions,
+    _concat,
+    _idle_retry,
+    _label_tensors,
+    _movement_legal,
+    _one_row,
+    _retained_action,
+    convert_heuristic_labor_label,
+    world_balanced_weights,
+)
+from .labor_bridge import (
+    ACTIVITIES,
+    SPECIALTIES,
+    LaborCatalog,
+    LaborPolicySample,
+    apportion_largest_remainder,
+)
+from .labor_model import (
+    LABOR_COST_REFERENCE_SCALES,
+    LABOR_OBJECTIVE_REFERENCE_SCALES,
+    LaborPersonality,
+)
+
+SEARCH_CONTRACT = "model9-labor-search-teacher-v1"
+SOURCE_KIND = "native_search_labor_teacher"
+SCHEMA = 1
+COMPONENTS = ("qol_years", "population_years", "feasibility", "settlement_guard")
+FAMILIES = (
+    "h12",
+    "actor-deterministic",
+    "actor-sample",
+    "transfer",
+    "activity",
+    "movement",
+    "fission",
+    "trade",
+    "joint",
+)
+FAMILY_CODES = {name: index for index, name in enumerate(FAMILIES)}
+PERTURBATION_FAMILIES = ("transfer", "activity", "movement", "fission", "trade", "joint")
+ROW_SOURCE_CODES = {"heuristic": 0, "search": 1}
+SOURCES = ("h12", "actor")
+FITTING_WORLDS = range(90100, 90160)
+
+# Keyed-stream tags (numpy SeedSequence entropy words).
+ROOT_TAG = 0x5352  # "SR": root turn draw
+FOCAL_TAG = 0x5346  # "SF": focal order
+CAND_TAG = 0x5343  # "SC": candidate family shuffles
+ACTOR_TAG = 0x5341  # "SA": actor samples
+DITHER_TAG = 0x5344  # "SD": continuation dither
+
+TRADE_SET = [name for name, _, _ in contracts.SETS].index("trade")
+TRADE_HELD = 0
+TRADE_ACTIVITY = (6, 7, 8)  # imported, exported, realised utility
+
+# Key activity for a role that becomes staffed by a transfer.
+DEFAULT_ACTIVITY = {
+    "Gatherer": "food.gather",
+    "Farmer": "field.operation",
+    "Herder": "herd.management",
+    "Fisher": "fishing.harvest",
+    "Craftsperson": "goods.housing",
+    "Builder": "goods.housing",
+    "Weaver": "goods.cloth",
+    "Potter": "goods.pots",
+    "Toolmaker": "goods.tools",
+    "Carpenter": "goods.housing-material",
+    "Woodcutter": "stock.wood",
+    "Stonecutter": "stock.stone",
+    "ClayMiner": "stock.clay",
+}
+TRANSFER_PAIRS = (
+    ("Gatherer", "Farmer"),
+    ("Farmer", "Gatherer"),
+    ("Gatherer", "Craftsperson"),
+    ("Craftsperson", "Gatherer"),
+    ("Gatherer", "Builder"),
+    ("Gatherer", "Weaver"),
+)
+GATHERER = SPECIALTIES.index("Gatherer")
+IDENTITY_KEYS = ("nativems", "trajectoryid", "decisionid")
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+
+def _parse_keep(token: str) -> tuple[str, float]:
+    token = str(token).strip().lower()
+    if token == "all":
+        return ("all", 1.0)
+    if "/" in token:
+        a, b = token.split("/", 1)
+        value = float(a) / float(b)
+        if not 0.0 < value <= 1.0:
+            raise ValueError(f"keep fraction {token} must be in (0, 1]")
+        return ("fraction", value)
+    count = int(token)
+    if count < 1:
+        raise ValueError("keep counts must be positive")
+    return ("count", float(count))
+
+
+@dataclass(frozen=True)
+class SearchConfig:
+    """Declared search specification (recorded in every manifest)."""
+
+    candidates: int = 16
+    actor_samples: int = 4
+    horizons: tuple[int, ...] = (1, 2, 3, 5)
+    keep: tuple[str, ...] = ("all", "1/2", "1/4", "2")
+    personalities: tuple[tuple[float, float], ...] = ((0.5, 0.5), (0.9, 0.1), (0.1, 0.9))
+    root_personality: bool = True
+    margin: float = 0.005
+    se_multiplier: float = 2.0
+    reeval_streams: int = 3
+    dither_probability: float = 0.5
+    dither_fraction: float = 0.05
+    max_resolves: int = 400
+    focal_per_root: int = 1
+    movement_candidates: int = 3
+    validation_cap: int = 64
+    feasibility_multiplier: float = 1.0
+    guard_multiplier: float = 1.0
+    discount_years: float = contracts.HORIZON_YEARS
+
+    def __post_init__(self) -> None:
+        if self.candidates < 2:
+            raise ValueError("search needs at least two candidates (H12 and one alternative)")
+        if not self.horizons or any(int(h) < 1 for h in self.horizons):
+            raise ValueError("horizons must be positive")
+        if list(self.horizons) != sorted(set(int(h) for h in self.horizons)):
+            raise ValueError("horizons must be strictly increasing")
+        if len(self.keep) != len(self.horizons):
+            raise ValueError("keep needs one entry per horizon round")
+        for token in self.keep:
+            _parse_keep(token)
+        if self.reeval_streams < 2:
+            raise ValueError(
+                "independent re-evaluation needs at least two streams for a standard error"
+            )
+        for pair in self.personalities:
+            LaborPersonality(*pair)
+        if not 0.0 <= self.dither_probability <= 1.0 or not 0.0 < self.dither_fraction <= 1.0:
+            raise ValueError("dither probability/fraction out of range")
+
+    def keep_counts(self, n: int) -> list[int]:
+        """Survivors per round, non-increasing and at least one."""
+        out: list[int] = []
+        previous = n
+        for kind, value in (_parse_keep(t) for t in self.keep):
+            if kind == "all":
+                count = previous
+            elif kind == "fraction":
+                count = math.ceil(n * value)
+            else:
+                count = int(value)
+            count = max(1, min(previous, count))
+            out.append(count)
+            previous = count
+        return out
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "candidates": self.candidates,
+            "actor_samples": self.actor_samples,
+            "horizons": list(self.horizons),
+            "keep": list(self.keep),
+            "personalities": [list(p) for p in self.personalities],
+            "root_personality": self.root_personality,
+            "margin": self.margin,
+            "se_multiplier": self.se_multiplier,
+            "reeval_streams": self.reeval_streams,
+            "dither_probability": self.dither_probability,
+            "dither_fraction": self.dither_fraction,
+            "max_resolves": self.max_resolves,
+            "focal_per_root": self.focal_per_root,
+            "movement_candidates": self.movement_candidates,
+            "validation_cap": self.validation_cap,
+            "feasibility_multiplier": self.feasibility_multiplier,
+            "guard_multiplier": self.guard_multiplier,
+            "discount_years": self.discount_years,
+        }
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> SearchConfig:
+        data = dict(value)
+        data["horizons"] = tuple(int(h) for h in data["horizons"])
+        data["keep"] = tuple(str(k) for k in data["keep"])
+        data["personalities"] = tuple(tuple(float(x) for x in p) for p in data["personalities"])
+        return cls(**data)
+
+
+# ---------------------------------------------------------------------------
+# Personality scoring
+# ---------------------------------------------------------------------------
+
+
+def utility(returns: np.ndarray, personality: Sequence[float], config: SearchConfig) -> np.ndarray:
+    """U_p per row of ``returns`` (columns in COMPONENTS order)."""
+    r = np.asarray(returns, dtype=np.float64).reshape(-1, len(COMPONENTS))
+    w_q, w_p = float(personality[0]), float(personality[1])
+    return (
+        w_q * r[:, 0] / LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
+        + w_p * r[:, 1] / LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
+        - config.feasibility_multiplier * r[:, 2] / LABOR_COST_REFERENCE_SCALES["feasibility"]
+        - config.guard_multiplier * r[:, 3] / LABOR_COST_REFERENCE_SCALES["settlement_guard"]
+    )
+
+
+def utility_matrix(
+    returns: np.ndarray, personalities: Sequence[Sequence[float]], config: SearchConfig
+) -> np.ndarray:
+    """[candidates, personalities] utilities from one stored return matrix."""
+    return np.stack([utility(returns, p, config) for p in personalities], axis=1)
+
+
+def halving_order(
+    u: np.ndarray, ids: Sequence[int], tiebreak: Mapping[int, int] | None = None
+) -> list[int]:
+    """Candidate ids ordered by their best rank over personalities.
+
+    A candidate's rank under a personality is the number of candidates with a
+    strictly higher utility (equal utilities share a rank). The key is
+    (best rank, sum of ranks, tiebreak), so the top-k keeps every personality's
+    best before anyone's second best. ``tiebreak`` is a keyed order; without
+    it ties fall back to candidate id. Exact ties are common at short horizons
+    (many single-block changes do not move the first transition), so a keyed
+    tie-break avoids systematically favouring early candidate families.
+    """
+    ids = list(ids)
+    if not ids:
+        return []
+    order = tiebreak if tiebreak is not None else {c: c for c in ids}
+    sub = np.asarray(u, dtype=np.float64)[ids]
+    ranks = (sub[None, :, :] > sub[:, None, :]).sum(axis=1)
+    key = {
+        ids[i]: (int(ranks[i].min()), int(ranks[i].sum()), int(order[ids[i]]), ids[i])
+        for i in range(len(ids))
+    }
+    return sorted(ids, key=lambda c: key[c])
+
+
+def select_survivors(
+    u: np.ndarray,
+    ids: Sequence[int],
+    keep: int,
+    protected: int,
+    tiebreak: Mapping[int, int] | None = None,
+) -> list[int]:
+    """The top ``keep`` by best rank over personalities, plus the protected reference."""
+    ranked = [c for c in halving_order(u, ids, tiebreak) if c != protected]
+    survivors = ranked[:keep]
+    if protected in ids and protected not in survivors:
+        survivors = [*survivors, protected]
+    return sorted(survivors)
+
+
+def best_for_personality(u_column: np.ndarray, ids: Sequence[int], reference: int) -> int:
+    """Argmax utility; ties prefer the reference, then the lower id."""
+    return max(ids, key=lambda c: (float(u_column[c]), c == reference, -c))
+
+
+def paired_acceptance(
+    winner_u: Sequence[float], reference_u: Sequence[float], margin: float, se_multiplier: float
+) -> dict[str, float | bool]:
+    """Winner beats the reference on paired streams by margin*|U_ref| + k*SE."""
+    w = np.asarray(winner_u, dtype=np.float64)
+    r = np.asarray(reference_u, dtype=np.float64)
+    if w.shape != r.shape or w.size < 2:
+        raise ValueError("paired acceptance needs >= 2 matched streams")
+    d = w - r
+    mean = float(d.mean())
+    se = float(d.std(ddof=1) / math.sqrt(d.size))
+    threshold = margin * abs(float(r.mean())) + se_multiplier * se
+    return {
+        "mean_gain": mean,
+        "se": se,
+        "threshold": threshold,
+        "reference_mean": float(r.mean()),
+        "accepted": bool(mean > threshold),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Candidate construction (pure)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Candidate:
+    """One complete schema-12 action for the focal camp."""
+
+    payload: dict[str, Any]
+    family: str
+    description: str
+    chosen_heads: frozenset[str]
+
+    def digest(self) -> str:
+        return payload_digest(self.payload)
+
+
+def payload_digest(payload: Mapping[str, Any]) -> str:
+    return hashlib.sha256(orjson.dumps(dict(payload), option=orjson.OPT_SORT_KEYS)).hexdigest()
+
+
+def labor_state(payload: Mapping[str, Any], catalog: LaborCatalog) -> tuple[np.ndarray, np.ndarray]:
+    """(integer residents per specialty, activity matrix) the native apportionment yields."""
+    sample = LaborPolicySample.from_payload(
+        {
+            "laborSpecialtyAllocation": payload["laborSpecialtyAllocation"],
+            "laborActivityAllocation": payload["laborActivityAllocation"],
+        },
+        catalog.masks,
+    )
+    counts = np.asarray(
+        apportion_largest_remainder(sample.specialty_allocation, int(catalog.population)),
+        dtype=np.int64,
+    )
+    return counts, np.asarray(sample.activity_allocation, dtype=np.float64)
+
+
+def _activity_index(catalog: LaborCatalog, role: int, activity_id: str) -> int | None:
+    index = ACTIVITIES.index(activity_id) if activity_id in ACTIVITIES else None
+    if index is None or not catalog.masks.activity[role][index]:
+        return None
+    return index
+
+
+def _default_activity(catalog: LaborCatalog, role: int) -> int | None:
+    name = SPECIALTIES[role + 1]
+    preferred = DEFAULT_ACTIVITY.get(name)
+    if preferred is not None:
+        index = _activity_index(catalog, role, preferred)
+        if index is not None:
+            return index
+    legal = [i for i, ok in enumerate(catalog.masks.activity[role]) if ok and i > 0]
+    return legal[0] if legal else None
+
+
+def compose_payload(
+    base: Mapping[str, Any],
+    catalog: LaborCatalog,
+    *,
+    counts: np.ndarray | None = None,
+    activity: np.ndarray | None = None,
+    movement: int | None = None,
+    fission: int | None = None,
+    trade_gate: Sequence[int] | None = None,
+) -> dict[str, Any]:
+    """A complete schema-12 payload: ``base`` with replaced blocks, canonically serialized."""
+    base_counts, base_activity = labor_state(base, catalog)
+    counts = base_counts if counts is None else np.asarray(counts, dtype=np.int64)
+    activity = base_activity if activity is None else np.asarray(activity, dtype=np.float64)
+    population = int(catalog.population)
+    if population <= 0 or int(counts.sum()) != population or np.any(counts < 0):
+        raise ValueError("composed staffing must conserve residents")
+    spec = tuple(float(c) / population for c in counts)
+    sample = LaborPolicySample(spec, tuple(tuple(float(x) for x in row) for row in activity))
+    payload = {
+        "schemaVersion": 12,
+        "movement": int(base["movement"]) if movement is None else int(movement),
+        "fission": int(base["fission"]) if fission is None else int(fission),
+        "tradeValue": [float(x) for x in base["tradeValue"]],
+        "tradeGate": [int(x) for x in (base["tradeGate"] if trade_gate is None else trade_gate)],
+        "tradeShare": float(base["tradeShare"]),
+        **sample.payload(),
+    }
+    # Round trip through the strict parser: masks, simplexes, exact residents.
+    check_counts, _ = labor_state(payload, catalog)
+    if not np.array_equal(check_counts, counts):
+        raise ValueError("composed staffing does not apportion to the declared residents")
+    return payload
+
+
+def conserves_labor(payload: Mapping[str, Any], catalog: LaborCatalog) -> bool:
+    """Residents sum to P and every role's worker-time simplex sums to one."""
+    counts, activity = labor_state(payload, catalog)
+    rows_ok = bool(np.allclose(activity.sum(axis=1), 1.0, atol=1e-8))
+    return int(counts.sum()) == int(catalog.population) and rows_ok
+
+
+def transfer(
+    counts: np.ndarray,
+    activity: np.ndarray,
+    catalog: LaborCatalog,
+    source: int,
+    target: int,
+    amount: int,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Move ``amount`` residents from specialty ``source`` to ``target`` (specialty rows)."""
+    mask = catalog.masks.specialty
+    if source == target or source < 1 or target < 1 or amount < 1:
+        return None
+    if not mask[source] or not mask[target] or int(counts[source]) < amount:
+        return None
+    new_counts = counts.copy()
+    new_activity = activity.copy()
+    new_counts[source] -= amount
+    new_counts[target] += amount
+    target_role = target - 1
+    if int(counts[target]) == 0 or new_activity[target_role, 0] >= 1.0 - 1e-12:
+        index = _default_activity(catalog, target_role)
+        if index is None:
+            return None
+        new_activity[target_role] = 0.0
+        new_activity[target_role, index] = 1.0
+    if int(new_counts[source]) == 0:
+        new_activity[source - 1] = 0.0
+        new_activity[source - 1, 0] = 1.0
+    return new_counts, new_activity
+
+
+def transfer_amounts(population: int) -> list[int]:
+    return sorted({1, 2, max(1, round(0.1 * population))})
+
+
+def trade_opportunities(observation: Mapping[str, Any] | None) -> list[int]:
+    """Groups whose trade row is present with stock or recent trade activity."""
+    if not isinstance(observation, Mapping):
+        return []
+    sets, present = observation.get("sets"), observation.get("rowPresent")
+    if not sets or not present or len(sets) <= TRADE_SET or len(present) <= TRADE_SET:
+        return []
+    _, rows, width = contracts.SETS[TRADE_SET]
+    table = np.asarray(sets[TRADE_SET], dtype=np.float64).reshape(rows, width)
+    live = np.asarray(present[TRADE_SET], dtype=bool)[:rows]
+    out = []
+    for group in range(min(rows, len(contracts.TRADE_GROUPS))):
+        if not live[group]:
+            continue
+        activity = np.abs(table[group, list(TRADE_ACTIVITY)]).sum()
+        if table[group, TRADE_HELD] > 0 or activity > 0:
+            out.append(group)
+    return out
+
+
+def legal_region_moves(observation: Mapping[str, Any] | None) -> list[int]:
+    """Region movement codes (REGION_BASE + r, r >= 1) legal in the pre-action mask."""
+    if not isinstance(observation, Mapping):
+        return []
+    codes = [contracts.REGION_BASE + r for r in range(1, contracts.REGION_ROWS)]
+    return [code for code in codes if _movement_legal(code, observation)]
+
+
+def _keyed_shuffle(items: list[Any], key: Sequence[int]) -> list[Any]:
+    rng = np.random.default_rng(list(key))
+    return [items[i] for i in rng.permutation(len(items))]
+
+
+def structured_candidates(
+    base: Mapping[str, Any],
+    catalog: LaborCatalog,
+    observation: Mapping[str, Any] | None,
+    *,
+    key: Sequence[int],
+    movement_candidates: int = 3,
+) -> dict[str, list[Candidate]]:
+    """Single-block H12 perturbations by family, plus a-priori joint ones.
+
+    Each family list is keyed-shuffled. Every labor perturbation conserves
+    residents and worker-time; nonlabor perturbations keep labor exactly.
+    Joint candidates combine structurally chosen blocks fixed before any
+    evaluation, never evaluated bests from different branches.
+    """
+    counts, activity = labor_state(base, catalog)
+    population = int(catalog.population)
+    out: dict[str, list[Candidate]] = {name: [] for name in PERTURBATION_FAMILIES}
+    row = {name: i for i, name in enumerate(SPECIALTIES)}
+
+    def add(family: str, description: str, heads: set[str], **blocks: Any) -> Candidate | None:
+        try:
+            payload = compose_payload(base, catalog, **blocks)
+        except ValueError:
+            return None
+        cand = Candidate(payload, family, description, frozenset(heads))
+        out[family].append(cand)
+        return cand
+
+    # a. Specialty transfers.
+    pairs = list(TRANSFER_PAIRS)
+    staffed = sorted(
+        (i for i in range(1, len(SPECIALTIES)) if counts[i] > 0), key=lambda i: (-counts[i], i)
+    )
+    if len(staffed) >= 2:
+        a, b = SPECIALTIES[staffed[0]], SPECIALTIES[staffed[1]]
+        for pair in ((a, b), (b, a)):
+            if pair not in pairs:
+                pairs.append(pair)
+    transfers: dict[tuple[str, str, int], tuple[np.ndarray, np.ndarray]] = {}
+    for src, dst in pairs:
+        for amount in transfer_amounts(population):
+            moved = transfer(counts, activity, catalog, row[src], row[dst], amount)
+            if moved is None:
+                continue
+            transfers[(src, dst, amount)] = moved
+            add(
+                "transfer",
+                f"transfer {amount} {src}->{dst}",
+                {"labor"},
+                counts=moved[0],
+                activity=moved[1],
+            )
+
+    # b. Within-role activity shifts for staffed roles.
+    for spec in range(1, len(SPECIALTIES)):
+        if counts[spec] <= 0:
+            continue
+        role = spec - 1
+        legal = [i for i, ok in enumerate(catalog.masks.activity[role]) if ok and i > 0]
+        current = activity[role]
+        if not legal:
+            continue
+        main = max(range(len(current)), key=lambda i: (current[i], -i))
+        if current[0] > 0.05 and main != 0:
+            shifted = activity.copy()
+            shifted[role, main] += shifted[role, 0]
+            shifted[role, 0] = 0.0
+            add(
+                "activity",
+                f"{SPECIALTIES[spec]} idle->{ACTIVITIES[main]}",
+                {"labor"},
+                activity=shifted,
+            )
+        for target in legal:
+            if target == main:
+                continue
+            delta = min(0.25, float(current[main]))
+            if delta <= 1e-9:
+                continue
+            shifted = activity.copy()
+            shifted[role, main] -= delta
+            shifted[role, target] += delta
+            add(
+                "activity",
+                f"{SPECIALTIES[spec]} {ACTIVITIES[main]}->{ACTIVITIES[target]} {delta:.2f}",
+                {"labor"},
+                activity=shifted,
+            )
+
+    # c. Movement: stay versus the top legal destinations (keyed choice).
+    base_move = int(base["movement"])
+    moves: list[int] = []
+    if base_move != -1:
+        moves.append(-1)
+    region = [code for code in legal_region_moves(observation) if code != base_move]
+    moves += _keyed_shuffle(region, [*key, 1])[: max(0, movement_candidates)]
+    for code in moves:
+        add("movement", f"movement {code}", {"movement"}, movement=code)
+
+    # d. Fission: every other legal policy.
+    for code in range(contracts.FISSION_POLICIES):
+        if code != int(base["fission"]):
+            add("fission", f"fission {code}", {"fission"}, fission=code)
+
+    # e. Trade gates on/off for groups with an executable opportunity.
+    gates = [int(g) for g in base["tradeGate"]]
+    opportunities = trade_opportunities(observation)
+    for group in opportunities:
+        flipped = list(gates)
+        flipped[group] = 0 if gates[group] > 0 else contracts.TRADE_MAKE
+        add(
+            "trade",
+            f"trade {contracts.TRADE_GROUPS[group]} gate {gates[group]}->{flipped[group]}",
+            {"trade_gate"},
+            trade_gate=flipped,
+        )
+
+    # f. A-priori joint perturbations.
+    tenth = max(1, round(0.1 * population))
+    farm = transfers.get(("Gatherer", "Farmer", tenth))
+    craft = transfers.get(("Gatherer", "Craftsperson", tenth))
+    if moves and farm is not None:
+        add(
+            "joint",
+            f"movement {moves[0]} + transfer {tenth} Gatherer->Farmer",
+            {"movement", "labor"},
+            movement=moves[0],
+            counts=farm[0],
+            activity=farm[1],
+        )
+    if opportunities and craft is not None:
+        flipped = list(gates)
+        group = opportunities[0]
+        flipped[group] = 0 if gates[group] > 0 else contracts.TRADE_MAKE
+        add(
+            "joint",
+            f"transfer {tenth} Gatherer->Craftsperson + trade {contracts.TRADE_GROUPS[group]} gate",
+            {"labor", "trade_gate"},
+            counts=craft[0],
+            activity=craft[1],
+            trade_gate=flipped,
+        )
+    if len(staffed) >= 2 and staffed[0] == GATHERER:
+        partner = SPECIALTIES[staffed[1]]
+        reserve = transfers.get(("Gatherer", partner, tenth))
+        alt_fission = 2 if int(base["fission"]) != 2 else 1
+        if reserve is not None:
+            add(
+                "joint",
+                f"fission {alt_fission} + transfer {tenth} Gatherer->{partner}",
+                {"fission", "labor"},
+                fission=alt_fission,
+                counts=reserve[0],
+                activity=reserve[1],
+            )
+
+    for family in PERTURBATION_FAMILIES:
+        out[family] = _keyed_shuffle(out[family], [*key, 2, FAMILY_CODES[family]])
+    return out
+
+
+def round_robin(families: Mapping[str, list[Candidate]]) -> list[Candidate]:
+    """Interleave families in declared order so a budget covers every family."""
+    queues = {name: list(families.get(name, [])) for name in PERTURBATION_FAMILIES}
+    out: list[Candidate] = []
+    while any(queues.values()):
+        for name in PERTURBATION_FAMILIES:
+            if queues[name]:
+                out.append(queues[name].pop(0))
+    return out
+
+
+def dither_payload(
+    payload: Mapping[str, Any],
+    catalog: LaborCatalog,
+    draws: Sequence[float],
+    *,
+    probability: float,
+    fraction: float,
+) -> dict[str, Any] | None:
+    """The declared h12-dither: maybe move a few residents Gatherer <-> one staffed role.
+
+    ``draws`` are three uniforms (apply, direction, role) so streams use a fixed
+    number of draws per camp (common random numbers across branches).
+    """
+    if draws[0] >= probability or int(catalog.population) <= 0:
+        return None
+    counts, activity = labor_state(payload, catalog)
+    others = [i for i in range(2, len(SPECIALTIES)) if counts[i] > 0 and catalog.masks.specialty[i]]
+    if counts[GATHERER] <= 0 or not others:
+        return None
+    role = others[min(len(others) - 1, int(draws[2] * len(others)))]
+    amount = max(1, round(fraction * int(catalog.population)))
+    if draws[1] < 0.5:
+        moved = transfer(
+            counts, activity, catalog, GATHERER, role, min(amount, int(counts[GATHERER]))
+        )
+    else:
+        moved = transfer(counts, activity, catalog, role, GATHERER, min(amount, int(counts[role])))
+    if moved is None:
+        return None
+    try:
+        return compose_payload(payload, catalog, counts=moved[0], activity=moved[1])
+    except ValueError:
+        return None
+
+
+def candidate_label(
+    candidate: Candidate,
+    catalog: LaborCatalog,
+    h12: HeuristicLaborLabel,
+    pre_observation: Mapping[str, Any] | None,
+) -> HeuristicLaborLabel:
+    """The collector-format label of a validated search candidate.
+
+    Specialty = natively apportioned residents / P, activity = the submitted
+    worker-time simplex, planned worker-years = residents x share x dt. A head
+    is valid when this candidate's source chose it (H12-valid heads, actor
+    heads, perturbed heads); heads inherited from an H12 drive default stay
+    invalid, exactly as in the H12 label.
+    """
+    if candidate.family == "h12":
+        return h12
+    counts, activity = labor_state(candidate.payload, catalog)
+    population = int(catalog.population)
+    years = float(catalog.turn_years)
+    heads = candidate.chosen_heads
+    labor_chosen = "labor" in heads
+    labor_valid = bool(labor_chosen or h12.specialty_valid) and population > 0
+    roles = activity.shape[0]
+    staffed = counts[1 : 1 + roles] > 0
+    role_valid = staffed & labor_valid
+    planned = counts[1 : 1 + roles, None].astype(np.float64) * years * activity
+    payload = candidate.payload
+    movement = int(payload["movement"])
+    movement_valid = ("movement" in heads or h12.movement_valid) and _movement_legal(
+        movement, pre_observation
+    )
+    fission_valid = bool("fission" in heads or h12.fission_valid)
+    gate_valid = (
+        np.ones(len(contracts.TRADE_GROUPS), dtype=bool)
+        if "trade_gate" in heads
+        else np.asarray(h12.trade_gate_valid, dtype=bool).copy()
+    )
+    gates = np.asarray(payload["tradeGate"], dtype=np.int64)
+    value_active = (gates > 0) & gate_valid
+    if "trade_gate" not in heads and "trade_value" not in heads:
+        value_active = value_active & np.asarray(h12.trade_value_active, dtype=bool)
+    share_valid = bool("trade_share" in heads or h12.trade_share_active or "trade_gate" in heads)
+    return HeuristicLaborLabel(
+        specialty=counts.astype(np.float64) / max(1, population),
+        activity=activity.copy(),
+        action=dict(payload),
+        specialty_counts=counts.copy(),
+        planned_worker_years=planned,
+        specialty_valid=labor_valid,
+        activity_role_valid=role_valid,
+        movement_code=movement if movement_valid else -1,
+        movement_valid=bool(movement_valid),
+        fission_valid=fission_valid,
+        trade_gate_valid=gate_valid,
+        trade_value_active=value_active,
+        trade_share_active=bool(share_valid and value_active.any()),
+        over_budget=False,
+        reasons=(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Native evaluation
+# ---------------------------------------------------------------------------
+
+
+def physical_digest(step: Mapping[str, Any]) -> str:
+    """Digest of a successor step without wall-time and branch-identity tags."""
+
+    def strip(value: Any) -> Any:
+        if isinstance(value, Mapping):
+            return {
+                k: strip(v)
+                for k, v in value.items()
+                if not any(tag in str(k).lower() for tag in IDENTITY_KEYS)
+            }
+        if isinstance(value, list):
+            return [strip(v) for v in value]
+        return value
+
+    return hashlib.sha256(orjson.dumps(strip(step), option=orjson.OPT_SORT_KEYS)).hexdigest()
+
+
+def _live(step: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
+        v for v in step["villages"] if v.get("observation") is not None and not v.get("terminated")
+    ]
+
+
+def _retained(payload: Mapping[str, Any], catalog: LaborCatalog) -> Any:
+    return _retained_action(
+        SimpleNamespace(action=dict(payload)), catalog, torch.zeros((1, 1), dtype=torch.bool)
+    )
+
+
+@dataclass
+class Work:
+    labor_steps: int = 0
+    shadow_steps: int = 0
+    validations: int = 0
+    forks: int = 0
+    restores: int = 0
+
+    @property
+    def resolves(self) -> int:
+        return self.labor_steps + self.shadow_steps
+
+    def state_dict(self) -> dict[str, int]:
+        return {
+            "labor_steps": self.labor_steps,
+            "shadow_steps": self.shadow_steps,
+            "native_resolves": self.resolves,
+            "validations": self.validations,
+            "forks": self.forks,
+            "restores": self.restores,
+        }
+
+
+@dataclass
+class Branch:
+    """One candidate continuation on one stream, extendable by horizon."""
+
+    candidate: int
+    stream: int
+    fork: int | None = None
+    horizon: int = 0
+    returns: np.ndarray = field(default_factory=lambda: np.zeros(len(COMPONENTS)))
+    lineage: np.ndarray = field(default_factory=lambda: np.zeros(2))
+    discount: float = 1.0
+    founded: dict[int, int] = field(default_factory=dict)
+    societies: set[int] = field(default_factory=set)
+    alive: bool = True
+    first: dict[str, Any] | None = None
+    resolves: int = 0
+    steps: list[list[float]] = field(default_factory=list)
+
+
+class NativeSearch:
+    """Shadow-H12 continuation and branch evaluation on one labor bridge."""
+
+    def __init__(
+        self,
+        bridge: Any,
+        heuristic: Any,
+        *,
+        world: int,
+        options: LaborResetOptions,
+        config: SearchConfig,
+    ) -> None:
+        self.bridge = bridge
+        self.heuristic = heuristic
+        self.world = int(world)
+        self.options = options
+        self.config = config
+        self.work = Work()
+
+    # -- primitives -------------------------------------------------------
+    def catalogs(self) -> dict[int, LaborCatalog]:
+        return dict(self.bridge.labor_runtime.catalogs)
+
+    def shadow_h12(
+        self, step: Mapping[str, Any], catalogs: Mapping[int, LaborCatalog]
+    ) -> dict[int, HeuristicLaborLabel]:
+        """Converted H12 labels for every live camp (one heuristic resolve)."""
+        snapshot = self.bridge._bridge.capture()
+        self.heuristic.reset(
+            self.world,
+            movement=self.options.movement,
+            withheld=self.options.withheld,
+            snapshot=snapshot,
+        )
+        h_step = self.heuristic.step({})
+        self.work.shadow_steps += 1
+        h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+        econ = h_step.get("economicDiagnostics") or {}
+        observations = {int(v["camp"]): v["observation"] for v in _live(step)}
+        return {
+            camp: convert_heuristic_labor_label(
+                catalogs[camp],
+                h_villages.get(camp, {}),
+                econ.get(str(camp)),
+                pre_observation=observations.get(camp),
+            )
+            for camp in sorted(catalogs)
+        }
+
+    def validate(self, camp: int, payload: Mapping[str, Any]) -> Any:
+        self.work.validations += 1
+        return self.bridge.validate_labor({camp: dict(payload)}, attempt=0)[camp]
+
+    def execute(
+        self, catalogs: Mapping[int, LaborCatalog], payloads: Mapping[int, Mapping[str, Any]]
+    ) -> Any:
+        from .labor_ppo import execute_labor_decision
+
+        retained = {camp: _retained(payloads[camp], catalogs[camp]) for camp in sorted(catalogs)}
+        execution = execute_labor_decision(self.bridge, dict(catalogs), retained, _idle_retry)
+        self.work.labor_steps += 1
+        return execution
+
+    def fork(self) -> int:
+        fork, _ = self.bridge.fork()
+        self.work.forks += 1
+        return fork
+
+    def restore(self, fork: int) -> Mapping[str, Any]:
+        self.work.restores += 1
+        return self.bridge.restore(fork)
+
+    def drop(self, fork: int | None) -> None:
+        if fork is not None:
+            self.bridge.drop(fork)
+
+    # -- dither -------------------------------------------------------------
+    def dithered(
+        self,
+        payloads: Mapping[int, Mapping[str, Any]],
+        catalogs: Mapping[int, LaborCatalog],
+        *,
+        key: Sequence[int],
+        exempt: int | None,
+    ) -> dict[int, dict[str, Any]]:
+        out = {camp: dict(p) for camp, p in payloads.items()}
+        changed: dict[int, dict[str, Any]] = {}
+        for camp in sorted(payloads):
+            draws = np.random.default_rng([DITHER_TAG, *key, camp]).random(3)
+            if camp == exempt:
+                continue
+            new = dither_payload(
+                payloads[camp],
+                catalogs[camp],
+                draws,
+                probability=self.config.dither_probability,
+                fraction=self.config.dither_fraction,
+            )
+            if new is not None:
+                changed[camp] = new
+        if changed:
+            self.work.validations += 1
+            attempts = self.bridge.validate_labor(changed, attempt=0)
+            for camp, payload in changed.items():
+                if attempts[camp].valid:
+                    out[camp] = payload
+        return out
+
+    # -- branches -----------------------------------------------------------
+    def extend(
+        self,
+        branch: Branch,
+        target: int,
+        *,
+        root_fork: int,
+        focal: int,
+        candidate: Mapping[str, Any],
+        root_h12: Mapping[int, HeuristicLaborLabel],
+        root_key: Sequence[int],
+        keep_fork: bool,
+    ) -> None:
+        """Advance ``branch`` to ``target`` decisions (or focal termination)."""
+        from .labor_training import _settlement_guard, _transition_rewards
+
+        if branch.horizon >= target or not branch.alive:
+            if not keep_fork:
+                self.drop(branch.fork)
+                branch.fork = None
+            return
+        step = self.restore(branch.fork if branch.fork is not None else root_fork)
+        catalogs = self.catalogs()
+        before = self.work.resolves
+        while branch.horizon < target and branch.alive:
+            if branch.horizon == 0:
+                payloads = {c: root_h12[c].action for c in catalogs}
+                payloads[focal] = dict(candidate)
+            else:
+                labels = self.shadow_h12(step, catalogs)
+                payloads = {c: labels[c].action for c in catalogs}
+            if branch.stream > 0:
+                payloads = self.dithered(
+                    payloads,
+                    catalogs,
+                    key=[*root_key, branch.stream, branch.horizon],
+                    exempt=focal if branch.horizon == 0 else None,
+                )
+            decision_turn = int(step["turn"])
+            execution = self.execute(catalogs, payloads)
+            next_step = execution.step
+            rewards, terminal, years = _transition_rewards(
+                next_step, (focal,), branch.founded, world_index=0, decision_turn=decision_turn
+            )
+            outcome = {int(v["camp"]): v for v in next_step["villages"]}
+            guard = _settlement_guard(
+                outcome[focal], branch.founded.get(focal, decision_turn), int(next_step["turn"])
+            )
+            attempt = execution.initial_attempts[focal]
+            r = np.asarray(
+                [
+                    rewards[focal]["qol_years"],
+                    rewards[focal]["population_years"],
+                    float(attempt.feasibility_cost),
+                    float(guard),
+                ],
+                dtype=np.float64,
+            )
+            branch.returns = branch.returns + branch.discount * r
+            branch.lineage = branch.lineage + branch.discount * _lineage_components(
+                next_step, branch.societies
+            )
+            branch.steps.append([float(x) for x in r])
+            if branch.first is None:
+                branch.first = {
+                    "rewards": r.copy(),
+                    "elapsed": float(years[focal]),
+                    "terminal": bool(terminal[focal]),
+                    "attempt_valid": bool(attempt.valid),
+                }
+            branch.discount *= math.exp(-float(years[focal]) / self.config.discount_years)
+            branch.horizon += 1
+            step = next_step
+            catalogs = self.catalogs() if _live(step) else {}
+            if terminal[focal] or focal not in catalogs:
+                branch.alive = False
+        branch.resolves += self.work.resolves - before
+        old = branch.fork
+        branch.fork = self.fork() if keep_fork and branch.alive else None
+        self.drop(old)
+
+
+def _lineage_components(step: Mapping[str, Any], societies: set[int]) -> np.ndarray:
+    """Diagnostic lineage (population-years, population-weighted QoL-years); joins daughters."""
+    for v in step["villages"]:
+        if int(v.get("parentSociety", 0) or 0) in societies:
+            societies.add(int(v["society"]))
+    people = weighted = pop_years = 0.0
+    years = 0.0
+    for v in step["villages"]:
+        if int(v["society"]) not in societies or v["terminated"] or int(v["priorPopulation"]) <= 0:
+            continue
+        p = float(v["priorPopulation"])
+        dt = float(v.get("years", 0.0))
+        pop_years += p * dt
+        people += p
+        weighted += p * float(v["qol"])
+        years = dt
+    return np.asarray([pop_years, weighted / people * years if people > 0 else 0.0])
+
+
+# ---------------------------------------------------------------------------
+# Root search
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RootResult:
+    rows: list[dict[str, torch.Tensor]]
+    table: dict[str, Any]
+
+
+def _personality_grid(
+    config: SearchConfig, root_pair: tuple[float, float] | None
+) -> list[dict[str, Any]]:
+    names = {(0.5, 0.5): "balanced"}
+    grid: list[dict[str, Any]] = []
+    seen: set[tuple[float, float]] = set()
+    for pair in config.personalities:
+        key = (round(float(pair[0]), 12), round(float(pair[1]), 12))
+        if key in seen:
+            continue
+        seen.add(key)
+        grid.append(
+            {
+                "name": names.get(key, f"({pair[0]:g},{pair[1]:g})"),
+                "vector": [float(pair[0]), float(pair[1])],
+            }
+        )
+    if config.root_personality and root_pair is not None:
+        key = (round(float(root_pair[0]), 12), round(float(root_pair[1]), 12))
+        if key in seen:
+            for row in grid:
+                if (round(row["vector"][0], 12), round(row["vector"][1], 12)) == key:
+                    row["root"] = True
+        else:
+            grid.append(
+                {"name": "root", "vector": [float(root_pair[0]), float(root_pair[1])], "root": True}
+            )
+    return grid
+
+
+def _actor_candidates(
+    actor: Any,
+    tensors: Mapping[str, torch.Tensor],
+    row: int,
+    personality: tuple[float, float],
+    samples: int,
+    key: Sequence[int],
+) -> list[Candidate]:
+    from .labor_model import (
+        deterministic_nonlabor_policy,
+        sample_labor_policy,
+        sample_nonlabor_policy,
+        schema12_initial_action,
+    )
+    from .labor_pretrain_eval import _deterministic_labor_sample
+
+    one = _one_row(tensors, row)
+    one["labor_personality"] = torch.tensor([list(personality)], dtype=torch.float32)
+    heads = frozenset({"labor", "movement", "fission", "trade_gate", "trade_value", "trade_share"})
+    out: list[Candidate] = []
+    seed = int(np.random.default_rng([ACTOR_TAG, *key]).integers(0, 2**62))
+    generator = torch.Generator().manual_seed(seed)
+    with torch.no_grad():
+        output = actor(one)
+        labor = _deterministic_labor_sample(output, one)
+        nonlabor = deterministic_nonlabor_policy(output)
+        out.append(
+            Candidate(
+                schema12_initial_action(labor, nonlabor, 0),
+                "actor-deterministic",
+                "actor mode",
+                heads,
+            )
+        )
+        for index in range(samples):
+            labor = sample_labor_policy(output, one, generator=generator)
+            nonlabor = sample_nonlabor_policy(output, generator=generator)
+            out.append(
+                Candidate(
+                    schema12_initial_action(labor, nonlabor, 0),
+                    "actor-sample",
+                    f"actor sample {index}",
+                    heads,
+                )
+            )
+    return out
+
+
+def search_root(
+    native: NativeSearch,
+    *,
+    step: Mapping[str, Any],
+    root_h12: Mapping[int, HeuristicLaborLabel],
+    focal: int,
+    founded: Mapping[int, int],
+    tensors: Mapping[str, torch.Tensor],
+    row: int,
+    root_pair: tuple[float, float] | None,
+    actor: Any | None,
+    root_fork: int,
+    key: Sequence[int],
+) -> RootResult | None:
+    """Search one focal camp at one root. The bridge ends at an arbitrary branch."""
+    config = native.config
+    started = time.perf_counter()
+    work0 = copy.copy(native.work)
+    catalogs = native.catalogs()
+    catalog = catalogs[focal]
+    village = next(v for v in _live(step) if int(v["camp"]) == focal)
+    observation = village["observation"]
+    h12 = root_h12[focal]
+    grid = _personality_grid(config, root_pair)
+    personalities = [g["vector"] for g in grid]
+
+    # 1. Candidates: H12, actor, structured perturbations; native validation in order.
+    proposals: list[Candidate] = [
+        Candidate(dict(h12.action), "h12", "converted heuristic", frozenset())
+    ]
+    if actor is not None:
+        proposals += _actor_candidates(
+            actor, tensors, row, root_pair or (0.5, 0.5), config.actor_samples, [*key, 0]
+        )
+    proposals += round_robin(
+        structured_candidates(
+            h12.action,
+            catalog,
+            observation,
+            key=[CAND_TAG, *key],
+            movement_candidates=config.movement_candidates,
+        )
+    )
+    accepted: list[Candidate] = []
+    attempts: list[Any] = []
+    rejected: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    validations = 0
+    for cand in proposals:
+        if len(accepted) >= config.candidates or validations >= config.validation_cap:
+            break
+        digest = cand.digest()
+        if digest in seen:
+            continue
+        seen.add(digest)
+        reason = None
+        if not _movement_legal(int(cand.payload["movement"]), observation):
+            reason = "movement-illegal-in-pre-action-mask"
+        elif not 0 <= int(cand.payload["fission"]) < contracts.FISSION_POLICIES:
+            reason = "fission-out-of-range"
+        attempt = None
+        if reason is None:
+            validations += 1
+            attempt = native.validate(focal, cand.payload)
+            if not attempt.valid:
+                reason = ";".join(v.reason for v in attempt.violations) or "native-rejected"
+        if reason is not None:
+            rejected.append(
+                {"family": cand.family, "description": cand.description, "reason": reason}
+            )
+            if cand.family == "h12":
+                return RootResult(
+                    [], {"skipped": "h12-rejected", "focal": focal, "rejected": rejected}
+                )
+            continue
+        accepted.append(cand)
+        attempts.append(attempt)
+    n = len(accepted)
+    if n < 2:
+        return RootResult(
+            [], {"skipped": "fewer-than-two-valid-candidates", "focal": focal, "rejected": rejected}
+        )
+
+    # 2. Successive halving over horizon on the deterministic selection stream.
+    branches = {
+        i: Branch(i, 0, founded=dict(founded), societies={int(village["society"])})
+        for i in range(n)
+    }
+    keep = config.keep_counts(n)
+    tie_perm = np.random.default_rng([CAND_TAG, *key, 3]).permutation(n)
+    tiebreak = {i: int(tie_perm[i]) for i in range(n)}
+    active = list(range(n))
+    rounds: list[dict[str, Any]] = []
+    survived = {i: 0 for i in range(n)}
+    final_ids: list[int] = []
+    final_h = 0
+    search_resolves = 0
+    truncated = False
+    for r, horizon in enumerate(config.horizons):
+        if r > 0:
+            u_prev = utility_matrix(
+                np.stack([branches[i].returns for i in range(n)]), personalities, config
+            )
+            survivors = select_survivors(u_prev, active, keep[r], protected=0, tiebreak=tiebreak)
+            for i in active:
+                if i not in survivors:
+                    native.drop(branches[i].fork)
+                    branches[i].fork = None
+            active = survivors
+        needed = sum(
+            2 * (horizon - branches[i].horizon) - (1 if branches[i].horizon == 0 else 0)
+            for i in active
+            if branches[i].alive
+        )
+        if r > 0 and search_resolves + needed > config.max_resolves:
+            truncated = True
+            break
+        last = r == len(config.horizons) - 1
+        for i in active:
+            before = native.work.resolves
+            native.extend(
+                branches[i],
+                horizon,
+                root_fork=root_fork,
+                focal=focal,
+                candidate=accepted[i].payload,
+                root_h12=root_h12,
+                root_key=key,
+                keep_fork=not last,
+            )
+            search_resolves += native.work.resolves - before
+            survived[i] = r
+        u = utility_matrix(np.stack([branches[i].returns for i in range(n)]), personalities, config)
+        rounds.append(
+            {
+                "round": r,
+                "horizon": horizon,
+                "candidates": list(active),
+                "resolves_so_far": search_resolves,
+                "utility": {str(i): u[i].tolist() for i in active},
+            }
+        )
+        final_ids, final_h = list(active), horizon
+    for b in branches.values():
+        native.drop(b.fork)
+        b.fork = None
+
+    u_final = utility_matrix(
+        np.stack([branches[i].returns for i in range(n)]), personalities, config
+    )
+
+    # 3. Per-personality best found; independent paired re-evaluation.
+    winners = {k: best_for_personality(u_final[:, k], final_ids, 0) for k in range(len(grid))}
+    contenders = sorted(
+        {
+            w
+            for k, w in winners.items()
+            if w != 0 and u_final[w, k] - u_final[0, k] > config.margin * abs(u_final[0, k])
+        }
+    )
+    reeval: dict[int, dict[int, np.ndarray]] = {}
+    reeval_resolves = 0
+    if contenders:
+        for cand in [0, *contenders]:
+            reeval[cand] = {}
+            for stream in range(1, config.reeval_streams + 1):
+                branch = Branch(
+                    cand, stream, founded=dict(founded), societies={int(village["society"])}
+                )
+                before = native.work.resolves
+                native.extend(
+                    branch,
+                    final_h,
+                    root_fork=root_fork,
+                    focal=focal,
+                    candidate=accepted[cand].payload,
+                    root_h12=root_h12,
+                    root_key=key,
+                    keep_fork=False,
+                )
+                reeval_resolves += native.work.resolves - before
+                reeval[cand][stream] = branch.returns.copy()
+
+    decisions = []
+    for k, entry in enumerate(grid):
+        w = winners[k]
+        decision: dict[str, Any] = {
+            "personality": entry,
+            "best_found": w,
+            "best_found_family": accepted[w].family,
+            "selection_gain": float(u_final[w, k] - u_final[0, k]),
+            "label": 0,
+            "reason": "h12-best" if w == 0 else "below-selection-margin",
+        }
+        if w in reeval:
+            streams = sorted(reeval[w])
+            wu = [float(utility(reeval[w][s], entry["vector"], config)[0]) for s in streams]
+            hu = [float(utility(reeval[0][s], entry["vector"], config)[0]) for s in streams]
+            test = paired_acceptance(wu, hu, config.margin, config.se_multiplier)
+            decision["reeval"] = test
+            if test["accepted"]:
+                decision["label"], decision["reason"] = w, "search-beat-h12"
+            else:
+                decision["reason"] = "reeval-not-significant"
+        decisions.append(decision)
+
+    # 4. Rows: one per personality, collector format plus search fields.
+    rows: list[dict[str, torch.Tensor]] = []
+    base_row = _one_row(tensors, row)
+    for k, decision in enumerate(decisions):
+        index = decision["label"]
+        cand = accepted[index]
+        label = candidate_label(cand, catalog, h12, observation)
+        first = branches[index].first or {}
+        values = dict(base_row)
+        values["labor_personality"] = torch.tensor([grid[k]["vector"]], dtype=torch.float32)
+        values.update(_label_tensors(label))
+        reward = first.get("rewards", np.zeros(len(COMPONENTS)))
+        reeval_test = decision.get("reeval") or {}
+        values.update(
+            {
+                "row_world": torch.tensor([native.world], dtype=torch.long),
+                "row_camp": torch.tensor([focal], dtype=torch.long),
+                "row_turn": torch.tensor([int(step["turn"])], dtype=torch.long),
+                "row_attempt": torch.tensor([0], dtype=torch.long),
+                "row_quarantined": torch.tensor(
+                    [not bool(attempts[index].valid)], dtype=torch.bool
+                ),
+                "reward_qol_years": torch.tensor([float(reward[0])], dtype=torch.float64),
+                "reward_population_years": torch.tensor([float(reward[1])], dtype=torch.float64),
+                "reward_feasibility": torch.tensor([float(reward[2])], dtype=torch.float64),
+                "reward_settlement_guard": torch.tensor([float(reward[3])], dtype=torch.float64),
+                "transition_elapsed_days": torch.tensor(
+                    [float(first.get("elapsed", 0.0))], dtype=torch.float64
+                ),
+                "transition_terminal": torch.tensor(
+                    [bool(first.get("terminal", False))], dtype=torch.bool
+                ),
+                "row_source": torch.tensor([ROW_SOURCE_CODES["search"]], dtype=torch.long),
+                "row_label_variant": torch.tensor([k], dtype=torch.long),
+                "search_label_personality": torch.tensor([grid[k]["vector"]], dtype=torch.float32),
+                "search_label_is_h12": torch.tensor([index == 0], dtype=torch.bool),
+                "search_label_family": torch.tensor([FAMILY_CODES[cand.family]], dtype=torch.long),
+                "search_best_family": torch.tensor(
+                    [FAMILY_CODES[decision["best_found_family"]]], dtype=torch.long
+                ),
+                "search_selection_gain": torch.tensor(
+                    [decision["selection_gain"]], dtype=torch.float64
+                ),
+                "search_reeval_gain": torch.tensor(
+                    [float(reeval_test.get("mean_gain", float("nan")))], dtype=torch.float64
+                ),
+                "search_reeval_se": torch.tensor(
+                    [float(reeval_test.get("se", float("nan")))], dtype=torch.float64
+                ),
+                "search_horizon": torch.tensor([final_h], dtype=torch.long),
+                "search_candidates": torch.tensor([n], dtype=torch.long),
+            }
+        )
+        rows.append(values)
+
+    work = native.work
+    table = {
+        "world": native.world,
+        "turn": int(step["turn"]),
+        "focal": focal,
+        "society": int(village["society"]),
+        "population": int(catalog.population),
+        "personalities": grid,
+        "candidates": [
+            {
+                "index": i,
+                "family": accepted[i].family,
+                "description": accepted[i].description,
+                "digest": accepted[i].digest(),
+                "counts": labor_state(accepted[i].payload, catalog)[0].tolist(),
+                "movement": int(accepted[i].payload["movement"]),
+                "fission": int(accepted[i].payload["fission"]),
+                "trade_gate": [int(g) for g in accepted[i].payload["tradeGate"]],
+                "horizon": branches[i].horizon,
+                "alive": branches[i].alive,
+                "last_round": survived[i],
+                "returns": dict(zip(COMPONENTS, branches[i].returns.tolist(), strict=True)),
+                "lineage_population_years": float(branches[i].lineage[0]),
+                "lineage_qol_years": float(branches[i].lineage[1]),
+                "step_rewards": branches[i].steps,
+                "utility": u_final[i].tolist(),
+                "resolves": branches[i].resolves,
+                "reeval_returns": {
+                    str(s): v.tolist() for s, v in sorted(reeval.get(i, {}).items())
+                },
+            }
+            for i in range(n)
+        ],
+        "rejected": rejected,
+        "rounds": rounds,
+        "final_horizon": final_h,
+        "truncated_by_resolve_cap": truncated,
+        "decisions": decisions,
+        "work": {
+            "search_resolves": search_resolves,
+            "reeval_resolves": reeval_resolves,
+            "native_resolves": work.resolves - work0.resolves,
+            "labor_steps": work.labor_steps - work0.labor_steps,
+            "shadow_steps": work.shadow_steps - work0.shadow_steps,
+            "validations": work.validations - work0.validations,
+            "forks": work.forks - work0.forks,
+            "restores": work.restores - work0.restores,
+        },
+        "wall_seconds": time.perf_counter() - started,
+    }
+    return RootResult(rows, table)
+
+
+# ---------------------------------------------------------------------------
+# World driver
+# ---------------------------------------------------------------------------
+
+
+def root_turns(world: int, key: int, turns: int, roots: int, first: int = 0) -> list[int]:
+    """Keyed draw of decision indices in [first, turns) used as roots."""
+    pool = list(range(max(0, first), max(0, turns)))
+    rng = np.random.default_rng([ROOT_TAG, int(key), int(world)])
+    return sorted(int(pool[i]) for i in rng.permutation(len(pool))[: min(roots, len(pool))])
+
+
+def focal_order(camps: Sequence[int], searched: Mapping[int, int], key: Sequence[int]) -> list[int]:
+    """Least-searched camps first (cycling), keyed tie order."""
+    camps = sorted(int(c) for c in camps)
+    rng = np.random.default_rng([FOCAL_TAG, *key])
+    tie = {c: int(i) for c, i in zip(camps, rng.permutation(len(camps)), strict=True)}
+    return sorted(camps, key=lambda c: (searched.get(c, 0), tie[c]))
+
+
+def verify_exact_restore(
+    native: NativeSearch, payloads: Mapping[int, Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Repeat one decision from a fork twice; the physical successors must match."""
+    fork = native.fork()
+    try:
+        digests = []
+        for _ in range(2):
+            native.restore(fork)
+            execution = native.execute(native.catalogs(), payloads)
+            digests.append(physical_digest(execution.step))
+        native.restore(fork)
+    finally:
+        native.drop(fork)
+    if digests[0] != digests[1]:
+        raise RuntimeError("search fork/restore is not exact: repeated successors differ")
+    return {"equal": True, "digest": digests[0]}
+
+
+def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
+    """Drive one fitting world, searching its keyed roots. Returns rows and tables."""
+    from .bridge import Model9Bridge
+    from .labor_bridge import LaborModel9Bridge
+    from .labor_model import (
+        deterministic_nonlabor_policy,
+        labor_policy_tensors,
+        schema12_initial_action,
+    )
+    from .labor_personality import LaborPersonalityConditioning, personality_for_world
+    from .labor_pretrain_eval import _deterministic_labor_sample
+    from .labor_teacher_data import load_normalizer
+
+    torch.set_num_threads(1)
+    world = int(job["world"])
+    config = SearchConfig.from_mapping(job["config"])
+    options = LaborResetOptions.from_mapping(job["reset_options"])
+    normalizer = load_normalizer(Path(job["normalizer_checkpoint"]))
+    actor = None
+    if job.get("actor_checkpoint"):
+        from .labor_pretrain_eval import _load_models
+
+        _, actor, _, _, _ = _load_models(Path(job["actor_checkpoint"]))
+    conditioning = LaborPersonalityConditioning.from_state(job.get("personality_conditioning"))
+    resolver = (
+        personality_for_world(conditioning.assignment(0), world) if conditioning.alpha else None
+    )
+    source = job["source"]
+    if source == "actor" and actor is None:
+        raise ValueError("actor-visited roots need --actor-checkpoint")
+    turns = int(job["turns"])
+    chosen = set(
+        root_turns(world, int(job["key"]), turns, int(job["roots"]), int(job.get("first_turn", 0)))
+    )
+    rows: list[dict[str, torch.Tensor]] = []
+    tables: list[dict[str, Any]] = []
+    skipped: Counter[str] = Counter()
+    searched: dict[int, int] = defaultdict(int)
+    restore_checks: list[dict[str, Any]] = []
+    started = time.perf_counter()
+    with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heuristic:
+        native = NativeSearch(bridge, heuristic, world=world, options=options, config=config)
+        step = bridge.reset(world, **options.reset_kwargs())
+        identity = bridge.last_reset_identity
+        founded = {int(v["camp"]): int(step["turn"]) for v in step["villages"]}
+        main_resolves = 0
+        for index in range(max(chosen) + 1 if chosen else 0):
+            live = _live(step)
+            if not live:
+                break
+            catalogs = native.catalogs()
+            root_h12 = (
+                native.shadow_h12(step, catalogs) if (source == "h12" or index in chosen) else {}
+            )
+            if source == "h12":
+                main_payloads = {c: root_h12[c].action for c in catalogs}
+            else:
+                _, drive = labor_policy_tensors(live, normalizer, personality=resolver)
+                with torch.no_grad():
+                    output = actor(drive)
+                    labor = _deterministic_labor_sample(output, drive)
+                    nonlabor = deterministic_nonlabor_policy(output)
+                main_payloads = {
+                    int(v["camp"]): schema12_initial_action(labor, nonlabor, r)
+                    for r, v in enumerate(live)
+                }
+            if index in chosen:
+                if bool(job.get("verify_restore", True)) and not restore_checks:
+                    restore_checks.append(verify_exact_restore(native, main_payloads))
+                _, tensors = labor_policy_tensors(live, normalizer)
+                pairs = resolver.resolve(live) if resolver is not None else [None] * len(live)
+                row_of = {int(v["camp"]): r for r, v in enumerate(live)}
+                pair_of = {int(v["camp"]): pairs[r] for r, v in enumerate(live)}
+                eligible = [c for c in catalogs if catalogs[c].population > 0]
+                order = focal_order(eligible, searched, [world, int(job["key"]), int(step["turn"])])
+                root_fork = native.fork()
+                done = 0
+                for focal in order:
+                    if done >= config.focal_per_root:
+                        break
+                    result = search_root(
+                        native,
+                        step=step,
+                        root_h12=root_h12,
+                        focal=focal,
+                        founded=founded,
+                        tensors=tensors,
+                        row=row_of[focal],
+                        root_pair=pair_of[focal],
+                        actor=actor,
+                        root_fork=root_fork,
+                        key=[world, int(job["key"]), int(step["turn"]), focal],
+                    )
+                    searched[focal] += 1
+                    if result is None or not result.rows:
+                        skipped[(result.table.get("skipped") if result else "none")] += 1
+                        if result is not None:
+                            tables.append(result.table)
+                        continue
+                    rows.extend(result.rows)
+                    tables.append(result.table)
+                    done += 1
+                    print(
+                        json.dumps(
+                            {
+                                "world": world,
+                                "turn": int(step["turn"]),
+                                "focal": focal,
+                                "work": result.table["work"],
+                                "wall_seconds": round(result.table["wall_seconds"], 1),
+                                "labels": [d["reason"] for d in result.table["decisions"]],
+                            }
+                        ),
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                native.restore(root_fork)
+                native.drop(root_fork)
+            from .labor_training import _transition_rewards
+
+            execution = native.execute(native.catalogs(), main_payloads)
+            _transition_rewards(
+                execution.step,
+                tuple(catalogs),
+                founded,
+                world_index=0,
+                decision_turn=int(step["turn"]),
+            )
+            # The root shadow step is shared with the search; the restore check is not counted.
+            main_resolves += (1 if root_h12 else 0) + 1
+            step = execution.step
+    return {
+        "world": world,
+        "rows": rows,
+        "tables": tables,
+        "skipped": dict(skipped),
+        "reset_identity": identity,
+        "root_turn_indices": sorted(chosen),
+        "restore_checks": restore_checks,
+        "work": native.work.state_dict(),
+        "main_path_resolves": main_resolves,
+        "wall_seconds": time.perf_counter() - started,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Shards, manifest and report
+# ---------------------------------------------------------------------------
+
+
+def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
+    from .labor_teacher_data import write_shard
+    from .provenance import checkpoint_hash
+
+    result = search_world(job)
+    world = result["world"]
+    directory = Path(job["out"]) / f"world-{world}"
+    summary = {
+        "world_seed": world,
+        "rows": len(result["rows"]),
+        "tables": result["tables"],
+        "skipped": result["skipped"],
+        "work": result["work"],
+        "main_path_resolves": result["main_path_resolves"],
+        "wall_seconds": result["wall_seconds"],
+        "restore_checks": result["restore_checks"],
+    }
+    if not result["rows"]:
+        summary["path"] = None
+        return summary
+    tensors = _concat(result["rows"], f"labor search world {world}")
+    keep = ~tensors["row_quarantined"].reshape(-1)
+    tensors["row_weight"] = world_balanced_weights(tensors["row_world"], keep)
+    arrays = {k: v.detach().cpu().numpy() for k, v in tensors.items()}
+    table_text = "".join(
+        json.dumps(t, sort_keys=True, allow_nan=True) + "\n" for t in result["tables"]
+    )
+    labels: Counter[str] = Counter()
+    for t in result["tables"]:
+        for d in t.get("decisions", []):
+            labels[d["reason"]] += 1
+    meta = {
+        "source_run": job["source_run"],
+        "world_seed": world,
+        "row_source": "search",
+        "row_source_codes": ROW_SOURCE_CODES,
+        "family_codes": FAMILY_CODES,
+        "search_contract": SEARCH_CONTRACT,
+        "turns": int(job["turns"]),
+        "reset_options": job["reset_options"],
+        "reset_identity": result["reset_identity"],
+        "normalizer_digest": job["normalizer_digest"],
+        "root_turn_indices": result["root_turn_indices"],
+        "counters": {
+            "total_decisions": len(result["rows"]),
+            **{f"label_{k}": v for k, v in labels.items()},
+        },
+        "label_unavailable_reasons": {},
+        "quarantine": [],
+        "skipped": result["skipped"],
+        "work": result["work"],
+        "main_path_resolves": result["main_path_resolves"],
+        "wall_seconds": float(result["wall_seconds"]),
+        "restore_checks": result["restore_checks"],
+        "candidates_sha256": hashlib.sha256(table_text.encode("utf-8")).hexdigest(),
+        "return_tail": (
+            "search rows are labels, not V targets; reward_* is the label's first transition"
+        ),
+    }
+    # Stage the shard (arrays, meta last, then the bound candidate table) and
+    # rename it into place; dataset.json is published only after every shard.
+    staging = directory.with_name(directory.name + ".staging")
+    record = write_shard(staging, arrays, meta)
+    (staging / "candidates.jsonl").write_text(table_text, encoding="utf-8")
+    os.replace(staging, directory)
+    summary.update(
+        {
+            "path": directory.name,
+            "meta_sha256": checkpoint_hash(directory / "meta.json"),
+            "data_digest": record["data_digest"],
+        }
+    )
+    return summary
+
+
+def search_source_record(
+    options: Mapping[str, Any], schema: Any, bridge_sha256: str, *, production: bool
+) -> dict:
+    from .protocol import scan
+    from .provenance import ProvenanceError, code_commit, digest, simulator_identity
+
+    scan(dict(options))
+    learner = code_commit()
+    if production and not re.fullmatch(r"[0-9a-f]{40}", learner):
+        raise ProvenanceError("labor search generation requires a clean learner commit")
+    body = {
+        "schema": SCHEMA,
+        "source_kind": SOURCE_KIND,
+        "search_contract": SEARCH_CONTRACT,
+        "label_contract": LABOR_LABEL_CONTRACT,
+        "learner_commit": learner,
+        "simulator": simulator_identity(schema, production=production),
+        "bridge_sha256": bridge_sha256,
+        "options": dict(options),
+        "production": bool(production),
+    }
+    return dict(body, source_run=digest(body))
+
+
+def search_report(summaries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Win fractions per personality, mean gains, winning families and work per root."""
+    tables = [t for s in summaries for t in s["tables"] if "decisions" in t]
+    per: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "roots": 0,
+            "search_beat_h12": 0,
+            "gain_u": [],
+            "gain_components": [],
+            "reeval_components": [],
+            "families": Counter(),
+            "best_found_families": Counter(),
+            "reasons": Counter(),
+        }
+    )
+    resolves, seconds, search_res, reeval_res = [], [], [], []
+    for t in tables:
+        resolves.append(t["work"]["native_resolves"])
+        search_res.append(t["work"]["search_resolves"])
+        reeval_res.append(t["work"]["reeval_resolves"])
+        seconds.append(t["wall_seconds"])
+        h12 = t["candidates"][0]
+        for d in t["decisions"]:
+            name = d["personality"]["name"]
+            row = per[name]
+            row["roots"] += 1
+            row["reasons"][d["reason"]] += 1
+            row["best_found_families"][d["best_found_family"]] += 1
+            if d["label"] != 0:
+                win = t["candidates"][d["label"]]
+                row["search_beat_h12"] += 1
+                row["families"][win["family"]] += 1
+                row["gain_u"].append(d["reeval"]["mean_gain"])
+                row["gain_components"].append(
+                    [win["returns"][c] - h12["returns"][c] for c in COMPONENTS]
+                )
+                streams = sorted(win["reeval_returns"])
+                row["reeval_components"].append(
+                    np.mean(
+                        [
+                            np.subtract(win["reeval_returns"][s], h12["reeval_returns"][s])
+                            for s in streams
+                        ],
+                        axis=0,
+                    ).tolist()
+                )
+    out_per = {}
+    for name, row in per.items():
+        comps = np.asarray(row["gain_components"], dtype=np.float64).reshape(-1, len(COMPONENTS))
+        recomps = np.asarray(row["reeval_components"], dtype=np.float64).reshape(
+            -1, len(COMPONENTS)
+        )
+        out_per[name] = {
+            "roots": row["roots"],
+            "search_beat_h12": row["search_beat_h12"],
+            "win_fraction": row["search_beat_h12"] / max(1, row["roots"]),
+            "mean_reeval_gain_u_among_wins": float(np.mean(row["gain_u"]))
+            if row["gain_u"]
+            else None,
+            "mean_gain_u_all_roots": float(np.sum(row["gain_u"]) / max(1, row["roots"])),
+            "mean_selection_component_gain_among_wins": (
+                dict(zip(COMPONENTS, comps.mean(axis=0).tolist(), strict=True))
+                if len(comps)
+                else None
+            ),
+            "mean_reeval_component_gain_among_wins": (
+                dict(zip(COMPONENTS, recomps.mean(axis=0).tolist(), strict=True))
+                if len(recomps)
+                else None
+            ),
+            "winning_families": dict(row["families"]),
+            "best_found_families": dict(row["best_found_families"]),
+            "reasons": dict(row["reasons"]),
+        }
+    return {
+        "roots": len(tables),
+        "skipped_roots": sum(sum(s["skipped"].values()) for s in summaries),
+        "per_personality": out_per,
+        "native_resolves_per_root": _stats(resolves),
+        "search_resolves_per_root": _stats(search_res),
+        "reeval_resolves_per_root": _stats(reeval_res),
+        "wall_seconds_per_root": _stats(seconds),
+        "main_path_resolves": sum(int(s["main_path_resolves"]) for s in summaries),
+        "world_wall_seconds": _stats([s["wall_seconds"] for s in summaries]),
+        "restore_checks": [c for s in summaries for c in s["restore_checks"]],
+    }
+
+
+def _stats(values: Sequence[float]) -> dict[str, float] | None:
+    if not values:
+        return None
+    a = np.asarray(values, dtype=np.float64)
+    return {
+        "mean": float(a.mean()),
+        "min": float(a.min()),
+        "max": float(a.max()),
+        "total": float(a.sum()),
+    }
+
+
+def _parse_personalities(text: str) -> tuple[tuple[float, float], ...]:
+    out = []
+    for item in text.split(";"):
+        item = item.strip()
+        if not item:
+            continue
+        if item == "balanced":
+            out.append((0.5, 0.5))
+            continue
+        q, p = (float(x) for x in item.split(","))
+        out.append((q, p))
+    return tuple(out)
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--normalizer-checkpoint",
+        type=Path,
+        required=True,
+        help="bounded normalizer file or labor trainer checkpoint (row inputs)",
+    )
+    parser.add_argument(
+        "--actor-checkpoint",
+        type=Path,
+        default=None,
+        help="labor trainer checkpoint: adds actor deterministic/sampled candidates",
+    )
+    parser.add_argument("--worlds", required=True, help="fitting seeds only (90100-90159)")
+    parser.add_argument(
+        "--source",
+        choices=SOURCES,
+        default="h12",
+        help="root trajectory driver: H12 teacher or the actor (deterministic)",
+    )
+    parser.add_argument(
+        "--turns", type=int, default=16, help="trajectory decisions roots are drawn from"
+    )
+    parser.add_argument("--first-turn", type=int, default=0)
+    parser.add_argument("--roots-per-world", type=int, default=8)
+    parser.add_argument("--root-key", type=int, default=0)
+    parser.add_argument("--focal-per-root", type=int, default=1)
+    parser.add_argument(
+        "--candidates", type=int, default=16, help="M: complete candidates per focal camp"
+    )
+    parser.add_argument("--actor-samples", type=int, default=4)
+    parser.add_argument("--horizons", default="1,2,3,5")
+    parser.add_argument(
+        "--keep", default="all,1/2,1/4,2", help="survivors per round: all, a/b or a count"
+    )
+    parser.add_argument("--personalities", default="balanced;0.9,0.1;0.1,0.9")
+    parser.add_argument("--no-root-personality", action="store_true")
+    parser.add_argument("--margin", type=float, default=0.005)
+    parser.add_argument("--se-multiplier", type=float, default=2.0)
+    parser.add_argument("--reeval-streams", type=int, default=3)
+    parser.add_argument("--dither-probability", type=float, default=0.5)
+    parser.add_argument("--dither-fraction", type=float, default=0.05)
+    parser.add_argument(
+        "--max-resolves", type=int, default=400, help="search resolve cap per focal root"
+    )
+    parser.add_argument("--movement-candidates", type=int, default=3)
+    parser.add_argument("--players", type=int, default=8)
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--height", type=int, default=None)
+    parser.add_argument("--separation", type=int, default=None)
+    parser.add_argument("--personality", default="balanced", help="root personality distribution")
+    parser.add_argument("--personality-key", type=int, default=0)
+    parser.add_argument("--personality-drift", type=float, default=200.0)
+    parser.add_argument("--no-verify-restore", action="store_true")
+    parser.add_argument("--jobs", type=int, default=1)
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="development only: dirty learner identity (recorded as non-production)",
+    )
+    parser.add_argument("--out", type=Path, required=True)
+    return parser
+
+
+def validate_search_worlds(worlds: Sequence[int]) -> list[int]:
+    from .labor_bc import validate_fitting_worlds
+
+    worlds = validate_fitting_worlds(worlds, "labor search fitting worlds")
+    outside = [w for w in worlds if w not in FITTING_WORLDS]
+    if outside:
+        raise ValueError(
+            f"labor search labels use fitting worlds 90100-90159 only, got {outside[:5]}"
+        )
+    return worlds
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    from .bridge import DEFAULT_BRIDGE
+    from .labor_bridge import LaborModel9Bridge
+    from .labor_personality import LaborPersonalityConditioning
+    from .labor_teacher_data import load_normalizer, normalizer_digest, publish_dataset
+    from .protocol import seed_list
+    from .provenance import ProvenanceError, checkpoint_hash, code_commit
+
+    args = argument_parser().parse_args(argv)
+    worlds = validate_search_worlds(seed_list(args.worlds))
+    if args.out.exists():
+        raise ProvenanceError("labor search output exists; regenerate into a new directory")
+    config = SearchConfig(
+        candidates=args.candidates,
+        actor_samples=args.actor_samples if args.actor_checkpoint else 0,
+        horizons=tuple(int(x) for x in args.horizons.split(",")),
+        keep=tuple(x.strip() for x in args.keep.split(",")),
+        personalities=_parse_personalities(args.personalities),
+        root_personality=not args.no_root_personality,
+        margin=args.margin,
+        se_multiplier=args.se_multiplier,
+        reeval_streams=args.reeval_streams,
+        dither_probability=args.dither_probability,
+        dither_fraction=args.dither_fraction,
+        max_resolves=args.max_resolves,
+        focal_per_root=args.focal_per_root,
+        movement_candidates=args.movement_candidates,
+    )
+    reset = LaborResetOptions(
+        players=args.players,
+        movement=True,
+        width=args.width,
+        height=args.height,
+        separation=args.separation,
+    )
+    conditioning = LaborPersonalityConditioning(
+        args.personality, args.personality_key, args.personality_drift
+    )
+    normalizer = load_normalizer(args.normalizer_checkpoint)
+    norm_digest = normalizer_digest(normalizer)
+    if (
+        args.actor_checkpoint is not None
+        and normalizer_digest(load_normalizer(args.actor_checkpoint)) != norm_digest
+    ):
+        raise ValueError("actor checkpoint normalizer differs from --normalizer-checkpoint")
+    bridge_path = Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", str(DEFAULT_BRIDGE)))
+    bridge_sha = checkpoint_hash(bridge_path)
+    options = {
+        "worlds": worlds,
+        "turns": int(args.turns),
+        "first_turn": int(args.first_turn),
+        "roots_per_world": int(args.roots_per_world),
+        "root_key": int(args.root_key),
+        "source": args.source,
+        "reset_options": reset.state_dict(),
+        "personality_conditioning": conditioning.state_dict(),
+        "normalizer_digest": norm_digest,
+        "normalizer_checkpoint_sha256": checkpoint_hash(args.normalizer_checkpoint),
+        "actor_checkpoint_sha256": checkpoint_hash(args.actor_checkpoint)
+        if args.actor_checkpoint
+        else None,
+        "search": config.state_dict(),
+        "continuation": "h12 (stream 0, deterministic); h12-dither (re-evaluation streams)",
+        "partition": "fitting",
+    }
+    with LaborModel9Bridge() as probe:
+        source = search_source_record(
+            options, probe.schema, bridge_sha, production=not args.allow_dirty
+        )
+    args.out.mkdir(parents=True)
+    jobs = [
+        {
+            "world": world,
+            "key": int(args.root_key),
+            "turns": int(args.turns),
+            "first_turn": int(args.first_turn),
+            "roots": int(args.roots_per_world),
+            "source": args.source,
+            "config": config.state_dict(),
+            "reset_options": reset.state_dict(),
+            "normalizer_checkpoint": str(args.normalizer_checkpoint),
+            "normalizer_digest": norm_digest,
+            "actor_checkpoint": str(args.actor_checkpoint) if args.actor_checkpoint else None,
+            "personality_conditioning": conditioning.state_dict(),
+            "verify_restore": not args.no_verify_restore,
+            "source_run": source["source_run"],
+            "out": str(args.out),
+        }
+        for world in worlds
+    ]
+    started = time.perf_counter()
+    if args.jobs == 1:
+        summaries = [write_search_shard(job) for job in jobs]
+    else:
+        with ProcessPoolExecutor(max_workers=min(args.jobs, len(jobs))) as pool:
+            summaries = list(pool.map(write_search_shard, jobs))
+    if checkpoint_hash(bridge_path) != bridge_sha or code_commit() != source["learner_commit"]:
+        raise ProvenanceError(
+            "labor search producer changed during generation; dataset not published"
+        )
+    report = search_report(summaries)
+    report["elapsed_seconds"] = time.perf_counter() - started
+    report["jobs"] = int(args.jobs)
+    report["source_run"] = source["source_run"]
+    (args.out / "search_report.json").write_text(json.dumps(report, sort_keys=True, indent=1))
+    shards = [s for s in summaries if s.get("path")]
+    if shards:
+        publish_dataset(
+            args.out,
+            source,
+            [
+                {k: s[k] for k in ("path", "world_seed", "meta_sha256", "data_digest", "rows")}
+                for s in shards
+            ],
+        )
+    print(
+        json.dumps(
+            {
+                k: report[k]
+                for k in (
+                    "roots",
+                    "per_personality",
+                    "native_resolves_per_root",
+                    "wall_seconds_per_root",
+                    "elapsed_seconds",
+                )
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -152,14 +152,16 @@ def verify_shard(directory: Path) -> dict:
     worlds = np.load(directory / "row_world.npy")
     if set(worlds.tolist()) != {meta["world_seed"]}:
         raise ProvenanceError("labor teacher shard rows belong to another world")
-    identities = list(
-        zip(
-            np.load(directory / "row_turn.npy").tolist(),
-            np.load(directory / "row_camp.npy").tolist(),
-            np.load(directory / "row_attempt.npy").tolist(),
-            strict=True,
-        )
-    )
+    columns = [
+        np.load(directory / "row_turn.npy").tolist(),
+        np.load(directory / "row_camp.npy").tolist(),
+        np.load(directory / "row_attempt.npy").tolist(),
+    ]
+    # Search shards (labor_search.py) label one decision once per personality;
+    # the variant index is part of their identity.
+    if (directory / "row_label_variant.npy").is_file():
+        columns.append(np.load(directory / "row_label_variant.npy").tolist())
+    identities = list(zip(*columns, strict=True))
     if len(set(identities)) != len(identities):
         raise ProvenanceError("duplicate labor teacher decision identities")
     return meta
