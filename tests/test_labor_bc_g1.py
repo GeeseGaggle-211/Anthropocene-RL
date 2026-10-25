@@ -396,7 +396,8 @@ def test_elapsed_field_is_years_and_legacy_days_name_loads_unchanged(tmp_path) -
     legacy = {k: torch.from_numpy(v) for k, v in arrays("transition_elapsed_days", 5000).items()}
     assert torch.equal(discounted_returns(legacy)["qol_years"], returns[:2])
     migrated = labor_bc.migrate_legacy_elapsed_field(dict(legacy))
-    assert set(migrated) == (set(legacy) - {"transition_elapsed_days"}) | {"transition_elapsed_years"}
+    renamed = (set(legacy) - {"transition_elapsed_days"}) | {"transition_elapsed_years"}
+    assert set(migrated) == renamed
     clash = dict(legacy, transition_elapsed_years=torch.zeros(2, dtype=torch.float64))
     with pytest.raises(ValueError, match="different values"):
         labor_bc.migrate_legacy_elapsed_field(clash)
@@ -533,7 +534,8 @@ def test_labor_teacher_cli_shards_feed_bc_and_critic(tmp_path, bounded_normalize
     out = tmp_path / "teacher"
     assert ltd.main([
         "--normalizer-checkpoint", str(norm), "--worlds", "5000,5002", "--turns", "1",
-        "--players", "8", "--jobs", "2", "--allow-dirty", "--out", str(out),
+        "--players", "8", "--jobs", "2", "--allow-dirty", "--return-tail", "truncated-zero",
+        "--out", str(out),
     ]) == 0
     manifest = ltd.verify_dataset(out)
     assert set(manifest["shards"]) == {"5000", "5002"}

@@ -7,6 +7,14 @@ identity, the converted action-12 label with per-head validity, the planned
 staffing ledger, the quarantine flag for rejected initial recommendations and
 the transition rewards for heuristic critic returns.
 
+By default every living (world, camp) cutoff at the collection horizon also
+gets a typed randomized tail target (``tail_*`` arrays, ``return_tail_record``
+in the shard meta): the teacher continues past the window without recording
+rows, and the anchors' Russian-roulette estimator closes each cutoff
+(``labor_bc.RandomizedTailSettings``; preregistered 16 draws, rho 0.95, cap
+200, prefix = the 25-decision window). ``--return-tail truncated-zero``
+collects the legacy zero-tail window, which the shards then declare.
+
 Publication follows ``teacher_data.py``: arrays first, ``meta.json`` (payload
 hashes) last per shard, and ``dataset.json`` only after every shard published.
 An existing output is never overwritten.
@@ -40,7 +48,10 @@ from .labor_bc import (
     ELAPSED_YEARS_FIELD,
     LABOR_LABEL_CONTRACT,
     LEGACY_ELAPSED_DAYS_FIELD,
+    RETURN_TAIL_RANDOMIZED,
+    RETURN_TAIL_TRUNCATED_ZERO,
     LaborResetOptions,
+    RandomizedTailSettings,
     collect_heuristic_world,
     validate_fitting_worlds,
     world_balanced_weights,
@@ -188,6 +199,7 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         # A declared distribution: one keyed draw per founding lineage in this world
         # (docs/LABOR_PERSONALITY.md); heuristic labels stay personality-agnostic.
         personality = personality_for_world(conditioning.assignment(0), int(job["world_seed"]))
+    tail = RandomizedTailSettings.from_state(job.get("return_tail"))
     started = time.perf_counter()
 
     def progress(state: Any) -> None:
@@ -199,6 +211,8 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
                     "decisions": state.decisions,
                     "rows": len(state.rows),
                     "native_resolves": state.native_resolves,
+                    "tail_decisions": state.tail_decisions,
+                    "tail_native_resolves": state.tail_native_resolves,
                     "wall_seconds": round(elapsed, 2),
                 }
             ),
@@ -213,6 +227,7 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         turns=int(job["turns"]),
         reset_options=options,
         personality=personality,
+        tail=tail,
     )
     seconds = time.perf_counter() - started
     if not collection.rows:
@@ -238,8 +253,18 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "label_unavailable_reasons": dict(sorted(collection.reasons.items())),
         "quarantine": collection.quarantine,
         "surviving_camps": int(collection.surviving_camps),
-        "return_tail": "truncated-zero-at-collection-horizon",
+        "return_tail": RETURN_TAIL_TRUNCATED_ZERO if tail is None else RETURN_TAIL_RANDOMIZED,
+        "window_wall_seconds": float(collection.window_seconds),
     }
+    if tail is not None:
+        meta.update(
+            {
+                "return_tail_record": collection.tail_record,
+                "tail_decisions": int(collection.tail_decisions),
+                "tail_native_resolves": int(collection.tail_native_resolves),
+                "tail_wall_seconds": float(collection.tail_seconds),
+            }
+        )
     directory = Path(job["out"]) / f"world-{int(job['world_seed'])}"
     record = write_shard(directory, arrays, meta)
     return {
@@ -250,6 +275,7 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "rows": record["rows"],
         "decisions": record["decisions"],
         "native_resolves": record["native_resolves"],
+        "tail_native_resolves": int(record.get("tail_native_resolves", 0)),
         "wall_seconds": record["wall_seconds"],
     }
 
@@ -303,10 +329,15 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
     reasons: dict[str, int] = defaultdict(int)
     quarantine: list[Any] = []
     digests = set()
+    tails: set[Any] = set()
+    tail_records: dict[str, Any] = {}
     for entry in manifest["shards"].values():
         shard = Path(directory) / entry["path"]
         meta = json.loads((shard / "meta.json").read_text())
         digests.add(meta["normalizer_digest"])
+        tails.add(meta.get("return_tail"))
+        if meta.get("return_tail_record") is not None:
+            tail_records[str(meta["world_seed"])] = meta["return_tail_record"]
         names = {name[: -len(".npy")] for name in meta["payload"]}
         if {ELAPSED_YEARS_FIELD, LEGACY_ELAPSED_DAYS_FIELD} <= names:
             raise ProvenanceError("labor teacher shard stores both elapsed-years field names")
@@ -325,6 +356,11 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
         quarantine.extend(meta["quarantine"])
     if len(digests) != 1:
         raise ProvenanceError("labor teacher shards use different normalizers")
+    if len(tails) != 1:
+        raise ProvenanceError("labor teacher shards declare different return tails")
+    return_tail = next(iter(tails))
+    if return_tail == RETURN_TAIL_RANDOMIZED and len(tail_records) != len(manifest["shards"]):
+        raise ProvenanceError("randomized-tail labor teacher shard lacks its tail record")
     digest_value = next(iter(digests))
     if expected_normalizer_digest is not None and digest_value != expected_normalizer_digest:
         raise ProvenanceError("labor teacher dataset normalizer differs from the checkpoint normalizer")
@@ -353,6 +389,10 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
         "reset_options": options["reset_options"],
         "sampling": "world-balanced-row-weights",
     }
+    if return_tail is not None:
+        dataset["collection"]["return_tail"] = return_tail
+    if tail_records:
+        dataset["collection"]["return_tail_by_world"] = tail_records
     return dataset
 
 
@@ -510,6 +550,23 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--personality", default="balanced", help="'balanced' or 'dirichlet:ALPHA'")
     parser.add_argument("--personality-key", type=int, default=0)
     parser.add_argument("--personality-drift", type=float, default=200.0)
+    parser.add_argument(
+        "--return-tail",
+        choices=("randomized", "truncated-zero"),
+        default="randomized",
+        help="critic-target tail at the collection horizon: the preregistered randomized teacher "
+        "tail (default) or the legacy truncated-zero window",
+    )
+    defaults = RandomizedTailSettings()
+    parser.add_argument("--tail-draws", type=int, default=defaults.draws)
+    parser.add_argument("--tail-rho", type=float, default=defaults.rho)
+    parser.add_argument("--tail-cap", type=int, default=defaults.cap)
+    parser.add_argument(
+        "--tail-schedule-seed-base",
+        type=int,
+        default=defaults.seed_base,
+        help="each world's frozen stopping schedule uses seed base + world seed",
+    )
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     parser.add_argument(
         "--allow-dirty",
@@ -540,6 +597,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     conditioning = LaborPersonalityConditioning(
         args.personality, args.personality_key, args.personality_drift
     )
+    tail = (
+        RandomizedTailSettings(
+            args.tail_draws, args.tail_rho, args.tail_cap, args.tail_schedule_seed_base
+        )
+        if args.return_tail == "randomized"
+        else None
+    )
+    if tail is not None:
+        for world in worlds:
+            tail.schedule_seed(world)  # refuse a denied schedule seed before any collection
     normalizer = load_normalizer(args.normalizer_checkpoint)
     from .bridge import DEFAULT_BRIDGE
     from .labor_bridge import LaborModel9Bridge
@@ -558,6 +625,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "normalizer_checkpoint_sha256": checkpoint_hash(args.normalizer_checkpoint),
         "opening_limit": 40,
         "partition": "fitting",
+        "return_tail": (
+            {"method": RETURN_TAIL_TRUNCATED_ZERO} if tail is None else tail.state_dict()
+        ),
     }
     with LaborModel9Bridge() as probe:
         source = source_record(options, probe.schema, bridge_sha, production=not args.allow_dirty)
@@ -573,6 +643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "turns": int(args.turns),
             "source_run": source["source_run"],
             "out": str(args.out),
+            "return_tail": None if tail is None else tail.state_dict(),
         }
         for world in worlds
     ]
@@ -588,6 +659,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     elapsed = time.perf_counter() - started
     rows = sum(s["rows"] for s in shards)
     resolves = sum(s["native_resolves"] for s in shards)
+    tail_resolves = sum(s.get("tail_native_resolves", 0) for s in shards)
     print(
         json.dumps(
             {
@@ -596,9 +668,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "worlds": len(shards),
                 "rows": rows,
                 "native_resolves": resolves,
+                "tail_native_resolves": tail_resolves,
+                "return_tail": args.return_tail,
                 "wall_seconds": elapsed,
                 "rows_per_minute": rows / max(elapsed, 1e-9) * 60.0,
-                "native_resolves_per_minute": resolves / max(elapsed, 1e-9) * 60.0,
+                "native_resolves_per_minute": (resolves + tail_resolves)
+                / max(elapsed, 1e-9)
+                * 60.0,
             },
             sort_keys=True,
         )

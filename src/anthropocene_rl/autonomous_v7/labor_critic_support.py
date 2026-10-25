@@ -88,11 +88,13 @@ def target_audit(
     margin: float = 0.5,
 ) -> dict[str, Any]:
     """Audit fitting targets exactly as ``pretrain_critic_on_dataset`` builds them."""
-    from .labor_bc import discounted_returns
+    from .labor_bc import critic_target_available, discounted_returns
 
     returns = {k: v.double().numpy() for k, v in discounted_returns(dataset).items()}
     n = int(dataset["row_world"].shape[0])
-    keep = ~dataset["row_quarantined"].reshape(n).bool().numpy()
+    keep = (
+        ~dataset["row_quarantined"].reshape(n).bool() & critic_target_available(dataset)
+    ).numpy()
     task: dict[str, Any] = {}
     for name in LABOR_OBJECTIVES:
         scale = float(LABOR_OBJECTIVE_REFERENCE_SCALES[name])

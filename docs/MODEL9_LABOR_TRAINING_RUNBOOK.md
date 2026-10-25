@@ -104,6 +104,24 @@ only comparable at the same support.
   `row_source` 0). It refuses search shards (`native_search_labor_teacher`, `row_source` 2),
   learner-state DAgger/actor-only shards and multi-source aggregates
   (`labor_bc.require_critic_teacher_dataset`).
+* Critic-target tail (intervention brief 2026-10-26, item 1b). `labor_teacher_data` now closes
+  every living (world, camp) cutoff at the collection horizon with the anchors' randomized tail
+  (`--return-tail randomized`, the default; preregistered `--tail-draws 16 --tail-rho 0.95
+  --tail-cap 200`, prefix = the 25-decision window). After the window the converted teacher
+  keeps playing without recording rows for the frozen schedule's `required_terms` (the largest
+  of 16 geometric stops; per-world schedule seed `--tail-schedule-seed-base` + world seed), and
+  `labor_anchor_producer.summarize_labor_path` with `prefix_terms=0` gives each cutoff camp an
+  exact terminal value or a Russian-roulette estimate valued at the horizon state. Each row
+  stores its trajectory's typed target (`tail_method`, `tail_cutoff_turn`,
+  `tail_value__<head>`, `tail_standard_error__<head>`); the shard meta stores
+  `return_tail_record` with the schedule, per-camp entries and the continuation cost.
+  `discounted_returns` starts each living trajectory from its tail, refuses a living cutoff
+  without one, and `critic_target_available` excludes `unavailable` tails (hard cap, or a camp
+  that left the live set without terminating) from fitting and calibration. The SE is
+  stopping-randomization only: teacher and simulator are deterministic. `--return-tail
+  truncated-zero` collects the legacy window, which shards then declare; `pretrain-critic
+  --require-randomized-tail` refuses such data. Critic summaries and calibration reports name
+  the method (`return_tail`).
 * `pretrain-critic --cost-loss-weight W` (dataset path only) scales the summed cost MSE in the
   joint, globally clipped critic loss; the default 1.0 is unchanged and not recorded.
 

@@ -178,7 +178,8 @@ def test_live_dagger_round_feeds_aggregated_bc(tmp_path, bounded_normalizer) -> 
                          "--optimizer-seed", "1", "--out", str(init)])
     teacher = tmp_path / "teacher"
     assert ltd.main(["--normalizer-checkpoint", str(norm), "--worlds", "5000", "--turns", "2",
-                     "--players", "8", "--jobs", "1", "--allow-dirty", "--out", str(teacher)]) == 0
+                     "--players", "8", "--jobs", "1", "--allow-dirty",
+                     "--return-tail", "truncated-zero", "--out", str(teacher)]) == 0
     dagger = tmp_path / "dagger"
     common = ["collect", "--checkpoint", str(init), "--worlds", "5000", "--round", "1", "--depth", "1",
               "--starts", "2", "--horizon", "2", "--players", "8", "--jobs", "1", "--allow-dirty"]

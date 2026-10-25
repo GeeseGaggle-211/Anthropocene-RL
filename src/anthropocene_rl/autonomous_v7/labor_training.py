@@ -1154,7 +1154,8 @@ def _initialize_value_support(args: argparse.Namespace) -> LaborValueSupport:
     explicit = getattr(args, "critic_value_support", None)
     if not getattr(args, "campaign_r5", False):
         return LaborValueSupport.parse(explicit)
-    if explicit is not None and LaborValueSupport.parse(explicit) != LABOR_CAMPAIGN_R5_VALUE_SUPPORT:
+    declared = LABOR_CAMPAIGN_R5_VALUE_SUPPORT
+    if explicit is not None and LaborValueSupport.parse(explicit) != declared:
         raise ValueError(
             "--campaign-r5 declares value support -0.5,2.5,255; "
             f"--critic-value-support={explicit} contradicts it"
@@ -1351,6 +1352,17 @@ def _cost_weight_kwargs(args: argparse.Namespace) -> dict[str, float]:
     return {} if weight == 1.0 else {"cost_loss_weight": weight}
 
 
+def _pretrain_critic_tail(args: argparse.Namespace) -> Any:
+    """Randomized-tail settings for in-process (--worlds) critic collection, or None."""
+    from .labor_bc import RandomizedTailSettings
+
+    if getattr(args, "return_tail", "truncated-zero") == "randomized":
+        return RandomizedTailSettings()
+    if getattr(args, "require_randomized_tail", False):
+        raise ValueError("--require-randomized-tail needs --return-tail randomized with --worlds")
+    return None
+
+
 def _command_pretrain_critic(args: argparse.Namespace) -> None:
     from .labor_bc import pretrain_critic_on_heuristic_next_states
 
@@ -1382,6 +1394,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             lr=args.lr,
             max_grad_norm=args.max_grad_norm,
             rng=shuffle,
+            require_randomized_tail=bool(getattr(args, "require_randomized_tail", False)),
             **_cost_weight_kwargs(args),
         )
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
@@ -1405,6 +1418,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             rng=shuffle,
             allow_vm_scale=getattr(args, "allow_vm_scale", False),
             reset_options=_labor_reset_options(args),
+            tail=_pretrain_critic_tail(args),
         )
 
     actor_lr = float(
@@ -1826,6 +1840,19 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic.add_argument("--lr", type=float, default=1e-3)
     pretrain_critic.add_argument("--max-grad-norm", type=float, default=1.0)
     pretrain_critic.add_argument("--allow-vm-scale", action="store_true", default=False)
+    pretrain_critic.add_argument(
+        "--return-tail",
+        choices=("truncated-zero", "randomized"),
+        default="truncated-zero",
+        help="--worlds only: close living cutoffs with the preregistered randomized teacher tail "
+        "(the --dataset path uses the tail its shards declare)",
+    )
+    pretrain_critic.add_argument(
+        "--require-randomized-tail",
+        action="store_true",
+        default=False,
+        help="refuse targets whose living cutoffs are not closed by the randomized tail",
+    )
     pretrain_critic.add_argument(
         "--cost-loss-weight",
         type=float,

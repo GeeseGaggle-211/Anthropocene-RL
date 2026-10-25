@@ -11,9 +11,11 @@ compact summary:
     per head and per stratum. Strata: camp population bin and turn third.
 
 ``critic-calibration``
-    The four critics against the finite-window discounted returns
-    (tau = 400 years, ``labor_bc.discounted_returns``; a living cutoff gets no
-    tail) on calibration rows, optionally also on the fitting dataset to show
+    The four critics against the discounted returns (tau = 400 years,
+    ``labor_bc.discounted_returns``) closed by the dataset's declared tail: the
+    randomized teacher tail, or the legacy truncated-zero window in which a
+    living cutoff gets no tail; rows with an unavailable tail are excluded, on
+    calibration rows, optionally also on the fitting dataset to show
     the generalisation gap. Task heads use the frozen labor reference scales;
     cost heads use scale 1.
 
@@ -300,7 +302,7 @@ def _input_tensors(dataset: Mapping[str, Any]) -> dict[str, torch.Tensor]:
         k: v
         for k, v in dataset.items()
         if isinstance(v, torch.Tensor)
-        and not k.startswith(("target_", "label_", "reward_", "transition_", "row_"))
+        and not k.startswith(("target_", "label_", "reward_", "transition_", "row_", "tail_"))
     }
 
 
@@ -690,12 +692,14 @@ def critic_head_metrics(
 def critic_dataset_report(
     task: Any, costs: Any, dataset: Mapping[str, Any], batch_size: int = 256
 ) -> dict[str, Any]:
-    from .labor_bc import discounted_returns
+    from .labor_bc import critic_target_available, discounted_returns, return_tail_method
     from .labor_bridge import SPECIALTIES
     from .labor_model import LABOR_COST_REFERENCE_SCALES, LABOR_OBJECTIVE_REFERENCE_SCALES
 
     returns = {k: v.double().numpy() for k, v in discounted_returns(dataset).items()}
-    keep = ~_np(dataset, "row_quarantined").reshape(-1).astype(bool)
+    quarantined = _np(dataset, "row_quarantined").reshape(-1).astype(bool)
+    available = critic_target_available(dataset).numpy().astype(bool)
+    keep = ~quarantined & available
     rows = np.flatnonzero(keep)
     worlds = _np(dataset, "row_world").reshape(-1)[rows]
     turns = _np(dataset, "row_turn").reshape(-1)[rows]
@@ -731,7 +735,9 @@ def critic_dataset_report(
         }
     return {
         "rows": len(rows),
-        "excluded_quarantined_rows": int((~keep).sum()),
+        "excluded_quarantined_rows": int(quarantined.sum()),
+        "excluded_tail_unavailable_rows": int((~quarantined & ~available).sum()),
+        "return_tail": return_tail_method(dataset),
         "worlds": len(np.unique(worlds)),
         "dataset_digest": dataset["collection"]["dataset_digest"],
         "heads": heads,
@@ -755,7 +761,11 @@ def run_critic_calibration(
         "command": "critic-calibration",
         "checkpoint": str(checkpoint),
         "dataset": str(dataset_path),
-        "targets": "finite-window discounted returns over each (world, camp) trajectory; living cutoff gets no tail",
+        "targets": (
+            "discounted returns over each (world, camp) trajectory, closed at the collection "
+            f"horizon by the dataset's declared tail ({calibration['return_tail']}); "
+            "truncated-zero gives a living cutoff no tail"
+        ),
         "discount_tau_years": CRITIC_DISCOUNT_YEARS,
         "gates": CRITIC_GATES,
         "gate_semantics": "PASS all gates; FAIL any metric gate; HOLD metrics pass but coverage insufficient",
