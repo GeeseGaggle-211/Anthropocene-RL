@@ -92,6 +92,7 @@ from .labor_value_calibration import (
     labor_critic_digest,
     load_labor_anchor,
 )
+from .labor_worlds import require_training_worlds
 from .model import BOUNDED_FEATURE_CONTRACT, load_checkpoint_normalizer
 from .ppo import SMALL_SETTLEMENT, YOUNG_DAUGHTER_TURNS
 from .protocol import scan
@@ -1133,6 +1134,7 @@ def _load_labor_teacher_dataset(
         args.dataset,
         expected_normalizer_digest=_normalization_digest(normalizer),
         require_privileged=require_privileged,
+        drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
     )
 
 
@@ -1303,7 +1305,10 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     worlds = (
         []
         if dataset_dirs
-        else _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False))
+        else require_training_worlds(
+            _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
+            "labor pretrain-bc",
+        )
     )
 
     writer = None
@@ -1322,7 +1327,9 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         from .labor_teacher_data import load_labor_datasets
 
         dataset = load_labor_datasets(
-            dataset_dirs, expected_normalizer_digest=_normalization_digest(normalizer)
+            dataset_dirs,
+            expected_normalizer_digest=_normalization_digest(normalizer),
+            drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
         )
     else:
         dataset = collect_heuristic_bc_dataset(
@@ -1432,8 +1439,9 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     else:
         if _cost_weight_kwargs(args):
             raise ValueError("--cost-loss-weight is supported only with --dataset")
-        worlds = _parse_worlds(
-            args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+        worlds = require_training_worlds(
+            _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
+            "labor pretrain-critic",
         )
         summary = pretrain_critic_on_heuristic_next_states(
             task_critic=task,
@@ -1494,8 +1502,9 @@ def _command_collect(args: argparse.Namespace) -> None:
     sampling = torch.Generator()
     sampling.set_state(state["sampling_generator_state"])
     before_rng = sampling.get_state().clone()
-    worlds = _parse_worlds(
-        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+    worlds = require_training_worlds(
+        _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
+        "labor PPO rollout collection",
     )
     writer = None
     if getattr(args, "economic_trace", None) is not None:
@@ -1765,7 +1774,9 @@ def _command_privileged_audit(args: argparse.Namespace) -> None:
     from .labor_privileged import dead_mask_audit, shard_keys
     from .labor_teacher_data import load_labor_dataset
 
-    parts = [load_labor_dataset(Path(d), require_privileged=True) for d in args.dataset]
+    parts = [
+        load_labor_dataset(Path(d), require_privileged=True, training=False) for d in args.dataset
+    ]
     arrays = {key: torch.cat([part[key] for part in parts], dim=0) for key in shard_keys()}
     report = dead_mask_audit(arrays)
     report["worlds"] = sorted({int(w) for p in parts for w in p["row_world"].reshape(-1).tolist()})
@@ -1933,6 +1944,11 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_bc.add_argument("--inverse-freq-power", type=float, default=0.5)
     pretrain_bc.add_argument("--allow-vm-scale", action="store_true", default=False)
     pretrain_bc.add_argument(
+        "--drop-reserved-worlds", action="store_true", default=False,
+        help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
+        "dataset (recorded in the summary)",
+    )
+    pretrain_bc.add_argument(
         "--economic-trace",
         type=Path,
         default=None,
@@ -1964,6 +1980,11 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic.add_argument("--lr", type=float, default=1e-3)
     pretrain_critic.add_argument("--max-grad-norm", type=float, default=1.0)
     pretrain_critic.add_argument("--allow-vm-scale", action="store_true", default=False)
+    pretrain_critic.add_argument(
+        "--drop-reserved-worlds", action="store_true", default=False,
+        help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
+        "dataset (recorded in the summary)",
+    )
     pretrain_critic.add_argument(
         "--return-tail",
         choices=("truncated-zero", "randomized"),

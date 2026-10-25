@@ -68,6 +68,7 @@ from .labor_bc import (
 )
 from .labor_ppo import execute_labor_decision
 from .labor_privileged import privileged_row_tensors
+from .labor_worlds import require_training_worlds
 from .protocol import seed_list
 from .provenance import ProvenanceError, checkpoint_hash, code_commit
 from .labor_teacher_data import (
@@ -166,6 +167,7 @@ def collect_learner_world(
     from .labor_pretrain_eval import actor_labor_decision
     from .labor_training import _settlement_guard, _transition_rewards
 
+    require_training_worlds([world_seed], "labor dagger collection")
     options = reset_options or LaborResetOptions()
     labor_factory = labor_bridge_factory or LaborModel9Bridge
     heur_factory = heuristic_bridge_factory or (lambda: Model9Bridge(economic_diagnostics=True))

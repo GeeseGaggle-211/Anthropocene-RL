@@ -417,7 +417,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "audit":
         from .labor_teacher_data import load_labor_dataset
 
-        report = target_audit(load_labor_dataset(args.dataset), margin=args.margin)
+        report = target_audit(load_labor_dataset(args.dataset, training=False), margin=args.margin)
         text = json.dumps(report, indent=2, sort_keys=True)
         if args.out is not None:
             args.out.parent.mkdir(parents=True, exist_ok=True)

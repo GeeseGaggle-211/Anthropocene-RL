@@ -296,6 +296,7 @@ def _load_dataset(path: Path, normalizer: Any, *, require_privileged: bool = Fal
         path,
         expected_normalizer_digest=_normalization_digest(normalizer),
         require_privileged=require_privileged,
+        training=False,  # evaluation reader: development/calibration/held-out-test data
     )
     _check_world_policy(dataset["row_world"].tolist(), f"dataset {path}")
     return dataset

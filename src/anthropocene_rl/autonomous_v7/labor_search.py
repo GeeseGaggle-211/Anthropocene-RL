@@ -94,6 +94,7 @@ from .labor_model import (
     LaborPersonality,
 )
 from .labor_privileged import privileged_row_tensors
+from .labor_worlds import partition_for
 
 SEARCH_CONTRACT = "model9-labor-search-teacher-v1"
 SOURCE_KIND = "native_search_labor_teacher"
@@ -1731,6 +1732,7 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "return_tail": (
             "search rows are labels, not V targets; reward_* is the label's first transition"
         ),
+        "partition": job.get("partition", "fitting"),
     }
     # Stage the shard (arrays, meta last, then the bound candidate table) and
     # rename it into place; dataset.json is published only after every shard.
@@ -1943,6 +1945,12 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--personality-key", type=int, default=0)
     parser.add_argument("--personality-drift", type=float, default=200.0)
     parser.add_argument("--no-verify-restore", action="store_true")
+    parser.add_argument(
+        "--held-out-test",
+        action="store_true",
+        help="search the reserved held-out worlds 90154-90159 only; shards are tagged held-out "
+        "test and every training loader refuses them",
+    )
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument(
         "--allow-dirty",
@@ -1953,10 +1961,13 @@ def argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def validate_search_worlds(worlds: Sequence[int]) -> list[int]:
+def validate_search_worlds(worlds: Sequence[int], *, held_out_test: bool = False) -> list[int]:
+    """Fitting worlds without the reserved 90154-90159, or (held-out test) only those."""
     from .labor_bc import validate_fitting_worlds
 
-    worlds = validate_fitting_worlds(worlds, "labor search fitting worlds")
+    worlds = validate_fitting_worlds(
+        worlds, "labor search fitting worlds", held_out_test=held_out_test
+    )
     outside = [w for w in worlds if w not in FITTING_WORLDS]
     if outside:
         raise ValueError(
@@ -1974,7 +1985,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .provenance import ProvenanceError, checkpoint_hash, code_commit
 
     args = argument_parser().parse_args(argv)
-    worlds = validate_search_worlds(seed_list(args.worlds))
+    worlds = validate_search_worlds(seed_list(args.worlds), held_out_test=args.held_out_test)
     if args.out.exists():
         raise ProvenanceError("labor search output exists; regenerate into a new directory")
     config = SearchConfig(
@@ -2028,7 +2039,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else None,
         "search": config.state_dict(),
         "continuation": "h12 (stream 0, deterministic); h12-dither (re-evaluation streams)",
-        "partition": "fitting",
+        "partition": partition_for(args.held_out_test),
     }
     with LaborModel9Bridge() as probe:
         source = search_source_record(
@@ -2052,6 +2063,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "verify_restore": not args.no_verify_restore,
             "source_run": source["source_run"],
             "out": str(args.out),
+            "partition": options["partition"],
         }
         for world in worlds
     ]

@@ -59,6 +59,11 @@ from .labor_model import (
 )
 from .labor_personality import personality_for_world
 from .labor_privileged import actor_inputs, privileged_row_tensors, require_critic_training_worlds
+from .labor_worlds import (
+    require_held_out_test_worlds,
+    require_training_record,
+    require_training_worlds,
+)
 from .labor_ppo import (
     RetainedLaborAction,
     execute_labor_decision,
@@ -204,8 +209,15 @@ class LaborResetOptions:
         return cls(**{key: value[key] for key in cls().state_dict() if key in value})
 
 
-def validate_fitting_worlds(world_seeds: Sequence[int], context: str) -> list[int]:
-    """Fitting worlds exclude sealed confirmation and development-only seeds."""
+def validate_fitting_worlds(
+    world_seeds: Sequence[int], context: str, *, held_out_test: bool = False
+) -> list[int]:
+    """Fitting worlds exclude sealed confirmation, development-only and reserved seeds.
+
+    The reserved held-out worlds 90154-90159 (``labor_worlds``) are refused
+    unless ``held_out_test`` is set, in which case *only* reserved worlds are
+    accepted and the caller must tag its outputs as held-out test data.
+    """
     worlds = checked_seeds(list(world_seeds), context)
     scan({"worldSeeds": worlds}, context)
     if len(set(worlds)) != len(worlds):
@@ -215,7 +227,9 @@ def validate_fitting_worlds(world_seeds: Sequence[int], context: str) -> list[in
             raise ValueError(f"{context}: sealed confirmation world {seed} is not fitting data")
         if seed in DEVELOPMENT_WORLDS:
             raise ValueError(f"{context}: development world {seed} is development-only")
-    return worlds
+    if held_out_test:
+        return require_held_out_test_worlds(worlds, context)
+    return require_training_worlds(worlds, context)
 
 
 # ---------------------------------------------------------------------------
@@ -1967,12 +1981,19 @@ def pretrain_labor_actor_bc(
     label_smoothing: float = 1e-6,
     inverse_freq_power: float = 0.5,
 ) -> dict[str, Any]:
-    """Supervised behavioral cloning on LaborActor using heuristic dataset."""
+    """Supervised behavioral cloning on LaborActor using heuristic dataset.
+
+    Rows from the reserved held-out worlds 90154-90159 and held-out-test data
+    are refused (``labor_worlds``), exactly as for critic training.
+    """
     if not isinstance(dataset, Mapping) or "target_specialty" not in dataset:
         raise ValueError("dataset must contain target_specialty and input tensors")
     N = int(dataset["target_specialty"].shape[0])
     if N == 0:
         raise ValueError("cannot pretrain on empty dataset")
+    if "row_world" in dataset:
+        require_training_worlds(dataset["row_world"].reshape(-1).tolist(), "labor actor BC")
+    require_training_record(dataset.get("collection"), "labor actor BC")
 
     opt = optimizer if optimizer is not None else torch.optim.Adam(actor.parameters(), lr=lr)
     generator = rng if rng is not None else np.random.default_rng(0)
@@ -2151,6 +2172,7 @@ def pretrain_critic_on_dataset(
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
     require_critic_teacher_dataset(dataset)
+    require_training_record(dataset.get("collection"), "heuristic critic pretraining")
     if require_randomized_tail and return_tail_method(dataset) != RETURN_TAIL_RANDOMIZED:
         raise ValueError(
             "pretrain-critic requires randomized-tail targets; this dataset declares "

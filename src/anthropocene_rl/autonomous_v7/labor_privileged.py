@@ -31,6 +31,8 @@ from typing import Any
 import numpy as np
 import torch
 
+from .labor_worlds import RESERVED_HELDOUT_WORLDS, require_training_worlds
+
 PRIVILEGED_SCHEMA_VERSION = 1
 PRIVILEGED_ROW_SCHEMA_VERSION = 1
 PRIVILEGED_LAYOUT_SEMANTICS = "model9-critic-only-privileged-view-v1"
@@ -49,8 +51,8 @@ STD_FLOOR = 0.1
 DEAD_STD = 1e-3
 
 # World partitions (G0 manifest section 4 and amendment r5-b). Reserved fitting
-# worlds never train any network; calibration worlds never fit moments.
-RESERVED_HELDOUT_WORLDS = range(90154, 90160)
+# worlds never train any network (single definition in labor_worlds);
+# calibration worlds never fit moments.
 G0_CALIBRATION_WORLDS = range(90180, 90200)
 
 
@@ -816,9 +818,7 @@ def require_privileged_fit_worlds(
 def require_critic_training_worlds(worlds: Iterable[int], context: str = "critic training") -> None:
     """Reserved held-out and G0 calibration worlds never train a value function."""
     worlds = {int(w) for w in worlds}
-    reserved = sorted(worlds & set(RESERVED_HELDOUT_WORLDS))
-    if reserved:
-        raise ValueError(f"{context} refuses reserved held-out worlds {reserved} (90154-90159)")
+    require_training_worlds(worlds, context)
     calibration = sorted(worlds & set(G0_CALIBRATION_WORLDS))
     if calibration:
         raise ValueError(f"{context} refuses G0 calibration worlds {calibration[:5]} (90180-90199)")
