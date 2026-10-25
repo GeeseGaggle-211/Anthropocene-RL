@@ -1149,10 +1149,10 @@ def _load_privileged_normalizer(path: Path | None) -> Any:
     """A frozen privileged normalizer from ``fit-privileged-normalizer`` (or None)."""
     if path is None:
         return None
-    from .labor_privileged import PRIVILEGED_NORMALIZER_KIND, LaborPrivilegedNormalizer
+    from .labor_privileged import PRIVILEGED_NORMALIZER_KINDS, LaborPrivilegedNormalizer
 
     state = torch.load(path, map_location="cpu", weights_only=True)
-    if not isinstance(state, Mapping) or state.get("kind") != PRIVILEGED_NORMALIZER_KIND:
+    if not isinstance(state, Mapping) or state.get("kind") not in PRIVILEGED_NORMALIZER_KINDS:
         raise ValueError(f"{path} is not a fitted labor privileged normalizer")
     return LaborPrivilegedNormalizer.from_state(state["privileged_normalizer"])
 
