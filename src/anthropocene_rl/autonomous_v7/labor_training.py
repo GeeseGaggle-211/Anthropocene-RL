@@ -59,6 +59,8 @@ from .labor_model import (
     labor_policy_tensors,
     LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
     LaborValueSupport,
+    LaborQoLHead,
+    labor_checkpoint_qol_head,
     labor_checkpoint_value_support,
     load_labor_checkpoint_models,
     nonlabor_entropy,
@@ -899,7 +901,11 @@ def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
 ]:
     layout = LaborEncoderLayout.from_state(state.get("labor_encoder_layout"))
     actor = LaborActor(layout)
-    task = LaborTaskCritic(layout, support=labor_checkpoint_value_support(state))
+    task = LaborTaskCritic(
+        layout,
+        support=labor_checkpoint_value_support(state),
+        qol_head=labor_checkpoint_qol_head(state),
+    )
     costs = LaborCostCritics(layout)
     # Also applies the contract's optional FiLM bound to all four encoders.
     _, normalizer = load_labor_checkpoint_models(
@@ -1211,7 +1217,11 @@ def _command_initialize(args: argparse.Namespace) -> None:
     )
     torch.manual_seed(args.optimizer_seed)
     actor = LaborActor(layout)
-    task = LaborTaskCritic(layout, support=_initialize_value_support(args))
+    task = LaborTaskCritic(
+        layout,
+        support=_initialize_value_support(args),
+        qol_head=LaborQoLHead.parse(getattr(args, "qol_head", None)),
+    )
     costs = LaborCostCritics(layout)
     bind_privileged_normalizer(privileged_normalizer, task, costs)
     conditioning = LaborPersonalityConditioning(
@@ -1880,6 +1890,14 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="LOW,HIGH,BINS",
         help="versioned task-critic symlog clamp and bin count (default -2,9,255)",
+    )
+    initialize.add_argument(
+        "--qol-head",
+        default=None,
+        metavar="two-hot|OUTPUT[,TARGET[,LAMBDA]]",
+        help="bounded QoL value head (amendment r5-b item 4): OUTPUT logistic or silu-clamp, "
+        "TARGET monte-carlo (default) or td-lambda, LAMBDA default 0.8; omitted or two-hot "
+        "keeps the historical symlog two-hot QoL head",
     )
     initialize.add_argument(
         "--campaign-r5",

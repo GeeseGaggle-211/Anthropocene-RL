@@ -179,6 +179,125 @@ class LaborValueSupport:
 LABOR_CAMPAIGN_R5_VALUE_SUPPORT = LaborValueSupport(-0.5, 2.5, 255)
 
 
+# Bounded QoL value head (G0 manifest amendment r5-b, item 4). QoL is bounded
+# to [0, 1] per year, so its discounted return is G = m * W with m the
+# discounted-mean QoL in [0, 1] and W the known discount weight of a constant
+# unit-QoL stream. The head predicts m and replaces the symlog two-hot for QoL
+# only; population-years keeps its distributional head. Absent from every
+# checkpoint that predates it, which therefore loads (and saves) unchanged.
+LABOR_QOL_HEAD_VERSION = "labor-qol-bounded-discounted-mean-head-v1"
+LABOR_QOL_HEAD_OUTPUTS = ("logistic", "silu-clamp")
+LABOR_QOL_HEAD_TARGETS = ("monte-carlo", "td-lambda")
+LABOR_QOL_DISCOUNT_WEIGHT = "infinite-horizon-geometric-unit-qol-stream"
+LABOR_QOL_SATURATION_THRESHOLD = 6.0
+
+
+def labor_qol_discount_weight(
+    turn_years: float = contracts.TURN_YEARS, discount_years: float = contracts.HORIZON_YEARS
+) -> float:
+    """W = sum_k exp(-k dt / tau) dt: the discounted return of QoL = 1 forever.
+
+    The critic's return recursion is G_i = r_i + exp(-dt_i / tau) G_{i+1} with
+    r_i = Q_lineage * dt_i in [0, dt_i], so 0 <= G <= W for every closed target
+    (truncated windows and terminations only lower G). 410.1 years at the
+    contract's 20-year turns and 400-year time constant.
+    """
+    turn_years = _finite_number(turn_years, "QoL head turn years")
+    discount_years = _finite_number(discount_years, "QoL head discount years")
+    if turn_years <= 0 or discount_years <= 0:
+        raise ValueError("QoL head turn and discount years must be positive")
+    return turn_years / (1.0 - math.exp(-turn_years / discount_years))
+
+
+@dataclass(frozen=True)
+class LaborQoLHead:
+    """Declared bounded QoL head: output map, fit target and discount weight.
+
+    ``output`` ``logistic`` (default) predicts m = sigmoid(z) and is fitted with
+    a Bernoulli cross entropy against m* = clamp(G / W, 0, 1). ``silu-clamp`` is
+    the selectable fallback: m = clamp(silu(z), 0, 1) at decode, fitted by the
+    squared error of the unclamped silu(z), so its gradient does not vanish
+    where a logistic would saturate. ``target`` ``monte-carlo`` (default) is the
+    existing randomized-tail return; ``td-lambda`` bootstraps through this head
+    with ``td_lambda`` (pending a user decision; never the default).
+    """
+
+    output: str = "logistic"
+    target: str = "monte-carlo"
+    td_lambda: float = 0.8
+    turn_years: float = contracts.TURN_YEARS
+    discount_years: float = contracts.HORIZON_YEARS
+
+    def __post_init__(self) -> None:
+        if self.output not in LABOR_QOL_HEAD_OUTPUTS:
+            raise ValueError(f"QoL head output must be one of {LABOR_QOL_HEAD_OUTPUTS}")
+        if self.target not in LABOR_QOL_HEAD_TARGETS:
+            raise ValueError(f"QoL head target must be one of {LABOR_QOL_HEAD_TARGETS}")
+        lam = _finite_number(self.td_lambda, "QoL head TD lambda")
+        if not 0.0 <= lam <= 1.0:
+            raise ValueError("QoL head TD lambda must be in [0, 1]")
+        object.__setattr__(self, "td_lambda", lam)
+        object.__setattr__(self, "turn_years", _finite_number(self.turn_years, "turn years"))
+        object.__setattr__(
+            self, "discount_years", _finite_number(self.discount_years, "discount years")
+        )
+        labor_qol_discount_weight(self.turn_years, self.discount_years)
+
+    @property
+    def discount_weight(self) -> float:
+        return labor_qol_discount_weight(self.turn_years, self.discount_years)
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "version": LABOR_QOL_HEAD_VERSION,
+            "objective": "qol_years",
+            "prediction": "discounted-mean-qol-in-unit-interval",
+            "output": self.output,
+            "target": self.target,
+            "tdLambda": self.td_lambda,
+            "discountWeight": {
+                "kind": LABOR_QOL_DISCOUNT_WEIGHT,
+                "turnYears": self.turn_years,
+                "discountYears": self.discount_years,
+                "weight": self.discount_weight,
+            },
+            "saturationThreshold": LABOR_QOL_SATURATION_THRESHOLD,
+        }
+
+    @classmethod
+    def from_state(cls, state: Mapping[str, Any] | None) -> LaborQoLHead | None:
+        if state is None:
+            return None
+        if not isinstance(state, Mapping) or state.get("version") != LABOR_QOL_HEAD_VERSION:
+            raise ValueError("labor QoL head version is unsupported")
+        weight = state.get("discountWeight")
+        if not isinstance(weight, Mapping):
+            raise ValueError("labor QoL head discount weight is malformed")
+        head = cls(
+            str(state["output"]),
+            str(state["target"]),
+            float(state["tdLambda"]),
+            float(weight["turnYears"]),
+            float(weight["discountYears"]),
+        )
+        if head.state_dict() != dict(state):
+            raise ValueError("labor QoL head record is not canonical")
+        return head
+
+    @classmethod
+    def parse(cls, text: str | None) -> LaborQoLHead | None:
+        """``two-hot`` or ``None``: the historical head; else ``OUTPUT[,TARGET[,LAMBDA]]``."""
+        if text is None or str(text).strip() in ("", "two-hot"):
+            return None
+        parts = [part.strip() for part in str(text).split(",")]
+        if len(parts) > 3:
+            raise ValueError("QoL head must be OUTPUT[,TARGET[,LAMBDA]]")
+        output = parts[0]
+        target = parts[1] if len(parts) > 1 else "monte-carlo"
+        lam = float(parts[2]) if len(parts) > 2 else 0.8
+        return cls(output, target, lam)
+
+
 @dataclass(frozen=True)
 class LaborPersonality:
     """Declared fixed weighting over the two terminal task objectives.
@@ -264,6 +383,9 @@ class LaborModelContract:
     # Critic-only privileged architecture (intervention A). Absent (None) for
     # every checkpoint without a privileged block, which keeps their bytes.
     privileged_critic: LaborPrivilegedCriticContract | None = None
+    # Bounded QoL head (amendment r5-b item 4). Absent (None) keeps the
+    # historical two-hot QoL head and every existing checkpoint's bytes.
+    qol_head: LaborQoLHead | None = None
 
     def state_dict(self) -> dict[str, Any]:
         state = self._base_state()
@@ -273,6 +395,8 @@ class LaborModelContract:
             state["criticValueSupport"] = self.value_support.state_dict()
         if self.privileged_critic is not None:
             state["privilegedCritic"] = self.privileged_critic.state_dict()
+        if self.qol_head is not None:
+            state["criticQoLHead"] = self.qol_head.state_dict()
         return state
 
     def _base_state(self) -> dict[str, Any]:
@@ -318,6 +442,7 @@ class LaborModelContract:
             "personalityConditioning",
             "criticValueSupport",
             "privilegedCritic",
+            "criticQoLHead",
         } != set(template):
             raise ValueError(f"labor model contract fields must be exactly {sorted(template)}")
         for key in (
@@ -349,6 +474,7 @@ class LaborModelContract:
             None
             if state.get("privilegedCritic") is None
             else LaborPrivilegedCriticContract.from_state(state["privilegedCritic"]),
+            LaborQoLHead.from_state(state.get("criticQoLHead")),
         )
 
 
@@ -481,6 +607,13 @@ def labor_checkpoint_value_support(state: Mapping[str, Any]) -> LaborValueSuppor
     if not isinstance(state, Mapping) or "labor_model_contract" not in state:
         raise ValueError("checkpoint is not an explicit labor/retry artifact")
     return LaborModelContract.from_state(state["labor_model_contract"]).value_support
+
+
+def labor_checkpoint_qol_head(state: Mapping[str, Any]) -> LaborQoLHead | None:
+    """The bounded QoL head a labor checkpoint declares (``None``: historical two-hot)."""
+    if not isinstance(state, Mapping) or "labor_model_contract" not in state:
+        raise ValueError("checkpoint is not an explicit labor/retry artifact")
+    return LaborModelContract.from_state(state["labor_model_contract"]).qol_head
 
 
 @dataclass(frozen=True)
@@ -926,6 +1059,31 @@ class LaborObservationEncoder(nn.Module):
         ``tensors`` is the observation batch and never carries a privileged key;
         critic-only privileged tokens arrive separately as ``privileged``.
         """
+        return self._encode_full(tensors, film=film, privileged=privileged)[0]
+
+    def context(
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        privileged: Mapping[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        """Per-row critic context for the action-conditioned advantage head.
+
+        ``hidden`` is the FiLM-conditioned trunk of the contextual village token
+        (the value heads' input), ``village_token`` that token after global
+        attention, and ``privileged_readout`` the presence-masked mean of the
+        privileged family tokens after global attention (zeros without a block).
+        The computation is exactly :meth:`encode`'s; nothing here is trained.
+        """
+        result, extras = self._encode_full(tensors, film=True, privileged=privileged)
+        return {"hidden": result[0], **extras}
+
+    def _encode_full(
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        *,
+        film: bool,
+        privileged: Mapping[str, torch.Tensor] | None,
+    ) -> tuple[tuple[Any, ...], dict[str, torch.Tensor]]:
         assert_actor_batch(tensors)
         core, personality = tensors.get("core"), tensors.get("labor_personality")
         if (
@@ -1049,13 +1207,24 @@ class LaborObservationEncoder(nn.Module):
             + self.global_village_to_activity(output[:, :1].unsqueeze(2))
         )
         contextual_activity = contextual_activity * activity_mask.unsqueeze(-1)
-        return (
+        result = (
             self._trunk(output[:, 0], condition),
             specialty_tokens,
             contextual_activity.reshape(len(core), role_count * activities_per_role, -1),
             resource_tokens,
             legacy_rows,
         )
+        if extra is None:
+            readout = torch.zeros(
+                len(core), output.shape[-1], dtype=output.dtype, device=core.device
+            )
+        else:
+            start, end = offsets[-1]
+            rows, keep = output[:, start:end], mask[:, start:end]
+            readout = (rows * keep.unsqueeze(-1)).sum(dim=1) / keep.sum(
+                dim=1, keepdim=True
+            ).clamp_min(1).to(rows.dtype)
+        return result, {"village_token": output[:, 0], "privileged_readout": readout}
 
 
 class LaborCriticEncoder(LaborObservationEncoder):
@@ -1225,18 +1394,92 @@ class LaborTaskCritic(nn.Module):
         token_width: int = 128,
         *,
         support: LaborValueSupport | None = None,
+        qol_head: LaborQoLHead | None = None,
     ) -> None:
         super().__init__()
         self.support = LaborValueSupport() if support is None else support
         if not isinstance(self.support, LaborValueSupport):
             raise ValueError("task critic support must be a LaborValueSupport")
+        if qol_head is not None and not isinstance(qol_head, LaborQoLHead):
+            raise ValueError("task critic QoL head must be a LaborQoLHead or None")
+        self.qol_head = qol_head
         self.encoder = LaborCriticEncoder(layout, width, token_width)
         self.privileged_layout = layout.privileged
         self.privileged_normalizer: LaborPrivilegedNormalizer | None = None
         self.heads = nn.ModuleDict(
             {name: nn.Linear(width, self.support.bins) for name in LABOR_OBJECTIVES}
         )
+        if qol_head is not None:
+            # The two-hot QoL head above was built (and discarded) so the global
+            # RNG stream, hence every other parameter's initial value for a given
+            # seed, matches the historical critic. The bounded scalar head is
+            # built under a forked RNG.
+            with torch.random.fork_rng(devices=[]):
+                # Seed-dependent but decorrelated from the next head's draws.
+                torch.manual_seed(int(torch.randint(0, 2**62, (1,)).item()) ^ 0x514F4C)
+                self.heads["qol_years"] = nn.Linear(width, 1)
         self.register_buffer("bins", self.support.bin_values())
+
+    def is_bounded(self, objective: str) -> bool:
+        """Whether ``objective`` uses the bounded discounted-mean head (QoL only)."""
+        if objective not in LABOR_OBJECTIVES:
+            raise ValueError(f"unknown labor objective {objective!r}")
+        return objective == "qol_years" and self.qol_head is not None
+
+    def _require_distributional(self, objective: str) -> None:
+        if self.is_bounded(objective):
+            raise ValueError(
+                f"{objective} uses the bounded QoL head; it has no two-hot distribution"
+            )
+
+    def bounded_mean(self, logits: torch.Tensor) -> torch.Tensor:
+        """Decoded discounted-mean QoL m in [0, 1] from the bounded head's pre-activation."""
+        if self.qol_head is None:
+            raise ValueError("this task critic has no bounded QoL head")
+        z = logits.squeeze(-1)
+        if self.qol_head.output == "logistic":
+            return torch.sigmoid(z)
+        return torch.nn.functional.silu(z).clamp(0.0, 1.0)
+
+    def qol_saturation(self, logits: torch.Tensor) -> float:
+        """Share of bounded-head pre-activations with |z| > 6 (saturation monitor)."""
+        if self.qol_head is None:
+            raise ValueError("this task critic has no bounded QoL head")
+        z = logits.detach().reshape(-1)
+        if z.numel() == 0:
+            return 0.0
+        return float((z.abs() > LABOR_QOL_SATURATION_THRESHOLD).double().mean())
+
+    def value_loss(
+        self,
+        objective: str,
+        logits: torch.Tensor,
+        target: torch.Tensor,
+        weight: torch.Tensor | float | None = None,
+    ) -> torch.Tensor:
+        """Per-row value loss for one task head against raw returns ``target``.
+
+        Distributional heads: the historical two-hot cross entropy (identical
+        operations, so identical values). Bounded QoL: Bernoulli cross entropy
+        (logistic) or squared error of the unclamped SiLU (fallback) against
+        m* = clamp(G / W, 0, 1); ``weight`` overrides the declared W per row.
+        """
+        if not self.is_bounded(objective):
+            return -(self.two_hot(objective, target) * torch.log_softmax(logits, dim=-1)).sum(
+                dim=-1
+            )
+        if not isinstance(target, torch.Tensor) or target.ndim != 1:
+            raise ValueError("labor objective targets must be a finite vector")
+        if not torch.isfinite(target).all():
+            raise ValueError("labor objective targets must be a finite vector")
+        w = self.qol_head.discount_weight if weight is None else weight
+        mean = (target / w).clamp(0.0, 1.0).to(logits.dtype)
+        z = logits.squeeze(-1)
+        if z.shape != mean.shape:
+            raise ValueError("bounded QoL logits and targets differ in shape")
+        if self.qol_head.output == "logistic":
+            return torch.nn.functional.binary_cross_entropy_with_logits(z, mean, reduction="none")
+        return (torch.nn.functional.silu(z) - mean).square()
 
     def check_support(self) -> None:
         """Reject a bins buffer (e.g. a loaded one) that differs from the declared support."""
@@ -1257,6 +1500,7 @@ class LaborTaskCritic(nn.Module):
         """
         if objective not in LABOR_OBJECTIVES:
             raise ValueError(f"unknown labor objective {objective!r}")
+        self._require_distributional(objective)
         probabilities = torch.softmax(logits.double(), dim=-1)
         values = symexp(self.bins.double())
         upper = values > float(observed_max)
@@ -1280,13 +1524,17 @@ class LaborTaskCritic(nn.Module):
         return (torch.softmax(logits, dim=-1) * symexp(self.bins)).sum(dim=-1)
 
     def expectation(self, objective: str, logits: torch.Tensor) -> torch.Tensor:
+        """Decoded raw return. The bounded QoL head decodes m * W (QoL-years)."""
         if objective not in LABOR_OBJECTIVES:
             raise ValueError(f"unknown labor objective {objective!r}")
+        if self.is_bounded(objective):
+            return self.bounded_mean(logits) * self.qol_head.discount_weight
         return self.expectation_normalized(logits) * LABOR_OBJECTIVE_REFERENCE_SCALES[objective]
 
     def two_hot(self, objective: str, values: torch.Tensor) -> torch.Tensor:
         if objective not in LABOR_OBJECTIVES:
             raise ValueError(f"unknown labor objective {objective!r}")
+        self._require_distributional(objective)
         if (
             not isinstance(values, torch.Tensor)
             or values.ndim != 1
@@ -1374,6 +1622,7 @@ def labor_checkpoint_payload(
         *labor_personality_conditioning(personality, actor.encoder.film_bound),
         value_support=task_critic.support,
         privileged_critic=privileged_record,
+        qol_head=getattr(task_critic, "qol_head", None),
     )
     payload = {
         "artifact_kind": LABOR_ARTIFACT_KIND,
@@ -1414,6 +1663,11 @@ def load_labor_checkpoint_models(
         raise ValueError(
             "labor checkpoint declares a different task-critic value support; construct "
             "the critic with labor_checkpoint_value_support(state)"
+        )
+    if contract.qol_head != getattr(task_critic, "qol_head", None):
+        raise ValueError(
+            "labor checkpoint declares a different QoL head; construct the critic with "
+            "labor_checkpoint_qol_head(state)"
         )
     privileged_normalizer = labor_checkpoint_privileged_normalizer(
         state, contract, expected_layout

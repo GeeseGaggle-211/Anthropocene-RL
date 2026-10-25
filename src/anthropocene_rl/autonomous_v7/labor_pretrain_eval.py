@@ -617,7 +617,7 @@ def critic_predictions(
             logits = task(batch, privileged)
             for name in LABOR_OBJECTIVES:
                 out[name].append(task.expectation(name, logits[name]).double().numpy())
-                if observed_max is not None:
+                if observed_max is not None and not task.is_bounded(name):
                     terms = task.support_diagnostics(name, logits[name], observed_max[name])
                     for term, value in terms.items():
                         out[f"{name}/{term}"].append(value.numpy())

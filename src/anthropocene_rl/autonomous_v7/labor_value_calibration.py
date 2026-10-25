@@ -461,10 +461,15 @@ def labor_anchor_loss(
         if bool(available.any()):
             target = torch.as_tensor(data.targets_raw[head][selected], dtype=torch.float32)
             row_loss = torch.zeros(len(selected), dtype=task_logits[head].dtype)
-            row_loss[available] = -(
-                task_critic.two_hot(head, target[available])
-                * torch.log_softmax(task_logits[head][available], dim=-1)
-            ).sum(-1)
+            if hasattr(task_critic, "value_loss"):  # two-hot or the bounded QoL head
+                row_loss[available] = task_critic.value_loss(
+                    head, task_logits[head][available], target[available]
+                )
+            else:
+                row_loss[available] = -(
+                    task_critic.two_hot(head, target[available])
+                    * torch.log_softmax(task_logits[head][available], dim=-1)
+                ).sum(-1)
             losses[head] = equal_unit_mean(row_loss, available)
     for head in LABOR_COSTS:
         available = torch.as_tensor(data.target_masks[head][selected], dtype=torch.bool)

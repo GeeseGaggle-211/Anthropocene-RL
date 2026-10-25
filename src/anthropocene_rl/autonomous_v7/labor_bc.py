@@ -2128,6 +2128,12 @@ def json_safe(value: Any) -> Any:
     return tuple(value) if isinstance(value, list) else value
 
 
+def _qol_saturation_summary(task_critic: LaborTaskCritic, logits: torch.Tensor) -> dict[str, Any]:
+    from .labor_advantage import qol_saturation_report
+
+    return qol_saturation_report(task_critic, logits)
+
+
 def pretrain_critic_on_dataset(
     *,
     task_critic: LaborTaskCritic,
@@ -2214,9 +2220,42 @@ def pretrain_critic_on_dataset(
                 )
         return task_sum / N, cost_sum / N
 
+    # Bounded QoL head (amendment r5-b item 4): saturation monitor every fit,
+    # and optional TD(lambda) targets bootstrapped through the head.
+    qol_head = getattr(task_critic, "qol_head", None)
+
+    def qol_logits(rows: torch.Tensor, chunk: int = 512) -> torch.Tensor:
+        parts = []
+        with torch.no_grad():
+            for start in range(0, len(rows), chunk):
+                index = rows[start : start + chunk]
+                batch = {k: dataset[k][index] for k in tensor_keys}
+                p = critic_privileged_batch(task_critic, dataset, index)
+                parts.append(task_critic(batch, p)["qol_years"])
+        return torch.cat(parts)
+
+    def refresh_td_targets() -> None:
+        from .labor_advantage import qol_td_lambda_targets
+
+        every = torch.arange(n)
+        values = task_critic.expectation("qol_years", qol_logits(every))
+        task_targets["qol_years"] = qol_td_lambda_targets(dataset, values, qol_head.td_lambda)[
+            kept
+        ]
+
+    td_lambda = qol_head is not None and qol_head.target == "td-lambda"
+    if td_lambda:
+        refresh_td_targets()
+    saturation_initial = (
+        None
+        if qol_head is None
+        else _qol_saturation_summary(task_critic, qol_logits(kept))
+    )
     init_task, init_cost = losses()
     generator = rng if rng is not None else np.random.default_rng(0)
-    for _ in range(epochs):
+    for epoch in range(epochs):
+        if td_lambda and epoch > 0:
+            refresh_td_targets()
         draws = generator.choice(N, size=N, replace=True, p=probabilities)
         for start in range(0, N, batch_size):
             batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
@@ -2241,7 +2280,17 @@ def pretrain_critic_on_dataset(
             optimizer.step()
     final_task, final_cost = losses()
     collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
+    qol_record = (
+        {}
+        if qol_head is None
+        else {
+            "qol_head": qol_head.state_dict(),
+            "qol_saturation_initial": saturation_initial,
+            "qol_saturation_final": _qol_saturation_summary(task_critic, qol_logits(kept)),
+        }
+    )
     return {
+        **qol_record,
         "contract": LABOR_CRITIC_CONTRACT,
         "epochs": int(epochs),
         "rows": int(N),

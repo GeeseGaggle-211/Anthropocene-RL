@@ -210,6 +210,8 @@ def convert_task_critic_support(
     contract = labor_checkpoint_contract(state, expected_layout=layout)
     if support == old_task.support:
         raise ValueError("checkpoint already declares this value support")
+    if old_task.qol_head is not None:
+        raise ValueError("value-support conversion does not apply to a bounded QoL head checkpoint")
     # Same (default) widths as _models_from_checkpoint, which just loaded old_task strictly.
     width = old_task.heads[LABOR_OBJECTIVES[0]].in_features
     head_seed = int(state["optimizer_seed"] if seed is None else seed)
@@ -316,7 +318,7 @@ def convert_privileged_critics(
     init_seed = int(state["optimizer_seed"] if seed is None else seed)
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(init_seed)
-        task = LaborTaskCritic(new_layout, support=old_task.support)
+        task = LaborTaskCritic(new_layout, support=old_task.support, qol_head=old_task.qol_head)
         costs = LaborCostCritics(new_layout)
     _set_migration(True, task, costs)
     try:

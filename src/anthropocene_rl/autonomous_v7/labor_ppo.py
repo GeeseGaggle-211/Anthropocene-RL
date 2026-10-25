@@ -1026,8 +1026,8 @@ def labor_task_value_loss(
         value = targets[name]
         if not isinstance(value, torch.Tensor) or value.ndim != 1:
             raise ValueError(f"{name} target must be a vector")
-        distribution = critic.two_hot(name, value)
-        losses.append(-(distribution * torch.log_softmax(output[name], dim=-1)).sum(dim=-1))
+        # Two-hot cross entropy (historical) or the bounded QoL head's loss.
+        losses.append(critic.value_loss(name, output[name], value))
     return torch.stack(losses, dim=0).mean()
 
 
