@@ -35,6 +35,17 @@ from .labor_personality import (
     LaborPersonalityConditioning,
     WorldPersonalities,
 )
+from .labor_privileged import (
+    CRITIC_PREFIX as PRIVILEGED_CRITIC_PREFIX,
+)
+from .labor_privileged import (
+    LaborPrivilegedLayout,
+    LaborPrivilegedNormalizer,
+    assert_actor_batch,
+)
+from .labor_privileged import (
+    critic_keys as privileged_critic_keys,
+)
 from .model import (
     BIN_HIGH,
     BIN_LOW,
@@ -250,6 +261,9 @@ class LaborModelContract:
     # Task-critic value support (brief section 17.2). The historical default
     # is not serialized, so default checkpoints keep their contract bytes.
     value_support: LaborValueSupport = field(default_factory=LaborValueSupport)
+    # Critic-only privileged architecture (intervention A). Absent (None) for
+    # every checkpoint without a privileged block, which keeps their bytes.
+    privileged_critic: LaborPrivilegedCriticContract | None = None
 
     def state_dict(self) -> dict[str, Any]:
         state = self._base_state()
@@ -257,6 +271,8 @@ class LaborModelContract:
             state["personalityConditioning"] = self.conditioning.state_dict()
         if not self.value_support.is_default:
             state["criticValueSupport"] = self.value_support.state_dict()
+        if self.privileged_critic is not None:
+            state["privilegedCritic"] = self.privileged_critic.state_dict()
         return state
 
     def _base_state(self) -> dict[str, Any]:
@@ -301,6 +317,7 @@ class LaborModelContract:
         if not isinstance(state, Mapping) or set(state) - {
             "personalityConditioning",
             "criticValueSupport",
+            "privilegedCritic",
         } != set(template):
             raise ValueError(f"labor model contract fields must be exactly {sorted(template)}")
         for key in (
@@ -329,6 +346,113 @@ class LaborModelContract:
             LaborPersonality.from_mapping(state["personality"]),
             LaborPersonalityConditioning.from_state(state.get("personalityConditioning")),
             LaborValueSupport.from_state(state.get("criticValueSupport")),
+            None
+            if state.get("privilegedCritic") is None
+            else LaborPrivilegedCriticContract.from_state(state["privilegedCritic"]),
+        )
+
+
+LABOR_PRIVILEGED_CRITIC_ARCHITECTURE = "labor-critic-privileged-family-tokens-v1"
+
+
+@dataclass(frozen=True)
+class LaborPrivilegedCriticContract:
+    """Checkpoint record of the critic-only privileged architecture.
+
+    Each family is projected by its own shared linear map plus a family
+    embedding (and an overflow-row embedding) into the critics' global
+    attention set; the actor never receives a privileged input.
+    """
+
+    schema_version: int
+    layout_digest: str
+    normalizer_digest: str
+    task_encoder_width: int
+    cost_encoder_width: int
+    token_width: int
+    family_rows: tuple[tuple[str, int, int], ...]
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "architecture": LABOR_PRIVILEGED_CRITIC_ARCHITECTURE,
+            "schemaVersion": self.schema_version,
+            "layoutDigest": self.layout_digest,
+            "normalizerDigest": self.normalizer_digest,
+            "encoders": [
+                "task_critic",
+                "cost_critics.feasibility",
+                "cost_critics.settlement_guard",
+            ],
+            "actorPrivilegedWidth": 0,
+            "widths": {
+                "taskEncoder": self.task_encoder_width,
+                "costEncoder": self.cost_encoder_width,
+                "token": self.token_width,
+            },
+            "families": [
+                {"name": name, "rows": rows, "width": width}
+                for name, rows, width in self.family_rows
+            ],
+            "tokenInjection": (
+                "global-attention-set-per-family-shared-projector-plus-family-and-overflow-embedding"
+            ),
+            "film": "privileged-tokens-share-the-global-film",
+        }
+
+    @classmethod
+    def from_state(cls, state: Mapping[str, Any]) -> LaborPrivilegedCriticContract:
+        keys = {
+            "architecture", "schemaVersion", "layoutDigest", "normalizerDigest", "encoders",
+            "actorPrivilegedWidth", "widths", "families", "tokenInjection", "film",
+        }
+        if not isinstance(state, Mapping) or set(state) != keys:
+            raise ValueError("privileged critic contract fields are malformed")
+        if state["architecture"] != LABOR_PRIVILEGED_CRITIC_ARCHITECTURE:
+            raise ValueError("privileged critic architecture is unsupported")
+        widths = state["widths"]
+        if not isinstance(widths, Mapping) or set(widths) != {
+            "taskEncoder",
+            "costEncoder",
+            "token",
+        }:
+            raise ValueError("privileged critic widths are malformed")
+        record = cls(
+            int(state["schemaVersion"]),
+            str(state["layoutDigest"]),
+            str(state["normalizerDigest"]),
+            int(widths["taskEncoder"]),
+            int(widths["costEncoder"]),
+            int(widths["token"]),
+            tuple((str(f["name"]), int(f["rows"]), int(f["width"])) for f in state["families"]),
+        )
+        if record.state_dict() != dict(state):
+            raise ValueError("privileged critic contract is not canonical")
+        from .labor_privileged import PRIVILEGED_SCHEMA_VERSION
+
+        if record.schema_version != PRIVILEGED_SCHEMA_VERSION:
+            raise ValueError(
+                f"checkpoint privileged schema version {record.schema_version} != supported "
+                f"{PRIVILEGED_SCHEMA_VERSION}"
+            )
+        return record
+
+    @classmethod
+    def build(
+        cls,
+        layout: LaborPrivilegedLayout,
+        normalizer: LaborPrivilegedNormalizer,
+        task_critic: LaborTaskCritic,
+        cost_critics: LaborCostCritics,
+    ) -> LaborPrivilegedCriticContract:
+        cost = next(iter(cost_critics.encoders.values()))
+        return cls(
+            layout.schema_version,
+            layout.digest(),
+            normalizer.digest(),
+            int(task_critic.encoder.width),
+            int(cost.width),
+            int(task_critic.encoder.token_width),
+            tuple((f.name, f.rows, f.width) for f in layout.families),
         )
 
 
@@ -371,6 +495,22 @@ class LaborEncoderLayout:
     specialty_feature_width: int
     activity_feature_width: int
     resource_feature_width: int
+    # Versioned critic-only privileged block; None keeps the historical layout
+    # (and its serialized bytes). Only critic encoders accept a block.
+    privileged: LaborPrivilegedLayout | None = None
+
+    @property
+    def privileged_width(self) -> int:
+        return 0 if self.privileged is None else self.privileged.total_width
+
+    def actor_layout(self) -> LaborEncoderLayout:
+        """The same layout with no privileged block: what the actor encoder receives."""
+        return LaborEncoderLayout(
+            self.core_input_width,
+            self.specialty_feature_width,
+            self.activity_feature_width,
+            self.resource_feature_width,
+        )
 
     def __post_init__(self) -> None:
         for name in (
@@ -382,9 +522,13 @@ class LaborEncoderLayout:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+        if self.privileged is not None and not isinstance(self.privileged, LaborPrivilegedLayout):
+            raise ValueError("labor privileged block must be a LaborPrivilegedLayout")
+        if self.privileged is not None:
+            self.privileged.require_supported()
 
-    def state_dict(self) -> dict[str, int]:
-        return {
+    def state_dict(self) -> dict[str, Any]:
+        state: dict[str, Any] = {
             name: getattr(self, name)
             for name in (
                 "core_input_width",
@@ -393,6 +537,9 @@ class LaborEncoderLayout:
                 "resource_feature_width",
             )
         }
+        if self.privileged is not None:
+            state["privileged"] = self.privileged.state_dict()
+        return state
 
     @classmethod
     def from_state(cls, state: Mapping[str, Any]) -> LaborEncoderLayout:
@@ -402,9 +549,14 @@ class LaborEncoderLayout:
             "activity_feature_width",
             "resource_feature_width",
         }
-        if not isinstance(state, Mapping) or set(state) != names:
+        if not isinstance(state, Mapping) or set(state) - {"privileged"} != names:
             raise ValueError(f"labor encoder layout fields must be exactly {sorted(names)}")
-        layout = cls(**{name: state[name] for name in names})
+        privileged = (
+            None
+            if "privileged" not in state
+            else LaborPrivilegedLayout.from_state(state["privileged"])
+        )
+        layout = cls(**{name: state[name] for name in names}, privileged=privileged)
         expected = {
             "specialty_feature_width": LABOR_SPECIALTY_FEATURE_WIDTH,
             "activity_feature_width": LABOR_ACTIVITY_FEATURE_WIDTH,
@@ -556,6 +708,9 @@ class LaborObservationEncoder(nn.Module):
     fixed-row positional embeddings.
     """
 
+    # Only the critic subclass may carry a privileged block (intervention A).
+    accepts_privileged = False
+
     def __init__(
         self,
         layout: LaborEncoderLayout,
@@ -567,7 +722,13 @@ class LaborObservationEncoder(nn.Module):
         super().__init__()
         if token_width % heads:
             raise ValueError("labor token width must be divisible by attention heads")
+        if layout.privileged_width != 0 and not self.accepts_privileged:
+            raise ValueError(
+                "the actor observation encoder rejects a nonzero privileged width; privileged "
+                "state is critic-only"
+            )
         self.layout = layout
+        self.token_width = token_width
         self.legacy_project = nn.ModuleDict(
             {name: nn.Linear(columns, token_width) for name, _, columns in contracts.SETS}
         )
@@ -737,14 +898,35 @@ class LaborObservationEncoder(nn.Module):
         return values, mask
 
     def forward(
-        self, tensors: Mapping[str, torch.Tensor]
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        privileged: Mapping[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-        return self.encode(tensors, film=True)
+        return self.encode(tensors, film=True, privileged=privileged)
+
+    def _privileged_tokens(
+        self, privileged: Mapping[str, torch.Tensor] | None, batch: int
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """The observation encoder has no privileged block and accepts none."""
+        if privileged is not None:
+            raise ValueError(
+                "this labor encoder has no privileged block; privileged state is critic-only"
+            )
+        return None
 
     def encode(
-        self, tensors: Mapping[str, torch.Tensor], *, film: bool = True
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        *,
+        film: bool = True,
+        privileged: Mapping[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
-        """``film=False`` is the exact pre-FiLM computation, kept as a parity reference."""
+        """``film=False`` is the exact pre-FiLM computation, kept as a parity reference.
+
+        ``tensors`` is the observation batch and never carries a privileged key;
+        critic-only privileged tokens arrive separately as ``privileged``.
+        """
+        assert_actor_batch(tensors)
         core, personality = tensors.get("core"), tensors.get("labor_personality")
         if (
             not isinstance(core, torch.Tensor)
@@ -837,6 +1019,13 @@ class LaborObservationEncoder(nn.Module):
         # activities, while role/activity permutations remain equivariant.
         tokens.extend([specialty_tokens, resource_tokens])
         present.extend([specialty_present, resource_present])
+        specialty_part, resource_part = len(tokens) - 2, len(tokens) - 1
+        extra = self._privileged_tokens(privileged, len(core))
+        if extra is not None:
+            # Critic-only: privileged family tokens join the global attention set
+            # (and its FiLM) after the observation tokens, masked by presence.
+            tokens.append(extra[0])
+            present.append(extra[1])
         lengths = [part.shape[1] for part in tokens]
         joined, mask = torch.cat(tokens, dim=1), torch.cat(present, dim=1)
         output = self.norm(
@@ -848,8 +1037,8 @@ class LaborObservationEncoder(nn.Module):
         for length in lengths:
             offsets.append((cursor, cursor + length))
             cursor += length
-        specialty_tokens = output[:, offsets[-2][0] : offsets[-2][1]]
-        resource_tokens = output[:, offsets[-1][0] : offsets[-1][1]]
+        specialty_tokens = output[:, offsets[specialty_part][0] : offsets[specialty_part][1]]
+        resource_tokens = output[:, offsets[resource_part][0] : offsets[resource_part][1]]
         legacy_rows = {
             name: output[:, offsets[index + 1][0] : offsets[index + 1][1]]
             for index, (name, _, _) in enumerate(contracts.SETS)
@@ -867,6 +1056,159 @@ class LaborObservationEncoder(nn.Module):
             resource_tokens,
             legacy_rows,
         )
+
+
+class LaborCriticEncoder(LaborObservationEncoder):
+    """Critic encoder: the observation encoder plus optional critic-only privileged tokens.
+
+    Without a privileged block it is parameter-for-parameter (and, for a given
+    seed, value-for-value) the historical encoder, so old checkpoints load
+    bit-identically. With one, each family gets its own shared row projector,
+    a family embedding and, for families with an overflow-aggregate row, an
+    overflow embedding on that last row. They are built under a forked RNG so
+    every non-privileged parameter keeps its historical initial value.
+    """
+
+    accepts_privileged = True
+
+    def __init__(
+        self,
+        layout: LaborEncoderLayout,
+        width: int = 256,
+        token_width: int = 128,
+        layers: int = 2,
+        heads: int = 4,
+    ) -> None:
+        super().__init__(layout, width, token_width, layers, heads)
+        self.privileged_layout = layout.privileged
+        # Strict-load migration: off unless a reviewed conversion enables it.
+        self.privileged_migration = False
+        if self.privileged_layout is None:
+            return
+        with torch.random.fork_rng(devices=[]):
+            self.privileged_project = nn.ModuleDict(
+                {
+                    family.name: nn.Linear(family.width, token_width)
+                    for family in self.privileged_layout.families
+                }
+            )
+            self.privileged_kind = nn.ParameterDict(
+                {
+                    family.name: nn.Parameter(0.02 * torch.randn(token_width))
+                    for family in self.privileged_layout.families
+                }
+            )
+            self.privileged_overflow = nn.ParameterDict(
+                {
+                    family.name: nn.Parameter(0.02 * torch.randn(token_width))
+                    for family in self.privileged_layout.families
+                    if family.overflow
+                }
+            )
+        self._register_load_state_dict_pre_hook(self._migrate_privileged)
+
+    def _migrate_privileged(self, state_dict, prefix, *args) -> None:
+        """Load a pre-privileged encoder into this one only under an explicit migration.
+
+        With ``privileged_migration`` set, missing ``privileged_*`` parameters
+        keep this module's fresh (seeded) initial values; every other tensor
+        must still be present (strict). Without it a checkpoint lacking them is
+        rejected by strict loading as usual.
+        """
+        if not self.privileged_migration:
+            return
+        for name, parameter in self.named_parameters():
+            if name.startswith("privileged_") and prefix + name not in state_dict:
+                state_dict[prefix + name] = parameter.detach().clone()
+
+    def _privileged_tokens(
+        self, privileged: Mapping[str, torch.Tensor] | None, batch: int
+    ) -> tuple[torch.Tensor, torch.Tensor] | None:
+        if self.privileged_layout is None:
+            return super()._privileged_tokens(privileged, batch)
+        if privileged is None:
+            raise ValueError(
+                "privileged critic requires its critic-only privileged batch "
+                "(labor_model.critic_privileged_batch)"
+            )
+        expected = set(privileged_critic_keys(self.privileged_layout))
+        if not isinstance(privileged, Mapping) or set(privileged) != expected:
+            raise ValueError(
+                f"privileged critic batch keys differ from schema "
+                f"{self.privileged_layout.schema_version}: {sorted(set(privileged) ^ expected)}"
+            )
+        tokens, present = [], []
+        for family in self.privileged_layout.families:
+            values, mask = self._tokens(
+                privileged,
+                PRIVILEGED_CRITIC_PREFIX + family.name,
+                PRIVILEGED_CRITIC_PREFIX + family.name + "_present",
+                family.width,
+                family.rows,
+            )
+            if len(values) != batch:
+                raise ValueError("privileged critic batch rows differ from the observation batch")
+            projected = (
+                self.privileged_project[family.name](values) + self.privileged_kind[family.name]
+            )
+            if family.overflow:
+                overflow = torch.zeros(
+                    family.rows, 1, dtype=projected.dtype, device=projected.device
+                )
+                overflow[-1] = 1.0
+                projected = projected + overflow * self.privileged_overflow[family.name]
+            tokens.append(projected)
+            present.append(mask)
+        return torch.cat(tokens, dim=1), torch.cat(present, dim=1)
+
+
+def critic_privileged_batch(
+    critic: nn.Module,
+    arrays: Mapping[str, Any],
+    rows: Any | None = None,
+    *,
+    device: torch.device | str = "cpu",
+) -> dict[str, torch.Tensor] | None:
+    """The critic-only privileged batch for ``critic`` from stored raw arrays.
+
+    ``None`` for a critic without a privileged block. For a privileged critic
+    the bound, frozen privileged normalizer turns raw rows into the separate
+    critic dictionary; data without privileged arrays is rejected, never
+    zero-filled.
+    """
+    layout = getattr(critic, "privileged_layout", None)
+    if layout is None:
+        return None
+    normalizer = getattr(critic, "privileged_normalizer", None)
+    if not isinstance(normalizer, LaborPrivilegedNormalizer) or normalizer.layout != layout:
+        raise ValueError("privileged critic has no bound privileged normalizer for its layout")
+    return normalizer.critic_batch(arrays, rows, device=device)
+
+
+def bind_privileged_normalizer(
+    normalizer: LaborPrivilegedNormalizer | None, *critics: nn.Module
+) -> None:
+    """Attach the frozen privileged normalizer to privileged critics (not to the actor)."""
+    for critic in critics:
+        layout = getattr(critic, "privileged_layout", None)
+        if layout is None:
+            if normalizer is not None:
+                raise ValueError("a privileged normalizer cannot bind to a non-privileged critic")
+            continue
+        if normalizer is None or normalizer.layout != layout:
+            raise ValueError("privileged critic requires a privileged normalizer for its layout")
+        critic.privileged_normalizer = normalizer
+
+
+def _encode(
+    encoder: nn.Module,
+    tensors: Mapping[str, torch.Tensor],
+    privileged: Mapping[str, torch.Tensor] | None,
+) -> tuple[Any, ...]:
+    """Call a critic encoder; the observation-only call keeps its historical signature."""
+    if privileged is None:
+        return encoder(tensors)
+    return encoder(tensors, privileged=privileged)
 
 
 class LaborTaskCritic(nn.Module):
@@ -888,7 +1230,9 @@ class LaborTaskCritic(nn.Module):
         self.support = LaborValueSupport() if support is None else support
         if not isinstance(self.support, LaborValueSupport):
             raise ValueError("task critic support must be a LaborValueSupport")
-        self.encoder = LaborObservationEncoder(layout, width, token_width)
+        self.encoder = LaborCriticEncoder(layout, width, token_width)
+        self.privileged_layout = layout.privileged
+        self.privileged_normalizer: LaborPrivilegedNormalizer | None = None
         self.heads = nn.ModuleDict(
             {name: nn.Linear(width, self.support.bins) for name in LABOR_OBJECTIVES}
         )
@@ -924,8 +1268,12 @@ class LaborTaskCritic(nn.Module):
             "top_bin_mass": probabilities[..., -1],
         }
 
-    def forward(self, tensors: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        hidden, _, _, _, _ = self.encoder(tensors)
+    def forward(
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        privileged: Mapping[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
+        hidden, _, _, _, _ = _encode(self.encoder, tensors, privileged)
         return {name: self.heads[name](hidden) for name in LABOR_OBJECTIVES}
 
     def expectation_normalized(self, logits: torch.Tensor) -> torch.Tensor:
@@ -970,13 +1318,19 @@ class LaborCostCritics(nn.Module):
     ) -> None:
         super().__init__()
         self.encoders = nn.ModuleDict(
-            {name: LaborObservationEncoder(layout, width, token_width) for name in LABOR_COSTS}
+            {name: LaborCriticEncoder(layout, width, token_width) for name in LABOR_COSTS}
         )
+        self.privileged_layout = layout.privileged
+        self.privileged_normalizer: LaborPrivilegedNormalizer | None = None
         self.heads = nn.ModuleDict({name: nn.Linear(width, 1) for name in LABOR_COSTS})
 
-    def forward(self, tensors: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        tensors: Mapping[str, torch.Tensor],
+        privileged: Mapping[str, torch.Tensor] | None = None,
+    ) -> dict[str, torch.Tensor]:
         return {
-            name: self.heads[name](self.encoders[name](tensors)[0]).squeeze(-1)
+            name: self.heads[name](_encode(self.encoders[name], tensors, privileged)[0]).squeeze(-1)
             for name in LABOR_COSTS
         }
 
@@ -998,11 +1352,30 @@ def labor_checkpoint_payload(
     """
     if normalizer_feature_contract(normalizer) != BOUNDED_FEATURE_CONTRACT:
         raise ValueError("labor checkpoints require a bounded normalizer")
+    if (
+        task_critic.privileged_layout != layout.privileged
+        or cost_critics.privileged_layout != layout.privileged
+        or actor.encoder.layout.privileged is not None
+    ):
+        raise ValueError("labor checkpoint models disagree with the layout's privileged block")
+    privileged_record = None
+    privileged_normalizer = None
+    if layout.privileged is not None:
+        privileged_normalizer = task_critic.privileged_normalizer
+        if (
+            not isinstance(privileged_normalizer, LaborPrivilegedNormalizer)
+            or cost_critics.privileged_normalizer is not privileged_normalizer
+        ):
+            raise ValueError("privileged critics must share one bound privileged normalizer")
+        privileged_record = LaborPrivilegedCriticContract.build(
+            layout.privileged, privileged_normalizer, task_critic, cost_critics
+        )
     contract = LaborModelContract(
         *labor_personality_conditioning(personality, actor.encoder.film_bound),
         value_support=task_critic.support,
+        privileged_critic=privileged_record,
     )
-    return {
+    payload = {
         "artifact_kind": LABOR_ARTIFACT_KIND,
         "feature_contract": BOUNDED_FEATURE_CONTRACT,
         "model_input_contract": LABOR_MODEL_INPUT_CONTRACT,
@@ -1014,6 +1387,9 @@ def labor_checkpoint_payload(
         "task_critic": task_critic.state_dict(),
         "cost_critics": cost_critics.state_dict(),
     }
+    if privileged_normalizer is not None:
+        payload["privileged_normalizer"] = privileged_normalizer.state_dict()
+    return payload
 
 
 def load_labor_checkpoint_models(
@@ -1039,12 +1415,69 @@ def load_labor_checkpoint_models(
             "labor checkpoint declares a different task-critic value support; construct "
             "the critic with labor_checkpoint_value_support(state)"
         )
+    privileged_normalizer = labor_checkpoint_privileged_normalizer(
+        state, contract, expected_layout
+    )
+    if (
+        task_critic.privileged_layout != expected_layout.privileged
+        or cost_critics.privileged_layout != expected_layout.privileged
+    ):
+        raise ValueError("labor critics were constructed with a different privileged block")
+    if privileged_normalizer is not None and contract.privileged_critic is not None:
+        widths = (
+            int(task_critic.encoder.width),
+            int(next(iter(cost_critics.encoders.values())).width),
+            int(task_critic.encoder.token_width),
+        )
+        record = contract.privileged_critic
+        if widths != (record.task_encoder_width, record.cost_encoder_width, record.token_width):
+            raise ValueError(
+                "labor checkpoint privileged critic widths differ from the executing model"
+            )
     actor.load_state_dict(state["actor"], strict=True)
     task_critic.load_state_dict(state["task_critic"], strict=True)
     task_critic.check_support()
     cost_critics.load_state_dict(state["cost_critics"], strict=True)
+    bind_privileged_normalizer(privileged_normalizer, task_critic, cost_critics)
     set_labor_film_bound(contract.conditioning.film_bound, actor, task_critic, cost_critics)
     return contract, normalizer
+
+
+def labor_checkpoint_privileged_normalizer(
+    state: Mapping[str, Any],
+    contract: LaborModelContract,
+    layout: LaborEncoderLayout,
+) -> LaborPrivilegedNormalizer | None:
+    """The checkpoint's frozen privileged normalizer, cross-checked against its contract.
+
+    A checkpoint without a privileged block has none and must declare none;
+    a privileged one must carry all three (layout block, contract record,
+    normalizer) with matching schema version and digests.
+    """
+    raw = state.get("privileged_normalizer")
+    declared = contract.privileged_critic
+    if layout.privileged is None:
+        if raw is not None or declared is not None:
+            raise ValueError(
+                "a labor checkpoint without a privileged block declares privileged state"
+            )
+        return None
+    if raw is None or declared is None:
+        raise ValueError(
+            "a privileged labor checkpoint lacks its privileged contract or normalizer"
+        )
+    normalizer = LaborPrivilegedNormalizer.from_state(raw)
+    if normalizer.layout != layout.privileged:
+        raise ValueError("privileged normalizer layout differs from the encoder layout")
+    if declared.schema_version != layout.privileged.schema_version:
+        raise ValueError("privileged critic schema version differs from the encoder layout")
+    if declared.layout_digest != layout.privileged.digest():
+        raise ValueError("privileged critic layout digest differs from the encoder layout")
+    if declared.normalizer_digest != normalizer.digest():
+        raise ValueError("privileged normalizer differs from the one the critic contract binds")
+    if tuple((f.name, f.rows, f.width) for f in layout.privileged.families) != declared.family_rows:
+        raise ValueError("privileged critic family widths differ from the encoder layout")
+    return normalizer
 
 
 def _masks(tensors: Mapping[str, torch.Tensor], batch: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -1121,7 +1554,9 @@ class LaborActor(nn.Module):
         self, layout: LaborEncoderLayout, width: int = 256, token_width: int = 128
     ) -> None:
         super().__init__()
-        self.encoder = LaborObservationEncoder(layout, width, token_width)
+        # The actor receives the observation layout only; its encoder class
+        # rejects any privileged block (intervention A: critic-only state).
+        self.encoder = LaborObservationEncoder(layout.actor_layout(), width, token_width)
         self.specialty = nn.Linear(token_width, 2)
         self.activity = nn.Linear(token_width, 2)
         self.stay = nn.Linear(width, 1)
@@ -1148,6 +1583,7 @@ class LaborActor(nn.Module):
             self.trade_share.bias[1] = TRADE_LOG_STD_START
 
     def forward(self, tensors: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        assert_actor_batch(tensors)
         hidden, specialty_tokens, activity_tokens, _, legacy_rows = self.encoder(tensors)
         specialty_mask, activity_mask = _masks(tensors, len(specialty_tokens))
         if specialty_tokens.shape[:2] != specialty_mask.shape:

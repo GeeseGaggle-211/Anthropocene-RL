@@ -1008,12 +1008,17 @@ def labor_task_value_loss(
     critic: torch.nn.Module,
     tensors: Mapping[str, torch.Tensor],
     targets: Mapping[str, torch.Tensor],
+    privileged: Mapping[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
-    """Mean two-hot cross entropy across the two declared task heads."""
+    """Mean two-hot cross entropy across the two declared task heads.
+
+    ``privileged`` is the critic-only privileged batch of a privileged critic
+    (``labor_model.critic_privileged_batch``), passed separately from ``tensors``.
+    """
 
     if set(targets) != set(LABOR_OBJECTIVES):
         raise ValueError(f"task targets must be exactly {list(LABOR_OBJECTIVES)}")
-    output = critic(tensors)
+    output = critic(tensors, privileged)
     if set(output) != set(LABOR_OBJECTIVES):
         raise ValueError("labor task critic heads differ from its contract")
     losses = []
@@ -1030,12 +1035,13 @@ def labor_cost_value_loss(
     critics: torch.nn.Module,
     tensors: Mapping[str, torch.Tensor],
     targets: Mapping[str, torch.Tensor],
+    privileged: Mapping[str, torch.Tensor] | None = None,
 ) -> torch.Tensor:
     """Mean squared error across distinct feasibility and guard critics."""
 
     if set(targets) != set(LABOR_COSTS):
         raise ValueError(f"cost targets must be exactly {list(LABOR_COSTS)}")
-    output = critics(tensors)
+    output = critics(tensors, privileged)
     if set(output) != set(LABOR_COSTS):
         raise ValueError("labor cost critic heads differ from its contract")
     losses = []

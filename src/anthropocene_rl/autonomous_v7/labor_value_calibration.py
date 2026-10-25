@@ -481,13 +481,27 @@ def labor_anchor_loss(
 def labor_critic_digest(task_critic: torch.nn.Module, cost_critics: torch.nn.Module) -> str:
     from .economic_trace import state_digest
 
-    return digest(
-        {
-            "semantics": "labor-four-head-critic-tensor-digest-v1",
-            "taskCritic": state_digest(task_critic),
-            "costCritics": state_digest(cost_critics),
-        }
-    )
+    body: dict[str, Any] = {
+        "semantics": "labor-four-head-critic-tensor-digest-v1",
+        "taskCritic": state_digest(task_critic),
+        "costCritics": state_digest(cost_critics),
+    }
+    # Privileged critics bind their schema version and frozen privileged
+    # normalizer; critics without a block keep their historical digest.
+    layout = getattr(task_critic, "privileged_layout", None)
+    if layout is not None or getattr(cost_critics, "privileged_layout", None) is not None:
+        if getattr(cost_critics, "privileged_layout", None) != layout:
+            raise ValueError("task and cost critics declare different privileged blocks")
+        normalizer = getattr(task_critic, "privileged_normalizer", None)
+        if (
+            normalizer is None
+            or getattr(cost_critics, "privileged_normalizer", None) is not normalizer
+        ):
+            raise ValueError("privileged critics must share one bound privileged normalizer")
+        body["privilegedSchemaVersion"] = int(layout.schema_version)
+        body["privilegedLayoutDigest"] = layout.digest()
+        body["privilegedNormalizerDigest"] = normalizer.digest()
+    return digest(body)
 
 
 def _predict(
@@ -496,6 +510,11 @@ def _predict(
     tensors: Mapping[str, np.ndarray],
 ) -> dict[str, np.ndarray]:
     packed = _torch_rows(tensors)
+    if getattr(task_critic, "privileged_layout", None) is not None:
+        raise ValueError(
+            "labor anchors carry no critic-only privileged arrays; score privileged critics "
+            "with labor_pretrain_eval critic-calibration on privileged teacher shards"
+        )
     with torch.no_grad():
         task_logits = task_critic(packed)
         costs = cost_critics(packed)
