@@ -347,6 +347,39 @@ def test_discounted_returns_follow_each_camp_trajectory() -> None:
     assert math.isclose(float(returns[2]), 3.0)
 
 
+def test_pretrain_critic_rejects_search_dagger_and_aggregated_shards() -> None:
+    from anthropocene_rl.autonomous_v7 import labor_dagger, labor_search
+    from anthropocene_rl.autonomous_v7 import labor_teacher_data as ltd
+
+    assert labor_bc.CRITIC_TEACHER_SOURCE_KIND == ltd.SOURCE_KIND
+    assert ltd.ROW_SOURCES[labor_search.SOURCE_KIND] == 2
+    teacher = {"collection": {"source_kind": ltd.SOURCE_KIND, "actor_only": False},
+               "row_source": torch.zeros(3, dtype=torch.long)}
+    labor_bc.require_critic_teacher_dataset(teacher)
+    labor_bc.require_critic_teacher_dataset({"collection": {}})  # in-process heuristic collection
+    search = {"collection": {"source_kind": labor_search.SOURCE_KIND, "actor_only": False}}
+    with pytest.raises(ValueError, match="search shards"):
+        labor_bc.require_critic_teacher_dataset(search)
+    # The library entry point refuses before computing any target.
+    with pytest.raises(ValueError, match="search shards"):
+        labor_bc.pretrain_critic_on_dataset(
+            task_critic=None, cost_critics=None, dataset=search, epochs=0  # type: ignore[arg-type]
+        )
+    dagger = {"collection": {"source_kind": labor_dagger.DAGGER_SOURCE_KIND, "actor_only": True}}
+    with pytest.raises(ValueError, match="actor-only"):
+        labor_bc.require_critic_teacher_dataset(dagger)
+    dagger_unflagged = {"collection": {"source_kind": labor_dagger.DAGGER_SOURCE_KIND}}
+    with pytest.raises(ValueError, match="DAgger"):
+        labor_bc.require_critic_teacher_dataset(dagger_unflagged)
+    with pytest.raises(ValueError, match="aggregated"):
+        labor_bc.require_critic_teacher_dataset({"collection": {"source_kind": "aggregated"}})
+    # A teacher-labelled dataset smuggling search rows is refused by row_source.
+    mixed = {"collection": {"source_kind": ltd.SOURCE_KIND},
+             "row_source": torch.tensor([0, 2, 0], dtype=torch.long)}
+    with pytest.raises(ValueError, match=r"row_source \[2\]"):
+        labor_bc.require_critic_teacher_dataset(mixed)
+
+
 def test_fitting_world_partition_rejects_sealed_and_development_worlds() -> None:
     assert validate_fitting_worlds([5000, 5001], "fit") == [5000, 5001]
     with pytest.raises(ValueError, match="development"):

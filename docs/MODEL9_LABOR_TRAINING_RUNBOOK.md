@@ -96,6 +96,10 @@ only comparable at the same support.
   probability mass and decoded contribution of bins above the observed target maximum
   (`upper_mass`, `upper_contribution`, `upper_excess`, in reference-scale units comparable with
   bias) and the top-bin mass.
+* `pretrain-critic` accepts only heuristic-teacher shards (`native_heuristic_labor_teacher`,
+  `row_source` 0). It refuses search shards (`native_search_labor_teacher`, `row_source` 2),
+  learner-state DAgger/actor-only shards and multi-source aggregates
+  (`labor_bc.require_critic_teacher_dataset`).
 * `pretrain-critic --cost-loss-weight W` (dataset path only) scales the summed cost MSE in the
   joint, globally clipped critic loss; the default 1.0 is unchanged and not recorded.
 

@@ -1548,6 +1548,51 @@ def pretrain_labor_actor_bc(
 # ---------------------------------------------------------------------------
 
 
+# The only shard kind whose rewards are teacher-policy returns along one
+# chronological (world, camp) trajectory. Equal to labor_teacher_data.SOURCE_KIND.
+CRITIC_TEACHER_SOURCE_KIND = "native_heuristic_labor_teacher"
+_CRITIC_REFUSALS = {
+    "native_search_labor_teacher": (
+        "search shards (row_source 2) are action labels, one per root and personality; their "
+        "reward_* is only the label's first transition, not a teacher-policy return"
+    ),
+    "learner_state_dagger": (
+        "actor-only (learner-state DAgger) data: its rewards follow the learner's short "
+        "branches, not teacher-policy returns"
+    ),
+    "aggregated": (
+        "aggregated multi-source data: critic targets need one teacher trajectory source"
+    ),
+}
+
+
+def require_critic_teacher_dataset(dataset: Mapping[str, Any]) -> None:
+    """Refuse any dataset that is not chronological heuristic-teacher returns.
+
+    Search shards (``row_source == 2``), learner-state DAgger/actor-only shards
+    and multi-source aggregates are rejected by source kind, by the
+    ``actor_only`` flag and by any nonzero ``row_source`` row. A dataset
+    without a source kind (in-process heuristic collection) is the teacher.
+    """
+    collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
+    kind = collection.get("source_kind", CRITIC_TEACHER_SOURCE_KIND)
+    if collection.get("actor_only"):
+        raise ValueError(
+            "pretrain-critic refuses actor-only (learner-state DAgger) data: its rewards "
+            "follow the learner's short branches, not teacher-policy returns"
+        )
+    if kind != CRITIC_TEACHER_SOURCE_KIND:
+        reason = _CRITIC_REFUSALS.get(kind, f"unknown source kind {kind!r}")
+        raise ValueError(f"pretrain-critic refuses {kind} data: {reason}")
+    sources = dataset.get("row_source") if isinstance(dataset, Mapping) else None
+    if isinstance(sources, torch.Tensor) and bool((sources.reshape(-1) != 0).any()):
+        codes = sorted({int(v) for v in sources.reshape(-1).tolist()} - {0})
+        raise ValueError(
+            f"pretrain-critic refuses rows with row_source {codes}: only heuristic-teacher "
+            "rows (row_source 0) carry critic targets; search rows are 2, DAgger rows 1"
+        )
+
+
 def pretrain_critic_on_dataset(
     *,
     task_critic: LaborTaskCritic,
@@ -1569,6 +1614,7 @@ def pretrain_critic_on_dataset(
     """
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
+    require_critic_teacher_dataset(dataset)
     returns = discounted_returns(dataset)
     n = int(dataset["row_world"].shape[0])
     keep = ~dataset["row_quarantined"].reshape(n).bool()

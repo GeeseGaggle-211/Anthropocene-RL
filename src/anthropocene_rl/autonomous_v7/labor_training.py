@@ -1368,14 +1368,10 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     if (dataset_dir is None) == (getattr(args, "worlds", None) is None):
         raise ValueError("pretrain-critic requires exactly one of --dataset or --worlds")
     if dataset_dir is not None:
-        from .labor_bc import pretrain_critic_on_dataset
+        from .labor_bc import pretrain_critic_on_dataset, require_critic_teacher_dataset
 
         teacher = _load_labor_teacher_dataset(args, normalizer)
-        if teacher["collection"].get("actor_only"):
-            raise ValueError(
-                "pretrain-critic refuses actor-only (learner-state DAgger) data: its rewards "
-                "follow the learner's short branches, not teacher-policy returns"
-            )
+        require_critic_teacher_dataset(teacher)
         worlds = list(teacher["collection"]["world_seeds"])
         summary = pretrain_critic_on_dataset(
             task_critic=task,
