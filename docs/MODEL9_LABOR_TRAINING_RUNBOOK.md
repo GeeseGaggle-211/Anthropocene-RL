@@ -22,6 +22,15 @@ the command performs a critic-only update.
 Run from the `r3-build-rl` worktree. Supply a bounded-v2 normalizer checkpoint produced under
 `model9-bounded-physical-history-v1`; a legacy or mismatched normalizer fails closed.
 
+Bridges built from simulator `feature/r5-privileged` emit economic accounting schema 3: herd rows
+add `acquiredAnimals` (taming) and `grantedAnimals` (opening compatibility grant) and a real fission
+`ownershipInflow`, with `herd-acquisition` and `herd-compatibility-grant` events and transfer
+kinds. The learner reads schemas 2 and 3; for schema 3 the herd conservation row binds
+production = births + grants and transferIn = acquisition + ownership inflow
+(`economic_accounting.py`). Build that bridge with
+`dotnet build -c Release integration/Anthropocene.Model9Bridge.csproj
+-p:AnthropoceneSimRoot=<r5-sim checkout> -o integration/bin/model9`.
+
 The currently reviewed alternate native bridge is:
 
 `integration/bin/model9-actor-labor-v1/Anthropocene.Model9Bridge.dll`
@@ -124,6 +133,92 @@ only comparable at the same support.
   the method (`return_tail`).
 * `pretrain-critic --cost-loss-weight W` (dataset path only) scales the summed cost MSE in the
   joint, globally clipped critic loss; the default 1.0 is unchanged and not recorded.
+
+### Critic-only privileged state (intervention A, schema 1)
+
+The three critic encoders (task, feasibility, settlement guard) can read a versioned, critic-only
+view of hidden economic state; the actor stays observation-only. The simulator
+(`feature/r5-privileged` 8bd480b, `ElderModel9Privileged`) emits it as `privilegedView` with
+`privilegedSchemaVersion` on every village row, captured at the same decision boundary as the
+observation (row schema 1: reward/outcome fields belong to the executed transition, observation
+and privileged view to the next decision). The bridge advertises the layout in its schema op.
+
+| Family | Rows (cap + overflow) | Width | Tokens |
+|---|---|---|---|
+| `core` | 1 | 10 | 1 (the earlier ten floats, bit-identical) |
+| `fields` | 16 + 1 | 19 | 17 |
+| `herds` | 8 + 1 | 24 | 9 |
+| `unlocks` | 1 + 1 | 28 | 2 |
+| `economy` | 1 + 1 | 64 | 2 |
+
+Feature names are pinned in `labor_privileged.LABOR_PRIVILEGED_LAYOUT_V1` and checked against the
+live bridge. Each family has its own shared row projector plus a family embedding (and an
+overflow-row embedding on its last row) into the critics' global attention set: 90 observation
+tokens plus 31 privileged tokens, masked by presence, under the same global FiLM. Per encoder
+this adds 20,352 parameters (task 796,160 to 816,512; each cost encoder 729,344 to 749,696); the
+actor is unchanged (864,912).
+
+Isolation, enforced in code and tests (`tests/test_labor_privileged_*.py`):
+
+* `bridge.observation_batch` never includes `privileged`/`privilegedView`;
+  `bridge.privileged_batch` is the separate critic-only batcher. Normalized critic inputs
+  (`privileged__<family>`, `privileged__<family>_present`) are passed to a critic as its own
+  argument (`task(tensors, privileged)`), never merged into the actor batch.
+* `LaborActor.forward` and every encoder assert that no `privileged*` key is in the observation
+  batch; `LaborObservationEncoder` rejects a nonzero privileged width in its constructor, and
+  `LaborActor` receives `layout.actor_layout()`. Only `LaborCriticEncoder` accepts the block.
+* Actor outputs are bitwise invariant under privilege-only perturbation; critic outputs change.
+
+Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the reserved
+90154-90159 or calibration worlds 90180-90199):
+
+```powershell
+# 1. Teacher shards now store raw privileged_<family>, privileged_<family>_present and
+#    privileged_schema_version (also DAgger and search rows).
+& $taskPython -m anthropocene_rl.autonomous_v7.labor_teacher_data --normalizer-checkpoint $boundedNormalizer `
+  --worlds 90100-90153,90160-90179 --turns 25 --out $fitData
+# 2. Frozen per-family moments plus the dead-mask report; audit it before any training.
+& $taskPython -m anthropocene_rl.autonomous_v7.labor_training fit-privileged-normalizer `
+  --dataset $fitData --calibration-dataset $calData --report dead-mask.json --out privileged-normalizer.pt
+# 3. New learner with privileged critics (actor unchanged).
+& $taskPython -m anthropocene_rl.autonomous_v7.labor_training initialize --campaign-r5 `
+  --normalizer-checkpoint $boundedNormalizer --privileged-normalizer privileged-normalizer.pt `
+  --world-seed 90100 --optimizer-seed 4242 --out checkpoint-000.pt
+& $taskPython -m anthropocene_rl.autonomous_v7.labor_training pretrain-critic --checkpoint checkpoint-000.pt `
+  --dataset $fitData --epochs 4 --batch-size 256 --lr 3e-4 --max-grad-norm 1.0 --out critic.pt
+& $taskPython -m anthropocene_rl.autonomous_v7.labor_pretrain_eval critic-calibration --checkpoint critic.pt `
+  --dataset $calData --fit-dataset $fitData --out calibration.json
+```
+
+* The normalizer is symlog then a frozen per-family affine (std floor 0.1, guard 10); a feature
+  whose symlog std over present rows is below 1e-3 is dead and normalizes to zero; absent rows
+  are zero. `fit-privileged-normalizer` writes `dead_mask_report` (per family: present rows and
+  the dead named fields) and the data audit (`privileged-dead-mask-audit` standalone), which also
+  lists `varying_but_dead_fields`: raw values that vary but are zeroed because of their unit
+  scale (per-day rates near 1e-4, or large near-constant stocks). Review that list before
+  training; it is the "silently zeroed field" hazard.
+* The actor normalizer keeps its legacy unversioned 10-wide `privileged_mean/std/dead` moments
+  byte-identical (teacher shards bind its digest); they are unused. The critics read only the
+  schema-1 per-family moments stored at checkpoint key `privileged_normalizer`.
+* Checkpoints: `labor_encoder_layout.privileged` persists rows, widths, names and the schema
+  version; `labor_model_contract.privilegedCritic` records the architecture
+  (`labor-critic-privileged-family-tokens-v1`), encoder widths, layout and normalizer digests;
+  `labor_critic_digest` adds the privileged schema version and normalizer digest. A mismatched
+  schema version, digest, layout or missing part is rejected at load. Checkpoints without a
+  privileged block keep their bytes and load bit-identically.
+* Migration: `labor_critic_support convert-privileged --checkpoint in.pt --privileged-normalizer
+  privileged-normalizer.pt [--seed N] --out out.pt` loads every existing tensor strictly and
+  initializes only the privileged projectors and embeddings (seeded) through the critic encoders'
+  strict-load migration hook; the critic optimizer is reset and the migration is recorded in
+  `critic_privileged_conversions`.
+* Data: `load_labor_dataset(..., require_privileged=True)` (pretrain-critic and critic-calibration
+  of a privileged critic) rejects any shard without privileged arrays; they are never
+  zero-filled. Actor BC still loads such shards; a partly privileged aggregate drops the arrays
+  for the actor. `pretrain-critic` also refuses reserved 90154-90159 and calibration 90180-90199
+  rows, and `critic-calibration` refuses a dataset whose worlds fitted the privileged moments.
+* Not wired: PPO `collect`/`train` and the anchor-based `labor_value_calibration` call the critics
+  without a privileged batch, so a privileged critic fails closed there. The brief authorizes no
+  critic-driven actor update.
 
 ## 2. Collect one frozen-behavior physical rollout
 
