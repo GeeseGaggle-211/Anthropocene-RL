@@ -744,7 +744,7 @@ def critic_dataset_report(
 def run_critic_calibration(
     checkpoint: Path, dataset_path: Path, fit_dataset_path: Path | None, batch_size: int = 256
 ) -> dict[str, Any]:
-    from .labor_bc import CRITIC_DISCOUNT_DAYS
+    from .labor_bc import CRITIC_DISCOUNT_YEARS
 
     _, _, task, costs, normalizer = _load_models(checkpoint)
     calibration = critic_dataset_report(
@@ -756,7 +756,7 @@ def run_critic_calibration(
         "checkpoint": str(checkpoint),
         "dataset": str(dataset_path),
         "targets": "finite-window discounted returns over each (world, camp) trajectory; living cutoff gets no tail",
-        "discount_tau_years": CRITIC_DISCOUNT_DAYS,
+        "discount_tau_years": CRITIC_DISCOUNT_YEARS,
         "gates": CRITIC_GATES,
         "gate_semantics": "PASS all gates; FAIL any metric gate; HOLD metrics pass but coverage insufficient",
         "weighting": "nMAE/bias world-balanced; ranking pooled over informative pairs (world-balanced also shown)",

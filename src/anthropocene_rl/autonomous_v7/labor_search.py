@@ -1397,7 +1397,7 @@ def search_root(
                 "reward_population_years": torch.tensor([float(reward[1])], dtype=torch.float64),
                 "reward_feasibility": torch.tensor([float(reward[2])], dtype=torch.float64),
                 "reward_settlement_guard": torch.tensor([float(reward[3])], dtype=torch.float64),
-                "transition_elapsed_days": torch.tensor(
+                "transition_elapsed_years": torch.tensor(
                     [float(first.get("elapsed", 0.0))], dtype=torch.float64
                 ),
                 "transition_terminal": torch.tensor(

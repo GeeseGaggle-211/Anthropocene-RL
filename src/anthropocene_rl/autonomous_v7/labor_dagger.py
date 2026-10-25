@@ -376,7 +376,7 @@ def _record_row(
             ),
             "reward_feasibility": torch.tensor([feasibility], dtype=torch.float64),
             "reward_settlement_guard": torch.tensor([guard], dtype=torch.float64),
-            "transition_elapsed_days": torch.tensor([elapsed], dtype=torch.float64),
+            "transition_elapsed_years": torch.tensor([elapsed], dtype=torch.float64),
             "transition_terminal": torch.tensor([terminal], dtype=torch.bool),
         }
     )

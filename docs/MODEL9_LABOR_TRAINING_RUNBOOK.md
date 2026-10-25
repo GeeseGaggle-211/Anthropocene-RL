@@ -96,6 +96,10 @@ only comparable at the same support.
   probability mass and decoded contribution of bins above the observed target maximum
   (`upper_mass`, `upper_contribution`, `upper_excess`, in reference-scale units comparable with
   bias) and the top-bin mass.
+* Critic returns discount by `exp(-years / 400)` (`labor_bc.CRITIC_DISCOUNT_YEARS`) using the
+  per-row `transition_elapsed_years` (20 per native turn). Shards written before 2026-10-26 store
+  the same year values under the misnamed `transition_elapsed_days`; `load_labor_dataset` renames
+  it without conversion. Critic summaries report `discount_years` (formerly `discount_days`).
 * `pretrain-critic` accepts only heuristic-teacher shards (`native_heuristic_labor_teacher`,
   `row_source` 0). It refuses search shards (`native_search_labor_teacher`, `row_source` 2),
   learner-state DAgger/actor-only shards and multi-source aggregates

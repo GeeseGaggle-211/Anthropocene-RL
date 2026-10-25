@@ -255,7 +255,7 @@ def test_target_audit_and_recommendation() -> None:
         "row_camp": torch.tensor([0, 0, 0, 0]),
         "row_turn": torch.tensor([0, 1, 0, 1]),
         "row_quarantined": torch.zeros(n, dtype=torch.bool),
-        "transition_elapsed_days": torch.zeros(n),
+        "transition_elapsed_years": torch.zeros(n),
         "transition_terminal": torch.zeros(n, dtype=torch.bool),
         "reward_qol_years": torch.tensor([q, q, 0.0, 2 * q]),
         "reward_population_years": torch.tensor([p, 0.0, 0.0, 0.0]),

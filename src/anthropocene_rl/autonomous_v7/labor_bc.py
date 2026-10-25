@@ -72,7 +72,16 @@ LABOR_CRITIC_CONTRACT = "model9-heuristic-critic-pretraining-v2"
 LABEL_TOLERANCE = 1e-6
 DEVELOPMENT_WORLDS = range(2000, 2060)
 SEALED_WORLDS = range(3000, 3060)
-CRITIC_DISCOUNT_DAYS = 400.0
+# Discount time constant in physical YEARS (equal to contracts.HORIZON_YEARS):
+# gamma = exp(-elapsed_years / 400). It was historically misnamed "days"; the
+# value and the elapsed field it divides were always years (20 per turn).
+CRITIC_DISCOUNT_YEARS = 400.0
+CRITIC_DISCOUNT_DAYS = CRITIC_DISCOUNT_YEARS  # deprecated alias; the unit is years
+# Per-row elapsed physical years of the recorded transition (contracts.TURN_YEARS
+# per native turn). Shards written before 2026-10-26 store the same values under
+# the misnamed legacy key; loaders rename it without conversion.
+ELAPSED_YEARS_FIELD = "transition_elapsed_years"
+LEGACY_ELAPSED_DAYS_FIELD = "transition_elapsed_days"
 
 
 def _get(mapping: Mapping[str, Any] | None, *keys: str, default: Any = None) -> Any:
@@ -1042,7 +1051,7 @@ def collect_heuristic_world(
                             [float(attempt.feasibility_cost)], dtype=torch.float64
                         ),
                         "reward_settlement_guard": torch.tensor([float(guard)], dtype=torch.float64),
-                        "transition_elapsed_days": torch.tensor(
+                        ELAPSED_YEARS_FIELD: torch.tensor(
                             [float(elapsed[camp])], dtype=torch.float64
                         ),
                         "transition_terminal": torch.tensor([bool(terminal[camp])], dtype=torch.bool),
@@ -1071,6 +1080,35 @@ def world_balanced_weights(worlds: torch.Tensor, keep: torch.Tensor | None = Non
     return weights
 
 
+def migrate_legacy_elapsed_field(dataset: dict[str, Any]) -> dict[str, Any]:
+    """Rename a legacy ``transition_elapsed_days`` array to ``transition_elapsed_years``.
+
+    The legacy array already holds years (the bridge's per-village ``years``,
+    contracts.TURN_YEARS per turn), so the values are kept unchanged. A dataset
+    carrying both names must agree exactly. Mutates and returns ``dataset``.
+    """
+    if LEGACY_ELAPSED_DAYS_FIELD not in dataset:
+        return dataset
+    legacy = dataset.pop(LEGACY_ELAPSED_DAYS_FIELD)
+    current = dataset.get(ELAPSED_YEARS_FIELD)
+    if current is not None and not torch.equal(torch.as_tensor(current), torch.as_tensor(legacy)):
+        raise ValueError(
+            f"dataset carries both {ELAPSED_YEARS_FIELD} and the legacy "
+            f"{LEGACY_ELAPSED_DAYS_FIELD} with different values"
+        )
+    dataset[ELAPSED_YEARS_FIELD] = legacy if current is None else current
+    return dataset
+
+
+def elapsed_years(dataset: Mapping[str, Any]) -> torch.Tensor:
+    """Per-row elapsed physical years, reading the legacy misnamed key if needed."""
+    if ELAPSED_YEARS_FIELD in dataset:
+        return dataset[ELAPSED_YEARS_FIELD]
+    if LEGACY_ELAPSED_DAYS_FIELD in dataset:
+        return dataset[LEGACY_ELAPSED_DAYS_FIELD]
+    raise KeyError(ELAPSED_YEARS_FIELD)
+
+
 def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
     """Per (world, camp) trajectory discounted returns (truncated, no bootstrap)."""
     names = {
@@ -1087,13 +1125,13 @@ def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.T
     ):
         groups[(int(world), int(camp))].append(index)
     turns = dataset["row_turn"].tolist()
-    elapsed = dataset["transition_elapsed_days"].reshape(-1).tolist()
+    elapsed = elapsed_years(dataset).reshape(-1).tolist()
     terminal = dataset["transition_terminal"].reshape(-1).tolist()
     for indices in groups.values():
         indices.sort(key=lambda i: turns[i])
         running = dict.fromkeys(names, 0.0)
         for i in reversed(indices):
-            gamma = math.exp(-float(elapsed[i]) / CRITIC_DISCOUNT_DAYS)
+            gamma = math.exp(-float(elapsed[i]) / CRITIC_DISCOUNT_YEARS)
             if terminal[i]:
                 running = dict.fromkeys(names, 0.0)
             for name, key in names.items():
@@ -1687,7 +1725,7 @@ def pretrain_critic_on_dataset(
         "turns": int(collection.get("turns", 0)),
         "return_tail": "truncated-zero-at-collection-horizon",
         "sampling": "world-balanced-with-replacement",
-        "discount_days": CRITIC_DISCOUNT_DAYS,
+        "discount_years": CRITIC_DISCOUNT_YEARS,
         # Reported losses above are unweighted; only a non-default weight is recorded.
         **({} if cost_loss_weight == 1.0 else {"cost_loss_weight": float(cost_loss_weight)}),
     }

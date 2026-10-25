@@ -37,7 +37,9 @@ import torch
 
 from .labor_personality import LaborPersonalityConditioning, personality_for_world
 from .labor_bc import (
+    ELAPSED_YEARS_FIELD,
     LABOR_LABEL_CONTRACT,
+    LEGACY_ELAPSED_DAYS_FIELD,
     LaborResetOptions,
     collect_heuristic_world,
     validate_fitting_worlds,
@@ -305,9 +307,17 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
         shard = Path(directory) / entry["path"]
         meta = json.loads((shard / "meta.json").read_text())
         digests.add(meta["normalizer_digest"])
+        names = {name[: -len(".npy")] for name in meta["payload"]}
+        if {ELAPSED_YEARS_FIELD, LEGACY_ELAPSED_DAYS_FIELD} <= names:
+            raise ProvenanceError("labor teacher shard stores both elapsed-years field names")
         for name in meta["payload"]:
             array = np.load(shard / name, allow_pickle=False)
-            tensors[name[: -len(".npy")]].append(torch.from_numpy(array))
+            key = name[: -len(".npy")]
+            # Shards published before the rename store elapsed YEARS under the misnamed
+            # legacy key; the values are already years and are kept unchanged.
+            if key == LEGACY_ELAPSED_DAYS_FIELD:
+                key = ELAPSED_YEARS_FIELD
+            tensors[key].append(torch.from_numpy(array))
         for key, value in meta["counters"].items():
             counters[key] += int(value)
         for key, value in meta["label_unavailable_reasons"].items():

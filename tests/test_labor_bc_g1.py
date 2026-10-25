@@ -334,7 +334,7 @@ def test_discounted_returns_follow_each_camp_trajectory() -> None:
         "row_world": torch.tensor([1, 1, 1]),
         "row_camp": torch.tensor([4, 4, 8]),
         "row_turn": torch.tensor([2, 1, 1]),
-        "transition_elapsed_days": torch.tensor([400.0, 400.0, 400.0], dtype=torch.float64),
+        "transition_elapsed_years": torch.tensor([400.0, 400.0, 400.0], dtype=torch.float64),
         "transition_terminal": torch.tensor([False, False, True]),
         "reward_qol_years": torch.tensor([1.0, 2.0, 3.0], dtype=torch.float64),
         "reward_population_years": torch.zeros(3, dtype=torch.float64),
@@ -345,6 +345,61 @@ def test_discounted_returns_follow_each_camp_trajectory() -> None:
     assert math.isclose(float(returns[0]), 1.0)
     assert math.isclose(float(returns[1]), 2.0 + math.exp(-1.0) * 1.0, rel_tol=1e-6)
     assert math.isclose(float(returns[2]), 3.0)
+
+
+def test_elapsed_field_is_years_and_legacy_days_name_loads_unchanged(tmp_path) -> None:
+    from anthropocene_rl.autonomous_v7 import labor_teacher_data as ltd
+    from anthropocene_rl.autonomous_v7.provenance import digest
+
+    # The field always held physical years: 20 per turn, discounted at tau = 400 years.
+    assert labor_bc.CRITIC_DISCOUNT_YEARS == contracts.HORIZON_YEARS == 400.0
+    assert labor_bc.CRITIC_DISCOUNT_DAYS == labor_bc.CRITIC_DISCOUNT_YEARS
+    assert labor_bc.ELAPSED_YEARS_FIELD == "transition_elapsed_years"
+
+    def arrays(elapsed_key: str, world: int) -> dict[str, np.ndarray]:
+        return {
+            "row_world": np.full(2, world, dtype=np.int64),
+            "row_camp": np.array([4, 4], dtype=np.int64),
+            "row_turn": np.array([0, 1], dtype=np.int64),
+            "row_attempt": np.zeros(2, dtype=np.int64),
+            "row_quarantined": np.zeros(2, dtype=bool),
+            "reward_qol_years": np.array([1.0, 2.0]),
+            "reward_population_years": np.zeros(2),
+            "reward_feasibility": np.zeros(2),
+            "reward_settlement_guard": np.zeros(2),
+            "transition_terminal": np.array([False, True]),
+            elapsed_key: np.full(2, contracts.TURN_YEARS),
+        }
+
+    body = {"schema": ltd.SCHEMA, "source_kind": ltd.SOURCE_KIND,
+            "options": {"turns": 2, "reset_options": {}}}
+    source = dict(body, source_run=digest(body))
+    out = tmp_path / "mixed"
+    out.mkdir()
+    shards = []
+    for world, key in ((5000, "transition_elapsed_days"), (5001, "transition_elapsed_years")):
+        meta = {"source_run": source["source_run"], "world_seed": world,
+                "normalizer_digest": "n", "counters": {}, "label_unavailable_reasons": {},
+                "quarantine": []}
+        record = ltd.write_shard(out / f"world-{world}", arrays(key, world), meta)
+        shards.append({"path": f"world-{world}", "world_seed": world,
+                       "meta_sha256": ltd.checkpoint_hash(out / f"world-{world}" / "meta.json"),
+                       "data_digest": record["data_digest"]})
+    ltd.publish_dataset(out, source, shards)
+    dataset = ltd.load_labor_dataset(out)
+    assert "transition_elapsed_days" not in dataset
+    assert torch.equal(dataset["transition_elapsed_years"],
+                       torch.full((4,), contracts.TURN_YEARS, dtype=torch.float64))
+    returns = discounted_returns(dataset)["qol_years"]
+    assert math.isclose(float(returns[0]), 1.0 + math.exp(-20.0 / 400.0) * 2.0, rel_tol=1e-6)
+    # In-memory legacy datasets still discount, and the migration keeps values unchanged.
+    legacy = {k: torch.from_numpy(v) for k, v in arrays("transition_elapsed_days", 5000).items()}
+    assert torch.equal(discounted_returns(legacy)["qol_years"], returns[:2])
+    migrated = labor_bc.migrate_legacy_elapsed_field(dict(legacy))
+    assert set(migrated) == (set(legacy) - {"transition_elapsed_days"}) | {"transition_elapsed_years"}
+    clash = dict(legacy, transition_elapsed_years=torch.zeros(2, dtype=torch.float64))
+    with pytest.raises(ValueError, match="different values"):
+        labor_bc.migrate_legacy_elapsed_field(clash)
 
 
 def test_pretrain_critic_rejects_search_dagger_and_aggregated_shards() -> None:
