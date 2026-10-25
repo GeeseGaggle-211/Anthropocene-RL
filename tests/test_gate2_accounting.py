@@ -1458,3 +1458,117 @@ def test_world_trade_closure_requires_both_endpoint_sidecars(tmp_path: Path) -> 
     write_artifact(artifact, [row])
     with pytest.raises(ValueError, match="missing a reciprocal endpoint copy"):
         economic_diagnostics.aggregate_trace_directories([artifact], tmp_path / "out")
+
+
+def _schema3_herd_sidecar(*, acquired: float, granted: float, inflow: float) -> dict:
+    """One schema-3 herd: 10 opening + 2 births + typed inflows - 2 deaths = closing."""
+    value = sidecar()
+    value["schemaVersion"] = 3
+    closing = 10.0 + 2.0 + acquired + granted + inflow - 2.0
+    value["herds"] = [
+        {
+            "herdId": 9,
+            "openingAnimals": 10,
+            "startingAnimals": 10,
+            "survivingAnimals": 9,
+            "newbornAnimals": 2,
+            "starvationDeaths": 1,
+            "slaughtered": 1,
+            "foodNutrition": 1.0,
+            "waterNutrition": 1.0,
+            "nutrition": 1.0,
+            "managementFulfilment": 1.0,
+            "potentialFood": 3.0,
+            "acceptedFood": 2.0,
+            "slaughterFood": 1.0,
+            "coveredHerderYears": 4.0,
+            "herdingToolsConsumed": 0.5,
+            "acquiredAnimals": acquired,
+            "grantedAnimals": granted,
+            "ownershipInflow": inflow,
+            "ownershipOutflow": 0.0,
+            "committedEndingAnimals": closing,
+            "reportAvailable": True,
+            "unavailableReason": None,
+            "residual": 0.0,
+        }
+    ]
+    herd = _conservation("herd", "9", "animals", zero=True)
+    herd.update(
+        opening=10.0,
+        production=2.0 + granted,
+        transferIn=acquired + inflow,
+        consumption=2.0,
+        closing=closing,
+    )
+    value["conservationRows"].append(herd)
+    value["domains"]["herding"]["openingHerdIds"] = [9]
+    value["domains"]["herding"]["closingHerdIds"] = [9]
+    entries = [
+        ("opening-stock-boundary", 10.0, "boundary"),
+        ("ending-stock-boundary", closing, "boundary"),
+        ("herd-birth", 2.0, "in"),
+        ("herd-death-or-slaughter", 2.0, "out"),
+        ("herd-acquisition", acquired, "in"),
+        ("herd-compatibility-grant", granted, "in"),
+        ("transfer-in", inflow, "in"),
+    ]
+    value["physicalEvents"].extend(
+        {
+            "eventId": f"{value['trajectoryId']}/identity/herd:9/{category}",
+            "campId": value["campId"],
+            "category": category,
+            "item": "herd:9",
+            "unit": "animals",
+            "quantity": quantity,
+            "direction": direction,
+        }
+        for category, quantity, direction in entries
+    )
+    return value
+
+
+def test_schema3_typed_herd_inflows_close_the_herd_ledger() -> None:
+    value = _schema3_herd_sidecar(acquired=3.0, granted=4.0, inflow=5.0)
+    validate_economic_accounting(value)
+    assert accounting_completeness(value)["status"] in {"PASS-ACCOUNTING-ONLY", "HOLD"}
+    # Births + grants are production; acquisition + ownership inflow are transferIn.
+    swapped = copy.deepcopy(value)
+    row = next(r for r in swapped["conservationRows"] if r["domain"] == "herd")
+    row["production"], row["transferIn"] = row["transferIn"], row["production"]
+    with pytest.raises(ValueError, match="herd conservation terms differ"):
+        validate_economic_accounting(swapped)
+    # An untyped acquisition cannot be hidden: the residual must carry it.
+    hidden = copy.deepcopy(value)
+    hidden["herds"][0]["acquiredAnimals"] = 0.0
+    with pytest.raises(ValueError, match=r"herds\[0\] residual is not derived"):
+        validate_economic_accounting(hidden)
+    # The typed mutation events must reconcile with the row.
+    missing_event = copy.deepcopy(value)
+    missing_event["physicalEvents"] = [
+        event
+        for event in missing_event["physicalEvents"]
+        if event["category"] != "herd-compatibility-grant"
+    ]
+    with pytest.raises(ValueError, match="herd-compatibility-grant does not reconcile"):
+        validate_economic_accounting(missing_event)
+
+
+def test_schema3_herd_keys_are_exact_and_schema2_keys_unchanged() -> None:
+    value = _schema3_herd_sidecar(acquired=0.0, granted=0.0, inflow=0.0)
+    absent = copy.deepcopy(value)
+    del absent["herds"][0]["grantedAnimals"]
+    with pytest.raises(ValueError, match=r"herds\[0\]"):
+        validate_economic_accounting(absent)
+    legacy = copy.deepcopy(value)
+    legacy["schemaVersion"] = 2
+    with pytest.raises(ValueError, match=r"herds\[0\]"):
+        validate_economic_accounting(legacy)
+    for row in legacy["herds"]:
+        row.pop("acquiredAnimals")
+        row.pop("grantedAnimals")
+    validate_economic_accounting(legacy)
+    future = copy.deepcopy(value)
+    future["schemaVersion"] = 4
+    with pytest.raises(ValueError, match="unsupported Gate 2 economic accounting schema"):
+        validate_economic_accounting(future)

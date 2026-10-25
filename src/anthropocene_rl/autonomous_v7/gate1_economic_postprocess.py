@@ -671,7 +671,7 @@ def _validate_trajectory(world: dict[str, Any]) -> tuple[dict[str, Any], list[di
         }
         for row in economics:
             if (
-                row.get("schemaVersion") != 2
+                row.get("schemaVersion") not in {2, 3}
                 or row.get("trajectoryId") != reset["trajectory_id"]
                 or row.get("decisionTurn") != step["source_turn"]
                 or row.get("campId") not in source_villages

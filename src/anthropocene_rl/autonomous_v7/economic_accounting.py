@@ -11,7 +11,13 @@ import math
 from collections import Counter
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+# Schema 2 is the original Gate 2 accounting contract.  Schema 3 (simulator
+# feature/r5-privileged d976b89) types the non-birth managed-herd inflows:
+# ``acquiredAnimals`` (taming from a wild herd), ``grantedAnimals`` (the opening
+# compatibility grant) and a real fission ``ownershipInflow``.  Both remain readable.
+SUPPORTED_SCHEMA_VERSIONS = frozenset({2, 3})
+HERD_TYPED_INFLOW_SCHEMA = 3
 TOLERANCE = 1e-8
 
 CRAFT_GOODS = (
@@ -94,7 +100,11 @@ PHYSICAL_EVENT_CATEGORIES = {
     "field-capital-loss": ("out",),
     "herd-birth": ("in",),
     "herd-death-or-slaughter": ("out",),
+    "herd-acquisition": ("in",),
+    "herd-compatibility-grant": ("in",),
 }
+# Typed transfer kinds that may move managed animals into a camp's herd rows.
+HERD_TRANSFER_KINDS = frozenset({"fission-herd", "herd-acquisition", "herd-compatibility-grant"})
 CONTROL_UNITS = {
     "operation-fraction",
     "animal-fraction",
@@ -416,6 +426,9 @@ def _validate_physical_rows(sidecar: dict[str, Any]) -> None:
         "unavailableReason",
         "residual",
     }
+    typed_inflows = int(sidecar.get("schemaVersion", 0)) >= HERD_TYPED_INFLOW_SCHEMA
+    if typed_inflows:
+        herd_fields |= {"acquiredAnimals", "grantedAnimals"}
     for index, row in enumerate(herds):
         _exact_keys(row, herd_fields, f"herds[{index}]")
         _integer(row["herdId"], f"herds[{index}].herdId", nonnegative=True)
@@ -438,6 +451,8 @@ def _validate_physical_rows(sidecar: dict[str, Any]) -> None:
             float(row["openingAnimals"])
             + float(row["newbornAnimals"])
             + float(row["ownershipInflow"])
+            + _herd_acquired(row)
+            + _herd_granted(row)
             - float(row["starvationDeaths"])
             - float(row["slaughtered"])
             - float(row["ownershipOutflow"])
@@ -673,6 +688,16 @@ def _validate_physical_rows(sidecar: dict[str, Any]) -> None:
         )
         require_total("transfer-in", name, row["ownershipInflow"])
         require_total("transfer-out", name, row["ownershipOutflow"])
+        require_total("herd-acquisition", name, _herd_acquired(row))
+        require_total("herd-compatibility-grant", name, _herd_granted(row))
+
+
+def _herd_acquired(row: dict[str, Any]) -> float:
+    return float(row.get("acquiredAnimals", 0.0))
+
+
+def _herd_granted(row: dict[str, Any]) -> float:
+    return float(row.get("grantedAnimals", 0.0))
 
 
 def _validate_conservation(sidecar: dict[str, Any]) -> None:
@@ -838,8 +863,10 @@ def _validate_conservation(sidecar: dict[str, Any]) -> None:
         ledger = by_identity[("herd", name)]
         expected = {
             "opening": herd["openingAnimals"],
-            "production": herd["newbornAnimals"],
-            "transferIn": herd["ownershipInflow"],
+            # Schema 3: production = births + compatibility grants; transferIn =
+            # acquisition (taming) + fission ownership inflow.  Schema 2 has neither.
+            "production": float(herd["newbornAnimals"]) + _herd_granted(herd),
+            "transferIn": float(herd["ownershipInflow"]) + _herd_acquired(herd),
             "consumption": herd["starvationDeaths"] + herd["slaughtered"],
             "transferOut": herd["ownershipOutflow"],
             "closing": herd["committedEndingAnimals"],
@@ -1522,14 +1549,14 @@ def _validate_required_coverage(sidecar: dict[str, Any]) -> None:
 
 
 def validate_economic_accounting(sidecar: dict[str, Any]) -> None:
-    """Reject malformed or incomplete-schema v2 accounting evidence.
+    """Reject malformed or incomplete-schema v2/v3 accounting evidence.
 
     A correctly derived non-zero residual remains readable evidence; it is a Gate 2
     completeness HOLD and is reported by :func:`accounting_completeness`.
     """
 
     _object(sidecar, "economic sidecar")
-    if sidecar.get("schemaVersion") != SCHEMA_VERSION:
+    if sidecar.get("schemaVersion") not in SUPPORTED_SCHEMA_VERSIONS:
         raise ValueError("unsupported Gate 2 economic accounting schema")
     _validate_controls(sidecar)
     _validate_physical_rows(sidecar)

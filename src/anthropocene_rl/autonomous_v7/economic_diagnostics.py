@@ -23,6 +23,8 @@ from typing import Any
 
 import numpy as np
 
+from .economic_accounting import SUPPORTED_SCHEMA_VERSIONS as ACCOUNTING_SCHEMAS
+
 SCHEMA_VERSION = 1
 EVIDENCE_CLASSES = {
     "original_training_trace",
@@ -345,13 +347,13 @@ def validate_transition(row: dict[str, Any]) -> None:
     for name in ("transitionId", "trajectoryId", "decisionTurn", "campId", "societyId"):
         if economic.get(name) != row[name]:
             raise ValueError(f"economic sidecar identity differs: {name}")
-    if economic.get("schemaVersion") not in {1, 2}:
+    if economic.get("schemaVersion") not in {1, *ACCOUNTING_SCHEMAS}:
         raise ValueError("unsupported economic sidecar schema")
     _validate_action_diagnostics(row)
     _validate_actor_policy_active_mask(row)
     for _path, _value in _finite_numbers(row):
         pass
-    if economic.get("schemaVersion") == 2:
+    if economic.get("schemaVersion") in ACCOUNTING_SCHEMAS:
         from .economic_accounting import validate_economic_accounting
 
         validate_economic_accounting(economic)
@@ -2243,7 +2245,7 @@ def _gate2_status(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     supported = 0
     for row in rows:
         economic = row["economicDiagnostics"]
-        if economic.get("schemaVersion") != 2:
+        if economic.get("schemaVersion") not in ACCOUNTING_SCHEMAS:
             reasons.append(f"{row['transitionId']}: economic accounting schema 2 unavailable")
             continue
         supported += 1

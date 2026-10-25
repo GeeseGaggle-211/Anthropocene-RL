@@ -10,6 +10,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from .diagnostics import canonical
+from .economic_accounting import SUPPORTED_SCHEMA_VERSIONS as ACCOUNTING_SCHEMAS
 
 SCHEMA_VERSION = 1
 POLICY_INPUT_HEALTH_SCHEMA_VERSION = 1
@@ -71,14 +72,14 @@ def validate_economic_step(
     for key, value in raw.items():
         row = canonical(value)
         if (
-            row.get("schemaVersion") not in {1, 2}
+            row.get("schemaVersion") not in {1, *ACCOUNTING_SCHEMAS}
             or row.get("campId") != int(key)
             or row.get("decisionTurn") != int(step["turn"]) - 1
             or row.get("trajectoryId") != step.get("trajectoryId")
         ):
             raise ValueError("economic schema/camp/turn/trajectory mismatch")
-        if gate2_required and row.get("schemaVersion") != 2:
-            raise ValueError("Gate 2 requires economic accounting schema 2")
+        if gate2_required and row.get("schemaVersion") not in ACCOUNTING_SCHEMAS:
+            raise ValueError("Gate 2 requires economic accounting schema 2 or 3")
         identity = row.get("transitionId")
         if not identity or identity in seen:
             raise ValueError("missing/duplicate economic transition identity")
@@ -113,7 +114,7 @@ def validate_economic_step(
             identities = [r[field] for r in row.get(group, [])]
             if len(set(identities)) != len(identities):
                 raise ValueError(f"duplicate economic {group}")
-        if row.get("schemaVersion") == 2:
+        if row.get("schemaVersion") in ACCOUNTING_SCHEMAS:
             from .economic_accounting import validate_economic_accounting
 
             validate_economic_accounting(row)

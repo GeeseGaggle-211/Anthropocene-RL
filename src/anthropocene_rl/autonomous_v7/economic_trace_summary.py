@@ -17,6 +17,7 @@ from typing import Any
 
 from . import economic_diagnostics
 from .economic_accounting import CONTROL_PHASES, accounting_completeness
+from .economic_accounting import SUPPORTED_SCHEMA_VERSIONS as ACCOUNTING_SCHEMAS
 from .economic_trace import POLICY_INPUT_OUTLIER_LIMIT, canonical_bytes
 
 SUMMARY_SCHEMA_VERSION = 1
@@ -370,7 +371,7 @@ def _control_summary(transitions: list[dict[str, Any]]) -> dict[str, Any]:
     completeness_reasons: Counter[str] = Counter()
     for transition in transitions:
         economic = transition["economicDiagnostics"]
-        if economic.get("schemaVersion") != 2:
+        if economic.get("schemaVersion") not in ACCOUNTING_SCHEMAS:
             continue
         schema2_rows += 1
         completeness = accounting_completeness(economic)
@@ -582,7 +583,7 @@ def _physical_event_summary(transitions: list[dict[str, Any]]) -> dict[str, Any]
     typed_event_count = 0
     for transition in transitions:
         economic = transition["economicDiagnostics"]
-        if economic.get("schemaVersion") != 2:
+        if economic.get("schemaVersion") not in ACCOUNTING_SCHEMAS:
             continue
         schema2_transitions += 1
         transition_id = str(transition["transitionId"])

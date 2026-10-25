@@ -57,6 +57,8 @@ BOUNDARY_VILLAGE_FIELDS = {
 SUPPORTED_TRANSFER_KINDS = {
     "fission", "founding", "migration", "fission-inventory", "fission-herd",
     "dispatch", "reintegration", "hunter-logistics",
+    # Economic schema 3 typed managed-herd inflows (simulator d976b89).
+    "herd-acquisition", "herd-compatibility-grant",
 }
 
 
@@ -310,7 +312,7 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
         schema = row.get("schemaVersion")
         expected_fields = (ECONOMIC_ROW_FIELDS if schema == 1 else
                            ECONOMIC_ROW_FIELDS | GATE2_ADDITIVE_ECONOMIC_ROW_FIELDS
-                           if schema == 2 else None)
+                           if schema in (2, 3) else None)
         if expected_fields is None or set(row) != expected_fields:
             raise ValueError("economic row does not match the frozen envelope schema")
         _walk_finite(row)

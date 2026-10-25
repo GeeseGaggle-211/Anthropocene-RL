@@ -57,7 +57,7 @@ def test_economic_validation_is_field_specific_and_rejects_bad_identity():
     step["economicDiagnostics"]["7"]["domains"]["trade"]["realisedUtility"] = -3.0
     step["economicDiagnostics"]["7"]["conservation"]["populationResidual"] = -1.0
     assert economic_trace.validate_economic_step(step, required=True)[7]
-    for field, value in (("schemaVersion", 3), ("campId", 8), ("trajectoryId", "foreign")):
+    for field, value in (("schemaVersion", 4), ("campId", 8), ("trajectoryId", "foreign")):
         bad = copy.deepcopy(step)
         bad["economicDiagnostics"]["7"][field] = value
         with pytest.raises(ValueError, match="mismatch"):

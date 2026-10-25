@@ -317,7 +317,7 @@ def _trace_summary(path: Path, decisions: int, critic: str) -> dict[str, Any]:
 
     _, transitions, updates = load_artifact(path)
     if len(transitions) != decisions or any(
-        row.get("economicDiagnostics", {}).get("schemaVersion") != 2 for row in transitions
+        row.get("economicDiagnostics", {}).get("schemaVersion") not in {2, 3} for row in transitions
     ):
         raise ValueError("trace transition count/schema differs from real rollout")
     starts = [row for row in updates if row.get("event") == "mutation-start"]
