@@ -314,3 +314,49 @@ def test_shard_assembly_refuses_malformed_roots() -> None:
         lsp.candidate_shard([leaked], producer={}, discount_years=400.0)
     with pytest.raises(ValueError, match="400-year"):
         lsp.candidate_shard([a.payload_root], producer={}, discount_years=300.0)
+
+
+def test_control_candidates_idle_delayed_and_twin() -> None:
+    from anthropocene_rl.autonomous_v7.labor_search import compose_payload, control_candidates
+
+    catalog = _catalog()
+    base = _base_payload(catalog)
+    families = {c.family: c for c in control_candidates(base, catalog)}
+    assert set(families) == {"control-idle", "control-twin"}  # H12 already staffs Farmers
+    idle_counts, _ = labor_state(families["control-idle"].payload, catalog)
+    assert int(idle_counts[0]) == 100
+    twin_counts, twin_activity = labor_state(families["control-twin"].payload, catalog)
+    base_counts, base_activity = labor_state(base, catalog)
+    assert np.array_equal(twin_counts, base_counts)  # same residents: physics of H12
+    differs = np.flatnonzero(np.abs(twin_activity - base_activity).sum(axis=1) > 0)
+    assert len(differs) == 1 and base_counts[differs[0] + 1] == 0  # only an unstaffed role
+    farmer = SPECIALTIES.index("Farmer")
+    counts = base_counts.copy()
+    counts[SPECIALTIES.index("Gatherer")] += counts[farmer]
+    counts[farmer] = 0
+    activity = base_activity.copy()
+    activity[farmer - 1] = 0.0
+    activity[farmer - 1, 0] = 1.0
+    no_farm = compose_payload(base, catalog, counts=counts, activity=activity)
+    delayed = {c.family: c for c in control_candidates(no_farm, catalog)}["control-delayed"]
+    assert labor_state(delayed.payload, catalog)[0][farmer] == 10
+
+
+def test_control_roots_carry_tagged_controls_to_the_final_horizon() -> None:
+    config = SearchConfig(candidates=10, actor_samples=0, horizons=(1, 2, 3),
+                          keep=("all", "2", "1"), control_fraction=1.0)
+    _, result, _ = _root(config)
+    record = result.payload_root["record"]
+    assert record["control_root"]
+    by_family = {c["family"]: c for c in record["candidates"]}
+    assert by_family["control-idle"]["control"] == "all-idle"
+    assert by_family["control-twin"]["bookkeeping_twin"] == 0
+    for name in ("control-idle", "control-twin"):
+        cand = by_family[name]
+        assert cand["horizon_reached"] == 3  # protected through halving like H12
+        assert [e["stream"] for e in cand["evaluations"] if e["horizon"] == 3] == [0, 1, 2, 3]
+    off = SearchConfig(candidates=10, actor_samples=0, horizons=(1, 2), keep=("all", "2"))
+    _, plain, _ = _root(off)
+    assert not plain.payload_root["record"]["control_root"]
+    assert not any(c["family"].startswith("control") for c in
+                   plain.payload_root["record"]["candidates"])

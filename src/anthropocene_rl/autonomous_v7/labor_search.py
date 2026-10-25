@@ -47,6 +47,7 @@ Example::
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import json
@@ -111,7 +112,16 @@ FAMILIES = (
     "fission",
     "trade",
     "joint",
+    # Evaluator controls (intervention B gates), only on the keyed control roots.
+    "control-idle",
+    "control-delayed",
+    "control-twin",
 )
+CONTROL_FAMILIES = {
+    "control-idle": "all-idle",
+    "control-delayed": "delayed-benefit",
+    "control-twin": None,  # bookkeeping twin of H12 (bookkeeping_twin = 0)
+}
 FAMILY_CODES = {name: index for index, name in enumerate(FAMILIES)}
 PERTURBATION_FAMILIES = ("transfer", "activity", "movement", "fission", "trade", "joint")
 ROW_SOURCE_CODES = {"heuristic": 0, "search": 2}  # 1 is learner-state DAgger
@@ -124,6 +134,7 @@ FOCAL_TAG = 0x5346  # "SF": focal order
 CAND_TAG = 0x5343  # "SC": candidate family shuffles
 ACTOR_TAG = 0x5341  # "SA": actor samples
 DITHER_TAG = 0x5344  # "SD": continuation dither
+CONTROL_TAG = 0x5343 + 0x100  # control-root draw
 REEVAL_SCOPES = ("final-survivors", "winners")
 
 TRADE_SET = [name for name, _, _ in contracts.SETS].index("trade")
@@ -217,6 +228,9 @@ class SearchConfig:
     ranker: bool = False
     ranker_top: int = 4
     ranker_full_fraction: float = 0.2
+    # Keyed share of roots that add the evaluator controls (all-idle, delayed-benefit
+    # Farmer adoption, bookkeeping twin of H12), carried through halving like H12.
+    control_fraction: float = 0.0
 
     def __post_init__(self) -> None:
         if self.candidates < 2:
@@ -239,6 +253,8 @@ class SearchConfig:
             raise ValueError("dither probability/fraction out of range")
         if self.reeval_scope not in REEVAL_SCOPES:
             raise ValueError(f"reeval scope must be one of {REEVAL_SCOPES}")
+        if not 0.0 <= self.control_fraction <= 1.0:
+            raise ValueError("control fraction must be in [0, 1]")
         if self.ranker_top < 1 or not 0.0 <= self.ranker_full_fraction <= 1.0:
             raise ValueError("ranker top must be positive and its full fraction in [0, 1]")
 
@@ -282,6 +298,7 @@ class SearchConfig:
             "ranker": self.ranker,
             "ranker_top": self.ranker_top,
             "ranker_full_fraction": self.ranker_full_fraction,
+            "control_fraction": self.control_fraction,
         }
 
     @classmethod
@@ -511,6 +528,80 @@ def transfer(
         new_activity[source - 1] = 0.0
         new_activity[source - 1, 0] = 1.0
     return new_counts, new_activity
+
+
+def control_candidates(h12: Mapping[str, Any], catalog: LaborCatalog) -> list[Candidate]:
+    """Evaluator controls built from H12 (each natively validated later like any candidate).
+
+    * ``control-idle``: every resident idle (known harmful; must rank last);
+    * ``control-delayed``: Farmer adoption, 10% of residents Gatherer -> Farmer, only
+      when H12 staffs no Farmer and Farmer is legal (a suitable site);
+    * ``control-twin``: H12 with the activity simplex of one *unstaffed* role moved to
+      another legal activity -- no resident works it, so the physics is H12's and only
+      bookkeeping differs.
+    """
+    counts, activity = labor_state(h12, catalog)
+    population = int(catalog.population)
+    out: list[Candidate] = []
+    if population <= 0:
+        return out
+    idle_counts = np.zeros_like(counts)
+    idle_counts[0] = population
+    idle_activity = np.zeros_like(activity)
+    idle_activity[:, 0] = 1.0
+    with contextlib.suppress(ValueError):
+        out.append(
+            Candidate(
+                compose_payload(h12, catalog, counts=idle_counts, activity=idle_activity),
+                "control-idle",
+                "all residents idle",
+                frozenset({"labor"}),
+            )
+        )
+    farmer = SPECIALTIES.index("Farmer")
+    if int(counts[farmer]) == 0 and catalog.masks.specialty[farmer]:
+        amount = min(int(counts[GATHERER]), max(1, round(0.1 * population)))
+        moved = transfer(counts, activity, catalog, GATHERER, farmer, amount)
+        if moved is not None:
+            with contextlib.suppress(ValueError):
+                out.append(
+                    Candidate(
+                        compose_payload(h12, catalog, counts=moved[0], activity=moved[1]),
+                        "control-delayed",
+                        f"Farmer adoption: {amount} Gatherer->Farmer",
+                        frozenset({"labor"}),
+                    )
+                )
+    for role in range(activity.shape[0]):
+        if int(counts[role + 1]) > 0:
+            continue
+        legal = [i for i, ok in enumerate(catalog.masks.activity[role]) if ok]
+        current = int(np.argmax(activity[role]))
+        others = [i for i in legal if i != current]
+        if not others:
+            continue
+        twin_activity = activity.copy()
+        twin_activity[role] = 0.0
+        twin_activity[role, others[0]] = 1.0
+        try:
+            payload = compose_payload(h12, catalog, counts=counts, activity=twin_activity)
+        except ValueError:
+            continue
+        if payload_digest(payload) != payload_digest(h12):
+            out.append(
+                Candidate(
+                    payload,
+                    "control-twin",
+                    f"bookkeeping twin of H12 (unstaffed {SPECIALTIES[role + 1]} activity)",
+                    frozenset(),
+                )
+            )
+            break
+    return out
+
+
+def is_control_root(key: Sequence[int], fraction: float) -> bool:
+    return bool(np.random.default_rng([CONTROL_TAG, *[int(k) for k in key]]).random() < fraction)
 
 
 def transfer_amounts(population: int) -> list[int]:
@@ -1241,6 +1332,9 @@ def search_root(
     proposals: list[Candidate] = [
         Candidate(dict(h12.action), "h12", "converted heuristic", frozenset())
     ]
+    control_root = is_control_root(key, config.control_fraction)
+    if control_root:
+        proposals += control_candidates(h12.action, catalog)
     if actor is not None:
         proposals += _actor_candidates(
             actor, tensors, row, root_pair or (0.5, 0.5), config.actor_samples, [*key, 0]
@@ -1294,6 +1388,7 @@ def search_root(
             [], {"skipped": "fewer-than-two-valid-candidates", "focal": focal, "rejected": rejected}
         )
 
+    controls = {i for i, c in enumerate(accepted) if c.family in CONTROL_FAMILIES}
     # Root of the candidate payload: actor-visible observation row (root personality)
     # and the raw critic-only privileged arrays of the same boundary, kept apart.
     root_vector = [float(x) for x in (root_pair if root_pair is not None else (0.5, 0.5))]
@@ -1322,7 +1417,7 @@ def search_root(
             [[float(plan.advantage[c][i]) for c in COMPONENTS] for i in range(n)],
             dtype=np.float64,
         )
-        evaluated = sorted({0, *(int(i) for i in plan.evaluate)})
+        evaluated = sorted({0, *(int(i) for i in plan.evaluate), *controls})
         ranker_mode = (
             payload_module.RANKER_FULL if plan.full_evaluation else payload_module.RANKER_PRUNED
         )
@@ -1346,6 +1441,8 @@ def search_root(
                 np.stack([branches[i].returns for i in range(n)]), personalities, config
             )
             survivors = select_survivors(u_prev, active, keep[r], protected=0, tiebreak=tiebreak)
+            # Evaluator controls are carried to the final horizon like H12.
+            survivors = sorted({*survivors, *(i for i in active if i in controls)})
             for i in active:
                 if i not in survivors:
                     native.drop(branches[i].fork)
@@ -1545,8 +1642,9 @@ def search_root(
                 "is_h12": i == 0,
                 "digest": accepted[i].digest(),
                 "action": dict(accepted[i].payload),
-                "control": "all-idle" if int(counts[0]) == int(catalog.population) else None,
-                "bookkeeping_twin": None,
+                "control": CONTROL_FAMILIES.get(accepted[i].family)
+                or ("all-idle" if int(counts[0]) == int(catalog.population) else None),
+                "bookkeeping_twin": 0 if accepted[i].family == "control-twin" else None,
                 "evaluations": evaluations,
                 "description": accepted[i].description,
                 "chosen_heads": sorted(accepted[i].chosen_heads),
@@ -1580,6 +1678,7 @@ def search_root(
         "horizons": horizons,
         "reeval_streams": int(config.reeval_streams),
         "ranker_mode": int(ranker_mode),
+        "control_root": bool(control_root),
         "population": int(catalog.population),
         "turn_years": float(catalog.turn_years),
     }
@@ -2187,6 +2286,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=0.2,
         help="keyed share of roots still fully evaluated with the ranker on (regret measurement)",
     )
+    parser.add_argument(
+        "--control-fraction",
+        type=float,
+        default=0.25,
+        help="keyed share of roots that add the evaluator controls (all-idle, delayed-benefit "
+        "Farmer adoption, bookkeeping twin of H12), carried to the final horizon",
+    )
     parser.add_argument("--no-verify-restore", action="store_true")
     parser.add_argument(
         "--held-out-test",
@@ -2252,6 +2358,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         ranker=args.advantage_ranker is not None,
         ranker_top=args.ranker_top,
         ranker_full_fraction=args.ranker_full_fraction,
+        control_fraction=args.control_fraction,
     )
     reset = LaborResetOptions(
         players=args.players,
