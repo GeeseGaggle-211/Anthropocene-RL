@@ -57,6 +57,7 @@ from .labor_model import (
     labor_checkpoint_personality,
     labor_log_prob,
     labor_policy_tensors,
+    LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
     LaborValueSupport,
     labor_checkpoint_value_support,
     load_labor_checkpoint_models,
@@ -1142,6 +1143,25 @@ def _bc_dataset_directories(args: argparse.Namespace) -> list[Path]:
     return directories
 
 
+def _initialize_value_support(args: argparse.Namespace) -> LaborValueSupport:
+    """Task-critic support for a new checkpoint.
+
+    ``--campaign-r5`` declares :data:`LABOR_CAMPAIGN_R5_VALUE_SUPPORT`
+    ([-0.5, 2.5] by 255). An explicit ``--critic-value-support`` must then
+    agree with it. Without either flag the implicit historical default is used,
+    keeping default checkpoints bit-identical.
+    """
+    explicit = getattr(args, "critic_value_support", None)
+    if not getattr(args, "campaign_r5", False):
+        return LaborValueSupport.parse(explicit)
+    if explicit is not None and LaborValueSupport.parse(explicit) != LABOR_CAMPAIGN_R5_VALUE_SUPPORT:
+        raise ValueError(
+            "--campaign-r5 declares value support -0.5,2.5,255; "
+            f"--critic-value-support={explicit} contradicts it"
+        )
+    return LABOR_CAMPAIGN_R5_VALUE_SUPPORT
+
+
 def _command_initialize(args: argparse.Namespace) -> None:
     source = torch.load(args.normalizer_checkpoint, map_location="cpu", weights_only=True)
     normalizer = load_checkpoint_normalizer(
@@ -1162,9 +1182,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
     )
     torch.manual_seed(args.optimizer_seed)
     actor = LaborActor(layout)
-    task = LaborTaskCritic(
-        layout, support=LaborValueSupport.parse(getattr(args, "critic_value_support", None))
-    )
+    task = LaborTaskCritic(layout, support=_initialize_value_support(args))
     costs = LaborCostCritics(layout)
     conditioning = LaborPersonalityConditioning(
         getattr(args, "personality", "balanced"),
@@ -1735,6 +1753,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="LOW,HIGH,BINS",
         help="versioned task-critic symlog clamp and bin count (default -2,9,255)",
+    )
+    initialize.add_argument(
+        "--campaign-r5",
+        action="store_true",
+        default=False,
+        help="declare the campaign-r5 task-critic value support -0.5,2.5,255 "
+        "(LABOR_CAMPAIGN_R5_VALUE_SUPPORT)",
     )
     initialize.add_argument("--out", type=Path, required=True)
     initialize.set_defaults(handler=_command_initialize)

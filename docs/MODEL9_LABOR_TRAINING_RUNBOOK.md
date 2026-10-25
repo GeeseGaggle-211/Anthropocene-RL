@@ -81,6 +81,10 @@ only comparable at the same support.
   --dataset <fit-data> --out audit.json` reports per-head `symlog(G/s)` quantiles, clipping
   fractions for candidate supports and a recommended support (observed range plus a margin).
 * New learner: `initialize ... --critic-value-support=LOW,HIGH,BINS`.
+* Campaign r5 (intervention brief 2026-10-26, item 1): new checkpoints use `initialize ...
+  --campaign-r5`, which declares `LABOR_CAMPAIGN_R5_VALUE_SUPPORT` = `-0.5,2.5,255`
+  (`labor_model.py`). An explicit `--critic-value-support` must agree with it. Without the flag
+  the implicit historical default is unchanged.
 * Existing checkpoint: `labor_critic_support convert --checkpoint in.pt
   --critic-value-support=LOW,HIGH,BINS --out converted.pt` re-initialises only the two task-head
   output layers (seeded, default the optimizer seed) and keeps the task encoder, cost critics,

@@ -159,6 +159,15 @@ class LaborValueSupport:
         return cls(float(parts[0]), float(parts[1]), int(parts[2]))
 
 
+# Declared task-critic support for new campaign-r5 checkpoints (intervention
+# brief 2026-10-26, item 1; audit candidate from ``labor_critic_support``):
+# symlog clamp [-0.5, 2.5] with 255 two-hot bins. ``labor_training initialize
+# --campaign-r5`` selects it. It is serialized in the checkpoint contract like
+# any non-default support; old checkpoints, which omit the field, keep the
+# implicit historical [-2, 9] default and their exact bytes.
+LABOR_CAMPAIGN_R5_VALUE_SUPPORT = LaborValueSupport(-0.5, 2.5, 255)
+
+
 @dataclass(frozen=True)
 class LaborPersonality:
     """Declared fixed weighting over the two terminal task objectives.

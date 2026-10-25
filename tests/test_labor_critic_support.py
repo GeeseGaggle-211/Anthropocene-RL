@@ -271,3 +271,33 @@ def test_target_audit_and_recommendation() -> None:
     assert head["clipping"]["-2,9"]["above_fraction"] == 0.0
     rec = recommend_support(report["task_heads"], margin=0.5)
     assert rec["high"] == 2.0 and rec["low"] == -0.5 and rec["bins"] == 255
+
+
+def test_campaign_r5_flag_declares_named_support_and_default_is_unchanged() -> None:
+    import argparse
+
+    from anthropocene_rl.autonomous_v7.labor_model import LABOR_CAMPAIGN_R5_VALUE_SUPPORT
+    from anthropocene_rl.autonomous_v7.labor_training import (
+        _initialize_value_support,
+        argument_parser,
+    )
+
+    assert LABOR_CAMPAIGN_R5_VALUE_SUPPORT == LaborValueSupport(-0.5, 2.5, 255)
+    assert not LABOR_CAMPAIGN_R5_VALUE_SUPPORT.is_default
+    base = ["initialize", "--normalizer-checkpoint", "n.pt", "--world-seed", "5000", "--optimizer-seed", "1", "--out", "o.pt"]
+    default = argument_parser().parse_args(base)
+    assert default.campaign_r5 is False
+    assert _initialize_value_support(default).is_default
+    campaign = argument_parser().parse_args([*base, "--campaign-r5"])
+    assert _initialize_value_support(campaign) == LABOR_CAMPAIGN_R5_VALUE_SUPPORT
+    agreeing = argument_parser().parse_args(
+        [*base, "--campaign-r5", "--critic-value-support=-0.5,2.5,255"]
+    )
+    assert _initialize_value_support(agreeing) == LABOR_CAMPAIGN_R5_VALUE_SUPPORT
+    contradicting = argparse.Namespace(campaign_r5=True, critic_value_support="-1,4,255")
+    with pytest.raises(ValueError, match="contradicts"):
+        _initialize_value_support(contradicting)
+    state = LaborModelContract(value_support=LABOR_CAMPAIGN_R5_VALUE_SUPPORT).state_dict()
+    assert state["criticValueSupport"]["low"] == -0.5
+    assert state["criticValueSupport"]["high"] == 2.5
+    assert LaborModelContract.from_state(state).value_support == LABOR_CAMPAIGN_R5_VALUE_SUPPORT
