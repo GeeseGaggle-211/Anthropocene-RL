@@ -166,6 +166,10 @@ def verify_shard(directory: Path) -> dict:
         # Learner-state (DAgger) shards: independent branches of one world may
         # revisit a (turn, camp) identity; the branch start index separates them.
         columns.append(np.load(directory / "row_start_index.npy").tolist())
+    # Search shards (labor_search.py) label one decision once per personality;
+    # the variant index is part of their identity.
+    if (directory / "row_label_variant.npy").is_file():
+        columns.append(np.load(directory / "row_label_variant.npy").tolist())
     identities = list(zip(*columns, strict=True))
     if len(set(identities)) != len(identities):
         raise ProvenanceError("duplicate labor teacher decision identities")
@@ -344,7 +348,7 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
 
 # Identity fields that only learner-state shards carry; teacher rows get these
 # defaults when several sources are aggregated (row_source 0 = teacher).
-ROW_SOURCES = {SOURCE_KIND: 0, "learner_state_dagger": 1}
+ROW_SOURCES = {SOURCE_KIND: 0, "learner_state_dagger": 1, "native_search_labor_teacher": 2}
 AGGREGATE_IDENTITY_DEFAULTS = {
     "row_source": 0,
     "row_round": 0,
@@ -424,9 +428,12 @@ def load_labor_datasets(
     keys = set(tensors_by_part[0])
     for tensors in tensors_by_part[1:]:
         if set(tensors) != keys:
-            raise ProvenanceError(
-                f"aggregated labor datasets have different arrays: {sorted(keys ^ set(tensors))}"
-            )
+            # Source-specific diagnostics (DAgger branch fields, search gains) differ between
+            # kinds; training uses only the shared inputs, labels and identity arrays.
+            extra = keys ^ set(tensors)
+            if any(k.startswith(("target_", "label_")) or k in AGGREGATE_IDENTITY_DEFAULTS for k in extra):
+                raise ProvenanceError(f"aggregated labor datasets have different arrays: {sorted(extra)}")
+            keys &= set(tensors)
     dataset: dict[str, Any] = {
         key: torch.cat([t[key] for t in tensors_by_part], dim=0) for key in sorted(keys)
     }
