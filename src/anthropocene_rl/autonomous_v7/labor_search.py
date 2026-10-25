@@ -124,7 +124,6 @@ FOCAL_TAG = 0x5346  # "SF": focal order
 CAND_TAG = 0x5343  # "SC": candidate family shuffles
 ACTOR_TAG = 0x5341  # "SA": actor samples
 DITHER_TAG = 0x5344  # "SD": continuation dither
-RANKER_TAG = 0x534B  # "SK": A-ranker full-evaluation draw
 REEVAL_SCOPES = ("final-survivors", "winners")
 
 TRADE_SET = [name for name, _, _ in contracts.SETS].index("trade")
@@ -1119,9 +1118,8 @@ def _lineage_components(step: Mapping[str, Any], societies: set[int]) -> np.ndar
 class RootResult:
     rows: list[dict[str, torch.Tensor]]
     table: dict[str, Any]
-    # Candidate payload (labor_search_payload v1); absent for skipped roots.
-    payload_root: dict[str, np.ndarray] | None = None
-    payload_candidates: list[dict[str, np.ndarray]] = field(default_factory=list)
+    # Candidate payload root (labor_search_payload); absent for skipped roots.
+    payload_root: dict[str, Any] | None = None
 
 
 def _personality_grid(
@@ -1296,44 +1294,38 @@ def search_root(
             [], {"skipped": "fewer-than-two-valid-candidates", "focal": focal, "rejected": rejected}
         )
 
-    # Root row of the candidate payload (actor-visible + privileged, root personality).
-    base_row = _one_row(tensors, row)
-    privileged = privileged_row_tensors([village])
-    if privileged is not None:
-        # Critic-only raw arrays of the root (same boundary as the observation).
-        base_row.update(_one_row(privileged, 0))
+    # Root of the candidate payload: actor-visible observation row (root personality)
+    # and the raw critic-only privileged arrays of the same boundary, kept apart.
     root_vector = [float(x) for x in (root_pair if root_pair is not None else (0.5, 0.5))]
-    actions = [
-        payload_module.action_arrays(
-            c.payload, labor_state(c.payload, catalog)[0], float(catalog.turn_years)
-        )
-        for c in accepted
-    ]
+    root_tensors = _one_row(tensors, row)
+    root_tensors["labor_personality"] = torch.tensor([root_vector], dtype=torch.float32)
+    privileged = privileged_row_tensors([village])
+    root_privileged = None if privileged is None else _one_row(privileged, 0)
     tie_perm = np.random.default_rng([CAND_TAG, *key, 3]).permutation(n)
     tiebreak = {i: int(tie_perm[i]) for i in range(n)}
 
-    # 1b. Optional A-ranker: score every candidate, natively evaluate top-k plus H12.
+    # 1b. Optional A-ranker (labor_advantage.AdvantageRanker): score every candidate,
+    # natively evaluate the top-k plus H12 except on its keyed full-evaluation roots.
     evaluated = list(range(n))
     ranker_mode = payload_module.RANKER_OFF
     predicted: np.ndarray | None = None
     if ranker is not None and config.ranker:
-        root_tensors = dict(base_row)
-        root_tensors["labor_personality"] = torch.tensor([root_vector], dtype=torch.float32)
-        scored = ranker.score(
+        plan = ranker.plan(
             root_tensors,
-            {
-                k: torch.from_numpy(np.stack([a[k] for a in actions]))
-                for k in payload_module.ACTION_KEYS
-            },
+            [c.payload for c in accepted],
+            h12_index=0,
+            personalities=personalities,
+            privileged_raw=root_privileged,
+            root_key=key,
         )
-        predicted = payload_module.centered_scores(scored, n)
-        if payload_module.full_evaluation_root([RANKER_TAG, *key], config.ranker_full_fraction):
-            ranker_mode = payload_module.RANKER_FULL
-        else:
-            ranker_mode = payload_module.RANKER_PRUNED
-            u_pred = utility_matrix(predicted * _REFERENCE_SCALES, personalities, config)
-            ranked = [c for c in halving_order(u_pred, range(n), tiebreak) if c != 0]
-            evaluated = sorted({0, *ranked[: config.ranker_top]})
+        predicted = np.asarray(
+            [[float(plan.advantage[c][i]) for c in COMPONENTS] for i in range(n)],
+            dtype=np.float64,
+        )
+        evaluated = sorted({0, *(int(i) for i in plan.evaluate)})
+        ranker_mode = (
+            payload_module.RANKER_FULL if plan.full_evaluation else payload_module.RANKER_PRUNED
+        )
 
     # 2. Successive halving over horizon on the deterministic selection stream.
     branches = {
@@ -1444,6 +1436,7 @@ def search_root(
                 "returns": branch.returns.copy(),
                 "horizon": branch.horizon,
                 "terminated": branch.terminated,
+                "years": list(branch.years),
             }
 
     decisions = []
@@ -1470,6 +1463,9 @@ def search_root(
         decisions.append(decision)
 
     # 4. Rows: one per personality, collector format plus search fields.
+    base_row = _one_row(tensors, row)
+    if root_privileged is not None:
+        base_row.update(root_privileged)
     rows: list[dict[str, torch.Tensor]] = []
     for k, decision in enumerate(decisions):
         index = decision["label"]
@@ -1523,86 +1519,75 @@ def search_root(
         )
         rows.append(values)
 
-    # 5. Candidate payload (labor_search_payload schema v1): one root row, one row
-    # per accepted candidate, every evaluated candidate's full return record.
+    # 5. Candidate payload (labor-advantage-candidates-v1 via labor_search_payload):
+    # every accepted candidate's complete action and every native evaluation.
     horizons = [int(h) for h in config.horizons]
-    h_max = max(horizons)
-    root_payload = payload_module.root_row_from_tensors(base_row)
-    root_payload.update(
-        {
-            "labor_personality": np.asarray(root_vector, dtype=np.float32),
-            "row_world": np.asarray(native.world, dtype=np.int64),
-            "row_camp": np.asarray(focal, dtype=np.int64),
-            "row_turn": np.asarray(int(step["turn"]), dtype=np.int64),
-            "row_attempt": np.asarray(0, dtype=np.int64),
-            "row_quarantined": np.asarray(False),
-            "root_index": np.asarray(int(root_index), dtype=np.int64),
-            "root_source": np.asarray(
-                payload_module.ROOT_SOURCE_CODES[root_source], dtype=np.int64
-            ),
-            "root_society": np.asarray(int(village["society"]), dtype=np.int64),
-            "root_population": np.asarray(int(catalog.population), dtype=np.int64),
-            "root_turn_years": np.asarray(float(catalog.turn_years), dtype=np.float64),
-            "root_personality": np.asarray(root_vector, dtype=np.float32),
-            "root_candidates": np.asarray(n, dtype=np.int64),
-            "root_final_horizon": np.asarray(final_h, dtype=np.int64),
-            "root_truncated": np.asarray(truncated),
-            "root_horizons": np.asarray(horizons, dtype=np.int64),
-            "root_reeval_streams": np.asarray(config.reeval_streams, dtype=np.int64),
-            "root_ranker_mode": np.asarray(ranker_mode, dtype=np.int64),
-        }
-    )
-    candidate_payload = []
+    payload_candidates = []
     for i in range(n):
         branch = branches[i]
-        steps = np.zeros((h_max, len(COMPONENTS)), dtype=np.float64)
-        step_years = np.zeros(h_max, dtype=np.float64)
-        step_mask = np.zeros(h_max, dtype=np.bool_)
-        steps[: len(branch.steps)] = np.asarray(branch.steps, dtype=np.float64).reshape(
-            -1, len(COMPONENTS)
+        counts = labor_state(accepted[i].payload, catalog)[0]
+        evaluations = (
+            payload_module.selection_evaluations(
+                branch.steps,
+                branch.years,
+                horizons,
+                terminated=branch.terminated,
+                discount_years=config.discount_years,
+            )
+            if i in evaluated
+            else []
         )
-        step_years[: len(branch.years)] = branch.years
-        step_mask[: len(branch.steps)] = True
-        by_h, available = payload_module.returns_by_horizon(
-            branch.steps,
-            branch.years,
-            horizons,
-            terminated=branch.terminated,
-            discount_years=config.discount_years,
+        evaluations += payload_module.reevaluation_records(reeval_info.get(i, {}), final_h)
+        payload_candidates.append(
+            {
+                "index": i,
+                "family": accepted[i].family,
+                "is_h12": i == 0,
+                "digest": accepted[i].digest(),
+                "action": dict(accepted[i].payload),
+                "control": "all-idle" if int(counts[0]) == int(catalog.population) else None,
+                "bookkeeping_twin": None,
+                "evaluations": evaluations,
+                "description": accepted[i].description,
+                "chosen_heads": sorted(accepted[i].chosen_heads),
+                "attempt_valid": bool(attempts[i].valid),
+                "natively_evaluated": i in evaluated,
+                "compiled": payload_module.compiled_action(
+                    accepted[i].payload, counts, float(catalog.turn_years)
+                ),
+                "horizon_reached": int(branch.horizon),
+                "terminated": bool(branch.terminated),
+                "last_round": int(survived[i]),
+                "step_rewards": [list(map(float, r)) for r in branch.steps],
+                "step_years": [float(y) for y in branch.years],
+                "predicted_advantage": None if predicted is None else predicted[i].tolist(),
+            }
         )
-        heads = accepted[i].chosen_heads
-        values = {
-            "row_world": np.asarray(native.world, dtype=np.int64),
-            "row_camp": np.asarray(focal, dtype=np.int64),
-            "row_turn": np.asarray(int(step["turn"]), dtype=np.int64),
-            "cand_root": np.asarray(int(root_index), dtype=np.int64),
-            "cand_index": np.asarray(i, dtype=np.int64),
-            "cand_family": np.asarray(FAMILY_CODES[accepted[i].family], dtype=np.int64),
-            "cand_is_h12": np.asarray(i == 0),
-            "cand_chosen_heads": np.asarray(
-                [h in heads for h in payload_module.HEADS], dtype=np.bool_
-            ),
-            "cand_digest": payload_module.digest_bytes(accepted[i].digest()),
-            "cand_attempt_valid": np.asarray(bool(attempts[i].valid)),
-            "cand_natively_evaluated": np.asarray(i in evaluated),
-            "cand_horizon_reached": np.asarray(branch.horizon, dtype=np.int64),
-            "cand_terminated": np.asarray(branch.terminated),
-            "cand_last_round": np.asarray(survived[i], dtype=np.int64),
-            "cand_step_rewards": steps,
-            "cand_step_years": step_years,
-            "cand_step_mask": step_mask,
-            "cand_returns_by_horizon": by_h,
-            "cand_return_available": available,
-            "cand_predicted_advantage": (
-                predicted[i].astype(np.float32)
-                if predicted is not None
-                else np.zeros(len(COMPONENTS), dtype=np.float32)
-            ),
-            "cand_predicted_available": np.asarray(predicted is not None),
-            **actions[i],
-            **payload_module.reeval_summary(reeval_info.get(i, {}), config.reeval_streams),
-        }
-        candidate_payload.append(values)
+    root_record = {
+        "root_id": f"{native.world}/{int(step['turn'])}/{focal}/{root_source}",
+        "world": native.world,
+        "turn": int(step["turn"]),
+        "camp": int(focal),
+        "society": int(village["society"]),
+        "source": root_source,
+        "tensor_row": int(root_index),
+        "personality": root_vector,
+        "full_evaluation": ranker_mode != payload_module.RANKER_PRUNED,
+        "pair_sd": None,
+        "candidates": payload_candidates,
+        "final_horizon": int(final_h),
+        "truncated": bool(truncated),
+        "horizons": horizons,
+        "reeval_streams": int(config.reeval_streams),
+        "ranker_mode": int(ranker_mode),
+        "population": int(catalog.population),
+        "turn_years": float(catalog.turn_years),
+    }
+    root_payload = {
+        "record": root_record,
+        "tensors": root_tensors,
+        "privileged": root_privileged,
+    }
 
     work = native.work
     table = {
@@ -1663,7 +1648,7 @@ def search_root(
         },
         "wall_seconds": time.perf_counter() - started,
     }
-    return RootResult(rows, table, root_payload, candidate_payload)
+    return RootResult(rows, table, root_payload)
 
 
 # ---------------------------------------------------------------------------
@@ -1739,7 +1724,13 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
     if job.get("ranker_checkpoint"):
         if not config.ranker:
             raise ValueError("a ranker checkpoint needs the declared ranker configuration")
-        ranker = payload_module.load_ranker(Path(job["ranker_checkpoint"]))
+        ranker = payload_module.load_ranker(
+            Path(job["ranker_checkpoint"]),
+            Path(job["ranker_critic_checkpoint"]),
+            top_k=config.ranker_top,
+            full_fraction=config.ranker_full_fraction,
+            key=int(job["key"]),
+        )
     elif config.ranker:
         raise ValueError("the declared ranker configuration needs a ranker checkpoint")
     turns = int(job["turns"])
@@ -1751,8 +1742,7 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
     skipped: Counter[str] = Counter()
     searched: dict[int, int] = defaultdict(int)
     restore_checks: list[dict[str, Any]] = []
-    payload_roots: list[dict[str, np.ndarray]] = []
-    payload_candidates: list[dict[str, np.ndarray]] = []
+    payload_roots: list[dict[str, Any]] = []
     started = time.perf_counter()
     with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heuristic:
         native = NativeSearch(bridge, heuristic, world=world, options=options, config=config)
@@ -1820,7 +1810,6 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
                     tables.append(result.table)
                     if result.payload_root is not None:
                         payload_roots.append(result.payload_root)
-                        payload_candidates.extend(result.payload_candidates)
                     done += 1
                     print(
                         json.dumps(
@@ -1863,7 +1852,6 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
         "main_path_resolves": main_resolves,
         "wall_seconds": time.perf_counter() - started,
         "payload_roots": payload_roots,
-        "payload_candidates": payload_candidates,
     }
 
 
@@ -1874,7 +1862,7 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
 
 def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
     from .labor_teacher_data import write_shard
-    from .provenance import checkpoint_hash
+    from .provenance import ProvenanceError, checkpoint_hash
 
     result = search_world(job)
     world = result["world"]
@@ -1932,41 +1920,40 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "partition": job.get("partition", "fitting"),
     }
-    # Candidate payload (labor_search_payload v1): written first into its own
-    # staging directory so the label shard's meta can bind its table digests.
+    # Candidate payload (labor-advantage-candidates-v1): saved first so the label
+    # shard's meta can bind its hash, then moved into the staged shard.
     config = SearchConfig.from_mapping(job["config"])
-    payload_staging = directory.with_name(directory.name + ".payload-staging")
-    meta["candidate_payload"] = payload_module.write_payload_tables(
-        payload_staging,
+    shard = payload_module.candidate_shard(
         result["payload_roots"],
-        result["payload_candidates"],
-        world=world,
-        source_run=job["source_run"],
-        record={
-            "components": list(COMPONENTS),
-            "reference_scales": dict(zip(COMPONENTS, _REFERENCE_SCALES.tolist(), strict=True)),
-            "discount_years": float(config.discount_years),
-            "horizons": [int(h) for h in config.horizons],
-            "reeval_streams": int(config.reeval_streams),
-            "reeval_scope": config.reeval_scope,
+        producer={
+            "exporter": "labor_search",
+            "search_contract": SEARCH_CONTRACT,
+            "source_run": job["source_run"],
+            "world": int(world),
+            "partition": job.get("partition", "fitting"),
             "root_source": job["source"],
-            "movement_union_codes": list(payload_module.MOVEMENT_UNION_CODES),
-            "specialties": list(SPECIALTIES),
-            "activities": list(ACTIVITIES),
-            "trade_groups": list(contracts.TRADE_GROUPS),
-            "heads": list(payload_module.HEADS),
+            "search": config.state_dict(),
+            "reference_scales": dict(zip(COMPONENTS, _REFERENCE_SCALES.tolist(), strict=True)),
             "family_codes": FAMILY_CODES,
-            "ranker": bool(config.ranker),
+            "movement_union_codes": list(payload_module.MOVEMENT_UNION_CODES),
             "ranker_checkpoint_sha256": job.get("ranker_checkpoint_sha256"),
         },
+        discount_years=config.discount_years,
+    )
+    payload_staging = directory.with_name(directory.name + ".payload-staging")
+    if payload_staging.exists():
+        raise ProvenanceError(f"{payload_staging} exists; no overwrite")
+    meta["candidate_payload"] = payload_module.write_candidate_shard(
+        payload_staging / payload_module.PAYLOAD_FILE, shard
     )
     # Stage the shard (arrays, meta last, then the bound candidate table) and
     # rename it into place; dataset.json is published only after every shard.
     staging = directory.with_name(directory.name + ".staging")
     record = write_shard(staging, arrays, meta)
     (staging / "candidates.jsonl").write_text(table_text, encoding="utf-8")
-    for name in (payload_module.ROOTS_DIR, payload_module.CANDIDATES_DIR):
-        os.replace(payload_staging / name, staging / name)
+    os.replace(
+        payload_staging / payload_module.PAYLOAD_FILE, staging / payload_module.PAYLOAD_FILE
+    )
     payload_staging.rmdir()
     os.replace(staging, directory)
     summary.update(
@@ -2184,8 +2171,14 @@ def argument_parser() -> argparse.ArgumentParser:
         "--advantage-ranker",
         type=Path,
         default=None,
-        help="intervention B ranker checkpoint (labor_advantage.load_search_ranker); off by "
-        "default. Scores all candidates and natively evaluates the top --ranker-top plus H12",
+        help="intervention B advantage-head artifact (labor_advantage fit); off by default. "
+        "Scores all candidates and natively evaluates the top --ranker-top plus H12",
+    )
+    parser.add_argument(
+        "--ranker-critic-checkpoint",
+        type=Path,
+        default=None,
+        help="the frozen labor critic checkpoint the advantage head was fitted on",
     )
     parser.add_argument("--ranker-top", type=int, default=4)
     parser.add_argument(
@@ -2236,6 +2229,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = argument_parser().parse_args(argv)
     worlds = validate_search_worlds(seed_list(args.worlds), held_out_test=args.held_out_test)
+    if (args.advantage_ranker is None) != (args.ranker_critic_checkpoint is None):
+        raise ValueError("--advantage-ranker and --ranker-critic-checkpoint go together")
     if args.out.exists():
         raise ProvenanceError("labor search output exists; regenerate into a new directory")
     config = SearchConfig(
@@ -2292,9 +2287,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.actor_checkpoint
         else None,
         "search": config.state_dict(),
-        "candidate_payload_schema": payload_module.PAYLOAD_SCHEMA,
+        "candidate_payload_schema": payload_module.CANDIDATE_PAYLOAD_SCHEMA,
+        "candidate_export_schema": payload_module.EXPORT_SCHEMA,
         "advantage_ranker_sha256": checkpoint_hash(args.advantage_ranker)
         if args.advantage_ranker
+        else None,
+        "ranker_critic_checkpoint_sha256": checkpoint_hash(args.ranker_critic_checkpoint)
+        if args.ranker_critic_checkpoint
         else None,
         "continuation": "h12 (stream 0, deterministic); h12-dither (re-evaluation streams)",
         "partition": partition_for(args.held_out_test),
@@ -2323,6 +2322,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "out": str(args.out),
             "partition": options["partition"],
             "ranker_checkpoint": str(args.advantage_ranker) if args.advantage_ranker else None,
+            "ranker_critic_checkpoint": (
+                str(args.ranker_critic_checkpoint) if args.ranker_critic_checkpoint else None
+            ),
             "ranker_checkpoint_sha256": options["advantage_ranker_sha256"],
         }
         for world in worlds

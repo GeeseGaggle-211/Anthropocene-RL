@@ -1,88 +1,66 @@
-"""Versioned candidate-payload export of the labor search (intervention B training data).
+"""Search candidate-payload export for the advantage head (intervention B training data).
 
-The advantage head ``A_j(C, a)`` (``labor_advantage``, model side) is trained on
-within-root return differences between complete candidate actions restored
-from one identical root. The label rows of ``labor_search`` store only the
-chosen label per personality; this module defines the separate, versioned
-export of *every* evaluated candidate that such training needs.
+The advantage head ``A_j(C, a)`` (``labor_advantage``, model side, branch
+``feature/r5-advantage``) is trained on within-root return differences between
+complete candidate actions restored from one identical root. The label rows of
+``labor_search`` keep only the chosen label per personality; this module writes
+*every* evaluated candidate in the model side's consumer contract,
+``labor-advantage-candidates-v1`` (``labor_advantage.CANDIDATE_PAYLOAD_SCHEMA``;
+its module docstring is the normative field list and ``parse_candidate_shard``
+its strict reader). The search exporter conforms to that schema and adds the
+producer fields below under keys the reader ignores; the extension is
+versioned as :data:`EXPORT_SCHEMA`.
 
-Schema ``labor-search-candidate-payload-v1`` (``PAYLOAD_SCHEMA_VERSION = 1``)
----------------------------------------------------------------------------
+Layout. Each search shard ``world-<seed>/`` stores one ``torch.save`` dict,
+:data:`PAYLOAD_FILE`, hash-bound in the shard meta under
+``candidate_payload`` (schema, file, sha256, root and candidate counts), so
+``load_candidate_shards([<shard dir>, ...])`` reads it directly and
+:func:`candidate_shard_paths` returns the verified paths of a published search
+dataset (refusing held-out-test data and reserved worlds for training).
 
-Each search shard ``world-<seed>/`` gains two immutable sub-tables written with
-``labor_teacher_data.write_shard`` (arrays first, ``meta.json`` with payload
-hashes last) and bound into the shard meta under ``candidate_payload``
-(schema, digests, row counts), so the label shard's own hash covers them:
+Shard (``labor-advantage-candidates-v1`` fields, then exporter extensions):
 
-``world-<seed>/advantage-roots/`` -- one row per searched root (focal camp at a
-decision). Columns:
-
-* every actor-visible input tensor of the focal camp at the root, exactly as
-  the label rows store them (``labor_policy_tensors``), with
-  ``labor_personality`` set to the root personality;
-* the raw critic-only privileged arrays of the root (``privileged_*``, schema
-  in the shard meta) when the producer emits them -- the same decision
-  boundary as the observation;
-* identity ``row_world``, ``row_camp`` (focal), ``row_turn``, ``row_attempt``,
-  ``row_quarantined`` and ``root_index`` (shard-local, the join key);
-* ``root_source`` (0 = H12-visited, 1 = actor-visited), ``root_society``,
-  ``root_population``, ``root_turn_years``, ``root_personality`` [2],
-  ``root_candidates``, ``root_final_horizon`` (decisions reached by the
-  re-evaluated survivors), ``root_truncated`` (resolve cap stopped halving),
-  ``root_horizons`` [H] (the declared halving horizons), ``root_reeval_streams``
-  and ``root_ranker_mode`` (0 = no ranker, every candidate natively evaluated;
-  1 = ranked and pruned to top-k plus H12; 2 = ranked but fully evaluated, the
-  regret-measurement roots).
-
-``world-<seed>/advantage-candidates/`` -- one row per accepted candidate:
-
-* join/identity: ``cand_root`` (= ``root_index``), ``cand_index`` (0 is H12),
-  ``row_world``, ``row_turn``, ``row_camp``, ``cand_family`` (search
-  ``FAMILY_CODES``), ``cand_is_h12``, ``cand_chosen_heads`` [6] in
-  :data:`HEADS` order, ``cand_digest`` [32] (sha256 of the canonical payload,
-  uint8), ``cand_attempt_valid`` (native validation at the root);
-* the complete executed action in raw output units, exactly as submitted:
-  ``action_specialty_allocation`` [14] (simplex over ``SPECIALTIES``, idle
-  first), ``action_activity_allocation`` [13, 22] (worker-time simplex per
-  role over ``ACTIVITIES``), ``action_movement_code`` (bridge code) and
-  ``action_movement_slot`` (index into :data:`MOVEMENT_UNION_CODES`, the
-  actor's 17-way movement union), ``action_fission`` (0..2),
-  ``action_trade_gate`` [7], ``action_trade_value`` [7] (relative value,
-  already clamped to ``TRADE_VALUE_RANGE``), ``action_trade_share``;
-* the same action compiled to native units: ``action_specialty_counts`` [14]
-  (largest-remainder residents, sums to ``action_population``) and
-  ``action_worker_years`` [13, 22] (residents x worker-time share x
-  ``action_turn_years``);
-* selection stream 0 (deterministic H12 continuation, shared by every
-  candidate): ``cand_natively_evaluated`` (False only for ranker-pruned
-  candidates), ``cand_horizon_reached`` (decisions actually executed),
-  ``cand_terminated`` (the focal camp left the game inside the branch),
-  ``cand_last_round``, ``cand_step_rewards`` [Hmax, 4], ``cand_step_years``
-  [Hmax], ``cand_step_mask`` [Hmax], ``cand_returns_by_horizon`` [H, 4] (the
-  focal camp's discounted return at each declared horizon, tau =
-  ``discount_years``, zero after termination) with ``cand_return_available``
-  [H] (reached, or terminated earlier so the return is final);
-* independent re-evaluation (h12-dither streams 1..S at
-  ``root_final_horizon``, common random numbers across candidates of a root):
-  every candidate that survives to the final horizon is re-evaluated, so every
-  same-root pair has paired streams and a standard error.
-  ``cand_reeval_available``, ``cand_reeval_mask`` [S] (stream evaluated),
-  ``cand_reeval_returns`` [S, 4], ``cand_reeval_horizon`` [S] (decisions
-  reached per stream), ``cand_reeval_terminated`` [S], ``cand_reeval_mean`` [4] and
-  ``cand_reeval_se`` [4] (sample std over streams, ddof 1, / sqrt S). Paired
-  SEs of a difference come from the per-stream rows (same stream index);
-* ranker bookkeeping: ``cand_predicted_advantage`` [4] (A per
-  :data:`COMPONENTS`, normalized units) and ``cand_predicted_available``.
-
-Returns are in raw component units (QoL-years, population-years, feasibility
-cost, settlement guard) in :data:`COMPONENTS` order; divide by the frozen
-reference scales recorded in ``candidate_payload.reference_scales`` for
-normalized G. Pairs must be formed within one root, at one horizon and on one
-stream; never across roots, horizons or streams.
-
-:func:`load_search_payload` verifies the bindings and returns the two tables
-with global root indices. Like every training loader it refuses held-out-test
-outputs and reserved worlds unless ``training=False``.
+* ``schema``, ``component_order`` (qol_years, population_years, feasibility,
+  settlement_guard), ``returns_units`` (raw discounted component return),
+  ``discount_years`` (400), ``specialty_ids`` [14], ``activity_ids`` [22],
+  ``trade_groups`` [7];
+* ``tensors``: the focal camp's actor-visible observation rows at each root
+  exactly as ``labor_policy_tensors`` builds them, ``labor_personality`` set
+  to the root personality (no privileged key); ``privileged``: the raw
+  critic-only arrays (``labor_privileged.shard_keys``) of the same rows, or
+  None for a pre-privileged producer;
+* ``producer``: exporter identity (:data:`EXPORT_SCHEMA`), source run, world,
+  partition, root source, the declared search configuration, reference scales,
+  family codes, the movement-union codes and the ranker binding;
+* ``roots`` -- per root: ``root_id``, ``world``, ``turn``, ``camp``,
+  ``society``, ``source`` (``h12``/``actor``: whose trajectory the root is
+  on), ``tensor_row``, ``personality``, ``full_evaluation`` (no candidate was
+  skipped by the A-ranker; successive halving still prunes by horizon),
+  ``pair_sd`` (None: pair SEs come from the re-evaluation streams); extensions
+  ``final_horizon`` (decisions reached by the re-evaluated survivors),
+  ``truncated`` (the resolve cap stopped halving), ``horizons`` (declared),
+  ``reeval_streams``, ``ranker_mode`` (0 off, 1 pruned to top-k plus H12,
+  2 ranked but fully evaluated), ``population``, ``turn_years``;
+* per candidate: ``index``, ``family``, ``is_h12``, ``digest``
+  (``labor_search.payload_digest``), ``action`` (the complete executed schema-12
+  payload in raw output units), ``control`` (``all-idle`` when every resident
+  is idle, else None), ``bookkeeping_twin`` (None) and ``evaluations``; the
+  extensions ``description``, ``chosen_heads``, ``attempt_valid``,
+  ``natively_evaluated``, ``compiled`` (native largest-remainder residents
+  ``specialty_counts`` [14], ``worker_years`` [13][22] = residents x share x
+  ``turn_years``, ``population``, ``turn_years``, ``movement_slot`` in the
+  actor's 17-way movement union), ``horizon_reached``, ``terminated``,
+  ``last_round``, ``step_rewards`` [[4]] and ``step_years`` of the selection
+  branch, and ``predicted_advantage`` (centred A per component from the
+  ranker, or None);
+* evaluations: stream 0 (the deterministic H12 continuation every candidate
+  shares) at every declared horizon the branch reached or terminated before,
+  and streams 1..S (independent h12-dither re-evaluation with common random
+  numbers across a root's candidates) at the final horizon for every candidate
+  that survived to it, so every same-root survivor pair has paired streams.
+  Each: ``horizon``, ``reached_horizon``, ``terminated``, ``stream``,
+  ``returns`` [4], ``step_years``, ``se`` (None; paired SEs come from shared
+  streams).
 """
 
 from __future__ import annotations
@@ -90,9 +68,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import numpy as np
 import torch
@@ -100,13 +79,14 @@ import torch
 from . import contracts
 from .labor_bridge import ACTIVITIES, SPECIALTIES
 
-PAYLOAD_SCHEMA = "labor-search-candidate-payload-v1"
-PAYLOAD_SCHEMA_VERSION = 1
-ROOTS_DIR = "advantage-roots"
-CANDIDATES_DIR = "advantage-candidates"
+# Must equal labor_advantage.CANDIDATE_PAYLOAD_SCHEMA / RETURNS_UNITS (model side).
+CANDIDATE_PAYLOAD_SCHEMA = "labor-advantage-candidates-v1"
+RETURNS_UNITS = "raw-discounted-component-return"
+EXPORT_SCHEMA = "labor-search-candidate-export-v1"
+PAYLOAD_FILE = "advantage-candidates.pt"
 COMPONENTS = ("qol_years", "population_years", "feasibility", "settlement_guard")
 HEADS = ("labor", "movement", "fission", "trade_gate", "trade_value", "trade_share")
-ROOT_SOURCE_CODES = {"h12": 0, "actor": 1}
+ROOT_SOURCES = ("h12", "actor")
 RANKER_OFF, RANKER_PRUNED, RANKER_FULL = 0, 1, 2
 # The actor's movement union (labor_model, schema 12): no-op, seven site rows,
 # keep the destination intent, eight region rows.
@@ -117,21 +97,6 @@ MOVEMENT_UNION_CODES = (
     *(contracts.REGION_BASE + row for row in range(contracts.REGION_ROWS)),
 )
 ROLES = len(SPECIALTIES) - 1
-TRADE_GROUPS = len(contracts.TRADE_GROUPS)
-ACTION_KEYS = (
-    "action_specialty_allocation",
-    "action_activity_allocation",
-    "action_movement_code",
-    "action_movement_slot",
-    "action_fission",
-    "action_trade_gate",
-    "action_trade_value",
-    "action_trade_share",
-    "action_specialty_counts",
-    "action_worker_years",
-    "action_population",
-    "action_turn_years",
-)
 
 
 def movement_slot(code: int) -> int:
@@ -141,35 +106,23 @@ def movement_slot(code: int) -> int:
         raise ValueError(f"movement code {code} is not in the schema-12 movement union") from error
 
 
-def action_arrays(
+def compiled_action(
     payload: Mapping[str, Any], counts: Sequence[int], turn_years: float
-) -> dict[str, np.ndarray]:
-    """The complete schema-12 action of one candidate, raw and compiled (no batch axis)."""
-    specialty = np.asarray(payload["laborSpecialtyAllocation"], dtype=np.float64)
+) -> dict[str, Any]:
+    """The candidate's action compiled to native units (residents and worker-years)."""
     activity = np.asarray(payload["laborActivityAllocation"], dtype=np.float64)
     counts = np.asarray(counts, dtype=np.int64)
-    if specialty.shape != (len(SPECIALTIES),) or activity.shape != (ROLES, len(ACTIVITIES)):
+    if activity.shape != (ROLES, len(ACTIVITIES)) or counts.shape != (len(SPECIALTIES),):
         raise ValueError("candidate labor allocation has the wrong shape")
-    if counts.shape != (len(SPECIALTIES),) or (counts < 0).any():
-        raise ValueError("candidate compiled residents have the wrong shape")
-    gate = np.asarray(payload["tradeGate"], dtype=np.int64)
-    value = np.asarray(payload["tradeValue"], dtype=np.float64)
-    if gate.shape != (TRADE_GROUPS,) or value.shape != (TRADE_GROUPS,):
-        raise ValueError("candidate trade posture has the wrong shape")
+    if (counts < 0).any():
+        raise ValueError("candidate compiled residents must be nonnegative")
     years = float(turn_years)
     return {
-        "action_specialty_allocation": specialty,
-        "action_activity_allocation": activity,
-        "action_movement_code": np.asarray(int(payload["movement"]), dtype=np.int64),
-        "action_movement_slot": np.asarray(movement_slot(payload["movement"]), dtype=np.int64),
-        "action_fission": np.asarray(int(payload["fission"]), dtype=np.int64),
-        "action_trade_gate": gate,
-        "action_trade_value": value,
-        "action_trade_share": np.asarray(float(payload["tradeShare"]), dtype=np.float64),
-        "action_specialty_counts": counts,
-        "action_worker_years": counts[1:, None].astype(np.float64) * years * activity,
-        "action_population": np.asarray(int(counts.sum()), dtype=np.int64),
-        "action_turn_years": np.asarray(years, dtype=np.float64),
+        "specialty_counts": [int(c) for c in counts],
+        "worker_years": (counts[1:, None].astype(np.float64) * years * activity).tolist(),
+        "population": int(counts.sum()),
+        "turn_years": years,
+        "movement_slot": movement_slot(payload["movement"]),
     }
 
 
@@ -212,276 +165,216 @@ def returns_by_horizon(
     return out, available
 
 
-def reeval_summary(
-    streams: Mapping[int, Mapping[str, Any]], count: int
-) -> dict[str, np.ndarray]:
-    """Per-stream returns (streams 1..count) and the mean/SE over streams."""
-    returns = np.zeros((count, len(COMPONENTS)), dtype=np.float64)
-    horizon = np.zeros(count, dtype=np.int64)
-    terminated = np.zeros(count, dtype=np.bool_)
-    mask = np.zeros(count, dtype=np.bool_)
-    for stream, entry in streams.items():
-        index = int(stream) - 1
-        if not 0 <= index < count:
-            raise ValueError(f"re-evaluation stream {stream} outside 1..{count}")
-        returns[index] = np.asarray(entry["returns"], dtype=np.float64)
-        horizon[index] = int(entry["horizon"])
-        terminated[index] = bool(entry["terminated"])
-        mask[index] = True
-    available = bool(mask.all()) and count >= 2
-    mean = returns.mean(axis=0) if available else np.zeros(len(COMPONENTS))
-    se = (
-        returns.std(axis=0, ddof=1) / math.sqrt(count)
-        if available
-        else np.zeros(len(COMPONENTS))
-    )
-    return {
-        "cand_reeval_available": np.asarray(available, dtype=np.bool_),
-        "cand_reeval_returns": returns,
-        "cand_reeval_horizon": horizon,
-        "cand_reeval_terminated": terminated,
-        "cand_reeval_mask": mask,
-        "cand_reeval_mean": mean,
-        "cand_reeval_se": se,
-    }
-
-
-def digest_bytes(hex_digest: str) -> np.ndarray:
-    raw = bytes.fromhex(hex_digest)
-    if len(raw) != 32:
-        raise ValueError("candidate digest must be sha256")
-    return np.frombuffer(raw, dtype=np.uint8).copy()
-
-
-def stack_rows(rows: Sequence[Mapping[str, Any]], label: str) -> dict[str, np.ndarray]:
-    """Stack per-row arrays (no batch axis) into columns; every row needs every key."""
-    if not rows:
-        raise ValueError(f"{label} has no rows")
-    keys = set(rows[0])
-    for row in rows[1:]:
-        if set(row) != keys:
-            raise ValueError(f"{label} rows have different columns: {sorted(keys ^ set(row))}")
-    out = {}
-    for key in sorted(keys):
-        values = [_numpy(row[key]) for row in rows]
-        out[key] = np.stack(values)
-    return out
-
-
-def _numpy(value: Any) -> np.ndarray:
-    if isinstance(value, torch.Tensor):
-        return value.detach().cpu().numpy()
-    return np.asarray(value)
-
-
-def root_row_from_tensors(tensors: Mapping[str, torch.Tensor]) -> dict[str, np.ndarray]:
-    """Drop the batch axis of a one-row tensor dict (actor-visible + privileged)."""
-    out = {}
-    for key, value in tensors.items():
-        array = _numpy(value)
-        if array.shape[:1] != (1,):
-            raise ValueError(f"root tensor {key} is not a single row")
-        out[key] = array[0]
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Shard binding, verification and loading
-# ---------------------------------------------------------------------------
-
-
-def write_payload_tables(
-    staging: Path,
-    roots: Sequence[Mapping[str, Any]],
-    candidates: Sequence[Mapping[str, Any]],
+def selection_evaluations(
+    steps: Sequence[Sequence[float]],
+    years: Sequence[float],
+    horizons: Sequence[int],
     *,
-    world: int,
-    source_run: str,
-    record: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Write both tables under ``staging`` (which must not exist); returns the meta binding."""
-    from .labor_teacher_data import checkpoint_hash, write_shard
-
-    root_arrays = stack_rows(roots, "search payload roots")
-    cand_arrays = stack_rows(candidates, "search payload candidates")
-    n_roots = len(root_arrays["root_index"])
-    if not np.array_equal(root_arrays["root_index"], np.arange(n_roots)):
-        raise ValueError("search payload root indices must be 0..R-1 in order")
-    if not np.isin(cand_arrays["cand_root"], root_arrays["root_index"]).all():
-        raise ValueError("search payload candidate refers to an unknown root")
-    staging.mkdir(parents=True)
-    tables = {}
-    for name, arrays in ((ROOTS_DIR, root_arrays), (CANDIDATES_DIR, cand_arrays)):
-        table = write_shard(
-            staging / name,
-            arrays,
+    terminated: bool,
+    discount_years: float,
+) -> list[dict[str, Any]]:
+    """Stream-0 evaluations at every declared horizon the branch reached (or ended before)."""
+    by_h, available = returns_by_horizon(
+        steps, years, horizons, terminated=terminated, discount_years=discount_years
+    )
+    reached = len(steps)
+    out = []
+    for k, h in enumerate(horizons):
+        if not available[k]:
+            continue
+        resolved = min(int(h), reached)
+        out.append(
             {
-                "payload_schema": PAYLOAD_SCHEMA,
-                "payload_schema_version": PAYLOAD_SCHEMA_VERSION,
-                "table": name,
-                "world_seed": int(world),
-                "source_run": source_run,
-            },
+                "horizon": int(h),
+                "reached_horizon": resolved,
+                # The focal camp ended inside this window (at or before decision h).
+                "terminated": bool(terminated and reached <= int(h)),
+                "stream": 0,
+                "returns": [float(x) for x in by_h[k]],
+                "step_years": [float(y) for y in years[:resolved]],
+                "se": None,
+            }
         )
-        tables[name] = {
-            "rows": int(table["rows"]),
-            "data_digest": table["data_digest"],
-            "meta_sha256": checkpoint_hash(staging / name / "meta.json"),
+    return out
+
+
+def reevaluation_records(
+    streams: Mapping[int, Mapping[str, Any]], horizon: int
+) -> list[dict[str, Any]]:
+    """Streams >= 1 at the final horizon (complete or terminated branches only)."""
+    out = []
+    for stream in sorted(streams):
+        entry = streams[stream]
+        reached = int(entry["horizon"])
+        terminated = bool(entry["terminated"])
+        if int(stream) < 1:
+            raise ValueError("re-evaluation streams start at 1")
+        out.append(
+            {
+                "horizon": int(horizon),
+                "reached_horizon": reached,
+                "terminated": terminated,
+                "stream": int(stream),
+                "returns": [float(x) for x in np.asarray(entry["returns"], dtype=np.float64)],
+                "step_years": [float(y) for y in entry.get("years", [])],
+                "se": None,
+            }
+        )
+    return out
+
+
+def candidate_shard(
+    roots: Sequence[Mapping[str, Any]],
+    *,
+    producer: Mapping[str, Any],
+    discount_years: float,
+) -> dict[str, Any]:
+    """Assemble one ``labor-advantage-candidates-v1`` shard from per-root results.
+
+    Each element of ``roots`` is ``{"record": root dict, "tensors": one-row
+    actor-visible tensors, "privileged": one-row raw privileged arrays or
+    None}``; ``record["tensor_row"]`` must equal its position.
+    """
+    from .labor_privileged import is_privileged_key
+
+    if not roots:
+        raise ValueError("a candidate shard needs at least one root")
+    if float(discount_years) != contracts.HORIZON_YEARS:
+        raise ValueError("candidate payload discount must be the critic's 400-year constant")
+    keys = set(roots[0]["tensors"])
+    flags = {r["privileged"] is not None for r in roots}
+    if len(flags) != 1:
+        raise ValueError("candidate roots mix privileged and pre-privileged rows")
+    for row, root in enumerate(roots):
+        if set(root["tensors"]) != keys:
+            raise ValueError("candidate roots carry different observation tensors")
+        if int(root["record"]["tensor_row"]) != row:
+            raise ValueError("candidate root tensor_row must equal its position")
+        if sum(bool(c["is_h12"]) for c in root["record"]["candidates"]) != 1:
+            raise ValueError("candidate root must have exactly one H12 candidate")
+    leaked = sorted(k for k in keys if is_privileged_key(k))
+    if leaked:
+        raise ValueError(f"privileged keys in candidate observation tensors: {leaked}")
+    tensors = {k: torch.cat([torch.as_tensor(r["tensors"][k]) for r in roots]) for k in keys}
+    privileged = None
+    if flags == {True}:
+        names = set(roots[0]["privileged"])
+        privileged = {
+            k: torch.cat([torch.as_tensor(r["privileged"][k]) for r in roots]) for k in names
         }
+    ids = [r["record"]["root_id"] for r in roots]
+    if len(set(ids)) != len(ids):
+        raise ValueError("candidate root ids repeat within a shard")
     return {
-        "schema": PAYLOAD_SCHEMA,
-        "schema_version": PAYLOAD_SCHEMA_VERSION,
-        "tables": tables,
-        **dict(record),
+        "schema": CANDIDATE_PAYLOAD_SCHEMA,
+        "producer": dict(producer, export_schema=EXPORT_SCHEMA),
+        "component_order": list(COMPONENTS),
+        "returns_units": RETURNS_UNITS,
+        "discount_years": float(discount_years),
+        "specialty_ids": list(SPECIALTIES),
+        "activity_ids": list(ACTIVITIES),
+        "trade_groups": list(contracts.TRADE_GROUPS),
+        "tensors": tensors,
+        "privileged": privileged,
+        "roots": [json.loads(json.dumps(r["record"], allow_nan=False)) for r in roots],
     }
 
 
-def verify_payload_tables(shard: Path, meta: Mapping[str, Any]) -> dict[str, Any]:
-    """Check the bound sub-tables of one search shard against its meta."""
-    from .labor_teacher_data import _payload, checkpoint_hash
-    from .provenance import ProvenanceError, digest
+def write_candidate_shard(path: Path, shard: Mapping[str, Any]) -> dict[str, Any]:
+    """Save atomically; returns the binding recorded in the search shard meta."""
+    from .provenance import checkpoint_hash
+
+    path = Path(path)
+    if path.exists():
+        raise FileExistsError(f"{path} exists; candidate payloads are never overwritten")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    torch.save(dict(shard), temporary)
+    os.replace(temporary, path)
+    roots = shard["roots"]
+    return {
+        "schema": CANDIDATE_PAYLOAD_SCHEMA,
+        "export_schema": EXPORT_SCHEMA,
+        "file": PAYLOAD_FILE,
+        "sha256": checkpoint_hash(path),
+        "roots": len(roots),
+        "candidates": sum(len(r["candidates"]) for r in roots),
+        "evaluations": sum(len(c["evaluations"]) for r in roots for c in r["candidates"]),
+    }
+
+
+def read_candidate_shard(path: Path) -> dict[str, Any]:
+    return torch.load(Path(path), map_location="cpu", weights_only=True)
+
+
+def verify_candidate_payload(shard: Path, meta: Mapping[str, Any]) -> Path:
+    """The bound payload file of one search shard, hash-checked against its meta."""
+    from .provenance import ProvenanceError, checkpoint_hash
 
     binding = meta.get("candidate_payload")
     if not isinstance(binding, Mapping):
         raise ProvenanceError(f"search shard {shard.name} has no candidate payload")
-    if (
-        binding.get("schema") != PAYLOAD_SCHEMA
-        or binding.get("schema_version") != PAYLOAD_SCHEMA_VERSION
-    ):
+    if binding.get("schema") != CANDIDATE_PAYLOAD_SCHEMA or binding.get("file") != PAYLOAD_FILE:
         raise ProvenanceError(
-            f"search payload schema {binding.get('schema')!r} != supported {PAYLOAD_SCHEMA}"
+            f"search payload schema {binding.get('schema')!r} != {CANDIDATE_PAYLOAD_SCHEMA}"
         )
-    for name in (ROOTS_DIR, CANDIDATES_DIR):
-        entry = binding["tables"][name]
-        directory = shard / name
-        if checkpoint_hash(directory / "meta.json") != entry["meta_sha256"]:
-            raise ProvenanceError(f"search payload {name} meta hash mismatch")
-        table_meta = json.loads((directory / "meta.json").read_text())
-        actual = _payload(directory)
-        if (
-            actual != table_meta.get("payload")
-            or digest(actual) != table_meta.get("data_digest")
-            or table_meta["data_digest"] != entry["data_digest"]
-            or table_meta.get("source_run") != meta.get("source_run")
-        ):
-            raise ProvenanceError(f"search payload {name} payload hash mismatch")
-    return dict(binding)
+    path = shard / PAYLOAD_FILE
+    if not path.is_file() or checkpoint_hash(path) != binding.get("sha256"):
+        raise ProvenanceError(f"search payload {path} is missing or its hash differs")
+    return path
 
 
-def load_search_payload(
+def candidate_shard_paths(
     directory: Path, *, training: bool = True, drop_reserved: bool = False
-) -> dict[str, Any]:
-    """Verified roots and candidates of a search dataset, with global root indices.
+) -> list[Path]:
+    """Verified payload files of a published search dataset (for ``load_candidate_shards``).
 
-    Returns ``{"roots": {key: tensor}, "candidates": {key: tensor},
-    "collection": {...}}``; ``candidates["cand_root"]`` indexes the rows of
-    ``roots``. Training readers (the default) refuse held-out-test data and
-    reserved worlds 90154-90159, like every labor training loader.
+    Training readers (the default) refuse held-out-test data and reserved
+    worlds 90154-90159, like every labor training loader; evaluation readers
+    pass ``training=False``.
     """
     from .labor_teacher_data import _training_view, verify_dataset
-    from .provenance import ProvenanceError
 
     directory = Path(directory)
     manifest = verify_dataset(directory)
     manifest = _training_view(manifest, directory, training=training, drop=drop_reserved)
-    roots: dict[str, list[np.ndarray]] = {}
-    cands: dict[str, list[np.ndarray]] = {}
-    offset = 0
-    bindings = {}
-    for world, entry in sorted(manifest["shards"].items(), key=lambda kv: int(kv[0])):
+    paths = []
+    for _, entry in sorted(manifest["shards"].items(), key=lambda kv: int(kv[0])):
         shard = directory / entry["path"]
         meta = json.loads((shard / "meta.json").read_text())
-        bindings[str(world)] = verify_payload_tables(shard, meta)
-        root_part = _load_table(shard / ROOTS_DIR)
-        cand_part = _load_table(shard / CANDIDATES_DIR)
-        if set(root_part["row_world"].tolist()) != {int(world)}:
-            raise ProvenanceError("search payload roots belong to another world")
-        cand_part["cand_root"] = cand_part["cand_root"] + offset
-        root_part["root_index"] = root_part["root_index"] + offset
-        offset += len(root_part["root_index"])
-        for target, part in ((roots, root_part), (cands, cand_part)):
-            if target and set(target) != set(part):
-                # Privileged arrays exist only when the producer emits them.
-                raise ProvenanceError("search payload shards store different columns")
-            for key, value in part.items():
-                target.setdefault(key, []).append(value)
-    if not roots:
-        raise ProvenanceError("search dataset has no candidate payload")
-    first = next(iter(bindings.values()))
-    return {
-        "roots": {k: torch.from_numpy(np.concatenate(v)) for k, v in roots.items()},
-        "candidates": {k: torch.from_numpy(np.concatenate(v)) for k, v in cands.items()},
-        "collection": {
-            "payload_schema": PAYLOAD_SCHEMA,
-            "payload_schema_version": PAYLOAD_SCHEMA_VERSION,
-            "dataset_digest": manifest["dataset_digest"],
-            "source_run": manifest["source_run"],
-            "world_seeds": sorted(int(w) for w in manifest["shards"]),
-            "components": list(COMPONENTS),
-            "reference_scales": first.get("reference_scales"),
-            "discount_years": first.get("discount_years"),
-            "horizons": first.get("horizons"),
-            "partition": manifest["source_record"].get("options", {}).get("partition"),
-            "dropped_reserved_worlds": manifest.get("dropped_reserved_worlds", []),
-        },
-    }
+        paths.append(verify_candidate_payload(shard, meta))
+    return paths
 
 
-def _load_table(directory: Path) -> dict[str, np.ndarray]:
-    meta = json.loads((directory / "meta.json").read_text())
-    return {
-        name[: -len(".npy")]: np.load(directory / name, allow_pickle=False)
-        for name in sorted(meta["payload"])
-    }
+def digest_text(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
 
 
 # ---------------------------------------------------------------------------
-# A-ranker hook (labor_advantage, model side; off by default)
+# A-ranker hook (labor_advantage.AdvantageRanker, model side; off by default)
 # ---------------------------------------------------------------------------
 
 
-class CandidateRanker(Protocol):
-    """What ``labor_search`` needs from a trained advantage head.
-
-    ``score`` receives the root row (``advantage-roots`` columns as one-row
-    tensors, actor-visible and privileged) and the candidates' action columns
-    (:data:`ACTION_KEYS`, one row per candidate) and returns ``[n, 4]``
-    advantages per :data:`COMPONENTS` in normalized units (return / frozen
-    reference scale). Centering over the candidate set is applied by the
-    search; the ranker may return uncentered values.
-    """
-
-    def score(
-        self, root: Mapping[str, torch.Tensor], candidates: Mapping[str, torch.Tensor]
-    ) -> torch.Tensor: ...
-
-
-def load_ranker(path: Path) -> CandidateRanker:
-    """The advantage-head ranker from ``labor_advantage.load_search_ranker`` (model side)."""
+def load_ranker(
+    head_path: Path,
+    critic_checkpoint: Path,
+    *,
+    top_k: int,
+    full_fraction: float,
+    key: int,
+) -> Any:
+    """``labor_advantage.AdvantageRanker`` over the frozen critic the head was fitted on."""
     try:
         from . import labor_advantage  # type: ignore[attr-defined]
     except ImportError as error:  # pragma: no cover - depends on the model branch
         raise RuntimeError(
-            "the A-ranker needs labor_advantage.load_search_ranker (feature/r5-advantage)"
+            "the A-ranker needs labor_advantage (feature/r5-advantage) on this checkout"
         ) from error
-    loader = getattr(labor_advantage, "load_search_ranker", None)
-    if loader is None:
-        raise RuntimeError("labor_advantage provides no load_search_ranker(path)")
-    return loader(Path(path))
-
-
-def centered_scores(scores: Any, n: int) -> np.ndarray:
-    array = _numpy(scores).astype(np.float64)
-    if array.shape != (n, len(COMPONENTS)) or not np.isfinite(array).all():
-        raise ValueError(f"ranker scores must be finite [{n}, {len(COMPONENTS)}]")
-    return array - array.mean(axis=0, keepdims=True)
-
-
-def full_evaluation_root(key: Sequence[int], fraction: float) -> bool:
-    """Keyed draw: does this root keep the full native evaluation (regret measurement)?"""
-    if not 0.0 <= float(fraction) <= 1.0:
-        raise ValueError("full-evaluation fraction must be in [0, 1]")
-    seed = int.from_bytes(
-        hashlib.sha256(json.dumps([int(k) for k in key]).encode()).digest()[:8], "little"
+    task, costs = labor_advantage._load_critics(Path(critic_checkpoint))
+    head, _ = labor_advantage.load_advantage_head(
+        torch.load(Path(head_path), map_location="cpu", weights_only=True), task, costs
     )
-    return bool(np.random.default_rng(seed).random() < float(fraction))
+    head.eval()
+    return labor_advantage.AdvantageRanker(
+        task, costs, head, top_k=int(top_k), full_fraction=float(full_fraction), key=int(key)
+    )
