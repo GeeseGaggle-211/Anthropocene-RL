@@ -521,7 +521,12 @@ def _training_view(
 
 # Identity fields that only learner-state shards carry; teacher rows get these
 # defaults when several sources are aggregated (row_source 0 = teacher).
-ROW_SOURCES = {SOURCE_KIND: 0, "learner_state_dagger": 1, "native_search_labor_teacher": 2}
+ROW_SOURCES = {
+    SOURCE_KIND: 0,
+    "learner_state_dagger": 1,
+    "native_search_labor_teacher": 2,
+    "learner_state_teacher_continuation": 3,
+}
 AGGREGATE_IDENTITY_DEFAULTS = {
     "row_source": 0,
     "row_round": 0,
@@ -529,6 +534,8 @@ AGGREGATE_IDENTITY_DEFAULTS = {
     "row_start": -1,
     "row_start_index": -1,
     "row_branch_step": -1,
+    # -1: the (world, camp) teacher trajectory; >= 0: one teacher continuation.
+    "row_trajectory": -1,
 }
 
 

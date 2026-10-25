@@ -1128,10 +1128,17 @@ def _labor_reset_options(args: argparse.Namespace) -> Any:
 def _load_labor_teacher_dataset(
     args: argparse.Namespace, normalizer: Any, *, require_privileged: bool = False
 ) -> dict[str, Any]:
-    from .labor_teacher_data import load_labor_dataset
+    """One critic dataset, or several (teacher trajectories plus learner-state continuations)."""
+    from .labor_teacher_data import load_labor_datasets
 
-    return load_labor_dataset(
-        args.dataset,
+    directories = args.dataset if isinstance(args.dataset, list) else [args.dataset]
+    if len(directories) > 1 and not getattr(args, "learner_state_continuations", False):
+        raise ValueError(
+            "pretrain-critic takes one --dataset unless --learner-state-continuations aggregates "
+            "teacher trajectories with learner-state teacher continuations"
+        )
+    return load_labor_datasets(
+        [Path(d) for d in directories],
         expected_normalizer_digest=_normalization_digest(normalizer),
         require_privileged=require_privileged,
         drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
@@ -1421,7 +1428,10 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         teacher = _load_labor_teacher_dataset(
             args, normalizer, require_privileged=task.privileged_layout is not None
         )
-        require_critic_teacher_dataset(teacher)
+        continuations = bool(getattr(args, "learner_state_continuations", False))
+        require_critic_teacher_dataset(
+            teacher, allow_learner_state_continuation=continuations
+        )
         worlds = list(teacher["collection"]["world_seeds"])
         summary = pretrain_critic_on_dataset(
             task_critic=task,
@@ -1434,6 +1444,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             rng=shuffle,
             require_randomized_tail=bool(getattr(args, "require_randomized_tail", False)),
             **_cost_weight_kwargs(args),
+            **({"allow_learner_state_continuation": True} if continuations else {}),
         )
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
     else:
@@ -1963,8 +1974,16 @@ def argument_parser() -> argparse.ArgumentParser:
         "--worlds", default=None, help="comma-separated local diagnostic seeds"
     )
     pretrain_critic.add_argument(
-        "--dataset", type=Path, default=None,
-        help="published labor_teacher_data directory (alternative to --worlds)",
+        "--dataset", type=Path, action="append", default=None,
+        help="published labor_teacher_data directory (alternative to --worlds); repeat only with "
+        "--learner-state-continuations",
+    )
+    pretrain_critic.add_argument(
+        "--learner-state-continuations",
+        action="store_true",
+        default=False,
+        help="admit learner-state teacher continuations (labor_dagger --teacher-continuation, "
+        "row_source 3) as V^rho targets, alone or aggregated with teacher trajectories",
     )
     pretrain_critic.add_argument("--players", type=int, default=8)
     pretrain_critic.add_argument("--width", type=int, default=None)
