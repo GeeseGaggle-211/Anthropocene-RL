@@ -194,6 +194,14 @@ def test_live_dagger_round_feeds_aggregated_bc(tmp_path, bounded_normalizer) -> 
     reference = ltd.load_labor_dataset(teacher)
     assert learner["collection"]["actor_only"] is True
     assert bool((learner["row_source"] == 1).all())
+    # Both sources store the critic-only privileged view (schema 1) beside the observation;
+    # the equality loop below then binds the learner rows' privileged arrays to the teacher's.
+    from anthropocene_rl.autonomous_v7.labor_privileged import shard_keys
+
+    assert set(shard_keys()) <= set(learner) and set(shard_keys()) <= set(reference)
+    assert ltd.load_labor_dataset(dagger, require_privileged=True)["collection"][
+        "privileged_schema_version"
+    ] == 1
     # Branch step 0 is the teacher-prefix state: inputs and labels equal the collector's rows there.
     skip = {"row_weight", "row_source", "row_round", "row_depth", "row_start", "row_start_index",
             "row_branch_step"}

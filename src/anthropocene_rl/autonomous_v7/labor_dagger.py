@@ -67,6 +67,7 @@ from .labor_bc import (
     world_balanced_weights,
 )
 from .labor_ppo import execute_labor_decision
+from .labor_privileged import privileged_row_tensors
 from .protocol import seed_list
 from .provenance import ProvenanceError, checkpoint_hash, code_commit
 from .labor_teacher_data import (
@@ -215,6 +216,7 @@ def collect_learner_world(
                     contexts, tensors = labor_policy_tensors(
                         live, normalizer, personality=world_personality
                     )
+                    privileged = privileged_row_tensors(live)
                     catalogs = {context[0].camp_id: context[0] for context in contexts}
                     decision_turn = int(branch["turn"])
 
@@ -292,6 +294,7 @@ def collect_learner_world(
                             ),
                             elapsed=float(elapsed[camp]),
                             terminal=bool(terminal[camp]),
+                            privileged=privileged,
                         )
                     branch = next_step
                     if progress is not None:
@@ -329,6 +332,7 @@ def _record_row(
     guard: float,
     elapsed: float,
     terminal: bool,
+    privileged: Mapping[str, torch.Tensor] | None = None,
 ) -> None:
     result.counters["total_decisions"] += 1
     result.counters["initial_accepted" if accepted else "initial_rejected"] += 1
@@ -352,6 +356,9 @@ def _record_row(
     if label.full_action_valid:
         result.counters["full_action_label_valid"] += 1
     row_tensors = _one_row(tensors, row)
+    if privileged is not None:
+        # Critic-only raw arrays of the learner-visited state (same boundary as the observation).
+        row_tensors.update(_one_row(privileged, row))
     row_tensors.update(_label_tensors(label))
 
     def long(value: int) -> torch.Tensor:

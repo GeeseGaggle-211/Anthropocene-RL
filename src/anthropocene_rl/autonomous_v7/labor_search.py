@@ -93,6 +93,7 @@ from .labor_model import (
     LABOR_OBJECTIVE_REFERENCE_SCALES,
     LaborPersonality,
 )
+from .labor_privileged import privileged_row_tensors
 
 SEARCH_CONTRACT = "model9-labor-search-teacher-v1"
 SOURCE_KIND = "native_search_labor_teacher"
@@ -1374,6 +1375,10 @@ def search_root(
     # 4. Rows: one per personality, collector format plus search fields.
     rows: list[dict[str, torch.Tensor]] = []
     base_row = _one_row(tensors, row)
+    privileged = privileged_row_tensors([village])
+    if privileged is not None:
+        # Critic-only raw arrays of the root (same boundary as the observation).
+        base_row.update(_one_row(privileged, 0))
     for k, decision in enumerate(decisions):
         index = decision["label"]
         cand = accepted[index]

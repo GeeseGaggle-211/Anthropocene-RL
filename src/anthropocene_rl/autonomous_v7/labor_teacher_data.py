@@ -57,6 +57,12 @@ from .labor_bc import (
     world_balanced_weights,
 )
 from .labor_model import LaborPersonality
+from .labor_privileged import (
+    LABOR_PRIVILEGED_LAYOUT_V1,
+    is_privileged_key,
+    shard_keys as privileged_shard_keys,
+    validate_raw as validate_privileged_raw,
+)
 from .protocol import scan, seed_list
 from .provenance import ProvenanceError, checkpoint_hash, code_commit, digest, simulator_identity
 
@@ -140,17 +146,59 @@ def write_shard(directory: Path, arrays: Mapping[str, np.ndarray], meta: Mapping
     rows = {len(array) for array in arrays.values()}
     if len(rows) != 1 or next(iter(rows)) <= 0:
         raise ProvenanceError("labor teacher shard arrays must share a positive row count")
+    privileged = _privileged_meta(arrays)
     directory.mkdir(parents=True)
     for key, array in sorted(arrays.items()):
         if not ARRAY_NAME.fullmatch(key) or array.dtype.hasobject:
             raise ProvenanceError(f"invalid labor teacher array {key!r}")
         np.save(directory / (key + ".npy"), array, allow_pickle=False)
     record = dict(meta, schema=SCHEMA, rows=int(next(iter(rows))))
+    if privileged is not None:
+        record.update(privileged)
     record["payload"] = _payload(directory)
     record["data_digest"] = digest(record["payload"])
     (directory / "meta.json.tmp").write_text(json.dumps(record, sort_keys=True, allow_nan=False))
     os.replace(directory / "meta.json.tmp", directory / "meta.json")
     return record
+
+
+def _privileged_meta(arrays: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Critic-only privileged arrays are all-or-none; their schema is recorded in the meta."""
+    present = {key for key in arrays if is_privileged_key(key)}
+    if not present:
+        return None
+    expected = set(privileged_shard_keys(LABOR_PRIVILEGED_LAYOUT_V1))
+    if present != expected:
+        raise ProvenanceError(
+            f"labor shard privileged arrays are incomplete: {sorted(present ^ expected)}"
+        )
+    try:
+        validate_privileged_raw(arrays, LABOR_PRIVILEGED_LAYOUT_V1, context="labor shard")
+    except ValueError as error:
+        raise ProvenanceError(str(error)) from error
+    return {
+        "privileged_schema_version": LABOR_PRIVILEGED_LAYOUT_V1.schema_version,
+        "privileged_layout_digest": LABOR_PRIVILEGED_LAYOUT_V1.digest(),
+    }
+
+
+def shard_has_privileged(meta: Mapping[str, Any]) -> bool:
+    """Whether a published shard stores the critic-only privileged view (schema-checked)."""
+    names = {name[: -len(".npy")] for name in meta.get("payload", {})}
+    stored = {name for name in names if is_privileged_key(name)}
+    declared = meta.get("privileged_schema_version")
+    if not stored and declared is None:
+        return False
+    if declared != LABOR_PRIVILEGED_LAYOUT_V1.schema_version:
+        raise ProvenanceError(
+            f"labor shard privileged schema {declared!r} != supported "
+            f"{LABOR_PRIVILEGED_LAYOUT_V1.schema_version}"
+        )
+    if meta.get("privileged_layout_digest") != LABOR_PRIVILEGED_LAYOUT_V1.digest():
+        raise ProvenanceError("labor shard privileged layout differs from the reviewed schema")
+    if stored != set(privileged_shard_keys(LABOR_PRIVILEGED_LAYOUT_V1)):
+        raise ProvenanceError("labor shard privileged arrays are incomplete")
+    return True
 
 
 def verify_shard(directory: Path) -> dict:
@@ -167,6 +215,7 @@ def verify_shard(directory: Path) -> dict:
         raise ProvenanceError("labor teacher shard payload hash/dtype/shape mismatch")
     if any(entry["shape"][0] != meta["rows"] for entry in actual.values()):
         raise ProvenanceError("labor teacher shard row counts differ")
+    shard_has_privileged(meta)
     worlds = np.load(directory / "row_world.npy")
     if set(worlds.tolist()) != {meta["world_seed"]}:
         raise ProvenanceError("labor teacher shard rows belong to another world")
@@ -321,9 +370,30 @@ def verify_dataset(directory: Path) -> dict:
     return manifest
 
 
-def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | None = None) -> dict[str, Any]:
-    """Verify and concatenate shards; recompute world-balanced weights globally."""
+def load_labor_dataset(
+    directory: Path,
+    *,
+    expected_normalizer_digest: str | None = None,
+    require_privileged: bool = False,
+) -> dict[str, Any]:
+    """Verify and concatenate shards; recompute world-balanced weights globally.
+
+    ``require_privileged`` (critic training and calibration of a privileged
+    critic) rejects any shard without the critic-only privileged arrays; they
+    are never zero-filled. Otherwise (actor BC) a dataset whose shards do not
+    all store them is loaded without them.
+    """
     manifest = verify_dataset(Path(directory))
+    privileged_flags = []
+    for entry in manifest["shards"].values():
+        meta = json.loads((Path(directory) / entry["path"] / "meta.json").read_text())
+        privileged_flags.append(shard_has_privileged(meta))
+        if require_privileged and not privileged_flags[-1]:
+            raise ProvenanceError(
+                f"labor shard {entry['path']} has no privileged data; it is rejected for critic "
+                "training (privileged arrays are never zero-filled)"
+            )
+    keep_privileged = all(privileged_flags)
     tensors: dict[str, list[torch.Tensor]] = defaultdict(list)
     counters: dict[str, int] = defaultdict(int)
     reasons: dict[str, int] = defaultdict(int)
@@ -342,8 +412,10 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
         if {ELAPSED_YEARS_FIELD, LEGACY_ELAPSED_DAYS_FIELD} <= names:
             raise ProvenanceError("labor teacher shard stores both elapsed-years field names")
         for name in meta["payload"]:
-            array = np.load(shard / name, allow_pickle=False)
             key = name[: -len(".npy")]
+            if is_privileged_key(key) and not keep_privileged:
+                continue  # actor-only load of a partly privileged dataset
+            array = np.load(shard / name, allow_pickle=False)
             # Shards published before the rename store elapsed YEARS under the misnamed
             # legacy key; the values are already years and are kept unchanged.
             if key == LEGACY_ELAPSED_DAYS_FIELD:
@@ -393,6 +465,9 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
         dataset["collection"]["return_tail"] = return_tail
     if tail_records:
         dataset["collection"]["return_tail_by_world"] = tail_records
+    if keep_privileged:
+        validate_privileged_raw(dataset, LABOR_PRIVILEGED_LAYOUT_V1, context=f"labor dataset {directory}")
+        dataset["collection"]["privileged_schema_version"] = LABOR_PRIVILEGED_LAYOUT_V1.schema_version
     return dataset
 
 
@@ -434,7 +509,10 @@ def source_world_balanced_weights(
 
 
 def load_labor_datasets(
-    directories: Sequence[Path], *, expected_normalizer_digest: str | None = None
+    directories: Sequence[Path],
+    *,
+    expected_normalizer_digest: str | None = None,
+    require_privileged: bool = False,
 ) -> dict[str, Any]:
     """One dataset unchanged, or several sources mixed with equal source mass (brief 6.1).
 
@@ -450,10 +528,16 @@ def load_labor_datasets(
         raise ValueError("at least one labor dataset is required")
     if len(directories) == 1:
         return load_labor_dataset(
-            directories[0], expected_normalizer_digest=expected_normalizer_digest
+            directories[0],
+            expected_normalizer_digest=expected_normalizer_digest,
+            require_privileged=require_privileged,
         )
     parts = [
-        load_labor_dataset(d, expected_normalizer_digest=expected_normalizer_digest)
+        load_labor_dataset(
+            d,
+            expected_normalizer_digest=expected_normalizer_digest,
+            require_privileged=require_privileged,
+        )
         for d in directories
     ]
     digests = [p["collection"]["dataset_digest"] for p in parts]
@@ -483,6 +567,9 @@ def load_labor_datasets(
             extra = keys ^ set(tensors)
             if any(k.startswith(("target_", "label_")) or k in AGGREGATE_IDENTITY_DEFAULTS for k in extra):
                 raise ProvenanceError(f"aggregated labor datasets have different arrays: {sorted(extra)}")
+            if require_privileged and any(is_privileged_key(k) for k in extra):
+                raise ProvenanceError("aggregated labor datasets do not all store privileged data")
+            # Privileged arrays absent from one part are dropped for every part, never zero-filled.
             keys &= set(tensors)
     dataset: dict[str, Any] = {
         key: torch.cat([t[key] for t in tensors_by_part], dim=0) for key in sorted(keys)

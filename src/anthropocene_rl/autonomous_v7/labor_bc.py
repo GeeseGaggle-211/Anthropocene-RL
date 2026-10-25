@@ -54,9 +54,11 @@ from .labor_model import (
     LaborTaskCritic,
     _masked_softmax,
     _masks,
+    critic_privileged_batch,
     labor_policy_tensors,
 )
 from .labor_personality import personality_for_world
+from .labor_privileged import actor_inputs, privileged_row_tensors, require_critic_training_worlds
 from .labor_ppo import (
     RetainedLaborAction,
     execute_labor_decision,
@@ -1035,6 +1037,8 @@ class _TeacherTransition:
     terminal: Mapping[int, bool]
     elapsed: Mapping[int, float]
     outcomes: Mapping[int, Mapping[str, Any]]
+    # Critic-only raw privileged arrays aligned with ``live`` (None: pre-privileged producer).
+    privileged: Mapping[str, torch.Tensor] | None = None
 
     def head_rewards(self, camp: int, founded: Mapping[int, int]) -> dict[str, float]:
         """The four critic rewards of ``camp``'s transition, exactly as rows record them."""
@@ -1102,6 +1106,7 @@ def _teacher_transition(
         terminal=terminal,
         elapsed=elapsed,
         outcomes={int(v["camp"]): v for v in next_step["villages"]},
+        privileged=privileged_row_tensors(live),
     )
 
 
@@ -1404,6 +1409,10 @@ def collect_heuristic_world(
                 if label.full_action_valid:
                     result.counters["full_action_label_valid"] += 1
                 row_tensors = _one_row(transition.tensors, row)
+                if transition.privileged is not None:
+                    # Raw critic-only arrays from the same decision boundary as the
+                    # observation (row schema 1); never part of the actor tensors.
+                    row_tensors.update(_one_row(transition.privileged, row))
                 row_tensors.update(_label_tensors(label))
                 heads = transition.head_rewards(camp, founded)
                 row_tensors.update(
@@ -1729,7 +1738,8 @@ def _batch_loss_and_l1(
     act_weights: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, float, float, dict[str, float]]:
     B = len(batch_tensors["target_specialty"])
-    output = actor(batch_tensors)
+    # Stored rows may carry critic-only privileged arrays; the actor never sees them.
+    output = actor(actor_inputs(batch_tensors))
     spec_mask, act_mask = _masks(batch_tensors, B)
     device = output["specialty_logits"].device
 
@@ -2155,13 +2165,25 @@ def pretrain_critic_on_dataset(
     if not bool(keep.any()):
         raise ValueError("heuristic critic dataset has no admitted rows")
     kept = torch.nonzero(keep).reshape(-1)
+    require_critic_training_worlds(
+        dataset["row_world"].reshape(-1)[kept].tolist(), "heuristic critic pretraining"
+    )
     tensor_keys = [
         k
-        for k, v in dataset.items()
+        for k, v in actor_inputs(dataset).items()
         if isinstance(v, torch.Tensor)
         and not k.startswith(("target_", "label_", "reward_", "transition_", "row_", "tail_"))
     ]
     tensors = {k: dataset[k][kept] for k in tensor_keys}
+    # Critic-only privileged batch: its own dictionary, never merged into ``tensors``.
+    # Data without privileged arrays is rejected for a privileged critic, never zero-filled.
+    privileged = critic_privileged_batch(task_critic, dataset, kept)
+    cost_privileged = critic_privileged_batch(cost_critics, dataset, kept)
+    if (privileged is None) != (cost_privileged is None):
+        raise ValueError("task and cost critics disagree on the privileged block")
+
+    def privileged_rows(index: torch.Tensor) -> dict[str, torch.Tensor] | None:
+        return None if privileged is None else {k: v[index] for k, v in privileged.items()}
     task_targets = {name: returns[name][kept] for name in LABOR_OBJECTIVES}
     cost_targets = {name: returns[name][kept] for name in LABOR_COSTS}
     weights = world_balanced_weights(dataset["row_world"][kept]).double().numpy()
@@ -2179,11 +2201,16 @@ def pretrain_critic_on_dataset(
                 index = torch.arange(start, min(N, start + chunk))
                 t = {k: v[index] for k, v in tensors.items()}
                 count = len(index)
+                p = privileged_rows(index)
                 task_sum += count * float(
-                    labor_task_value_loss(task_critic, t, {k: v[index] for k, v in task_targets.items()})
+                    labor_task_value_loss(
+                        task_critic, t, {k: v[index] for k, v in task_targets.items()}, p
+                    )
                 )
                 cost_sum += count * float(
-                    labor_cost_value_loss(cost_critics, t, {k: v[index] for k, v in cost_targets.items()})
+                    labor_cost_value_loss(
+                        cost_critics, t, {k: v[index] for k, v in cost_targets.items()}, p
+                    )
                 )
         return task_sum / N, cost_sum / N
 
@@ -2194,11 +2221,18 @@ def pretrain_critic_on_dataset(
         for start in range(0, N, batch_size):
             batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
             b_tensors = {k: v[batch_idx] for k, v in tensors.items()}
+            b_privileged = privileged_rows(batch_idx)
             optimizer.zero_grad()
             loss = labor_task_value_loss(
-                task_critic, b_tensors, {k: v[batch_idx] for k, v in task_targets.items()}
+                task_critic,
+                b_tensors,
+                {k: v[batch_idx] for k, v in task_targets.items()},
+                b_privileged,
             ) + cost_loss_weight * labor_cost_value_loss(
-                cost_critics, b_tensors, {k: v[batch_idx] for k, v in cost_targets.items()}
+                cost_critics,
+                b_tensors,
+                {k: v[batch_idx] for k, v in cost_targets.items()},
+                b_privileged,
             )
             if not torch.isfinite(loss):
                 raise ValueError("heuristic critic pretraining produced a nonfinite loss")
@@ -2229,6 +2263,14 @@ def pretrain_critic_on_dataset(
         ),
         "sampling": "world-balanced-with-replacement",
         "discount_years": CRITIC_DISCOUNT_YEARS,
+        **(
+            {}
+            if privileged is None
+            else {
+                "privileged_schema_version": int(task_critic.privileged_layout.schema_version),
+                "privileged_normalizer_digest": task_critic.privileged_normalizer.digest(),
+            }
+        ),
         # Reported losses above are unweighted; only a non-default weight is recorded.
         **({} if cost_loss_weight == 1.0 else {"cost_loss_weight": float(cost_loss_weight)}),
     }
