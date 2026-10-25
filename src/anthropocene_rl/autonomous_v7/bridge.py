@@ -40,7 +40,18 @@ class Model9Bridge:
         self._lock = threading.Lock()
         self._stderr: deque[str] = deque(maxlen=200)
         threading.Thread(target=self._drain, daemon=True).start()
-        self.schema = contracts.verify_schema(self.request({"op": "schema"}))
+        schema_response = self.request({"op": "schema"})
+        self.schema = contracts.verify_schema(schema_response)
+        # Critic-only privileged view layout (simulator PrivilegedSchemaVersion); None for
+        # producers that predate it. Parsed strictly; it never enters the observation.
+        self.privileged_layout = None
+        if schema_response.get("privilegedLayout") is not None:
+            from .labor_privileged import LaborPrivilegedLayout
+
+            self.privileged_layout = LaborPrivilegedLayout.from_bridge(schema_response["privilegedLayout"])
+            if (schema_response.get("privilegedSchemaVersion") != self.privileged_layout.schema_version
+                    or schema_response.get("rowSchemaVersion") != 1):
+                raise ValueError("bridge privileged/row schema versions are inconsistent")
         self.decision_diagnostics: list[dict] = []
         self.raw_material_diagnostics: dict[str, dict] = {}
         self.diagnostic_schema_version = 0
@@ -223,8 +234,23 @@ class Model9Bridge:
         self.close()
 
 
+def privileged_batch(villages: Sequence[Mapping[str, Any]], layout: Any = None) -> dict[str, np.ndarray]:
+    """Critic-only batcher: the rows' ``privilegedView`` as raw per-family arrays.
+
+    This is a separate dictionary (``privileged_<family>``, ``privileged_<family>_present``,
+    ``privileged_schema_version``) and is never merged into :func:`observation_batch`'s
+    actor batch. A row without the view or with another schema version is rejected.
+    """
+    from .labor_privileged import LABOR_PRIVILEGED_LAYOUT_V1, privileged_raw_batch
+
+    return privileged_raw_batch(villages, LABOR_PRIVILEGED_LAYOUT_V1 if layout is None else layout)
+
+
 def observation_batch(villages: Sequence[Mapping[str, Any]]) -> dict[str, np.ndarray]:
-    """Stack bridge observations into the same arrays the NPY shards hold."""
+    """Stack bridge observations into the same arrays the NPY shards hold.
+
+    Actor/observation inputs only: the critic-only ``privilegedView`` (and the legacy
+    ``privileged`` vector) is deliberately excluded; see :func:`privileged_batch`."""
     obs = [v["observation"] for v in villages]
     batch: dict[str, np.ndarray] = {
         "core": np.asarray([o["core"] for o in obs], dtype=np.float32),

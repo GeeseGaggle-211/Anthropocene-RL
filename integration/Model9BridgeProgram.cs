@@ -108,6 +108,10 @@ namespace Anthropocene.RLBridge
                         simulatorSourceClean = BuildMetadata("AnthropoceneSimulatorClean") == "true",
                         coreWidth = ElderModel9Contract.CoreWidth,
                         coreFeatures = ElderModel9Encoder.CoreFeatureNames(),
+                        // Critic-only privileged view (simulator ElderModel9Privileged). Never part of the observation.
+                        privilegedSchemaVersion = ElderModel9Contract.PrivilegedSchemaVersion,
+                        rowSchemaVersion = ElderModel9Contract.RowSchemaVersion,
+                        privilegedLayout = ElderModel9Privileged.Layout(),
                         sets = ElderModel9Contract.Sets.Select(s => new { name = s.Name, rows = s.Rows, width = s.Width }).ToArray(),
                         services = ElderModel9Contract.GoodsServices,
                         strategic = ElderModel9Contract.StrategicControls,
@@ -531,6 +535,13 @@ namespace Anthropocene.RLBridge
                 priorPopulation = v.PriorPopulation, population = v.Population, qol = v.QoL, nutrition = v.Nutrition,
                 clothing = v.Clothing, housing = v.Housing, years = v.Years, welfare = v.Welfare,
                 terminated = v.Terminated, founded = v.Founded, interventions = v.Interventions.Length, privileged = v.Privileged,
+                // Critic-only typed view, captured with `observation` at the next decision boundary (row schema 1);
+                // the learner parses it into a separate critic batch and never into the actor batch.
+                privilegedSchemaVersion = v.PrivilegedSchemaVersion,
+                privilegedView = v.PrivilegedView == null ? null : new
+                {
+                    schemaVersion = v.PrivilegedView.SchemaVersion, rows = v.PrivilegedView.Rows, present = v.PrivilegedView.Present
+                },
                 tradeUtility = v.TradeUtility, specialistShare = v.SpecialistShare, goodsOutput = v.GoodsOutput,
                 decisionDiagnostics = v.DecisionDiagnostics,
                 observation = EncodeObservation(v),
