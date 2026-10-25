@@ -190,13 +190,16 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
   --dataset $calData --fit-dataset $fitData --out calibration.json
 ```
 
-* The normalizer is symlog then a frozen per-family affine (std floor 0.1, guard 10); a feature
-  whose symlog std over present rows is below 1e-3 is dead and normalizes to zero; absent rows
-  are zero. `fit-privileged-normalizer` writes `dead_mask_report` (per family: present rows and
-  the dead named fields) and the data audit (`privileged-dead-mask-audit` standalone), which also
-  lists `varying_but_dead_fields`: raw values that vary but are zeroed because of their unit
-  scale (per-day rates near 1e-4, or large near-constant stocks). Review that list before
-  training; it is the "silently zeroed field" hazard.
+* The privileged normalizer is schema v2 (`labor-privileged-normalizer-v2`): each feature has a declared
+  transform (`labor_privileged.PRIVILEGED_TRANSFORMS`, symlog by default; `per-year-log1p:0.1` for the
+  per-day regrowth rate; `symlog>identity` -- frozen at fit time -- for large near-constant stocks and
+  capacities and near-one nutrition fractions; fixed `count-log1p` for the structural overflow row-count),
+  then a frozen affine (std floor 0.1 except raw z-scores, guard 10). A field is dead (zeroed) only when it is
+  constant within float tolerance after its transform (std <= 1e-6 max(1, |mean|)). v1 normalizers still
+  load and normalize exactly as before. `fit-privileged-normalizer` writes `dead_mask_report` and the data
+  audit (`privileged-dead-mask-audit` standalone), which gives a reason for every dead field
+  (`constant-in-data`, `varies-only-at-float-rounding`, `never-present`), the legacy v1 flag and the fields
+  v2 rescues. Review it before training.
 * The actor normalizer keeps its legacy unversioned 10-wide `privileged_mean/std/dead` moments
   byte-identical (teacher shards bind its digest); they are unused. The critics read only the
   schema-1 per-family moments stored at checkpoint key `privileged_normalizer`.
@@ -219,6 +222,25 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
 * Not wired: PPO `collect`/`train` and the anchor-based `labor_value_calibration` call the critics
   without a privileged batch, so a privileged critic fails closed there. The brief authorizes no
   critic-driven actor update.
+
+### Reserved worlds, learner-state V targets (r5 data)
+
+* **Reserved worlds 90154-90159** never train any network (`labor_worlds`, one constant and guard). Teacher,
+  DAgger and search collection, PPO rollouts, `pretrain-bc`, `pretrain-critic` and every training dataset
+  loader refuse them; `--drop-reserved-worlds` on `pretrain-bc`/`pretrain-critic` instead drops those
+  worlds' shards from an older dataset (recorded as `dropped_reserved_worlds`). Teacher and search
+  collection run on them only with `--held-out-test` (reserved worlds only; outputs tagged
+  `partition: held-out-test`, refused by every training loader; evaluation readers use `training=False`).
+* **V^rho targets at learner-visited states.** `labor_dagger collect --teacher-continuation branch-end`
+  (or `all-visited`) `--continuation-out DIR` forks each learner-visited state, runs one H12 teacher
+  continuation for every live camp with the preregistered randomized tail (`--tail-draws/--tail-rho/
+  --tail-cap`, defaults 16/0.95/200) and restores the fork, so the actor rows are byte-identical. The
+  continuation dataset (source kind `learner_state_teacher_continuation`, `row_source` 3, one
+  `row_trajectory` per continuation, typed `tail_*` fields) is accepted only by
+  `pretrain-critic --learner-state-continuations`, alone or with teacher shards
+  (`--dataset teacher --dataset continuation`); actor BC refuses it. Cost: one continuation is
+  2 + 2 x required_terms resolves (the world's frozen schedule, e.g. 62 terms for world 90100), see the
+  r5 data report for measured times.
 
 ## 2. Collect one frozen-behavior physical rollout
 
