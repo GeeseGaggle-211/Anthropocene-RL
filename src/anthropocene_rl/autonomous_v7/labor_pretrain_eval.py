@@ -20,7 +20,11 @@ compact summary:
 ``autonomous``
     Closed-loop S1 check on development worlds: the actor controls every
     eligible camp (deterministic and/or stochastic) versus the native
-    heuristic controlling everything from the same reset snapshot.
+    heuristic controlling everything from the same reset snapshot. Mode
+    ``h12`` instead submits the converted heuristic recommendation (exactly as
+    ``labor_bc.collect_heuristic_world`` builds it) through the same action-12
+    labor runtime, separating interface loss (h12 vs heuristic) from actor
+    loss (actor vs h12).
 
 Gate semantics (critic): PASS when every metric gate and the coverage gates
 hold; FAIL when any metric gate fails; HOLD when the metrics pass but the
@@ -989,10 +993,133 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+H12_FALLBACK_HEADS = (
+    "specialty",
+    "activity_role",
+    "movement",
+    "fission",
+    "trade_gate",
+    "over_budget",
+    "full_action",
+)
+
+
+def _run_h12(job: Mapping[str, Any]) -> dict[str, Any]:
+    """Heuristic recommendation converted to action 12, every eligible camp.
+
+    Mirrors ``labor_bc.collect_heuristic_world``: capture the labor bridge
+    snapshot, step a shadow heuristic bridge from it, convert each camp's
+    decision with ``convert_heuristic_labor_label`` (whose ``action`` already
+    carries the collector's per-head fallbacks), submit it with
+    ``_retained_action`` and retry rejections with the all-idle ``_idle_retry``.
+    """
+    from collections import Counter
+
+    from .bridge import Model9Bridge
+    from .labor_bc import (
+        LaborResetOptions,
+        _idle_retry,
+        _retained_action,
+        convert_heuristic_labor_label,
+    )
+    from .labor_bridge import SPECIALTIES, LaborModel9Bridge
+    from .labor_model import LaborPersonality, labor_policy_tensors
+    from .labor_personality import personality_for_world
+    from .labor_ppo import execute_labor_decision
+
+    torch.set_num_threads(1)
+    _, _, _, _, normalizer = _load_models(Path(job["checkpoint"]))
+    world = int(job["world"])
+    personality = personality_for_world(LaborPersonality(), world)
+    options = LaborResetOptions.from_mapping(job["reset_options"])
+    farmer = SPECIALTIES.index(FARMER)
+    turns: list[dict[str, Any]] = []
+    rejected = retries = decisions = activity_roles = 0
+    fallback: Counter[str] = Counter()
+    reasons: Counter[str] = Counter()
+    with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heur:
+        step = bridge.reset(world, **options.reset_kwargs())
+        identity = bridge.last_reset_identity
+        terminated: set[int] = set()
+        nutrition: dict[int, float] = {}
+        _track(step, terminated, nutrition)
+        for _ in range(int(job["turns"])):
+            live = _live(step)
+            if not live:
+                break
+            contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
+            catalogs = {context[0].camp_id: context[0] for context in contexts}
+            snap = bridge._bridge.capture()
+            heur.reset(world, movement=options.movement, withheld=options.withheld, snapshot=snap)
+            h_step = heur.step({})
+            h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+            econ = h_step.get("economicDiagnostics") or {}
+            retained = {}
+            for row, (village, context) in enumerate(zip(live, contexts, strict=True)):
+                camp = int(village["camp"])
+                catalog = context[0]
+                label = convert_heuristic_labor_label(
+                    catalog,
+                    h_villages.get(camp, {}),
+                    econ.get(str(camp)),
+                    pre_observation=village["observation"],
+                )
+                decisions += 1
+                for reason in label.reasons:
+                    reasons[reason.split(":", 1)[0]] += 1
+                fallback["specialty"] += int(not label.specialty_valid)
+                # Only staffed roles carry an activity label; unstaffed roles are
+                # role-idle by construction, not a fallback.
+                roles = np.asarray(label.activity_role_valid, dtype=bool).reshape(-1)
+                staffed = np.asarray(label.specialty_counts).reshape(-1)[1 : 1 + roles.size] > 0
+                activity_roles += int(staffed.sum())
+                fallback["activity_role"] += int((staffed & ~roles).sum())
+                fallback["over_budget"] += int(bool(label.over_budget))
+                fallback["movement"] += int(not label.movement_valid)
+                fallback["fission"] += int(not label.fission_valid)
+                gates = np.asarray(label.trade_gate_valid, dtype=bool).reshape(-1)
+                fallback["trade_gate"] += int(not bool(np.all(gates)))
+                fallback["full_action"] += int(not label.full_action_valid)
+                retained[camp] = _retained_action(
+                    label, catalog, tensors["movement_mask"][row : row + 1]
+                )
+            execution = execute_labor_decision(bridge, catalogs, retained, _idle_retry)
+            next_step = execution.step
+            rejected += sum(1 for a in execution.initial_attempts.values() if not a.valid)
+            retries += len(execution.retry)
+            farmers = sum(
+                int(a.accepted_specialty_residents[farmer])
+                for a in execution.final_attempts.values()
+            )
+            population = sum(int(catalogs[c].population) for c in catalogs)
+            turns.append(_turn_record(next_step, farmers, population, terminated, nutrition))
+            _track(next_step, terminated, nutrition)
+            step = next_step
+    return {
+        "world": world,
+        "mode": "h12",
+        "reset_identity": identity,
+        "turns": turns,
+        "initial_rejections": rejected,
+        "retries": retries,
+        "h12_fallbacks": {
+            "decisions": decisions,
+            "activity_roles": activity_roles,
+            "counts": {k: int(fallback[k]) for k in H12_FALLBACK_HEADS},
+            "reasons": dict(sorted(reasons.items())),
+        },
+    }
+
+
 def _run_job(job: Mapping[str, Any]) -> dict[str, Any]:
     torch.set_num_threads(1)
     started = time.perf_counter()
-    result = _run_heuristic(job) if job["mode"] == "heuristic" else _run_actor(job)
+    if job["mode"] == "heuristic":
+        result = _run_heuristic(job)
+    elif job["mode"] == "h12":
+        result = _run_h12(job)
+    else:
+        result = _run_actor(job)
     result["wall_seconds"] = time.perf_counter() - started
     print(
         json.dumps(
@@ -1093,7 +1220,68 @@ def autonomous_report(results: Sequence[Mapping[str, Any]], modes: Sequence[str]
             "checks": checks,
             "gate": "PASS" if passed else "FAIL",
         }
-    return {"per_world": per_world, "aggregate": aggregate}
+    report: dict[str, Any] = {"per_world": per_world, "aggregate": aggregate}
+    if "h12" in modes:
+        report.update(_h12_extras(by, worlds, modes, per_world))
+    return report
+
+
+def _h12_extras(
+    by: Mapping[tuple[int, str], Mapping[str, Any]],
+    worlds: Sequence[int],
+    modes: Sequence[str],
+    per_world: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Fallback rates of the converted heuristic and actor/h12 ratios."""
+    counts: dict[str, int] = defaultdict(int)
+    reasons: dict[str, int] = defaultdict(int)
+    decisions = roles = 0
+    for world in worlds:
+        fb = by[(world, "h12")].get("h12_fallbacks") or {}
+        decisions += int(fb.get("decisions", 0))
+        roles += int(fb.get("activity_roles", 0))
+        for k, v in (fb.get("counts") or {}).items():
+            counts[k] += int(v)
+        for k, v in (fb.get("reasons") or {}).items():
+            reasons[k] += int(v)
+    rates = {}
+    for k, v in counts.items():
+        denominator = roles if k == "activity_role" else decisions
+        rates[k] = v / denominator if denominator > 0 else None
+    metrics = ("welfare", "person_years")
+    h12_sum = {m: sum(per_world[str(w)]["h12"][m] for w in worlds) for m in metrics}
+    vs_h12: dict[str, Any] = {}
+    for mode in modes:
+        if mode == "h12":
+            continue
+        sums = {m: sum(per_world[str(w)][mode][m] for w in worlds) for m in metrics}
+        ratios = {m: _ratio(sums[m], h12_sum[m]) for m in metrics}
+        ratios["qol"] = _ratio(
+            sums["welfare"] / sums["person_years"] if sums["person_years"] > 0 else 0.0,
+            h12_sum["welfare"] / h12_sum["person_years"] if h12_sum["person_years"] > 0 else 0.0,
+        )
+        vs_h12[mode] = {
+            "ratios": ratios,
+            "per_world": {
+                str(w): {
+                    m: _ratio(per_world[str(w)][mode][m], per_world[str(w)]["h12"][m])
+                    for m in (*metrics, "qol")
+                }
+                for w in worlds
+            },
+        }
+    return {
+        "h12_fallbacks": {
+            "decisions": decisions,
+            "activity_roles": roles,
+            "counts": dict(counts),
+            "rates": rates,
+            "reasons": dict(sorted(reasons.items())),
+            "note": "rates per camp decision (activity_role per staffed role); the fallbacks "
+            "are those built into labor_bc.convert_heuristic_labor_label, as in the BC collector",
+        },
+        "actor_vs_h12": vs_h12,
+    }
 
 
 def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
@@ -1108,8 +1296,8 @@ def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
             f"autonomous evaluation uses development worlds 2000-2059; got {outside[:5]}"
         )
     modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    if not modes or any(m not in ("deterministic", "stochastic") for m in modes):
-        raise ValueError("--modes must list deterministic and/or stochastic")
+    if not modes or any(m not in ("deterministic", "stochastic", "h12") for m in modes):
+        raise ValueError("--modes must list deterministic, stochastic and/or h12")
     reset = LaborResetOptions(
         players=args.players,
         movement=not args.no_movement,
@@ -1192,6 +1380,18 @@ def summarize_autonomous(report: Mapping[str, Any]) -> str:
             )
         )
         lines.append(" ".join(parts))
+    if "actor_vs_h12" in report:
+        for mode, entry in report["actor_vs_h12"].items():
+            r = entry["ratios"]
+            lines.append(
+                f"  {mode}/h12 welfare={_fmt(r['welfare'])} person-years={_fmt(r['person_years'])} "
+                f"qol={_fmt(r['qol'])}"
+            )
+        fb = report["h12_fallbacks"]
+        lines.append(
+            f"  h12 fallbacks (decisions={fb['decisions']}): "
+            + " ".join(f"{k}={_fmt(v)}" for k, v in sorted(fb["rates"].items()))
+        )
     return "\n".join(lines)
 
 

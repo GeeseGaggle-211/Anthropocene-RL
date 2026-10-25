@@ -190,3 +190,43 @@ def test_autonomous_report_ratios_and_gates() -> None:
     assert agg["checks"]["person_years_aggregate"] and agg["checks"]["same_reset_all_worlds"]
     assert agg["gate"] == "FAIL"
     assert report["per_world"]["1"]["deterministic"]["ratios"]["welfare"] == pytest.approx(0.95)
+
+
+def test_autonomous_report_h12_extras() -> None:
+    def run(world, mode, welfare, py, **extra):
+        turn = {
+            "welfare": welfare,
+            "person_years": py,
+            "qol": welfare / py,
+            "farmer_share": 0.1,
+            "housing_coverage": 1.0,
+            "clothing_coverage": 1.0,
+            "residents": 10,
+            "terminations": [],
+            "starvation_extinctions": [],
+        }
+        return dict(
+            {"world": world, "mode": mode, "turns": [turn], "reset_identity": {"f": world}}, **extra
+        )
+
+    fallbacks = {
+        "decisions": 4,
+        "activity_roles": 52,
+        "counts": {"specialty": 1, "activity_role": 13, "movement": 2},
+        "reasons": {"movement": 2},
+    }
+    base = [run(1, "heuristic", 100.0, 200.0), run(1, "deterministic", 60.0, 200.0)]
+    plain = ev.autonomous_report(base, ["deterministic"])
+    assert "actor_vs_h12" not in plain and "h12_fallbacks" not in plain
+    results = [*base, run(1, "h12", 80.0, 200.0, h12_fallbacks=fallbacks)]
+    report = ev.autonomous_report(results, ["h12", "deterministic"])
+    assert report["aggregate"]["deterministic"] == plain["aggregate"]["deterministic"]
+    assert report["aggregate"]["h12"]["ratios"]["welfare"] == pytest.approx(0.8)
+    vs = report["actor_vs_h12"]["deterministic"]
+    assert vs["ratios"]["welfare"] == pytest.approx(0.75)
+    assert vs["per_world"]["1"]["person_years"] == pytest.approx(1.0)
+    rates = report["h12_fallbacks"]["rates"]
+    assert rates["specialty"] == pytest.approx(0.25)
+    assert rates["activity_role"] == pytest.approx(0.25)
+    report.update({"worlds": [1], "turns": 1, "modes": ["h12", "deterministic"]})
+    assert "deterministic/h12 welfare=0.750" in ev.summarize_autonomous(report)
