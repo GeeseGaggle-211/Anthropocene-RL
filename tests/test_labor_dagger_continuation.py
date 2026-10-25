@@ -63,8 +63,8 @@ def test_each_continuation_is_its_own_trajectory() -> None:
     data = _rows([4, 4], trajectory=[0, 3], source=CONTINUATION_ROW_SOURCE)
     data["tail_value__qol_years"] = torch.tensor([10.0, 20.0], dtype=torch.float64)
     returns = discounted_returns(data)["qol_years"]
-    assert torch.allclose(returns.double(), torch.tensor([1 + GAMMA * 10, 1 + GAMMA * 20], dtype=torch.float64),
-                          atol=1e-5)
+    expected = torch.tensor([1 + GAMMA * 10, 1 + GAMMA * 20], dtype=torch.float64)
+    assert torch.allclose(returns.double(), expected, atol=1e-5)
     # Without the trajectory key the two rows would be one (world, camp) trajectory.
     merged = {k: v for k, v in data.items() if k != TRAJECTORY_FIELD}
     with pytest.raises(ValueError, match="tail value differs"):
@@ -204,10 +204,9 @@ def test_teacher_continuation_records_typed_tails_and_restores(monkeypatch) -> N
 
 @pytest.fixture(scope="module")
 def live_paths(tmp_path_factory):
-    from tests.test_labor_bc import _fit_test_normalizer
-
     from anthropocene_rl.autonomous_v7.labor_model import BOUNDED_FEATURE_CONTRACT
     from anthropocene_rl.autonomous_v7.labor_training import main as labor_training_main
+    from tests.test_labor_bc import _fit_test_normalizer
 
     root = tmp_path_factory.mktemp("continuation")
     norm = root / "norm.pt"
@@ -226,7 +225,7 @@ def test_live_continuations_leave_actor_rows_unchanged_and_feed_the_critic(live_
     from anthropocene_rl.autonomous_v7.labor_privileged import shard_keys
     from anthropocene_rl.autonomous_v7.labor_training import main as labor_training_main
 
-    root, norm, init = live_paths
+    root, _, init = live_paths
     tail = ["--tail-draws", "2", "--tail-rho", "0.91"]
     common = ["collect", "--checkpoint", str(init), "--worlds", "5000", "--round", "1",
               "--depth", "2", "--starts", "1", "--horizon", "3", "--players", "8",
