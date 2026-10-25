@@ -65,6 +65,36 @@ Personality conditioning is declared here and nowhere else: add `--personality d
 founding lineage; every later phase reads the distribution from the checkpoint. The default
 `balanced` reproduces the pre-FiLM model bitwise. See `docs/LABOR_PERSONALITY.md`.
 
+### Task-critic value support (versioned representation)
+
+Task critics fit `y = clip(symlog(G / s), low, high)` two-hot over `bins` values and decode
+`s * sum_j p_j symexp(b_j)`. The historical support `-2,9,255` decodes up to about 8102 reference
+scales, so stray upper-bin mass with negligible cross-entropy cost (1e-4 in the top bin adds about
+0.81 normalized units) can dominate the decoded value (brief section 17.2). The support is part
+of the labor model contract: the default is implicit and never serialized (old checkpoints and
+contracts are bitwise unchanged); any other support is recorded as `criticValueSupport`
+(`labor-task-symlog-two-hot-support-v2`) and every loader constructs the critic from it.
+Changing it is a declared representation change, not a tuning knob, and calibration reports are
+only comparable at the same support.
+
+* Audit targets first: `python -m anthropocene_rl.autonomous_v7.labor_critic_support audit
+  --dataset <fit-data> --out audit.json` reports per-head `symlog(G/s)` quantiles, clipping
+  fractions for candidate supports and a recommended support (observed range plus a margin).
+* New learner: `initialize ... --critic-value-support=LOW,HIGH,BINS`.
+* Existing checkpoint: `labor_critic_support convert --checkpoint in.pt
+  --critic-value-support=LOW,HIGH,BINS --out converted.pt` re-initialises only the two task-head
+  output layers (seeded, default the optimizer seed) and keeps the task encoder, cost critics,
+  actor, normalizer and trainer RNG; the critic optimizer is reset and the conversion is appended
+  to `critic_value_support_conversions`. Continue with `pretrain-critic --checkpoint
+  converted.pt`. Tools that splice critic tensors into another checkpoint must also copy the
+  contract's `criticValueSupport`.
+* `labor_pretrain_eval critic-calibration` reports, per task head, the clip fractions, the
+  probability mass and decoded contribution of bins above the observed target maximum
+  (`upper_mass`, `upper_contribution`, `upper_excess`, in reference-scale units comparable with
+  bias) and the top-bin mass.
+* `pretrain-critic --cost-loss-weight W` (dataset path only) scales the summed cost MSE in the
+  joint, globally clipped critic loss; the default 1.0 is unchanged and not recorded.
+
 ## 2. Collect one frozen-behavior physical rollout
 
 Collection uses the typed two-proposal bridge. An initial proposal scores labor plus retained

@@ -57,6 +57,8 @@ from .labor_model import (
     labor_checkpoint_personality,
     labor_log_prob,
     labor_policy_tensors,
+    LaborValueSupport,
+    labor_checkpoint_value_support,
     load_labor_checkpoint_models,
     nonlabor_entropy,
     nonlabor_log_prob,
@@ -895,7 +897,7 @@ def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
 ]:
     layout = LaborEncoderLayout.from_state(state.get("labor_encoder_layout"))
     actor = LaborActor(layout)
-    task = LaborTaskCritic(layout)
+    task = LaborTaskCritic(layout, support=labor_checkpoint_value_support(state))
     costs = LaborCostCritics(layout)
     # Also applies the contract's optional FiLM bound to all four encoders.
     _, normalizer = load_labor_checkpoint_models(
@@ -1147,7 +1149,11 @@ def _command_initialize(args: argparse.Namespace) -> None:
         LABOR_RESOURCE_FEATURE_WIDTH,
     )
     torch.manual_seed(args.optimizer_seed)
-    actor, task, costs = LaborActor(layout), LaborTaskCritic(layout), LaborCostCritics(layout)
+    actor = LaborActor(layout)
+    task = LaborTaskCritic(
+        layout, support=LaborValueSupport.parse(getattr(args, "critic_value_support", None))
+    )
+    costs = LaborCostCritics(layout)
     conditioning = LaborPersonalityConditioning(
         getattr(args, "personality", "balanced"),
         key=(
@@ -1305,6 +1311,12 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     _save_checkpoint(args.out, trainer_state)
 
 
+def _cost_weight_kwargs(args: argparse.Namespace) -> dict[str, float]:
+    """Pass a non-default cost-loss weight only, keeping default runs byte-identical."""
+    weight = float(getattr(args, "cost_loss_weight", 1.0))
+    return {} if weight == 1.0 else {"cost_loss_weight": weight}
+
+
 def _command_pretrain_critic(args: argparse.Namespace) -> None:
     from .labor_bc import pretrain_critic_on_heuristic_next_states
 
@@ -1335,9 +1347,12 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             lr=args.lr,
             max_grad_norm=args.max_grad_norm,
             rng=shuffle,
+            **_cost_weight_kwargs(args),
         )
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
     else:
+        if _cost_weight_kwargs(args):
+            raise ValueError("--cost-loss-weight is supported only with --dataset")
         worlds = _parse_worlds(
             args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
         )
@@ -1694,6 +1709,12 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="optional tanh bound on FiLM gamma/beta (off by default)",
     )
+    initialize.add_argument(
+        "--critic-value-support",
+        default=None,
+        metavar="LOW,HIGH,BINS",
+        help="versioned task-critic symlog clamp and bin count (default -2,9,255)",
+    )
     initialize.add_argument("--out", type=Path, required=True)
     initialize.set_defaults(handler=_command_initialize)
 
@@ -1756,6 +1777,12 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic.add_argument("--lr", type=float, default=1e-3)
     pretrain_critic.add_argument("--max-grad-norm", type=float, default=1.0)
     pretrain_critic.add_argument("--allow-vm-scale", action="store_true", default=False)
+    pretrain_critic.add_argument(
+        "--cost-loss-weight",
+        type=float,
+        default=1.0,
+        help="multiplier on the summed cost-critic MSE (default 1.0, unchanged)",
+    )
     pretrain_critic.add_argument("--out", type=Path, required=True)
     pretrain_critic.set_defaults(handler=_command_pretrain_critic)
 
