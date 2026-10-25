@@ -858,6 +858,42 @@ def _label_tensors(label: HeuristicLaborLabel) -> dict[str, torch.Tensor]:
     }
 
 
+def shadow_teacher_labels(
+    labor_bridge: Any,
+    heur_bridge: Any,
+    world_seed: int,
+    options: LaborResetOptions,
+    live: Sequence[Mapping[str, Any]],
+    contexts: Sequence[Any],
+) -> tuple[Mapping[str, Any], list[HeuristicLaborLabel]]:
+    """The teacher's converted full-action label for every live camp at this exact state.
+
+    Captures the actor-labor bridge boundary, resets the shadow heuristic bridge
+    from that snapshot with the same reset rules, takes one native heuristic step
+    and converts each camp's recommendation against its pre-action catalog. The
+    labor bridge itself is not advanced (one native resolve on the shadow bridge).
+    Shared by the teacher collector, the h12 evaluation path and the DAgger
+    learner-state collector.
+    """
+    snap = labor_bridge._bridge.capture()
+    heur_bridge.reset(
+        int(world_seed), movement=options.movement, withheld=options.withheld, snapshot=snap
+    )
+    h_step = heur_bridge.step({})
+    h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+    econ_by_camp = h_step.get("economicDiagnostics") or {}
+    labels = [
+        convert_heuristic_labor_label(
+            context[0],
+            h_villages.get(int(village["camp"]), {}),
+            econ_by_camp.get(str(int(village["camp"]))),
+            pre_observation=village["observation"],
+        )
+        for village, context in zip(live, contexts, strict=True)
+    ]
+    return h_step, labels
+
+
 @dataclass
 class WorldCollection:
     """All rows of one collected world, including quarantined ones."""
@@ -920,14 +956,10 @@ def collect_heuristic_world(
             decision_turn = int(step["turn"])
 
             # Shadow heuristic step from the captured boundary, same reset rules.
-            snap = labor_bridge._bridge.capture()
-            heur_bridge.reset(
-                int(world_seed), movement=options.movement, withheld=options.withheld, snapshot=snap
+            h_step, labels = shadow_teacher_labels(
+                labor_bridge, heur_bridge, int(world_seed), options, live, contexts
             )
-            h_step = heur_bridge.step({})
             result.native_resolves += 1
-            h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
-            econ_by_camp = h_step.get("economicDiagnostics") or {}
             if economic_trace is not None and getattr(heur_bridge, "economic_diagnostics", None):
                 for camp_id, diag in heur_bridge.economic_diagnostics.items():
                     trans_id = diag.get("transitionId") or f"{world_seed}:{camp_id}:{decision_turn}"
@@ -946,15 +978,9 @@ def collect_heuristic_world(
 
             retained: dict[int, RetainedLaborAction] = {}
             pending: dict[int, tuple[int, HeuristicLaborLabel]] = {}
-            for row, (village, context) in enumerate(zip(live, contexts, strict=True)):
+            for row, (village, context, label) in enumerate(zip(live, contexts, labels, strict=True)):
                 camp = int(village["camp"])
                 catalog = context[0]
-                label = convert_heuristic_labor_label(
-                    catalog,
-                    h_villages.get(camp, {}),
-                    econ_by_camp.get(str(camp)),
-                    pre_observation=village["observation"],
-                )
                 for reason in label.reasons:
                     result.reasons[reason.split(":", 1)[0]] += 1
                 pending[camp] = (row, label)

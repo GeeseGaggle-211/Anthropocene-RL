@@ -79,7 +79,12 @@ def normalizer_digest(normalizer: Any) -> str:
 
 
 def source_record(
-    options: Mapping[str, Any], schema: Any, bridge_sha256: str, *, production: bool
+    options: Mapping[str, Any],
+    schema: Any,
+    bridge_sha256: str,
+    *,
+    production: bool,
+    source_kind: str = SOURCE_KIND,
 ) -> dict[str, Any]:
     scan(dict(options))
     learner = code_commit()
@@ -87,7 +92,7 @@ def source_record(
         raise ProvenanceError("labor teacher generation requires a clean learner commit")
     body = {
         "schema": SCHEMA,
-        "source_kind": SOURCE_KIND,
+        "source_kind": source_kind,
         "label_contract": LABOR_LABEL_CONTRACT,
         "learner_commit": learner,
         "simulator": simulator_identity(schema, production=production),
@@ -152,14 +157,16 @@ def verify_shard(directory: Path) -> dict:
     worlds = np.load(directory / "row_world.npy")
     if set(worlds.tolist()) != {meta["world_seed"]}:
         raise ProvenanceError("labor teacher shard rows belong to another world")
-    identities = list(
-        zip(
-            np.load(directory / "row_turn.npy").tolist(),
-            np.load(directory / "row_camp.npy").tolist(),
-            np.load(directory / "row_attempt.npy").tolist(),
-            strict=True,
-        )
-    )
+    columns = [
+        np.load(directory / "row_turn.npy").tolist(),
+        np.load(directory / "row_camp.npy").tolist(),
+        np.load(directory / "row_attempt.npy").tolist(),
+    ]
+    if (directory / "row_start_index.npy").is_file():
+        # Learner-state (DAgger) shards: independent branches of one world may
+        # revisit a (turn, camp) identity; the branch start index separates them.
+        columns.append(np.load(directory / "row_start_index.npy").tolist())
+    identities = list(zip(*columns, strict=True))
     if len(set(identities)) != len(identities):
         raise ProvenanceError("duplicate labor teacher decision identities")
     return meta
@@ -313,6 +320,9 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
     options = manifest["source_record"]["options"]
     dataset["collection"] = {
         "label_contract": LABOR_LABEL_CONTRACT,
+        "source_kind": manifest["source_record"].get("source_kind", SOURCE_KIND),
+        "actor_only": bool(options.get("actor_only", False)),
+        "rows": int(len(keep)),
         "dataset_digest": manifest["dataset_digest"],
         "source_run": manifest["source_run"],
         "normalizer_digest": digest_value,
@@ -328,6 +338,142 @@ def load_labor_dataset(directory: Path, *, expected_normalizer_digest: str | Non
         "turns": int(options["turns"]),
         "reset_options": options["reset_options"],
         "sampling": "world-balanced-row-weights",
+    }
+    return dataset
+
+
+# Identity fields that only learner-state shards carry; teacher rows get these
+# defaults when several sources are aggregated (row_source 0 = teacher).
+ROW_SOURCES = {SOURCE_KIND: 0, "learner_state_dagger": 1}
+AGGREGATE_IDENTITY_DEFAULTS = {
+    "row_source": 0,
+    "row_round": 0,
+    "row_depth": 0,
+    "row_start": -1,
+    "row_start_index": -1,
+    "row_branch_step": -1,
+}
+
+
+def source_world_balanced_weights(
+    sources: torch.Tensor, worlds: torch.Tensor, keep: torch.Tensor | None = None
+) -> torch.Tensor:
+    """Equal total mass per source, equal mass per world within a source (mean weight one).
+
+    With one source this equals :func:`labor_bc.world_balanced_weights`.
+    """
+    sources = sources.reshape(-1)
+    worlds = worlds.reshape(-1)
+    keep = torch.ones_like(worlds, dtype=torch.bool) if keep is None else keep.reshape(-1).bool()
+    weights = torch.zeros(len(worlds), dtype=torch.float32)
+    total = int(keep.sum())
+    kept_sources = torch.unique(sources[keep]).tolist()
+    for source in kept_sources:
+        in_source = (sources == source) & keep
+        source_worlds = torch.unique(worlds[in_source]).tolist()
+        for world in source_worlds:
+            rows = in_source & (worlds == world)
+            weights[rows] = total / (
+                len(kept_sources) * len(source_worlds) * float(rows.sum())
+            )
+    return weights
+
+
+def load_labor_datasets(
+    directories: Sequence[Path], *, expected_normalizer_digest: str | None = None
+) -> dict[str, Any]:
+    """One dataset unchanged, or several sources mixed with equal source mass (brief 6.1).
+
+    A single directory returns :func:`load_labor_dataset` exactly. Several
+    directories are verified independently, grouped by source kind (the
+    original teacher demonstrations versus every aggregated learner-state
+    round), concatenated in the given order and reweighted so each source kind
+    carries equal total mass and each world carries equal mass within its
+    source. Quarantined rows keep zero weight.
+    """
+    directories = [Path(d) for d in directories]
+    if not directories:
+        raise ValueError("at least one labor dataset is required")
+    if len(directories) == 1:
+        return load_labor_dataset(
+            directories[0], expected_normalizer_digest=expected_normalizer_digest
+        )
+    parts = [
+        load_labor_dataset(d, expected_normalizer_digest=expected_normalizer_digest)
+        for d in directories
+    ]
+    digests = [p["collection"]["dataset_digest"] for p in parts]
+    if len(set(digests)) != len(digests):
+        raise ProvenanceError("the same labor dataset is listed more than once")
+    if len({p["collection"]["normalizer_digest"] for p in parts}) != 1:
+        raise ProvenanceError("aggregated labor datasets use different normalizers")
+    tensors_by_part = []
+    for part in parts:
+        kind = part["collection"]["source_kind"]
+        if kind not in ROW_SOURCES:
+            raise ProvenanceError(f"unknown labor dataset source kind {kind!r}")
+        rows = int(part["row_world"].shape[0])
+        tensors = {k: v for k, v in part.items() if isinstance(v, torch.Tensor)}
+        for key, default in AGGREGATE_IDENTITY_DEFAULTS.items():
+            if key not in tensors:
+                value = ROW_SOURCES[kind] if key == "row_source" else default
+                tensors[key] = torch.full((rows,), value, dtype=torch.long)
+        if not bool((tensors["row_source"].reshape(-1) == ROW_SOURCES[kind]).all()):
+            raise ProvenanceError("labor dataset row_source differs from its source kind")
+        tensors_by_part.append(tensors)
+    keys = set(tensors_by_part[0])
+    for tensors in tensors_by_part[1:]:
+        if set(tensors) != keys:
+            raise ProvenanceError(
+                f"aggregated labor datasets have different arrays: {sorted(keys ^ set(tensors))}"
+            )
+    dataset: dict[str, Any] = {
+        key: torch.cat([t[key] for t in tensors_by_part], dim=0) for key in sorted(keys)
+    }
+    keep = ~dataset["row_quarantined"].reshape(-1)
+    dataset["row_weight"] = source_world_balanced_weights(
+        dataset["row_source"], dataset["row_world"], keep
+    )
+    sources: dict[str, Any] = {}
+    row_source = dataset["row_source"].reshape(-1)
+    for kind, code in sorted(ROW_SOURCES.items(), key=lambda item: item[1]):
+        in_source = row_source == code
+        if not bool(in_source.any()):
+            continue
+        kept = in_source & keep
+        identity = set(
+            zip(
+                dataset["row_world"].reshape(-1)[kept].tolist(),
+                dataset["row_turn"].reshape(-1)[kept].tolist(),
+                dataset["row_camp"].reshape(-1)[kept].tolist(),
+                strict=True,
+            )
+        )
+        sources[kind] = {
+            "rows": int(in_source.sum()),
+            "kept_rows": int(kept.sum()),
+            "worlds": sorted(set(dataset["row_world"].reshape(-1)[kept].tolist())),
+            "unique_world_turn_camp_support": len(identity),
+            "repeated_world_turn_camp_rows": int(kept.sum()) - len(identity),
+            "weight_mass": float(dataset["row_weight"][in_source].sum()),
+        }
+    first = parts[0]["collection"]
+    dataset["collection"] = {
+        "label_contract": LABOR_LABEL_CONTRACT,
+        "source_kind": "aggregated",
+        "actor_only": any(p["collection"]["actor_only"] for p in parts),
+        "dataset_digest": digest(digests),
+        "component_dataset_digests": digests,
+        "component_collections": [
+            {k: v for k, v in p["collection"].items() if k != "label_unavailable_reasons"}
+            for p in parts
+        ],
+        "normalizer_digest": first["normalizer_digest"],
+        "sources": sources,
+        "rows": int(len(keep)),
+        "quarantined_rows": int((~keep).sum()),
+        "world_seeds": sorted(set(dataset["row_world"].reshape(-1).tolist())),
+        "sampling": "equal-source-mass-then-world-balanced-row-weights",
     }
     return dataset
 

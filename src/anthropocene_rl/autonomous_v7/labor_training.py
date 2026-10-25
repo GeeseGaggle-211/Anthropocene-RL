@@ -1128,6 +1128,18 @@ def _load_labor_teacher_dataset(args: argparse.Namespace, normalizer: Any) -> di
     )
 
 
+def _bc_dataset_directories(args: argparse.Namespace) -> list[Path]:
+    """--dataset (repeatable) plus --dataset-list entries, in order; empty when neither."""
+    directories = [Path(d) for d in (getattr(args, "dataset", None) or [])]
+    listing = getattr(args, "dataset_list", None)
+    if listing is not None:
+        for line in Path(listing).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                directories.append(Path(line))
+    return directories
+
+
 def _command_initialize(args: argparse.Namespace) -> None:
     source = torch.load(args.normalizer_checkpoint, map_location="cpu", weights_only=True)
     normalizer = load_checkpoint_normalizer(
@@ -1231,12 +1243,12 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     shuffle = np.random.default_rng(state["optimizer_seed"])
     shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
 
-    dataset_dir = getattr(args, "dataset", None)
-    if (dataset_dir is None) == (getattr(args, "worlds", None) is None):
-        raise ValueError("pretrain-bc requires exactly one of --dataset or --worlds")
+    dataset_dirs = _bc_dataset_directories(args)
+    if bool(dataset_dirs) == (getattr(args, "worlds", None) is not None):
+        raise ValueError("pretrain-bc requires exactly one of --dataset/--dataset-list or --worlds")
     worlds = (
         []
-        if dataset_dir is not None
+        if dataset_dirs
         else _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False))
     )
 
@@ -1252,8 +1264,12 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
             },
         )
 
-    if dataset_dir is not None:
-        dataset = _load_labor_teacher_dataset(args, normalizer)
+    if dataset_dirs:
+        from .labor_teacher_data import load_labor_datasets
+
+        dataset = load_labor_datasets(
+            dataset_dirs, expected_normalizer_digest=_normalization_digest(normalizer)
+        )
     else:
         dataset = collect_heuristic_bc_dataset(
             normalizer=normalizer,
@@ -1325,6 +1341,11 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         from .labor_bc import pretrain_critic_on_dataset
 
         teacher = _load_labor_teacher_dataset(args, normalizer)
+        if teacher["collection"].get("actor_only"):
+            raise ValueError(
+                "pretrain-critic refuses actor-only (learner-state DAgger) data: its rewards "
+                "follow the learner's short branches, not teacher-policy returns"
+            )
         worlds = list(teacher["collection"]["world_seeds"])
         summary = pretrain_critic_on_dataset(
             task_critic=task,
@@ -1703,8 +1724,15 @@ def argument_parser() -> argparse.ArgumentParser:
         "--worlds", default=None, help="comma-separated local diagnostic seeds"
     )
     pretrain_bc.add_argument(
-        "--dataset", type=Path, default=None,
-        help="published labor_teacher_data directory (alternative to --worlds)",
+        "--dataset", type=Path, action="append", default=None,
+        help=(
+            "published labor dataset directory (alternative to --worlds); repeat to aggregate "
+            "the teacher data with learner-state (DAgger) rounds at equal source mass"
+        ),
+    )
+    pretrain_bc.add_argument(
+        "--dataset-list", type=Path, default=None,
+        help="text file with one labor dataset directory per line (added after --dataset)",
     )
     pretrain_bc.add_argument("--players", type=int, default=8)
     pretrain_bc.add_argument("--width", type=int, default=None)

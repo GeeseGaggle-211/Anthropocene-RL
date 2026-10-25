@@ -895,21 +895,82 @@ def _run_heuristic(job: Mapping[str, Any]) -> dict[str, Any]:
     return {"world": world, "mode": "heuristic", "reset_identity": identity, "turns": turns}
 
 
-def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
-    from .labor_bc import LaborResetOptions
-    from .labor_bridge import SPECIALTIES, LaborModel9Bridge
+def actor_labor_decision(
+    bridge: Any,
+    actor: Any,
+    normalizer: Any,
+    personality: Any,
+    live: Sequence[Mapping[str, Any]],
+    catalogs: Mapping[int, Any],
+    tensors: Mapping[str, torch.Tensor],
+    *,
+    stochastic: bool,
+    generator: torch.Generator,
+) -> Any:
+    """The actor controls every live camp for one decision through the action-12 runtime.
+
+    Deterministic mode decodes masked-softmax means and categorical modes;
+    stochastic mode samples with ``generator``. A rejected initial request is
+    retried once with the actor conditioned on its rejected attempt. Shared by
+    the autonomous evaluation and the DAgger learner-state collector.
+    """
     from .labor_model import (
         deterministic_nonlabor_policy,
-        labor_checkpoint_personality,
         labor_policy_tensors,
         sample_labor_policy,
         sample_nonlabor_policy,
         schema12_initial_action,
         schema12_retry_action,
     )
-    from .labor_personality import personality_for_world
     from .labor_ppo import RetainedLaborAction, execute_labor_decision
     from .labor_training import _one_row
+
+    village_by_camp = {int(v["camp"]): v for v in live}
+    with torch.no_grad():
+        output = actor(tensors)
+        if stochastic:
+            labor = sample_labor_policy(output, tensors, generator=generator)
+            nonlabor = sample_nonlabor_policy(output, generator=generator)
+        else:
+            labor = _deterministic_labor_sample(output, tensors)
+            nonlabor = deterministic_nonlabor_policy(output)
+    retained = {
+        int(village["camp"]): RetainedLaborAction(
+            schema12_initial_action(labor, nonlabor, row),
+            _one_row(labor, row),
+            0.0,
+            _one_row(nonlabor, row),
+            0.0,
+        )
+        for row, village in enumerate(live)
+    }
+
+    def retry_factory(camp: int, catalog: Any, attempt: Any) -> RetainedLaborAction:
+        _, retry_tensors = labor_policy_tensors(
+            [village_by_camp[camp]],
+            normalizer,
+            personality=personality,
+            rejected_attempts=[attempt],
+        )
+        with torch.no_grad():
+            retry_output = actor(retry_tensors)
+            sample = (
+                sample_labor_policy(retry_output, retry_tensors, generator=generator)
+                if stochastic
+                else _deterministic_labor_sample(retry_output, retry_tensors)
+            )
+        return RetainedLaborAction(
+            schema12_retry_action(sample, 0), _one_row(sample, 0), 0.0, None, None
+        )
+
+    return execute_labor_decision(bridge, catalogs, retained, retry_factory)
+
+
+def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
+    from .labor_bc import LaborResetOptions
+    from .labor_bridge import SPECIALTIES, LaborModel9Bridge
+    from .labor_model import labor_checkpoint_personality, labor_policy_tensors
+    from .labor_personality import personality_for_world
 
     torch.set_num_threads(1)
     state, actor, _, _, normalizer = _load_models(Path(job["checkpoint"]))
@@ -933,45 +994,17 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
                 break
             contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
             catalogs = {context[0].camp_id: context[0] for context in contexts}
-            village_by_camp = {int(v["camp"]): v for v in live}
-            with torch.no_grad():
-                output = actor(tensors)
-                if stochastic:
-                    labor = sample_labor_policy(output, tensors, generator=generator)
-                    nonlabor = sample_nonlabor_policy(output, generator=generator)
-                else:
-                    labor = _deterministic_labor_sample(output, tensors)
-                    nonlabor = deterministic_nonlabor_policy(output)
-            retained = {
-                int(village["camp"]): RetainedLaborAction(
-                    schema12_initial_action(labor, nonlabor, row),
-                    _one_row(labor, row),
-                    0.0,
-                    _one_row(nonlabor, row),
-                    0.0,
-                )
-                for row, village in enumerate(live)
-            }
-
-            def retry_factory(camp: int, catalog: Any, attempt: Any) -> RetainedLaborAction:
-                _, retry_tensors = labor_policy_tensors(
-                    [village_by_camp[camp]],
-                    normalizer,
-                    personality=personality,
-                    rejected_attempts=[attempt],
-                )
-                with torch.no_grad():
-                    retry_output = actor(retry_tensors)
-                    sample = (
-                        sample_labor_policy(retry_output, retry_tensors, generator=generator)
-                        if stochastic
-                        else _deterministic_labor_sample(retry_output, retry_tensors)
-                    )
-                return RetainedLaborAction(
-                    schema12_retry_action(sample, 0), _one_row(sample, 0), 0.0, None, None
-                )
-
-            execution = execute_labor_decision(bridge, catalogs, retained, retry_factory)
+            execution = actor_labor_decision(
+                bridge,
+                actor,
+                normalizer,
+                personality,
+                live,
+                catalogs,
+                tensors,
+                stochastic=stochastic,
+                generator=generator,
+            )
             next_step = execution.step
             rejected += sum(1 for a in execution.initial_attempts.values() if not a.valid)
             retries += len(execution.retry)
