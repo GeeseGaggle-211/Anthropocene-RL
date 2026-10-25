@@ -68,6 +68,7 @@ from .labor_model import (
     schema12_initial_action,
     schema12_retry_action,
     set_labor_film_bound,
+    bind_privileged_normalizer,
 )
 from .labor_personality import (
     LaborPersonalityAssignment,
@@ -1123,12 +1124,28 @@ def _labor_reset_options(args: argparse.Namespace) -> Any:
     )
 
 
-def _load_labor_teacher_dataset(args: argparse.Namespace, normalizer: Any) -> dict[str, Any]:
+def _load_labor_teacher_dataset(
+    args: argparse.Namespace, normalizer: Any, *, require_privileged: bool = False
+) -> dict[str, Any]:
     from .labor_teacher_data import load_labor_dataset
 
     return load_labor_dataset(
-        args.dataset, expected_normalizer_digest=_normalization_digest(normalizer)
+        args.dataset,
+        expected_normalizer_digest=_normalization_digest(normalizer),
+        require_privileged=require_privileged,
     )
+
+
+def _load_privileged_normalizer(path: Path | None) -> Any:
+    """A frozen privileged normalizer from ``fit-privileged-normalizer`` (or None)."""
+    if path is None:
+        return None
+    from .labor_privileged import PRIVILEGED_NORMALIZER_KIND, LaborPrivilegedNormalizer
+
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    if not isinstance(state, Mapping) or state.get("kind") != PRIVILEGED_NORMALIZER_KIND:
+        raise ValueError(f"{path} is not a fitted labor privileged normalizer")
+    return LaborPrivilegedNormalizer.from_state(state["privileged_normalizer"])
 
 
 def _bc_dataset_directories(args: argparse.Namespace) -> list[Path]:
@@ -1168,6 +1185,9 @@ def _command_initialize(args: argparse.Namespace) -> None:
     normalizer = load_checkpoint_normalizer(
         source, expected_feature_contract=BOUNDED_FEATURE_CONTRACT
     )
+    privileged_normalizer = _load_privileged_normalizer(
+        getattr(args, "privileged_normalizer", None)
+    )
     world = checked_seeds([args.world_seed], "labor initialize world")[0]
     with LaborModel9Bridge() as bridge:
         step = bridge.reset(world)
@@ -1175,16 +1195,25 @@ def _command_initialize(args: argparse.Namespace) -> None:
         if not live:
             raise ValueError("labor initialization world has no live policy rows")
         _, tensors = labor_policy_tensors(live, normalizer)
+        if privileged_normalizer is not None:
+            from .labor_privileged import privileged_raw_batch
+
+            producer = getattr(getattr(bridge, "_bridge", bridge), "privileged_layout", None)
+            if producer != privileged_normalizer.layout:
+                raise ValueError("bridge privileged layout differs from the privileged normalizer")
+            privileged_raw_batch(live, privileged_normalizer.layout)  # producer emits it now
     layout = LaborEncoderLayout(
         int(tensors["core"].shape[1]),
         LABOR_SPECIALTY_FEATURE_WIDTH,
         LABOR_ACTIVITY_FEATURE_WIDTH,
         LABOR_RESOURCE_FEATURE_WIDTH,
+        privileged=None if privileged_normalizer is None else privileged_normalizer.layout,
     )
     torch.manual_seed(args.optimizer_seed)
     actor = LaborActor(layout)
     task = LaborTaskCritic(layout, support=_initialize_value_support(args))
     costs = LaborCostCritics(layout)
+    bind_privileged_normalizer(privileged_normalizer, task, costs)
     conditioning = LaborPersonalityConditioning(
         getattr(args, "personality", "balanced"),
         key=(
@@ -1382,7 +1411,9 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     if dataset_dir is not None:
         from .labor_bc import pretrain_critic_on_dataset, require_critic_teacher_dataset
 
-        teacher = _load_labor_teacher_dataset(args, normalizer)
+        teacher = _load_labor_teacher_dataset(
+            args, normalizer, require_privileged=task.privileged_layout is not None
+        )
         require_critic_teacher_dataset(teacher)
         worlds = list(teacher["collection"]["world_seeds"])
         summary = pretrain_critic_on_dataset(
@@ -1657,6 +1688,92 @@ def _command_train(args: argparse.Namespace) -> None:
     _save_checkpoint(args.out, next_state)
 
 
+def _command_fit_privileged_normalizer(args: argparse.Namespace) -> None:
+    """Fit the frozen per-family privileged moments on fitting-world teacher shards."""
+    from .labor_bc import CRITIC_TEACHER_SOURCE_KIND
+    from .labor_privileged import (
+        PRIVILEGED_NORMALIZER_KIND,
+        LaborPrivilegedNormalizer,
+        dead_mask_audit,
+    )
+    from .labor_teacher_data import load_labor_dataset
+
+    excluded: set[int] = set()
+    for directory in args.calibration_dataset or []:
+        manifest = json.loads((Path(directory) / "dataset.json").read_text())
+        excluded |= {int(world) for world in manifest["shards"]}
+    parts = []
+    for directory in args.dataset:
+        part = load_labor_dataset(Path(directory), require_privileged=True)
+        if part["collection"]["source_kind"] != CRITIC_TEACHER_SOURCE_KIND:
+            raise ValueError("privileged moments are fitted on heuristic-teacher shards only")
+        parts.append(part)
+    from .labor_privileged import shard_keys
+
+    arrays = {key: torch.cat([part[key] for part in parts], dim=0) for key in shard_keys()}
+    worlds = sorted({int(w) for part in parts for w in part["row_world"].reshape(-1).tolist()})
+    normalizer = LaborPrivilegedNormalizer.fit(
+        arrays,
+        worlds=worlds,
+        excluded_worlds=excluded,
+        fit_record={
+            "dataset_digests": [part["collection"]["dataset_digest"] for part in parts],
+            "excluded_calibration_worlds": sorted(excluded),
+            "source_kind": CRITIC_TEACHER_SOURCE_KIND,
+        },
+    )
+    report = {
+        "normalizer_dead_mask": normalizer.dead_mask_report(),
+        "data_audit": dead_mask_audit(arrays),
+    }
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = out_path.with_suffix(out_path.suffix + ".tmp")
+    torch.save(
+        {
+            "kind": PRIVILEGED_NORMALIZER_KIND,
+            "privileged_normalizer": normalizer.state_dict(),
+            "dead_mask_report": report["normalizer_dead_mask"],
+        },
+        temporary,
+    )
+    os.replace(temporary, out_path)
+    if getattr(args, "report", None) is not None:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    summary = report["normalizer_dead_mask"]
+    print(
+        json.dumps(
+            {
+                "out": str(out_path),
+                "digest": normalizer.digest(),
+                "worlds": worlds,
+                "rows": normalizer.fit_record["rows"],
+                "dead_total": summary["dead_total"],
+                "fields_total": summary["fields_total"],
+                "dead_by_family": {
+                    name: family["dead_fields"] for name, family in summary["families"].items()
+                },
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def _command_privileged_audit(args: argparse.Namespace) -> None:
+    """Data-only dead-mask audit of stored privileged arrays (no fit-world policy)."""
+    from .labor_privileged import dead_mask_audit, shard_keys
+    from .labor_teacher_data import load_labor_dataset
+
+    parts = [load_labor_dataset(Path(d), require_privileged=True) for d in args.dataset]
+    arrays = {key: torch.cat([part[key] for part in parts], dim=0) for key in shard_keys()}
+    report = dead_mask_audit(arrays)
+    report["worlds"] = sorted({int(w) for p in parts for w in p["row_world"].reshape(-1).tolist()})
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(json.dumps(report, indent=2, sort_keys=True, allow_nan=False) + "\n")
+    print(json.dumps({name: f["dead_fields"] for name, f in report["families"].items()}))
+
+
 def _command_fit_normalizer(args: argparse.Namespace) -> None:
     worlds = _parse_worlds(args.worlds, allow_vm_scale=args.allow_vm_scale)
     turns = int(args.turns)
@@ -1770,6 +1887,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=False,
         help="declare the campaign-r5 task-critic value support -0.5,2.5,255 "
         "(LABOR_CAMPAIGN_R5_VALUE_SUPPORT)",
+    )
+    initialize.add_argument(
+        "--privileged-normalizer",
+        type=Path,
+        default=None,
+        help="fit-privileged-normalizer output: build the three critics with the critic-only "
+        "privileged block (schema 1); the actor never receives it",
     )
     initialize.add_argument("--out", type=Path, required=True)
     initialize.set_defaults(handler=_command_initialize)
@@ -1907,6 +2031,29 @@ def argument_parser() -> argparse.ArgumentParser:
     fit_normalizer.add_argument("--allow-vm-scale", action="store_true", default=False)
     fit_normalizer.add_argument("--out", type=Path, required=True)
     fit_normalizer.set_defaults(handler=_command_fit_normalizer)
+
+    fit_privileged = commands.add_parser(
+        "fit-privileged-normalizer",
+        help="fit frozen per-family privileged moments on fitting-world teacher shards",
+    )
+    fit_privileged.add_argument(
+        "--dataset", type=Path, action="append", required=True,
+        help="published privileged teacher dataset on fitting worlds (repeatable)",
+    )
+    fit_privileged.add_argument(
+        "--calibration-dataset", type=Path, action="append", default=None,
+        help="calibration dataset whose worlds must not be fitted (repeatable)",
+    )
+    fit_privileged.add_argument("--report", type=Path, default=None, help="dead-mask report JSON")
+    fit_privileged.add_argument("--out", type=Path, required=True)
+    fit_privileged.set_defaults(handler=_command_fit_privileged_normalizer)
+
+    privileged_audit = commands.add_parser(
+        "privileged-dead-mask-audit", help="report constant/dead named privileged fields in data"
+    )
+    privileged_audit.add_argument("--dataset", type=Path, action="append", required=True)
+    privileged_audit.add_argument("--out", type=Path, required=True)
+    privileged_audit.set_defaults(handler=_command_privileged_audit)
     return parser
 
 

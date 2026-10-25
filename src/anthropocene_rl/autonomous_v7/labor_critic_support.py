@@ -16,9 +16,18 @@ change declared in the checkpoint's labor model contract (see
 ``convert``
     Re-declare an existing trainer checkpoint's task-critic support. Only the
     two task-head output layers (and the ``bins`` buffer) are re-initialised;
-    the shared task encoder, cost critics, actor, normalizer and trainer RNG
+    state, the cost critics, actor, normalizer and trainer RNG
     state are kept. The critic optimizer is reset (its head moments no longer
     match), and the conversion is recorded in the checkpoint.
+
+``convert-privileged``
+    Migrate a checkpoint without a privileged block to the critic-only
+    privileged architecture (intervention A). Every existing tensor (actor,
+    critic encoders and heads) is loaded strictly; only the new privileged
+    family projectors and embeddings are initialised, from a declared seed,
+    through the critic encoders' strict-load migration hook. The frozen
+    privileged normalizer is bound, the critic optimizer is reset and the
+    migration is recorded.
 
 Example::
 
@@ -47,14 +56,19 @@ from .labor_model import (
     LABOR_COSTS,
     LABOR_OBJECTIVE_REFERENCE_SCALES,
     LABOR_OBJECTIVES,
+    LaborCostCritics,
+    LaborCriticEncoder,
+    LaborEncoderLayout,
     LaborTaskCritic,
     LaborValueSupport,
+    bind_privileged_normalizer,
     labor_checkpoint_contract,
     labor_checkpoint_personality,
     set_labor_film_bound,
 )
 
 CONVERSION_CONTRACT = "labor-critic-value-support-conversion-v1"
+PRIVILEGED_CONVERSION_CONTRACT = "labor-critic-privileged-migration-v1"
 AUDIT_SCHEMA = "labor-critic-target-audit-v1"
 QUANTILES = (0.0, 0.001, 0.01, 0.05, 0.5, 0.95, 0.99, 0.999, 1.0)
 DEFAULT_CANDIDATES = ((-2.0, 9.0), (-2.0, 6.0), (-2.0, 5.0), (-1.0, 4.0), (-1.0, 3.0), (-0.5, 2.5))
@@ -201,6 +215,7 @@ def convert_task_critic_support(
     head_seed = int(state["optimizer_seed"] if seed is None else seed)
     task = LaborTaskCritic(layout, support=support)
     task.encoder.load_state_dict(old_task.encoder.state_dict(), strict=True)
+    bind_privileged_normalizer(getattr(old_task, "privileged_normalizer", None), task)
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(head_seed)
         task.heads = nn.ModuleDict(
@@ -255,6 +270,115 @@ def convert_task_critic_support(
     return converted
 
 
+def _set_migration(enabled: bool, *modules: nn.Module) -> None:
+    for module in modules:
+        for child in module.modules():
+            if isinstance(child, LaborCriticEncoder):
+                child.privileged_migration = enabled
+
+
+def convert_privileged_critics(
+    state: Mapping[str, Any],
+    privileged_normalizer: Any,
+    *,
+    seed: int | None = None,
+    source_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Return a trainer checkpoint whose three critics carry the privileged block.
+
+    Every tensor of the source checkpoint is kept and loaded strictly; the
+    missing ``privileged_*`` parameters are filled from a seeded fresh
+    initialization by the strict-load migration hook, which is enabled only
+    for this call. The actor is untouched (its encoder rejects privileged
+    state). The critic optimizer is reset.
+    """
+    from .labor_privileged import LaborPrivilegedNormalizer
+    from .labor_training import (
+        _models_from_checkpoint,
+        _require_trainer_checkpoint,
+        _trainer_checkpoint,
+    )
+
+    if not isinstance(privileged_normalizer, LaborPrivilegedNormalizer):
+        raise ValueError("privileged migration requires a fitted LaborPrivilegedNormalizer")
+    _require_trainer_checkpoint(state)
+    layout, actor, old_task, old_costs, normalizer = _models_from_checkpoint(state)
+    if layout.privileged is not None:
+        raise ValueError("checkpoint already carries a privileged critic block")
+    contract = labor_checkpoint_contract(state, expected_layout=layout)
+    new_layout = LaborEncoderLayout(
+        layout.core_input_width,
+        layout.specialty_feature_width,
+        layout.activity_feature_width,
+        layout.resource_feature_width,
+        privileged=privileged_normalizer.layout,
+    )
+    init_seed = int(state["optimizer_seed"] if seed is None else seed)
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(init_seed)
+        task = LaborTaskCritic(new_layout, support=old_task.support)
+        costs = LaborCostCritics(new_layout)
+    _set_migration(True, task, costs)
+    try:
+        task.load_state_dict(old_task.state_dict(), strict=True)
+        costs.load_state_dict(old_costs.state_dict(), strict=True)
+    finally:
+        _set_migration(False, task, costs)
+    task.check_support()
+    bind_privileged_normalizer(privileged_normalizer, task, costs)
+    set_labor_film_bound(contract.conditioning.film_bound, task, costs)
+
+    actor_optimizer = torch.optim.Adam(actor.parameters())
+    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    critic_lr = float(state["critic_optimizer"]["param_groups"][0]["lr"])
+    critic_optimizer = torch.optim.Adam(
+        list(task.parameters()) + list(costs.parameters()), lr=critic_lr
+    )
+    sampling = torch.Generator()
+    sampling.set_state(state["sampling_generator_state"])
+    shuffle = np.random.default_rng(int(state["optimizer_seed"]))
+    shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+    converted = _trainer_checkpoint(
+        actor,
+        task,
+        costs,
+        normalizer,
+        new_layout,
+        actor_optimizer,
+        critic_optimizer,
+        personality=labor_checkpoint_personality(state),
+        optimizer_seed=int(state["optimizer_seed"]),
+        iteration=int(state["iteration"]),
+        sampling_generator=sampling,
+        shuffle_rng=shuffle,
+        critic_training_world_seeds=state["critic_training_world_seeds"],
+        critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
+    )
+    for key, value in state.items():
+        converted.setdefault(key, value)
+    initialized = sorted(
+        f"{prefix}.{name}"
+        for prefix, module in (("task_critic", task), ("cost_critics", costs))
+        for name, _ in module.named_parameters()
+        if ".privileged_" in f".{name}"
+    )
+    history = list(state.get("critic_privileged_conversions", []))
+    history.append(
+        {
+            "contract": PRIVILEGED_CONVERSION_CONTRACT,
+            "privileged_schema_version": int(privileged_normalizer.layout.schema_version),
+            "privileged_normalizer_digest": privileged_normalizer.digest(),
+            "init_seed": init_seed,
+            "source_sha256": source_sha256,
+            "initialized": initialized,
+            "kept": ["actor", "task_critic", "cost_critics", "normalizer", "trainer_rng"],
+            "critic_optimizer": "reset-fresh-adam-same-lr",
+        }
+    )
+    converted["critic_privileged_conversions"] = history
+    return converted
+
+
 def argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -275,6 +399,16 @@ def argument_parser() -> argparse.ArgumentParser:
         "--seed", type=int, default=None, help="head init seed (default: optimizer seed)"
     )
     convert.add_argument("--out", type=Path, required=True)
+    privileged = commands.add_parser(
+        "convert-privileged",
+        help="migrate a checkpoint to critic-only privileged critics (intervention A)",
+    )
+    privileged.add_argument("--checkpoint", type=Path, required=True)
+    privileged.add_argument("--privileged-normalizer", type=Path, required=True)
+    privileged.add_argument(
+        "--seed", type=int, default=None, help="privileged init seed (default: optimizer seed)"
+    )
+    privileged.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -295,6 +429,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.out.exists():
         raise ValueError("output checkpoint exists; choose a new path")
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if args.command == "convert-privileged":
+        from .labor_training import _load_privileged_normalizer
+
+        converted = convert_privileged_critics(
+            state,
+            _load_privileged_normalizer(args.privileged_normalizer),
+            seed=args.seed,
+            source_sha256=_sha256(args.checkpoint),
+        )
+        _save_checkpoint(args.out, converted)
+        print(json.dumps(converted["critic_privileged_conversions"][-1], indent=2, sort_keys=True))
+        return 0
     support = LaborValueSupport.parse(args.critic_value_support)
     converted = convert_task_critic_support(
         state, support, seed=args.seed, source_sha256=_sha256(args.checkpoint)

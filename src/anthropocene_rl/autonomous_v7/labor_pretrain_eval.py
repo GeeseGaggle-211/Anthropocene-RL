@@ -288,20 +288,28 @@ def _load_models(path: Path) -> tuple[Any, ...]:
     return state, actor, task, costs, normalizer
 
 
-def _load_dataset(path: Path, normalizer: Any) -> dict[str, Any]:
+def _load_dataset(path: Path, normalizer: Any, *, require_privileged: bool = False) -> dict[str, Any]:
     from .labor_teacher_data import load_labor_dataset
     from .labor_training import _normalization_digest
 
-    dataset = load_labor_dataset(path, expected_normalizer_digest=_normalization_digest(normalizer))
+    dataset = load_labor_dataset(
+        path,
+        expected_normalizer_digest=_normalization_digest(normalizer),
+        require_privileged=require_privileged,
+    )
     _check_world_policy(dataset["row_world"].tolist(), f"dataset {path}")
     return dataset
 
 
 def _input_tensors(dataset: Mapping[str, Any]) -> dict[str, torch.Tensor]:
+    """Observation inputs only; critic-only privileged arrays are never included."""
+    from .labor_privileged import is_privileged_key
+
     return {
         k: v
         for k, v in dataset.items()
         if isinstance(v, torch.Tensor)
+        and not is_privileged_key(k)
         and not k.startswith(("target_", "label_", "reward_", "transition_", "row_", "tail_"))
     }
 
@@ -598,20 +606,22 @@ def critic_predictions(
 ) -> dict[str, np.ndarray]:
     """Decoded predictions; with ``observed_max`` (normalized target max per task
     head) also per-row value-support tail terms keyed ``"<head>/<term>"``."""
-    from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES
+    from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES, critic_privileged_batch
 
     tensors = _input_tensors(dataset)
     out: dict[str, list[np.ndarray]] = defaultdict(list)
     with torch.no_grad():
-        for _, batch in _batches(tensors, rows, batch_size):
-            logits = task(batch)
+        for index, batch in _batches(tensors, rows, batch_size):
+            # Critic-only privileged batch, separate from the observation batch.
+            privileged = critic_privileged_batch(task, dataset, index)
+            logits = task(batch, privileged)
             for name in LABOR_OBJECTIVES:
                 out[name].append(task.expectation(name, logits[name]).double().numpy())
                 if observed_max is not None:
                     terms = task.support_diagnostics(name, logits[name], observed_max[name])
                     for term, value in terms.items():
                         out[f"{name}/{term}"].append(value.numpy())
-            for name, value in costs(batch).items():
+            for name, value in costs(batch, critic_privileged_batch(costs, dataset, index)).items():
                 out[name].append(value.double().numpy())
     names = tuple(LABOR_OBJECTIVES) + tuple(LABOR_COSTS)
     names += tuple(key for key in out if "/" in key)
@@ -753,9 +763,16 @@ def run_critic_calibration(
     from .labor_bc import CRITIC_DISCOUNT_YEARS
 
     _, _, task, costs, normalizer = _load_models(checkpoint)
-    calibration = critic_dataset_report(
-        task, costs, _load_dataset(dataset_path, normalizer), batch_size
-    )
+    privileged = task.privileged_layout is not None
+    calibration_dataset = _load_dataset(dataset_path, normalizer, require_privileged=privileged)
+    if privileged:
+        fitted = set(task.privileged_normalizer.fit_record.get("worlds", []))
+        overlap = sorted(fitted & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()})
+        if overlap:
+            raise ValueError(
+                f"calibration worlds {overlap[:5]} fitted the privileged normalizer; not held out"
+            )
+    calibration = critic_dataset_report(task, costs, calibration_dataset, batch_size)
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "command": "critic-calibration",
@@ -773,9 +790,18 @@ def run_critic_calibration(
         "calibration": calibration,
         "verdict": {name: strata["all"]["gate"] for name, strata in calibration["heads"].items()},
     }
+    if privileged:
+        report["privileged_critic"] = {
+            "schema_version": int(task.privileged_layout.schema_version),
+            "normalizer_digest": task.privileged_normalizer.digest(),
+            "normalizer_fit_worlds": list(task.privileged_normalizer.fit_record.get("worlds", [])),
+        }
     if fit_dataset_path is not None:
         fitting = critic_dataset_report(
-            task, costs, _load_dataset(fit_dataset_path, normalizer), batch_size
+            task,
+            costs,
+            _load_dataset(fit_dataset_path, normalizer, require_privileged=privileged),
+            batch_size,
         )
         report["fit_dataset"] = str(fit_dataset_path)
         report["fitting"] = fitting
