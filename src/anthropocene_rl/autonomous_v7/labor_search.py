@@ -133,7 +133,7 @@ PLAN_FAMILY = "plan"
 PLAN_CONTROL_FAMILY = "plan-control"
 PLAN_ROLES = ("plan", "first-step-control")
 # Plan templates: a coherent course held for P decisions by the focal camp.
-PLAN_TEMPLATES = ("farm-expand", "housing-grow", "start-herding")
+PLAN_TEMPLATES = ("farm-expand", "shelter-and-clothe", "start-herding")
 PLAN_TAG = 0x5350  # "SP": plan template draw
 DISCOURAGE_FISSION = 1  # fission policy codes: 0 Neutral, 1 Discourage, 2 Encourage
 CONTROL_FAMILIES = {
@@ -894,9 +894,11 @@ def round_robin(families: Mapping[str, list[Candidate]]) -> list[Candidate]:
 #
 # * ``farm-expand``: +10% residents Gatherer -> Farmer; later steps hold at least
 #   the adopted Farmers and shift half of Farmer worker-time to field.expansion;
-# * ``housing-grow``: +10% residents Gatherer -> Craftsperson working housing and
-#   housing material; later steps grow in place (fission Discourage, idle
-#   Gatherer time to food.gather);
+# * ``shelter-and-clothe``: the death rate depends on clothing and shelter, and
+#   settlements that max out food stall without them; +10% residents Gatherer ->
+#   Craftsperson/Weaver split across housing, housing material and cloth (Weaver
+#   on cloth when that head is legal, else Craftsperson cloth); later steps hold
+#   those workers on the same three goods;
 # * ``start-herding``: +10% residents Gatherer -> Herder; later steps hold at least
 #   the adopted Herders and shift half of Herder worker-time to herd.expansion.
 #
@@ -904,7 +906,7 @@ def round_robin(families: Mapping[str, list[Candidate]]) -> list[Candidate]:
 
 PLAN_SPECIALTY = {
     "farm-expand": "Farmer",
-    "housing-grow": "Craftsperson",
+    "shelter-and-clothe": "Craftsperson",
     "start-herding": "Herder",
 }
 PLAN_EXPANSION = {"farm-expand": "field.expansion", "start-herding": "herd.expansion"}
@@ -920,6 +922,7 @@ class PlanSpec:
     amount: int
     anchor: int  # residents of the plan specialty after step 0 (held by later steps)
     first: Candidate
+    anchor2: int = 0  # shelter-and-clothe only: Weaver residents after step 0
 
 
 def ensure_share(row: np.ndarray, index: int, share: float) -> np.ndarray:
@@ -935,6 +938,102 @@ def ensure_share(row: np.ndarray, index: int, share: float) -> np.ndarray:
     return row
 
 
+def _shelter_plan(
+    catalog: LaborCatalog, amount: int
+) -> tuple[int, int, dict[int, float], dict[int, float]] | None:
+    """(Craftsperson adds, Weaver adds, Craftsperson mix, Weaver mix) for shelter-and-clothe.
+
+    Housing, housing material and cloth each get a third of the moved workers.
+    Weaver takes the cloth third when it is a legal head with a legal cloth
+    activity; otherwise Craftsperson works cloth too. None when housing is illegal.
+    """
+    craft = SPECIALTIES.index("Craftsperson")
+    weaver = SPECIALTIES.index("Weaver")
+    housing = _activity_index(catalog, craft - 1, "goods.housing")
+    if housing is None or not catalog.masks.specialty[craft]:
+        return None
+    material = _activity_index(catalog, craft - 1, "goods.housing-material")
+    cloth_craft = _activity_index(catalog, craft - 1, "goods.cloth")
+    cloth_weaver = (
+        _activity_index(catalog, weaver - 1, "goods.cloth")
+        if catalog.masks.specialty[weaver]
+        else None
+    )
+    amount = int(amount)
+    if cloth_weaver is not None and amount >= 2:
+        n_weave = max(1, round(amount / 3))
+        n_craft = amount - n_weave
+        mix_craft = {housing: 0.5} if material is None else {housing: 0.5, material: 0.5}
+        return n_craft, n_weave, mix_craft, {cloth_weaver: 1.0}
+    acts = [i for i in (housing, material, cloth_craft) if i is not None]
+    return amount, 0, {i: 1.0 / len(acts) for i in acts}, {}
+
+
+def _blend_row(row: np.ndarray, mix: Mapping[int, float], share: float) -> np.ndarray:
+    """``row`` with ``share`` of its worker-time replaced by ``mix`` (a simplex)."""
+    out = np.asarray(row, dtype=np.float64).copy() * (1.0 - share)
+    for index, weight in mix.items():
+        out[index] += share * weight
+    return out
+
+
+def _shelter_step(
+    step: int,
+    base: Mapping[str, Any],
+    catalog: LaborCatalog,
+    counts: np.ndarray,
+    activity: np.ndarray,
+    amount: int,
+    anchor: int,
+    anchor2: int,
+) -> tuple[dict[str, Any], str] | None:
+    plan = _shelter_plan(catalog, amount)
+    if plan is None:
+        return None
+    n_craft, n_weave, mix_craft, mix_weave = plan
+    craft = SPECIALTIES.index("Craftsperson")
+    weaver = SPECIALTIES.index("Weaver")
+    new_counts, new_activity = counts.copy(), activity.copy()
+    notes = []
+    if step == 0:
+        for target, n, mix in ((craft, n_craft, mix_craft), (weaver, n_weave, mix_weave)):
+            if n <= 0:
+                continue
+            old = int(new_counts[target])
+            previous = new_activity[target - 1].copy() if old > 0 else np.zeros(activity.shape[1])
+            moved = transfer(new_counts, new_activity, catalog, GATHERER, target, n)
+            if moved is None:
+                return None
+            new_counts, new_activity = moved
+            row = _blend_row(np.zeros(activity.shape[1]), mix, 1.0)
+            new_activity[target - 1] = (old * previous + n * row) / (old + n)
+        names = "Craftsperson" if n_weave == 0 else "Craftsperson/Weaver"
+        description = (
+            f"shelter-and-clothe step 0: transfer {amount} Gatherer->{names} "
+            "(housing, housing material, cloth)"
+        )
+    else:
+        for target, floor in ((craft, anchor), (weaver, anchor2)):
+            shortfall = min(max(0, int(floor) - int(new_counts[target])), int(new_counts[GATHERER]))
+            if shortfall > 0:
+                moved = transfer(new_counts, new_activity, catalog, GATHERER, target, shortfall)
+                if moved is None:
+                    return None
+                new_counts, new_activity = moved
+                notes.append(f"hold {SPECIALTIES[target]} (+{shortfall} from Gatherer)")
+        for target, n, mix in ((craft, n_craft, mix_craft), (weaver, n_weave, mix_weave)):
+            if n <= 0:
+                continue
+            if int(new_counts[target]) <= 0:
+                return None
+            share = min(1.0, n / int(new_counts[target]))
+            new_activity[target - 1] = _blend_row(new_activity[target - 1], mix, share)
+            notes.append(f"{SPECIALTIES[target]} on {'/'.join(ACTIVITIES[i] for i in mix)}")
+        description = f"shelter-and-clothe step {step}: {', '.join(notes)}"
+    payload = compose_payload(base, catalog, counts=new_counts, activity=new_activity)
+    return payload, description
+
+
 def plan_step_payload(
     template: str,
     step: int,
@@ -943,6 +1042,7 @@ def plan_step_payload(
     *,
     amount: int,
     anchor: int = 0,
+    anchor2: int = 0,
 ) -> tuple[dict[str, Any], str] | None:
     """Plan ``template``'s focal action at plan step ``step`` built from H12's ``base``.
 
@@ -957,47 +1057,18 @@ def plan_step_payload(
     spec = SPECIALTIES.index(PLAN_SPECIALTY[template])
     role = spec - 1
     try:
+        if template == "shelter-and-clothe":
+            return _shelter_step(step, base, catalog, counts, activity, int(amount), anchor, anchor2)
         if step == 0:
             moved = transfer(counts, activity, catalog, GATHERER, spec, int(amount))
             if moved is None:
                 return None
             new_counts, new_activity = moved
             description = f"{template} step 0: transfer {amount} Gatherer->{SPECIALTIES[spec]}"
-            if template == "housing-grow":
-                housing = _activity_index(catalog, role, "goods.housing")
-                material = _activity_index(catalog, role, "goods.housing-material")
-                if housing is None:
-                    return None
-                mix = np.zeros(activity.shape[1])
-                if material is None:
-                    mix[housing] = 1.0
-                else:
-                    mix[housing] = mix[material] = 0.5
-                old = int(counts[spec])
-                previous = activity[role] if old > 0 else np.zeros(activity.shape[1])
-                new_activity[role] = (old * previous + int(amount) * mix) / (old + int(amount))
-                description += " (housing and housing material)"
             payload = compose_payload(base, catalog, counts=new_counts, activity=new_activity)
             return payload, description
         new_counts, new_activity = counts.copy(), activity.copy()
         notes = []
-        if template == "housing-grow":
-            fission = DISCOURAGE_FISSION
-            gather = _activity_index(catalog, GATHERER - 1, "food.gather")
-            if (
-                gather is not None
-                and int(counts[GATHERER]) > 0
-                and new_activity[GATHERER - 1, 0] > 0
-            ):
-                row = new_activity[GATHERER - 1]
-                row[gather] += row[0]
-                row[0] = 0.0
-                notes.append("idle Gatherer time to food.gather")
-            notes.append("fission Discourage")
-            payload = compose_payload(
-                base, catalog, counts=new_counts, activity=new_activity, fission=fission
-            )
-            return payload, f"{template} step {step}: grow in place ({', '.join(notes)})"
         shortfall = min(max(0, int(anchor) - int(counts[spec])), int(counts[GATHERER]))
         if shortfall > 0:
             moved = transfer(counts, activity, catalog, GATHERER, spec, shortfall)
@@ -1047,7 +1118,9 @@ def plan_specs(
             continue
         payload, description = built
         spec = SPECIALTIES.index(PLAN_SPECIALTY[template])
-        anchor = int(labor_state(payload, catalog)[0][spec])
+        placed = labor_state(payload, catalog)[0]
+        anchor = int(placed[spec])
+        anchor2 = int(placed[SPECIALTIES.index("Weaver")]) if template == "shelter-and-clothe" else 0
         out.append(
             PlanSpec(
                 plan_id=f"{template}/P{steps}",
@@ -1055,6 +1128,7 @@ def plan_specs(
                 steps=int(steps),
                 amount=amount,
                 anchor=anchor,
+                anchor2=anchor2,
                 first=Candidate(payload, PLAN_FAMILY, description, frozenset({"labor"})),
             )
         )
@@ -1623,6 +1697,7 @@ def evaluate_plan(
                 catalog,
                 amount=spec.amount,
                 anchor=spec.anchor,
+                anchor2=spec.anchor2,
             )
             if built is None:
                 records.append(

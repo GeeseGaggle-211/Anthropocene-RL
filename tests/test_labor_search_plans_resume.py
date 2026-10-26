@@ -73,37 +73,72 @@ def test_plan_steps_conserve_and_hold_their_course(template) -> None:
     assert conserves_labor(first, catalog)
     spec = S[labor_search.PLAN_SPECIALTY[template]]
     counts0 = labor_state(first, catalog)[0]
-    assert counts0[spec] == labor_state(base, catalog)[0][spec] + 10
-    assert counts0[S["Gatherer"]] == labor_state(base, catalog)[0][S["Gatherer"]] - 10
+    counts_base = labor_state(base, catalog)[0]
+    if template == "shelter-and-clothe":
+        moved = sum(int(counts0[S[n]] - counts_base[S[n]]) for n in ("Craftsperson", "Weaver"))
+        assert moved == 10
+    else:
+        assert counts0[spec] == counts_base[spec] + 10
+    assert counts0[S["Gatherer"]] == counts_base[S["Gatherer"]] - 10
     later = _shifted(catalog, base)
     for step in range(1, 4):
         payload, description = plan_step_payload(
-            template, step, later, catalog, amount=10, anchor=int(counts0[spec])
+            template,
+            step,
+            later,
+            catalog,
+            amount=10,
+            anchor=int(counts0[spec]),
+            anchor2=int(counts0[S["Weaver"]]),
         )
         assert conserves_labor(payload, catalog), description
         counts, activity = labor_state(payload, catalog)
         assert int(counts.sum()) == catalog.population
         assert np.allclose(activity.sum(axis=1), 1.0)
-        if template == "housing-grow":
-            assert payload["fission"] == labor_search.DISCOURAGE_FISSION
-            assert activity[S["Gatherer"] - 1, 0] == 0.0  # idle time to food.gather
+        if template == "shelter-and-clothe":
+            assert payload["fission"] == base["fission"]  # no fission Discourage
+            assert counts[S["Craftsperson"]] >= counts0[S["Craftsperson"]]
+            assert counts[S["Weaver"]] >= counts0[S["Weaver"]]
+            cloth = A["goods.cloth"]
+            housing = A["goods.housing"]
+            if counts0[S["Weaver"]] > base_counts_weaver(base, catalog):
+                assert activity[S["Weaver"] - 1, cloth] > 0
+            else:
+                assert activity[S["Craftsperson"] - 1, cloth] > 0
+            assert activity[S["Craftsperson"] - 1, housing] > 0
         else:
             assert counts[spec] >= counts0[spec]  # the adopted specialists are held
             expansion = A[labor_search.PLAN_EXPANSION[template]]
             assert activity[spec - 1, expansion] >= 0.5 - 1e-9
 
 
-def test_housing_first_step_mixes_housing_and_material() -> None:
+def base_counts_weaver(base, catalog) -> int:
+    return int(labor_state(base, catalog)[0][S["Weaver"]])
+
+
+def test_shelter_first_step_splits_housing_material_and_cloth() -> None:
     catalog = _catalog()
     base = _base_payload(catalog)
-    payload, _ = plan_step_payload("housing-grow", 0, base, catalog, amount=10)
+    payload, _ = plan_step_payload("shelter-and-clothe", 0, base, catalog, amount=10)
     counts, activity = labor_state(payload, catalog)
-    row = activity[S["Craftsperson"] - 1]
-    # 10 existing (0.6 housing, 0.4 cloth) + 10 new (0.5 housing, 0.5 material).
-    assert counts[S["Craftsperson"]] == 20
-    assert math.isclose(row[A["goods.housing"]], 0.55)
-    assert math.isclose(row[A["goods.housing-material"]], 0.25)
-    assert math.isclose(row[A["goods.cloth"]], 0.2)
+    base_counts = labor_state(base, catalog)[0]
+    added_weave = int(counts[S["Weaver"]] - base_counts[S["Weaver"]])
+    added_craft = int(counts[S["Craftsperson"]] - base_counts[S["Craftsperson"]])
+    assert added_weave + added_craft == 10
+    if added_weave:  # Weaver legal: it takes the cloth third, Craftsperson housing + material
+        assert added_weave == 3
+        assert math.isclose(activity[S["Weaver"] - 1, A["goods.cloth"]], 1.0)
+        row = activity[S["Craftsperson"] - 1]
+        # 10 existing (0.6 housing, 0.4 cloth) + 7 new (0.5 housing, 0.5 material).
+        assert math.isclose(row[A["goods.housing"]], (6 + 3.5) / 17)
+        assert math.isclose(row[A["goods.housing-material"]], 3.5 / 17)
+        assert math.isclose(row[A["goods.cloth"]], 4 / 17)
+    else:  # Craftsperson works all three
+        row = activity[S["Craftsperson"] - 1]
+        assert added_craft == 10
+        assert math.isclose(row[A["goods.housing"]], (6 + 10 / 3) / 20)
+        assert math.isclose(row[A["goods.housing-material"]], (10 / 3) / 20)
+        assert math.isclose(row[A["goods.cloth"]], (4 + 10 / 3) / 20)
 
 
 def test_plan_specs_are_keyed_and_bounded() -> None:

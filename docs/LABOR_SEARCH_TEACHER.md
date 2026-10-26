@@ -138,8 +138,10 @@ reserved worlds 90154-90159 unless `training=False`.
 
 `--plan-candidates N` (CLI default 2; 0 disables) adds N multi-decision **plans** per root, drawn in a keyed
 order from three templates: `farm-expand` (+10% residents Gatherer to Farmer, then hold the adopted Farmers
-with half their time on `field.expansion`), `housing-grow` (+10% Gatherer to Craftsperson on housing and
-housing material, then grow in place: fission Discourage, idle Gatherer time to `food.gather`) and
+with half their time on `field.expansion`), `shelter-and-clothe` (the death rate depends on clothing and shelter, and settlements that max out
+their food input stall without them, so this plan builds housing AND clothing: +10% Gatherer split across
+housing, housing material and cloth, with Weaver on cloth when that head is legal, else Craftsperson cloth;
+later steps keep those workers on the same three goods; no fission or gathering shifts) and
 `start-herding` (+10% Gatherer to Herder, then hold them with half their time on `herd.expansion`). The
 focal camp holds the course for `--plan-steps P` (default 3) decisions; each later step is rebuilt from H12's
 action at the state the plan reached, natively validated, and replaced by H12 (recorded as a `fallback`)

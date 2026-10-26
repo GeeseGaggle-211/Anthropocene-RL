@@ -165,10 +165,9 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     },
     "determinism_tolerance_cuda": {
         "value": 1e-5,
-        "status": "PROPOSED (not approved): GPU fitting VM, co-architect review pending",
+        "status": "approved (user 26 Oct)",
         "source": "labor_device.CUDA_DETERMINISM_TOLERANCE: same-GPU repeat drift, "
-        "deterministic cuDNN/cuBLAS, TF32 off; a non-bitwise CUDA result within it HOLDs "
-        "until the value is approved",
+        "deterministic cuDNN/cuBLAS, TF32 off; a non-bitwise CUDA result within it PASSes",
     },
     "stability_thresholds": {
         "value": "labor_stability.StabilityThresholds",
@@ -1062,7 +1061,7 @@ def determinism_checks(report: Mapping[str, Any] | None) -> list[dict[str, Any]]
                     value,
                     tolerance,
                     "<=",
-                    # An unapproved (proposed) CUDA tolerance can FAIL but never PASS.
+                    # An unapproved tolerance can FAIL but never PASS (now only a guard).
                     status=None if approved or not within else "HOLD",
                     every_seed=True,
                     detail={

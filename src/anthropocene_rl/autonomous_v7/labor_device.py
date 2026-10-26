@@ -24,7 +24,7 @@ to be run-to-run reproducible on the same GPU model, driver and torch build,
 but this is not guaranteed for every kernel (``warn_only`` lets an op without
 a deterministic CUDA kernel run with a warning instead of failing). The r5
 determinism probe therefore uses :data:`CUDA_DETERMINISM_TOLERANCE`
-(PROPOSED, not approved) for CUDA repeats. CPU-versus-CUDA results are never
+(approved, user 26 Oct) for CUDA repeats. CPU-versus-CUDA results are never
 expected to be bitwise equal; their parity is checked by
 ``tests/test_labor_device.py`` at :data:`CROSS_DEVICE_STEP_TOLERANCE` for one
 forward/backward step and is not a gate.
@@ -42,13 +42,13 @@ DEVICE_CHOICES = ("cpu", "cuda", "auto")
 
 # Approved: max relative drift between two identical CPU fits (labor_r5_acceptance).
 CPU_DETERMINISM_TOLERANCE = 1e-6
-# PROPOSED (not approved): max relative drift between two identical CUDA fits on the
+# Approved (user 26 Oct): max relative drift between two identical CUDA fits on the
 # same GPU model / driver / torch build after the 50-step critic probe. Rationale: the
 # deterministic flags make repeats bitwise in the common case; the residual allowance
 # covers warn_only kernels (atomic scatter/index_add backward) whose float32
 # summation order may vary, ~1e-7 per step compounded through 50 Adam steps.
 CUDA_DETERMINISM_TOLERANCE = 1e-5
-CUDA_DETERMINISM_TOLERANCE_STATUS = "proposed (awaiting co-architect approval)"
+CUDA_DETERMINISM_TOLERANCE_STATUS = "approved (user 26 Oct)"
 # Parity test only (not a gate): relative loss/gradient agreement of one fp32
 # forward/backward step on CPU and CUDA with TF32 disabled.
 CROSS_DEVICE_STEP_TOLERANCE = 1e-4

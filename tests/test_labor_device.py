@@ -188,13 +188,15 @@ def _determinism(device, relative, bitwise=False):
 def test_determinism_tolerance_is_device_aware() -> None:
     assert ra.threshold("determinism_tolerance") == ld.CPU_DETERMINISM_TOLERANCE == 1e-6
     assert ra.threshold("determinism_tolerance_cuda") == ld.CUDA_DETERMINISM_TOLERANCE
-    assert ra.PREREGISTERED["determinism_tolerance_cuda"]["status"].startswith("PROPOSED")
+    assert ra.PREREGISTERED["determinism_tolerance_cuda"]["status"].startswith("approved")
     # CPU (default when the report predates the device field): the approved 1e-6.
     assert _determinism(None, 5e-7) == "PASS"
     assert _determinism("cpu", 5e-6) == "FAIL"
-    # CUDA: bitwise passes; within the proposed tolerance HOLDs until approved; beyond FAILs.
+    # CUDA: bitwise passes; within the approved 1e-5 tolerance PASSes; beyond FAILs.
     assert _determinism("cuda", 0.0, bitwise=True) == "PASS"
-    assert _determinism("cuda", 5e-6) == "HOLD"
+    assert _determinism("cuda", 5e-6) == "PASS"
+    assert _determinism("cuda", 1e-5) == "PASS"
+    assert _determinism("cuda", 2e-5) == "FAIL"
     assert _determinism("cuda", 1e-3) == "FAIL"
 
 
