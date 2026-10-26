@@ -42,6 +42,7 @@ class Model9Bridge:
         threading.Thread(target=self._drain, daemon=True).start()
         schema_response = self.request({"op": "schema"})
         self.schema = contracts.verify_schema(schema_response)
+        self.schema_response = schema_response
         # Critic-only privileged view layout (simulator PrivilegedSchemaVersion); None for
         # producers that predate it. Parsed strictly; it never enters the observation.
         self.privileged_layout = None
@@ -77,12 +78,16 @@ class Model9Bridge:
             return response
 
     def reset(self, seed: int = 0, players: int = 8, movement: bool = False, withheld: int = 0,
-              size: tuple[int, int, int] | None = None, snapshot: bytes | str | None = None) -> dict[str, Any]:
+              size: tuple[int, int, int] | None = None, snapshot: bytes | str | None = None,
+              continuation: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """withheld: training-only technology mask (1 << Technology) for capability fixtures; 0 is the game.
         size: optional (width, height, start separation) for scale probes; None keeps the Small training world.
         snapshot: a captured world (``capture``; raw bytes or base64) to start from instead of generating ``seed``'s
         opening. Per-village bridge context (active commitments, previous populations) is not part of a snapshot, so
-        the first step after it reports no ``founded`` villages and every commitment starts free."""
+        the first step after it reports no ``founded`` villages and every commitment starts free.
+        continuation: collection resume only (``labor_collect_resume``), with ``snapshot``: {startTurn, trajectoryId}
+        of the interrupted episode and optionally the live-only state from ``capture_transient`` (``transient``), so the successor of a replayed decision is byte-identical to the
+        uninterrupted one. The reset step's own observation is not a faithful boundary."""
         from .protocol import seeds
         seeds([seed], "bridge reset")
         self._check_expected_producer()
@@ -108,6 +113,13 @@ class Model9Bridge:
             if checked["sourceSeed"] != seed: raise ValueError("snapshot root differs from declared seed before reset")
         if size is not None:
             payload.update(width=size[0], height=size[1], separation=size[2])
+        if continuation is not None:
+            if snapshot is None:
+                raise ValueError("a continuation reset requires a snapshot")
+            payload["continuation"] = {"startTurn": int(continuation["startTurn"]),
+                                       "trajectoryId": str(continuation["trajectoryId"])}
+            if continuation.get("transient") is not None:
+                payload["continuation"]["transient"] = continuation["transient"]
         response = self.request(payload)
         self.last_reset_identity = {k: response.get(k) for k in ("configurationHash", "fingerprint", "buildHash", "rawMaterialsEnabled", "sourceSeed")}
         self._raw_materials_enabled = response.get("rawMaterialsEnabled")

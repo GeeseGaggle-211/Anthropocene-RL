@@ -897,6 +897,7 @@ def shadow_teacher_labels(
     options: LaborResetOptions,
     live: Sequence[Mapping[str, Any]],
     contexts: Sequence[Any],
+    snapshot_sink: list[str] | None = None,
 ) -> tuple[Mapping[str, Any], list[HeuristicLaborLabel]]:
     """The teacher's converted full-action label for every live camp at this exact state.
 
@@ -905,9 +906,12 @@ def shadow_teacher_labels(
     and converts each camp's recommendation against its pre-action catalog. The
     labor bridge itself is not advanced (one native resolve on the shadow bridge).
     Shared by the teacher collector, the h12 evaluation path and the DAgger
-    learner-state collector.
+    learner-state collector. ``snapshot_sink`` receives the captured boundary
+    snapshot (collection checkpoints reuse it; no extra capture).
     """
     snap = labor_bridge._bridge.capture()
+    if snapshot_sink is not None:
+        snapshot_sink.append(snap)
     heur_bridge.reset(
         int(world_seed), movement=options.movement, withheld=options.withheld, snapshot=snap
     )
@@ -1063,6 +1067,17 @@ class _TeacherTransition:
     outcomes: Mapping[int, Mapping[str, Any]]
     # Critic-only raw privileged arrays aligned with ``live`` (None: pre-privileged producer).
     privileged: Mapping[str, torch.Tensor] | None = None
+    # The captured pre-decision boundary snapshot (base64) and the live-only state the
+    # snapshot does not hold (``capture_transient``), for collection checkpoints.
+    snapshot: str | None = None
+    transient: Mapping[str, Any] | None = None
+
+    def replay_payloads(self) -> dict[str, dict[str, Any]]:
+        """The exact ``step_labor`` initial/retry payloads this decision executed."""
+        return {
+            "initial": {str(c): dict(a.payload) for c, a in sorted(self.execution.initial.items())},
+            "retry": {str(c): dict(a.payload) for c, a in sorted(self.execution.retry.items())},
+        }
 
     def head_rewards(self, camp: int, founded: Mapping[int, int]) -> dict[str, float]:
         """The four critic rewards of ``camp``'s transition, exactly as rows record them."""
@@ -1104,9 +1119,13 @@ def _teacher_transition(
     catalogs = {context[0].camp_id: context[0] for context in contexts}
     decision_turn = int(step["turn"])
     # Shadow heuristic step from the captured boundary, same reset rules.
+    snapshots: list[str] = []
     h_step, labels = shadow_teacher_labels(
-        labor_bridge, heur_bridge, int(world_seed), options, live, contexts
+        labor_bridge, heur_bridge, int(world_seed), options, live, contexts, snapshots
     )
+    # Same boundary as the snapshot: the shadow step never advances the labor bridge.
+    capture_transient = getattr(labor_bridge, "capture_transient", None)
+    transient = capture_transient() if callable(capture_transient) else None
     retained: dict[int, RetainedLaborAction] = {}
     for row, (village, context, label) in enumerate(zip(live, contexts, labels, strict=True)):
         retained[int(village["camp"])] = _retained_action(
@@ -1131,6 +1150,8 @@ def _teacher_transition(
         elapsed=elapsed,
         outcomes={int(v["camp"]): v for v in next_step["villages"]},
         privileged=privileged_row_tensors(live),
+        snapshot=snapshots[0] if snapshots else None,
+        transient=transient,
     )
 
 
@@ -1146,33 +1167,65 @@ def _living_cutoffs(rows: Sequence[Mapping[str, torch.Tensor]]) -> dict[int, int
     return {camp: turn for camp, (turn, terminal) in sorted(last.items()) if not terminal}
 
 
-def _collect_teacher_tail(
-    *,
-    result: WorldCollection,
-    tail: RandomizedTailSettings,
-    labor_bridge: Any,
-    heur_bridge: Any,
-    step: Mapping[str, Any],
-    options: LaborResetOptions,
-    normalizer: Any,
-    personality: LaborPersonality,
-    founded: Mapping[int, int],
-    window_turns: int,
-) -> dict[int, dict[str, Any]]:
-    """Continue the teacher from the collection-horizon state and close every living cutoff.
+@dataclass
+class TeacherTailState:
+    """Everything the teacher tail loop carries between decisions (JSON-serializable).
 
-    Returns camp -> typed tail entry (method code, per-head value and standard
-    error valued at the cutoff state). The continuation is one deterministic
-    teacher path shared by every camp of the world; daughters founded during it
-    are controlled but not credited to the cutoff camps.
+    ``done`` counts completed continuation decisions; a collection checkpoint
+    taken after one of them resumes the loop exactly (``collect_heuristic_world``
+    ``checkpoint``/``resume``). Dict insertion order is part of the state.
     """
-    from .labor_anchor_producer import summarize_labor_path
 
-    world = int(result.world_seed)
+    final_turn: int
+    tracked: list[int]
+    active: list[int]
+    reasons: dict[int, str]
+    path_rewards: dict[int, dict[str, list[float]]]
+    path_years: dict[int, list[float]]
+    path_terminal: dict[int, list[bool]]
+    done: int = 0
+    seconds: float = 0.0
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "final_turn": int(self.final_turn),
+            "tracked": [int(c) for c in self.tracked],
+            "active": [int(c) for c in self.active],
+            # JSON objects keep insertion order; lists of pairs make that explicit.
+            "reasons": [[int(c), str(r)] for c, r in self.reasons.items()],
+            "path_rewards": [
+                [int(c), {h: [float(v) for v in values] for h, values in heads.items()}]
+                for c, heads in self.path_rewards.items()
+            ],
+            "path_years": [[int(c), [float(v) for v in vs]] for c, vs in self.path_years.items()],
+            "path_terminal": [[int(c), [bool(v) for v in vs]] for c, vs in self.path_terminal.items()],
+            "done": int(self.done),
+            "seconds": float(self.seconds),
+        }
+
+    @classmethod
+    def from_state(cls, state: Mapping[str, Any]) -> TeacherTailState:
+        return cls(
+            final_turn=int(state["final_turn"]),
+            tracked=[int(c) for c in state["tracked"]],
+            active=[int(c) for c in state["active"]],
+            reasons={int(c): str(r) for c, r in state["reasons"]},
+            path_rewards={
+                int(c): {h: [float(v) for v in values] for h, values in heads.items()}
+                for c, heads in state["path_rewards"]
+            },
+            path_years={int(c): [float(v) for v in vs] for c, vs in state["path_years"]},
+            path_terminal={int(c): [bool(v) for v in vs] for c, vs in state["path_terminal"]},
+            done=int(state["done"]),
+            seconds=float(state["seconds"]),
+        )
+
+
+def _teacher_tail_state(
+    result: WorldCollection, step: Mapping[str, Any], schedule: Any
+) -> TeacherTailState:
+    """The tail loop's initial state at the collection-horizon step."""
     cutoffs = _living_cutoffs(result.rows)
-    final_turn = int(step["turn"])
-    schedule = tail.schedule(world)
-    entries: dict[int, dict[str, Any]] = {}
     reasons: dict[int, str] = {}
     # A living camp that did not decide at the final window step has no
     # continuation from its own cutoff state.
@@ -1187,12 +1240,61 @@ def _collect_teacher_tail(
         for camp in tracked:
             reasons[camp] = "unresolved-hard-cap"
         tracked = []
-    path_rewards = {camp: {head: [] for head in TAIL_HEADS} for camp in tracked}
-    path_years: dict[int, list[float]] = {camp: [] for camp in tracked}
-    path_terminal: dict[int, list[bool]] = {camp: [] for camp in tracked}
-    active = list(tracked)
+    return TeacherTailState(
+        final_turn=int(step["turn"]),
+        tracked=tracked,
+        active=list(tracked),
+        reasons=reasons,
+        path_rewards={camp: {head: [] for head in TAIL_HEADS} for camp in tracked},
+        path_years={camp: [] for camp in tracked},
+        path_terminal={camp: [] for camp in tracked},
+    )
+
+
+def _collect_teacher_tail(
+    *,
+    result: WorldCollection,
+    tail: RandomizedTailSettings,
+    labor_bridge: Any,
+    heur_bridge: Any,
+    step: Mapping[str, Any],
+    options: LaborResetOptions,
+    normalizer: Any,
+    personality: LaborPersonality,
+    founded: Mapping[int, int],
+    window_turns: int,
+    checkpoint: Any | None = None,
+    resume: TeacherTailState | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Continue the teacher from the collection-horizon state and close every living cutoff.
+
+    Returns camp -> typed tail entry (method code, per-head value and standard
+    error valued at the cutoff state). The continuation is one deterministic
+    teacher path shared by every camp of the world; daughters founded during it
+    are controlled but not credited to the cutoff camps.
+
+    ``checkpoint.tail(result, transition, state)`` (optional) runs after every
+    continuation decision; ``resume`` continues from such a state, with
+    ``step`` the restored successor of its last decision.
+    """
+    from .labor_anchor_producer import summarize_labor_path
+
+    world = int(result.world_seed)
+    schedule = tail.schedule(world)
+    state = _teacher_tail_state(result, step, schedule) if resume is None else resume
+    prior_seconds = state.seconds
+    final_turn = state.final_turn
+    entries: dict[int, dict[str, Any]] = {}
+    reasons = state.reasons
+    tracked = state.tracked
+    path_rewards = state.path_rewards
+    path_years = state.path_years
+    path_terminal = state.path_terminal
+    active = state.active
     started = __import__("time").perf_counter()
-    for _ in range(schedule.required_terms if tracked else 0):
+    for _ in range(state.done, schedule.required_terms if tracked else 0):
+        if not active:  # reachable only on resume after the decision that emptied it
+            break
         transition = _teacher_transition(
             labor_bridge=labor_bridge,
             heur_bridge=heur_bridge,
@@ -1220,9 +1322,13 @@ def _collect_teacher_tail(
             if transition.terminal[camp]:
                 active.remove(camp)
         step = transition.next_step
+        state.done += 1
+        if checkpoint is not None:
+            state.seconds = prior_seconds + __import__("time").perf_counter() - started
+            checkpoint.tail(result, transition, state)
         if not active:
             break
-    result.tail_seconds = __import__("time").perf_counter() - started
+    result.tail_seconds = prior_seconds + __import__("time").perf_counter() - started
     for camp in tracked:
         if camp in reasons:
             continue
@@ -1430,6 +1536,8 @@ def collect_heuristic_world(
     economic_trace: Any | None = None,
     progress: Any | None = None,
     tail: RandomizedTailSettings | None = None,
+    checkpoint: Any | None = None,
+    resume: Any | None = None,
 ) -> WorldCollection:
     """Advance one world under converted heuristic actions and record every row.
 
@@ -1442,6 +1550,14 @@ def collect_heuristic_world(
     With ``tail`` the teacher continues past the window (no rows recorded) and
     every row carries its trajectory's typed tail target (``tail_*`` arrays);
     without it the legacy truncated-zero window is collected unchanged.
+
+    Decision-boundary checkpointing (``labor_collect_resume``): after every
+    window decision ``checkpoint.window(result, transition, founded, done)``
+    and after every tail decision ``checkpoint.tail(result, transition,
+    tail_state)`` run; ``resume`` (a ``labor_collect_resume.ResumePoint``)
+    restores the result, the labor bridge and the loop position of such a
+    checkpoint, so the remaining decisions and the output are those of the
+    uninterrupted run. Neither changes anything when absent.
     """
 
     import time
@@ -1453,11 +1569,20 @@ def collect_heuristic_world(
     result = WorldCollection(world_seed=int(world_seed))
     started = time.perf_counter()
     with labor_bridge_factory() as labor_bridge, heur_factory() as heur_bridge:
-        step = labor_bridge.reset(int(world_seed), **options.reset_kwargs())
-        identity = getattr(labor_bridge, "last_reset_identity", None)
-        result.reset_identity = dict(identity) if isinstance(identity, Mapping) else {}
-        founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
-        for _ in range(turns):
+        if resume is None:
+            step = labor_bridge.reset(int(world_seed), **options.reset_kwargs())
+            identity = getattr(labor_bridge, "last_reset_identity", None)
+            result.reset_identity = dict(identity) if isinstance(identity, Mapping) else {}
+            founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
+            window_done, tail_state, prior_window_seconds = 0, None, 0.0
+            if checkpoint is not None:
+                checkpoint.begin(result, step)
+        else:
+            step = resume.restore(labor_bridge, result)
+            founded = dict(resume.founded)
+            window_done, tail_state = int(resume.window_done), resume.tail_state
+            prior_window_seconds = float(result.window_seconds)
+        for index in range(window_done, turns if tail_state is None else window_done):
             transition = _teacher_transition(
                 labor_bridge=labor_bridge,
                 heur_bridge=heur_bridge,
@@ -1490,10 +1615,16 @@ def collect_heuristic_world(
                     )
             record_teacher_transition(result, transition, int(world_seed), founded)
             step = transition.next_step
+            if checkpoint is not None:
+                result.window_seconds = prior_window_seconds + time.perf_counter() - started
+                checkpoint.window(result, transition, founded, index + 1)
             if progress is not None:
                 progress(result)
-        result.window_seconds = time.perf_counter() - started
-        result.surviving_camps = len([v for v in step.get("villages", []) if not v.get("terminated")])
+        if tail_state is None:
+            result.window_seconds = prior_window_seconds + time.perf_counter() - started
+            result.surviving_camps = len(
+                [v for v in step.get("villages", []) if not v.get("terminated")]
+            )
         if tail is not None:
             entries = _collect_teacher_tail(
                 result=result,
@@ -1506,6 +1637,8 @@ def collect_heuristic_world(
                 personality=declared_personality,
                 founded=founded,
                 window_turns=int(turns),
+                checkpoint=checkpoint,
+                resume=tail_state,
             )
             _attach_tail_rows(result.rows, entries)
             if progress is not None:

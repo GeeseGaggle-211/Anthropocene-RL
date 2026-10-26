@@ -1979,6 +1979,17 @@ class LaborModel9Bridge:
     def schema(self) -> Any:
         return self._bridge.schema
 
+    def capture_transient(self) -> dict[str, Any] | None:
+        """Live-only world state SaveCodec does not persist (bridge resumeContinuation >= 3), else None."""
+        if int(self._bridge.schema_response.get("resumeContinuation") or 0) < 3:
+            return None
+        return dict(self._bridge.request({"op": "capture_transient"})["transient"])
+
+    @property
+    def schema_response(self) -> Mapping[str, Any]:
+        """The raw native schema response (capability flags such as ``resumeContinuation``)."""
+        return self._bridge.schema_response
+
     @property
     def last_reset_identity(self) -> dict[str, Any]:
         """Return a defensive copy of the native reset identity."""

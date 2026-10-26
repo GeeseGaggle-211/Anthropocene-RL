@@ -19,6 +19,16 @@ Publication follows ``teacher_data.py``: arrays first, ``meta.json`` (payload
 hashes) last per shard, and ``dataset.json`` only after every shard published.
 An existing output is never overwritten.
 
+Preemption: every world is checkpointed at each decision boundary of the
+window and the tail under ``<out>/_work/world-<seed>`` (``labor_collect_resume``;
+``--checkpoint-keep``, default 2). Rerunning the same command with ``--resume``
+verifies the run identity (``<out>/collection.json``: arguments, learner code,
+normalizer, simulator and bridge), keeps every verified published shard,
+continues each unfinished world from its newest valid checkpoint (bitwise
+identical to an uninterrupted run) and publishes ``dataset.json`` once every
+world is complete; ``_work`` is removed first. Without ``--resume`` an
+existing ``--out`` is refused as before.
+
 Example::
 
     python -m anthropocene_rl.autonomous_v7.labor_teacher_data \\
@@ -246,7 +256,63 @@ def verify_shard(directory: Path) -> dict:
     return meta
 
 
+def _shard_entry(directory: Path, record: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "path": directory.name,
+        "world_seed": int(record["world_seed"]),
+        "meta_sha256": checkpoint_hash(directory / "meta.json"),
+        "data_digest": record["data_digest"],
+        "rows": record["rows"],
+        "decisions": record["decisions"],
+        "native_resolves": record["native_resolves"],
+        "tail_native_resolves": int(record.get("tail_native_resolves", 0)),
+        "wall_seconds": record["wall_seconds"],
+    }
+
+
+def _checkpoint_identity(job: Mapping[str, Any]) -> dict[str, Any]:
+    """Everything a world checkpoint must share with the run that resumes it."""
+    # learner_commit and bridge_sha256 are also inside source_run; they are named so a
+    # refusal says which changed. A checkpoint never crosses a code or bridge change.
+    return {
+        "source_run": job["source_run"],
+        "learner_commit": job["learner_commit"],
+        "bridge_sha256": job["bridge_sha256"],
+        "world_seed": int(job["world_seed"]),
+        "turns": int(job["turns"]),
+        "normalizer_digest": job["normalizer_digest"],
+        "reset_options": dict(job["reset_options"]),
+        "personality": dict(job["personality"]),
+        "personality_conditioning": job.get("personality_conditioning"),
+        "return_tail": job.get("return_tail"),
+        "partition": job.get("partition", "fitting"),
+    }
+
+
+def _log_line(record: Mapping[str, Any]) -> None:
+    print(json.dumps(dict(record), sort_keys=True), file=sys.stderr, flush=True)
+
+
 def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
+    """One world's shard, checkpointed per decision; resumed when ``job['resume']``."""
+    from .labor_collect_resume import ContinuationMismatch
+
+    try:
+        return _collect_shard_once(job)
+    except ContinuationMismatch as error:
+        # The checkpoint cannot reproduce its boundary; the uninterrupted run is the
+        # world collected from its reset, so recollect it from scratch (logged).
+        _log_line({"world": int(job["world_seed"]), "resume_refused": str(error),
+                   "action": "recollecting the world from its reset"})
+        import shutil
+
+        shutil.rmtree(Path(job["out"]) / WORK_DIR / f"world-{int(job['world_seed'])}")
+        return _collect_shard_once(dict(job, resume=False), resume_fallback=str(error))
+
+
+def _collect_shard_once(job: Mapping[str, Any], resume_fallback: str | None = None) -> dict[str, Any]:
+    from .labor_collect_resume import WorldCheckpointer, load_resume_point
+
     torch.set_num_threads(1)
     normalizer = load_normalizer(Path(job["normalizer_checkpoint"]))
     options = LaborResetOptions.from_mapping(job["reset_options"])
@@ -258,6 +324,23 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         personality = personality_for_world(conditioning.assignment(0), int(job["world_seed"]))
     tail = RandomizedTailSettings.from_state(job.get("return_tail"))
     started = time.perf_counter()
+    work = Path(job["out"]) / WORK_DIR / f"world-{int(job['world_seed'])}"
+    identity = _checkpoint_identity(job)
+    resume = (
+        load_resume_point(work, identity, options.reset_kwargs(), log=_log_line)
+        if job.get("resume")
+        else None
+    )
+    if resume is None and work.exists():
+        import shutil
+
+        shutil.rmtree(work)  # no valid checkpoint: restart the world from its reset
+    checkpointer = WorldCheckpointer(
+        work, identity, keep=int(job.get("checkpoint_keep", 2)), resume=resume, log=_log_line
+    )
+    if resume is not None:
+        _log_line({"world": int(job["world_seed"]), "resumed_from_checkpoint": resume.boundary,
+                   "window_done": resume.window_done, "in_tail": resume.state["tail_state"] is not None})
 
     def progress(state: Any) -> None:
         elapsed = time.perf_counter() - started
@@ -285,8 +368,10 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         reset_options=options,
         personality=personality,
         tail=tail,
+        checkpoint=checkpointer,
+        resume=resume,
     )
-    seconds = time.perf_counter() - started
+    seconds = checkpointer.wall_seconds()
     if not collection.rows:
         raise ValueError(f"world {job['world_seed']} produced no policy rows")
     from .labor_bc import _concat
@@ -313,7 +398,10 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "return_tail": RETURN_TAIL_TRUNCATED_ZERO if tail is None else RETURN_TAIL_RANDOMIZED,
         "window_wall_seconds": float(collection.window_seconds),
         "partition": job.get("partition", "fitting"),
+        "collection_checkpoints": checkpointer.summary(),
     }
+    if resume_fallback is not None:
+        meta["collection_resume_fallback"] = resume_fallback
     if tail is not None:
         meta.update(
             {
@@ -325,17 +413,10 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         )
     directory = Path(job["out"]) / f"world-{int(job['world_seed'])}"
     record = write_shard(directory, arrays, meta)
-    return {
-        "path": directory.name,
-        "world_seed": int(job["world_seed"]),
-        "meta_sha256": checkpoint_hash(directory / "meta.json"),
-        "data_digest": record["data_digest"],
-        "rows": record["rows"],
-        "decisions": record["decisions"],
-        "native_resolves": record["native_resolves"],
-        "tail_native_resolves": int(record.get("tail_native_resolves", 0)),
-        "wall_seconds": record["wall_seconds"],
-    }
+    import shutil
+
+    shutil.rmtree(work, ignore_errors=True)  # the published shard supersedes its checkpoints
+    return _shard_entry(directory, record)
 
 
 def publish_dataset(directory: Path, source: Mapping[str, Any], shards: Sequence[Mapping[str, Any]]) -> dict:
@@ -1027,8 +1108,86 @@ def argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="development only: permit a dirty learner/simulator identity (recorded as non-production)",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue an interrupted collection in --out: refuse a different run identity, keep "
+        "verified published shards, resume unfinished worlds from their newest checkpoint",
+    )
+    parser.add_argument(
+        "--checkpoint-keep", type=int, default=2, help="decision-boundary checkpoints kept per world"
+    )
     parser.add_argument("--out", type=Path, required=True)
     return parser
+
+
+WORK_DIR = "_work"
+RUN_RECORD = "collection.json"
+
+
+def _write_run_record(out: Path, source: Mapping[str, Any]) -> None:
+    body = {"schema": SCHEMA, "source_record": dict(source)}
+    (out / (RUN_RECORD + ".tmp")).write_text(json.dumps(body, sort_keys=True, allow_nan=False))
+    os.replace(out / (RUN_RECORD + ".tmp"), out / RUN_RECORD)
+
+
+def _record_differences(saved: Any, current: Any, prefix: str = "") -> list[str]:
+    if isinstance(saved, Mapping) and isinstance(current, Mapping):
+        out = []
+        for key in sorted(set(saved) | set(current)):
+            out += _record_differences(saved.get(key), current.get(key), f"{prefix}{key}.")
+        return out
+    return [] if saved == current else [prefix.rstrip(".")]
+
+
+def _resume_preflight(out: Path, source: Mapping[str, Any], worlds: Sequence[int]) -> dict | None:
+    """Refuse a resume whose run identity differs; the verified manifest if already published."""
+    record_path = out / RUN_RECORD
+    if not record_path.is_file():
+        raise ProvenanceError(
+            f"{out} has no {RUN_RECORD}; it was not written by a resumable collection"
+        )
+    saved = json.loads(record_path.read_text())
+    if saved.get("schema") != SCHEMA or saved.get("source_record") != dict(source):
+        differing = _record_differences(saved.get("source_record") or {}, dict(source))
+        raise ProvenanceError(
+            "labor teacher resume refused: the run identity differs from the interrupted run "
+            f"(arguments, learner code, normalizer, simulator or bridge): {differing}"
+        )
+    expected = {f"world-{w}" for w in worlds}
+    undeclared = sorted(
+        p.name for p in out.iterdir() if p.is_dir() and p.name not in expected | {WORK_DIR}
+    )
+    if undeclared:
+        raise ProvenanceError(f"labor teacher resume refused: undeclared directories {undeclared}")
+    if (out / "dataset.json").is_file():
+        manifest = verify_dataset(out)
+        if manifest["source_run"] != source["source_run"]:
+            raise ProvenanceError("published labor teacher dataset belongs to another run")
+        return manifest
+    return None
+
+
+def _published_shards(out: Path, source: Mapping[str, Any], worlds: Sequence[int]) -> dict[int, dict]:
+    """Verified published shards of this run; unpublished or invalid shard directories are removed."""
+    import shutil
+
+    done = {}
+    for world in worlds:
+        directory = out / f"world-{world}"
+        if not directory.exists():
+            continue
+        try:
+            meta = verify_shard(directory)
+            if meta["source_run"] != source["source_run"] or int(meta["world_seed"]) != world:
+                raise ProvenanceError("shard belongs to another run")
+        except (ProvenanceError, OSError, ValueError, KeyError) as error:
+            _log_line({"world": world, "discarding_unpublished_shard": str(error)})
+            shutil.rmtree(directory)
+            continue
+        done[world] = _shard_entry(directory, meta)
+        shutil.rmtree(out / WORK_DIR / f"world-{world}", ignore_errors=True)
+    return done
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1036,10 +1195,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     worlds = validate_fitting_worlds(
         seed_list(args.worlds), "labor teacher fitting worlds", held_out_test=args.held_out_test
     )
-    if args.turns < 1 or args.jobs < 1:
-        raise ValueError("turns and jobs must be positive")
-    if args.out.exists():
-        raise ProvenanceError("labor teacher output exists; regenerate into a new directory")
+    if args.turns < 1 or args.jobs < 1 or args.checkpoint_keep < 1:
+        raise ValueError("turns, jobs and checkpoint-keep must be positive")
+    if args.out.exists() and not args.resume:
+        raise ProvenanceError(
+            "labor teacher output exists; pass --resume to continue it or regenerate into a new directory"
+        )
     reset = LaborResetOptions(
         players=args.players,
         movement=not args.no_movement,
@@ -1087,7 +1248,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     with LaborModel9Bridge() as probe:
         source = source_record(options, probe.schema, bridge_sha, production=not args.allow_dirty)
-    args.out.mkdir(parents=True)
+        if int(probe.schema_response.get("resumeContinuation") or 0) < 3:
+            raise ProvenanceError(
+                "the model9 bridge lacks resumable reset continuation (resumeContinuation >= 3); "
+                "rebuild it from this learner checkout's integration/ before collecting"
+            )
+    done: dict[int, dict[str, Any]] = {}
+    if args.out.exists():
+        manifest = _resume_preflight(args.out, source, worlds)
+        if manifest is not None:
+            print(json.dumps({"dataset": str(args.out), "dataset_digest": manifest["dataset_digest"],
+                              "already_published": True}, sort_keys=True))
+            return 0
+        done = _published_shards(args.out, source, worlds)
+    else:
+        args.out.mkdir(parents=True)
+        _write_run_record(args.out, source)
     jobs = [
         {
             "normalizer_checkpoint": str(args.normalizer_checkpoint),
@@ -1101,17 +1277,28 @@ def main(argv: Sequence[str] | None = None) -> int:
             "out": str(args.out),
             "return_tail": None if tail is None else tail.state_dict(),
             "partition": options["partition"],
+            "resume": bool(args.resume),
+            "learner_commit": source["learner_commit"],
+            "bridge_sha256": bridge_sha,
+            "checkpoint_keep": int(args.checkpoint_keep),
         }
         for world in worlds
+        if world not in done
     ]
     started = time.perf_counter()
-    if args.jobs == 1:
-        shards = [_collect_shard(job) for job in jobs]
+    if not jobs:
+        collected = []
+    elif args.jobs == 1:
+        collected = [_collect_shard(job) for job in jobs]
     else:
         with ProcessPoolExecutor(max_workers=min(args.jobs, len(jobs))) as pool:
-            shards = list(pool.map(_collect_shard, jobs))
+            collected = list(pool.map(_collect_shard, jobs))
     if checkpoint_hash(bridge_path) != bridge_sha or code_commit() != source["learner_commit"]:
         raise ProvenanceError("labor teacher producer changed during collection; dataset not published")
+    shards = sorted([*done.values(), *collected], key=lambda s: s["world_seed"])
+    import shutil
+
+    shutil.rmtree(args.out / WORK_DIR, ignore_errors=True)
     manifest = publish_dataset(args.out, source, shards)
     elapsed = time.perf_counter() - started
     rows = sum(s["rows"] for s in shards)

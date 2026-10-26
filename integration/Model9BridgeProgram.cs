@@ -5,7 +5,7 @@ using System.Text.Json;
 using Anthropocene.Simulation;
 
 // JSON-lines bridge for native Elder contract 8 (model9). One environment per process; the learner never
-// reimplements physics. Ops: schema, reset {seed, players, movement} | {snapshot}, step {actions}, verify_replay,
+// reimplements physics. Ops: schema, reset {seed, players, movement} | {snapshot[, continuation]}, step {actions}, verify_replay,
 // capture, fork, restore {fork}, drop {fork}, close. Missing actions run the native heuristic for that village.
 namespace Anthropocene.RLBridge
 {
@@ -124,7 +124,10 @@ namespace Anthropocene.RLBridge
                         tradeGroups = ElderTrade.Groups, tradeFeatures = ElderModel9Encoder.TradeFeatureNames(),
                         tradeValueRange = new[] { ElderTrade.MinValue, ElderTrade.MaxValue },
                         activityFeatures = ElderModel9Encoder.ActivityFeatureNames(),
-                        buildHash = ElderModel9Environment.BuildHash
+                        buildHash = ElderModel9Environment.BuildHash,
+                        // reset {continuation: {startTurn, trajectoryId[, transient]}} and capture_transient
+                        // (collection resume) are supported.
+                        resumeContinuation = 3 // transient schema 1: tiles, camps, labor plans, hunters, fixed-housing order
                     };
                 case "reset":
                 {
@@ -183,6 +186,14 @@ namespace Anthropocene.RLBridge
                         ActorLaborEnabled = root.TryGetProperty("actorLabor", out var actorLabor) && actorLabor.GetBoolean() };
                     forks.Clear();
                     var step = environment.Reset(snapshot, movement);
+                    // Optional collection resume (learner labor_collect_resume): a reset from a mid-episode boundary
+                    // snapshot keeps the interrupted episode's start turn (privileged episode-age) and trajectory id
+                    // (labor parentDecisionId / decision-diagnostic ids), and restores the live-only tile state that
+                    // SaveCodec does not persist (capture_transient). The reset step itself is NOT a faithful boundary
+                    // (its per-village contexts are empty); the caller replays the recorded preceding decision and
+                    // verifies the successor against the uninterrupted one.
+                    if (root.TryGetProperty("continuation", out var cont) && cont.ValueKind == JsonValueKind.Object)
+                        step = ApplyContinuation(environment, step, cont);
                     return new { ok = true, op, step = Encode(step), fingerprint = environment.Replay.InitialFingerprint,
                         actorLaborEnabled = environment.ActorLaborEnabled,
                         rawMaterialsEnabled = environment.World.Config.ElderRawMaterialsEnabled,
@@ -295,6 +306,9 @@ namespace Anthropocene.RLBridge
                     if (before != after) throw new InvalidOperationException("inspect changed the world fingerprint");
                     return new { ok = true, op, fingerprint = after, inspect = report };
                 }
+                case "capture_transient":
+                    if (environment == null) throw new InvalidOperationException("reset required");
+                    return new { ok = true, op, transient = CaptureTransient(environment) };
                 case "capture":
                     if (environment == null) throw new InvalidOperationException("reset required");
                     return new { ok = true, op, snapshot = Convert.ToBase64String(SaveCodec.Save(environment.World)) };
@@ -322,6 +336,144 @@ namespace Anthropocene.RLBridge
                 }
                 default:
                     throw new ArgumentException("Unknown model9 operation: " + op);
+            }
+        }
+
+        private static ElderModel9Step ApplyContinuation(ElderModel9Environment env, ElderModel9Step step, JsonElement cont)
+        {
+            int startTurn = cont.GetProperty("startTurn").GetInt32();
+            string trajectory = cont.GetProperty("trajectoryId").GetString();
+            if (string.IsNullOrEmpty(trajectory)) throw new ArgumentException("continuation trajectoryId is required");
+            if (startTurn < 0 || startTurn > env.World.Turn) throw new ArgumentException("continuation startTurn is outside the episode");
+            if (env.Replay.Steps.Count != 0) throw new InvalidOperationException("continuation applies only right after reset");
+            env.Replay.StartTurn = startTurn;
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            foreach (var name in new[] { "trajectoryId", "rootTrajectoryId" })
+            {
+                var field = typeof(ElderModel9Environment).GetField(name, flags);
+                if (field == null || field.FieldType != typeof(string))
+                    throw new InvalidOperationException("simulator environment lacks the continuation field " + name);
+                field.SetValue(env, trajectory);
+            }
+            if (!cont.TryGetProperty("transient", out var transient)) return step;
+            // Live-only state (capture_transient) a SaveCodec snapshot drops; restore it, then rebuild the boundary
+            // observation from the restored world.
+            ApplyTransient(env.World, transient);
+            var observe = typeof(ElderModel9Environment).GetMethod("Observe", flags);
+            if (observe == null) throw new InvalidOperationException("simulator environment lacks Observe");
+            var fresh = new ElderModel9Step { Turn = env.World.Turn, Fingerprint = env.Replay.InitialFingerprint };
+            observe.Invoke(env, new object[] { fresh, new Dictionary<int, int>() });
+            return fresh;
+        }
+
+        // Live-only state SaveCodec does not persist (collection checkpoints; reset continuation restores it): every
+        // [NonSerialized] scalar/array field of Camp and of its EconomicLaborPlan, and Tile.CultivationOperatingFraction.
+        // Measured (simulator 8bd480b): after an actor-labor step the live camps keep EconomicLaborPlan.ActorActivity-
+        // Authority/Actor*Workers ("turn-local", but not cleared at the boundary), which the next turn's heuristic
+        // planning reads; a loaded world has them unset. Doubles travel as IEEE-754 bit patterns (exact, NaN-safe).
+        private const System.Reflection.BindingFlags TransientFlags =
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+
+        private static System.Reflection.FieldInfo[] TransientFields(Type type) => type.GetFields(TransientFlags)
+            .Where(f => f.IsNotSerialized && !f.IsInitOnly && (f.FieldType == typeof(bool) || f.FieldType == typeof(int) ||
+                f.FieldType == typeof(double) || f.FieldType == typeof(double?) || f.FieldType == typeof(double[]) ||
+                f.FieldType == typeof(double[][])))
+            .OrderBy(f => f.Name, StringComparer.Ordinal).ToArray();
+
+        private static object EncodeValue(object value) => value switch
+        {
+            null => null,
+            double d => BitConverter.DoubleToInt64Bits(d),
+            double[] a => a.Select(d => BitConverter.DoubleToInt64Bits(d)).ToArray(),
+            double[][] m => m.Select(r => r?.Select(d => BitConverter.DoubleToInt64Bits(d)).ToArray()).ToArray(),
+            _ => value
+        };
+
+        private static object DecodeValue(JsonElement e, Type type)
+        {
+            if (e.ValueKind == JsonValueKind.Null) return null;
+            if (type == typeof(bool)) return e.GetBoolean();
+            if (type == typeof(int)) return e.GetInt32();
+            if (type == typeof(double) || type == typeof(double?)) return BitConverter.Int64BitsToDouble(e.GetInt64());
+            if (type == typeof(double[])) return e.EnumerateArray().Select(x => BitConverter.Int64BitsToDouble(x.GetInt64())).ToArray();
+            return e.EnumerateArray().Select(r => r.ValueKind == JsonValueKind.Null ? null
+                : r.EnumerateArray().Select(x => BitConverter.Int64BitsToDouble(x.GetInt64())).ToArray()).ToArray();
+        }
+
+        private static Dictionary<string, object> EncodeFields(object target, System.Reflection.FieldInfo[] fields) =>
+            fields.ToDictionary(f => f.Name, f => EncodeValue(f.GetValue(target)));
+
+        private static void DecodeFields(object target, System.Reflection.FieldInfo[] fields, JsonElement values)
+        {
+            foreach (var f in fields)
+            {
+                if (!values.TryGetProperty(f.Name, out var v))
+                    throw new InvalidOperationException("transient state lacks field " + f.DeclaringType.Name + "." + f.Name);
+                f.SetValue(target, DecodeValue(v, f.FieldType));
+            }
+        }
+
+        private static object CaptureTransient(ElderModel9Environment env)
+        {
+            var w = env.World;
+            var campFields = TransientFields(typeof(Camp)); var laborFields = TransientFields(typeof(EconomicLaborPlan));
+            var hunterFields = TransientFields(typeof(Hunter));
+            return new
+            {
+                schema = 1,
+                cultivationOperatingFraction = w.Tiles.Where(t => t.CultivationOperatingFraction != 0)
+                    .Select(t => new object[] { t.Id, BitConverter.DoubleToInt64Bits(t.CultivationOperatingFraction) }).ToArray(),
+                camps = w.Camps.OrderBy(c => c.Id).Select(c => new
+                {
+                    id = c.Id, fields = EncodeFields(c, campFields),
+                    labor = c.EconomicLabor == null ? null : EncodeFields(c.EconomicLabor, laborFields)
+                }).ToArray(),
+                hunters = w.Hunters.OrderBy(h => h.Id).Select(h => new { id = h.Id, fields = EncodeFields(h, hunterFields) }).ToArray(),
+                // The live list order (SaveCodec writes it canonically sorted); later passes iterate it in list order.
+                fixedHousing = w.FixedHousing?.Select(f => new[] { f.CampId, f.Tile }).ToArray()
+            };
+        }
+
+        private static void ApplyTransient(WorldState w, JsonElement transient)
+        {
+            if (transient.GetProperty("schema").GetInt32() != 1) throw new ArgumentException("unsupported transient schema");
+            foreach (var tile in w.Tiles) tile.CultivationOperatingFraction = 0;
+            foreach (var pair in transient.GetProperty("cultivationOperatingFraction").EnumerateArray())
+                w.Tiles[pair[0].GetInt32()].CultivationOperatingFraction = BitConverter.Int64BitsToDouble(pair[1].GetInt64());
+            var campFields = TransientFields(typeof(Camp)); var laborFields = TransientFields(typeof(EconomicLaborPlan));
+            var camps = w.Camps.ToDictionary(c => c.Id);
+            var listed = new HashSet<int>();
+            foreach (var row in transient.GetProperty("camps").EnumerateArray())
+            {
+                int id = row.GetProperty("id").GetInt32(); listed.Add(id);
+                if (!camps.TryGetValue(id, out var camp)) throw new InvalidOperationException("transient state names unknown camp " + id);
+                DecodeFields(camp, campFields, row.GetProperty("fields"));
+                var labor = row.GetProperty("labor");
+                if (labor.ValueKind == JsonValueKind.Null) { if (camp.EconomicLabor != null) throw new InvalidOperationException("transient labor plan presence differs for camp " + id); }
+                else if (camp.EconomicLabor == null) throw new InvalidOperationException("transient labor plan presence differs for camp " + id);
+                else DecodeFields(camp.EconomicLabor, laborFields, labor);
+            }
+            if (!listed.SetEquals(camps.Keys)) throw new InvalidOperationException("transient state camp set differs from the snapshot");
+            var hunterFields = TransientFields(typeof(Hunter));
+            var hunters = w.Hunters.ToDictionary(h => h.Id);
+            var listedHunters = new HashSet<int>();
+            foreach (var row in transient.GetProperty("hunters").EnumerateArray())
+            {
+                int id = row.GetProperty("id").GetInt32(); listedHunters.Add(id);
+                if (!hunters.TryGetValue(id, out var hunter)) throw new InvalidOperationException("transient state names unknown hunter " + id);
+                DecodeFields(hunter, hunterFields, row.GetProperty("fields"));
+            }
+            if (!listedHunters.SetEquals(hunters.Keys)) throw new InvalidOperationException("transient state hunter set differs from the snapshot");
+            var order = transient.GetProperty("fixedHousing");
+            if (order.ValueKind == JsonValueKind.Null) { if (w.FixedHousing != null && w.FixedHousing.Count > 0) throw new InvalidOperationException("transient fixed-housing order missing"); }
+            else
+            {
+                var sites = w.FixedHousing.ToDictionary(f => (f.CampId, f.Tile));
+                var reordered = order.EnumerateArray().Select(e => sites[(e[0].GetInt32(), e[1].GetInt32())]).ToList();
+                if (reordered.Count != sites.Count || reordered.Distinct().Count() != sites.Count)
+                    throw new InvalidOperationException("transient fixed-housing order differs from the snapshot");
+                w.FixedHousing.Clear(); w.FixedHousing.AddRange(reordered);
+                NeolithicProduction.FixedHousingChanged(w);
             }
         }
 
