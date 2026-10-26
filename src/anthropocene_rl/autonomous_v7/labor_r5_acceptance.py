@@ -26,7 +26,7 @@ machine receipt (``gate-receipt.json``) with verdict PASS / HOLD / FAIL:
 * **Generalisation gap** fit versus calibration per head, and A held-out
   (within fitting worlds) versus reserved.
 * **Seeds.** Per-seed checks, seed spread, and the declared seed rule:
-  ``all-seeds`` (default: every seed passes every check) or
+  ``all-seeds`` (every seed passes every check) or
   ``mean-with-floor`` (the seed mean passes every scalar threshold, the worst
   seed is within ``floor_tolerance`` of it, and every non-scalar and every
   stability check passes in every seed). The receipt records the rule used.
@@ -102,9 +102,14 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "proposed",
         "source": "every evaluator stratum",
     },
-    "td_residual_abs_bias_max": {"value": 0.05, "status": "proposed", "source": "reference scales"},
-    "td_residual_mae_max": {"value": 0.20, "status": "proposed", "source": "reference scales"},
+    "td_residual_abs_bias_max": {"value": 0.05, "status": "approved (user 26 Oct)", "source": "reference scales (3.1)"},
+    "td_residual_mae_max": {"value": 0.20, "status": "approved (user 26 Oct)", "source": "reference scales (3.1)"},
     # Rolling-window n-step residual (r5-b criterion c, replaced one-step TD residual).
+    "td_unavailable_max": {
+        "value": 0.05,
+        "status": "proposed",
+        "source": "windows ending at a living cutoff without a declared tail are excluded; above this share HOLD",
+    },
     "td_nstep_k": {
         "value": 5,
         "status": "approved (user 26 Oct)",
@@ -125,20 +130,74 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "approved (user 26 Oct)",
         "source": "groups with fewer windows are reported, not gated",
     },
-    "gap_nmae_max": {"value": 0.10, "status": "proposed", "source": "cal nMAE - fit nMAE"},
-    "gap_ranking_max": {"value": 0.10, "status": "proposed", "source": "fit rank - cal rank"},
-    "gap_a_ranking_max": {"value": 0.10, "status": "proposed", "source": "A held-out - reserved"},
-    "seed_rule_default": {"value": "all-seeds", "status": "proposed", "source": "harness"},
-    "floor_tolerance": {"value": 0.02, "status": "proposed", "source": "mean-with-floor rule"},
+    "gap_nmae_max": {
+        "value": 0.10,
+        "status": "approved (user 26 Oct)",
+        "source": "cal nMAE - fit nMAE; remedy: wider data (3.2)",
+    },
+    "gap_ranking_max": {
+        "value": 0.10,
+        "status": "approved (user 26 Oct)",
+        "source": "fit rank - cal rank; remedy: wider data (3.2)",
+    },
+    "gap_a_ranking_max": {
+        "value": 0.10,
+        "status": "approved (user 26 Oct)",
+        "source": "A held-out - reserved; remedy: wider data (3.2)",
+    },
+    "seed_rule_default": {
+        "value": "mean-with-floor",
+        "status": "approved (user 26 Oct)",
+        "source": "user-approved default seed rule",
+    },
+    "floor_tolerance": {"value": 0.02, "status": "approved (user 26 Oct)", "source": "mean-with-floor rule"},
     "determinism_tolerance": {
         "value": 1e-6,
-        "status": "proposed",
-        "source": "max relative CPU drift",
+        "status": "approved (user 26 Oct)",
+        "source": "max relative CPU drift (3.4)",
     },
     "stability_thresholds": {
         "value": "labor_stability.StabilityThresholds",
-        "status": "proposed",
-        "source": "brief s17",
+        "status": "approved (user 26 Oct)",
+        "source": "brief s17; each decision below approved individually",
+    },
+    "stability_rollbacks": {
+        "value": {"max_consecutive_failures": 3, "max_total_rollbacks": 5},
+        "status": "approved (user 26 Oct)",
+        "source": "2.1: K = 3; more than 5 rollbacks fails the fit. Multi-seed escalation: "
+        "a rollback-prone arm across seeds is escalated to the user, not averaged away",
+    },
+    "stability_dominance": {
+        "value": {"window_points": 16, "steps": 400, "share": 0.90, "persistence": 0.75,
+                  "min_progress": 0.01},
+        "status": "approved (user 26 Oct)",
+        "source": "2.2: 16-point window (400 steps)",
+    },
+    "stability_saturation": {
+        "value": "see saturation_* entries",
+        "status": "approved (user 26 Oct)",
+        "source": "2.3: relaxed low-side/early-stratum rule",
+    },
+    "stability_td_trajectory": {
+        "value": "see td_* StabilityThresholds fields",
+        "status": "approved (user 26 Oct)",
+        "source": "2.4: warm-up, diminishing trajectory, divergence, hard [0, W] bound",
+    },
+    "stability_population_tail": {
+        "value": {"upper_excess_alarm": 0.01, "top_bin_mass_alarm": 1e-3},
+        "status": "approved (user 26 Oct)",
+        "source": "2.5: ESCALATE any trigger to the user",
+    },
+    "stability_advantage_overfit": {
+        "value": {"overfit_gap": 0.10, "overfit_heldout_drop": 0.03},
+        "status": "approved (user 26 Oct)",
+        "source": "2.6: standing remedy: more scenarios and heuristic variety; escalate only on "
+        "trajectory-knowledge regression (GRU case)",
+    },
+    "stability_privileged_attention": {
+        "value": {"attention_ratio_floor": 0.10},
+        "status": "approved (user 26 Oct)",
+        "source": "2.7: advisory",
     },
     # TD(lambda) drift: judged on the trajectory (large early drift/error are expected).
     "td_warmup_refreshes": {
@@ -439,7 +498,21 @@ def qol_checks(
             detail="QoL must use the bounded head (r5-b item 4)",
         )
     )
-    # (c) TD residual consistency along each village's own trajectory.
+    # (c) n-step residual consistency along each village's own trajectory. More than 5% of
+    # windows without a declared tail is missing evidence (HOLD), never a zero-tail pass.
+    share = None if td is None else td.get("unavailable_share")
+    if td is not None and share is not None and float(share) > threshold("td_unavailable_max"):
+        td = {"unavailable_share": share, "bias": None, "mae": None, "groups": []}
+        out.append(
+            check(
+                "qol:c:td-residual-unavailable",
+                "qol",
+                None,
+                threshold("td_unavailable_max"),
+                "<=",
+                detail={"unavailable_share": share},
+            )
+        )
     out.append(
         check(
             "qol:c:td-residual-abs-bias",
@@ -1262,16 +1335,19 @@ def nstep_residuals(
     *,
     k: int = 5,
     discount_years: float = 400.0,
-) -> tuple[Any, Any]:
+    zero_tail_declared: bool = False,
+) -> tuple[Any, Any, Any]:
     """Rolling n-step residuals along each trajectory, in the units of ``values``/``reward``.
 
     residual_t = V(s_t) - [sum_{j<k} (prod_{m<j} g_m) r_{t+j} + (prod_{m<k} g_m) V(s_{t+k})]
     with g_m = exp(-elapsed_m / discount_years), sliding one decision at a time. A window
     that reaches a terminal row uses realized rewards through it and a zero tail; one that
-    reaches the trajectory's living end uses ``tails`` at the last row (when ``codes``
-    declares an exact/randomized tail, else zero). Trajectories are keyed (world, camp,
-    row_trajectory) and ordered by ``row_turn``. Returns (residual, position) where
-    ``position`` is the 0-based decision index within the trajectory.
+    reaches the trajectory's living end uses ``tails`` at the last row when ``codes``
+    declares an exact/randomized tail. A living end with no declared tail is never closed
+    with zero: that window is *unavailable* (excluded), unless the dataset's declared method
+    is the truncated-zero window (``zero_tail_declared``). Trajectories are keyed (world,
+    camp, row_trajectory) and ordered by ``row_turn``. Returns (residual, position,
+    available) where ``position`` is the 0-based decision index within the trajectory.
     """
     import numpy as np
 
@@ -1283,6 +1359,7 @@ def nstep_residuals(
         groups[(int(worlds[i]), int(camps[i]), int(trajectories[i]))].append(i)
     residual = np.zeros(n)
     position = np.zeros(n, dtype=np.int64)
+    available = np.ones(n, dtype=bool)
     for indices in groups.values():
         indices.sort(key=lambda i: turns[i])
         size = len(indices)
@@ -1304,12 +1381,18 @@ def nstep_residuals(
                         TAIL_TERMINAL_EXACT,
                         TAIL_RANDOMIZED,
                     )
-                    tail_value = float(tails[row]) if exact else 0.0
+                    if exact:
+                        tail_value = float(tails[row])
+                    elif zero_tail_declared:
+                        tail_value = 0.0
+                    else:
+                        available[i] = False
+                        tail_value = 0.0
                     break
             else:
                 tail_value = float(values[indices[pos + k]])
             residual[i] = float(values[i]) - (total + discount * tail_value)
-    return residual, position
+    return residual, position, available
 
 
 def position_group_report(
@@ -1391,14 +1474,27 @@ def td_residual_report(
     codes = _np(dataset, TAIL_METHOD_FIELD).reshape(-1) if randomized else None
     tails = _np(dataset, TAIL_VALUE_PREFIX + "qol_years").reshape(-1) if randomized else None
     k = int(threshold("td_nstep_k"))
-    delta, position = nstep_residuals(
-        values, reward, elapsed, terminal, turns, worlds, camps, trajectories, codes, tails, k=k
+    delta, position, window_ok = nstep_residuals(
+        values,
+        reward,
+        elapsed,
+        terminal,
+        turns,
+        worlds,
+        camps,
+        trajectories,
+        codes,
+        tails,
+        k=k,
+        zero_tail_declared=not randomized,
     )
     scale = LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
     keep = ~_np(dataset, "row_quarantined").reshape(-1).astype(bool) & critic_target_available(
         dataset
     ).numpy().astype(bool)
-    rows = np.flatnonzero(keep)
+    admitted = int(keep.sum())
+    unavailable = int((keep & ~window_ok).sum())
+    rows = np.flatnonzero(keep & window_ok)
     weights = world_balanced(worlds[rows], np.ones(len(rows), dtype=bool))
     normalized = delta[rows] / scale
     total = float(weights.sum())
@@ -1420,6 +1516,9 @@ def td_residual_report(
         "scale": scale,
         "units": "QoL reference scales",
         "window_decisions": k,
+        "admitted_windows": admitted,
+        "unavailable": unavailable,
+        "unavailable_share": unavailable / admitted if admitted else None,
         "bias": mean(normalized) if total > 0 else None,
         "mae": mean(np.abs(normalized)) if total > 0 else None,
         "groups": position_group_report(

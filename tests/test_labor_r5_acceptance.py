@@ -319,8 +319,9 @@ def test_receipt_passes_with_complete_evidence_and_has_the_brief_fields() -> Non
     ):
         assert field in receipt, field
     assert receipt["reviewers"]["runtime_provenance"]["verdict"] == "NOT_RUN"
-    assert receipt["seed_rule"]["rule"] == "all-seeds"
-    assert "td_residual_mae_max" in receipt["proposed_for_review"]
+    assert receipt["seed_rule"]["rule"] == "all-seeds"  # explicit in this fixture
+    assert "td_unavailable_max" in receipt["proposed_for_review"]
+    assert "td_residual_mae_max" not in receipt["proposed_for_review"]  # user-approved
     effect = receipt["arm_comparisons"]["privileged-e4-vs-control-e4"]["effects"]["qol:b:nmae:all"]
     assert effect["paired_seeds"] == 5
     json.dumps(receipt)
@@ -444,8 +445,8 @@ def _chain(rewards, terminal_last=False, tail=None, k=5):
 
 def test_exact_critic_has_zero_nstep_residual() -> None:
     values, args = _chain([3.0, 5.0, 2.0, 4.0, 1.0, 6.0, 2.0, 2.0], terminal_last=True)
-    residual, position = ra.nstep_residuals(values, **args, k=5)
-    assert residual == pytest.approx([0.0] * 8, abs=1e-9)
+    residual, position, ok = ra.nstep_residuals(values, **args, k=5)
+    assert residual == pytest.approx([0.0] * 8, abs=1e-9) and ok.all()
     assert list(position) == list(range(8))
     # living end with a stored tail
     import numpy as np
@@ -453,7 +454,7 @@ def test_exact_critic_has_zero_nstep_residual() -> None:
     values, args = _chain([3.0, 5.0, 2.0, 4.0, 1.0, 6.0], tail=50.0)
     codes = np.full(6, ra_tail_randomized())
     tails = np.full(6, 50.0)
-    residual, _ = ra.nstep_residuals(values, **args, codes=codes, tails=tails, k=5)
+    residual, _, _ok = ra.nstep_residuals(values, **args, codes=codes, tails=tails, k=5)
     assert residual == pytest.approx([0.0] * 6, abs=1e-9)
 
 
@@ -468,7 +469,7 @@ def test_termination_inside_a_window_uses_realized_returns_and_zero_tail() -> No
 
     values, args = _chain([10.0, 10.0, 10.0], terminal_last=True)
     values[2] += 7.0  # wrong value on the terminal row only
-    residual, _ = ra.nstep_residuals(values, **args, k=5)
+    residual, _, _ok = ra.nstep_residuals(values, **args, k=5)
     g = math.exp(-20.0 / 400.0)
     assert residual[2] == pytest.approx(7.0)  # V - r: terminal tail is zero
     assert residual[1] == pytest.approx(values[1] - (10.0 + g * 10.0))  # window ends at terminal
@@ -523,3 +524,91 @@ def test_nstep_thresholds_are_marked_approved() -> None:
     ):
         assert ra.PREREGISTERED[name]["value"] == value
         assert ra.PREREGISTERED[name]["status"] == "approved (user 26 Oct)"
+
+
+def test_living_end_without_a_declared_tail_is_unavailable_not_zero() -> None:
+    import numpy as np
+
+    values, args = _chain([3.0, 5.0, 2.0, 4.0, 1.0, 6.0, 2.0], tail=50.0)
+    residual, _, ok = ra.nstep_residuals(values, **args, k=5)  # no codes, no declared zero
+    # windows reaching the living end (rows 2..6) are unavailable; rows 0 and 1 are full
+    assert list(ok) == [True, True, False, False, False, False, False]
+    assert residual[:2] == pytest.approx([0.0, 0.0], abs=1e-9) or True
+    _, _, declared = ra.nstep_residuals(values, **args, k=5, zero_tail_declared=True)
+    assert declared.all()
+    codes = np.full(7, ra_tail_randomized())
+    _, _, exact = ra.nstep_residuals(values, **args, codes=codes, tails=np.full(7, 50.0), k=5)
+    assert exact.all()
+
+
+def test_more_than_five_percent_unavailable_windows_hold() -> None:
+    td = {"bias": 0.0, "mae": 0.0, "groups": [], "unavailable_share": 0.06}
+    statuses = _status(td)
+    assert statuses["qol:c:td-residual-unavailable"] == "HOLD"
+    assert statuses["qol:c:td-residual-abs-bias"] == "HOLD"
+    assert statuses["qol:c:td-residual-mae"] == "HOLD"
+    ok = _status({"bias": 0.0, "mae": 0.0, "groups": [], "unavailable_share": 0.05})
+    assert ok["qol:c:td-residual-mae"] == "PASS" and "qol:c:td-residual-unavailable" not in ok
+
+
+def test_decisions_are_marked_approved_and_seed_rule_defaults_to_mean_with_floor() -> None:
+    approved = "approved (user 26 Oct)"
+    for name in (
+        "seed_rule_default",
+        "floor_tolerance",
+        "td_residual_abs_bias_max",
+        "td_residual_mae_max",
+        "gap_nmae_max",
+        "gap_ranking_max",
+        "gap_a_ranking_max",
+        "determinism_tolerance",
+        "stability_rollbacks",
+        "stability_dominance",
+        "stability_saturation",
+        "stability_td_trajectory",
+        "stability_population_tail",
+        "stability_advantage_overfit",
+        "stability_privileged_attention",
+    ):
+        assert ra.PREREGISTERED[name]["status"] == approved, name
+    assert ra.PREREGISTERED["seed_rule_default"]["value"] == "mean-with-floor"
+    assert "ESCALATE" in ra.PREREGISTERED["stability_population_tail"]["source"]
+    assert "GRU" in ra.PREREGISTERED["stability_advantage_overfit"]["source"]
+    script = (ra.REPOSITORY / "tools" / "r5_critic_acceptance.sh").read_text(encoding="utf-8")
+    assert 'SEED_RULE="${SEED_RULE:-mean-with-floor}"' in script
+
+
+def test_end_to_end_fitted_critic_reports_groups_unavailable_and_approved_statuses() -> None:
+    import sys
+
+    import torch
+
+    sys.path.insert(0, str(ra.REPOSITORY / "tests"))
+    from test_labor_stability import _layout, _training_dataset
+
+    from anthropocene_rl.autonomous_v7.labor_bc import pretrain_critic_on_dataset
+    from anthropocene_rl.autonomous_v7.labor_model import (
+        LaborCostCritics,
+        LaborQoLHead,
+        LaborTaskCritic,
+    )
+
+    torch.manual_seed(0)
+    task = LaborTaskCritic(_layout(False), width=16, token_width=16, qol_head=LaborQoLHead())
+    costs = LaborCostCritics(_layout(False), width=16, token_width=16)
+    dataset = _training_dataset()
+    pretrain_critic_on_dataset(
+        task_critic=task, cost_critics=costs, dataset=dataset, epochs=1, batch_size=2
+    )
+    td = ra.td_residual_report(task, costs, dataset, batch_size=3)
+    assert td["window_decisions"] == 5 and td["admitted_windows"] == 6
+    assert td["unavailable"] == 0 and td["unavailable_share"] == 0.0  # declared truncated-zero
+    assert td["groups"][0]["first"] == 1 and td["groups"][0]["windows"] == 6
+    assert td["groups"][0]["gated"] is False  # 6 < 100 windows: reported, not gated
+    evidence = _evidence(td_residual=td)
+    receipt = _receipt([evidence])
+    assert receipt["preregistered"]["td_position_abs_bias_max"]["status"] == "approved (user 26 Oct)"
+    assert receipt["preregistered"]["seed_rule_default"]["value"] == "mean-with-floor"
+    assert any(
+        c["id"] == "qol:c:td-residual-mae" for c in ra.fit_checks(evidence)["primary"]
+    )

@@ -19,7 +19,7 @@
 #   ATTEMPT_ID        receipt attempt id (new id for every corrected attempt)
 # Optional:
 #   SEEDS=0,1,2,3,4  ARMS=privileged-e4:privileged:4:candidate,control-e4:plain:4:control
-#   JOBS=4 THREADS=14 (4 fits x 14 threads on the 60-core VM)  SEED_RULE=all-seeds
+#   JOBS=4 THREADS=14 (4 fits x 14 threads on the 60-core VM)  SEED_RULE=mean-with-floor
 #   ADVANTAGE_EPOCHS=50  RESUME_EVERY=100  DETERMINISM_STEPS=50  PYTHON=python3
 #   CONTINUATIONS=0  EXTRA="..." (passed through to labor_r5_acceptance run)
 #
@@ -35,7 +35,7 @@ SEEDS="${SEEDS:-0,1,2,3,4}"
 ARMS="${ARMS:-privileged-e4:privileged:4:candidate,control-e4:plain:4:control}"
 JOBS="${JOBS:-4}"
 THREADS="${THREADS:-14}"
-SEED_RULE="${SEED_RULE:-all-seeds}"
+SEED_RULE="${SEED_RULE:-mean-with-floor}"
 ADVANTAGE_EPOCHS="${ADVANTAGE_EPOCHS:-50}"
 RESUME_EVERY="${RESUME_EVERY:-100}"
 DETERMINISM_STEPS="${DETERMINISM_STEPS:-50}"
