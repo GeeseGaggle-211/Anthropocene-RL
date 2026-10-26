@@ -538,7 +538,9 @@ def control_candidates(h12: Mapping[str, Any], catalog: LaborCatalog) -> list[Ca
       when H12 staffs no Farmer and Farmer is legal (a suitable site);
     * ``control-twin``: H12 with the activity simplex of one *unstaffed* role moved to
       another legal activity -- no resident works it, so the physics is H12's and only
-      bookkeeping differs.
+      bookkeeping differs; failing that (unstaffed roles admit only idle), H12 with
+      specialty shares shifted by a quarter resident, which apportion to the same
+      integer residents.
     """
     counts, activity = labor_state(h12, catalog)
     population = int(catalog.population)
@@ -597,6 +599,34 @@ def control_candidates(h12: Mapping[str, Any], catalog: LaborCatalog) -> list[Ca
                 )
             )
             break
+    if not any(c.family == "control-twin" for c in out):
+        # Fallback twin: shift a quarter resident of specialty share between two
+        # specialties; the native largest-remainder apportionment yields H12's residents.
+        staffed = [i for i in range(len(counts)) if counts[i] > 0 and catalog.masks.specialty[i]]
+        if len(staffed) >= 2:
+            a, b = staffed[0], staffed[-1]
+            spec = counts.astype(np.float64) / population
+            delta = 0.25 / population
+            spec[a] += delta
+            spec[b] -= delta
+            try:
+                sample = LaborPolicySample(
+                    tuple(float(x) for x in spec),
+                    tuple(tuple(float(x) for x in r) for r in activity),
+                )
+                twin = dict(h12, **sample.payload())
+                same = np.array_equal(labor_state(twin, catalog)[0], counts)
+            except ValueError:
+                same = False
+            if same and payload_digest(twin) != payload_digest(h12):
+                out.append(
+                    Candidate(
+                        twin,
+                        "control-twin",
+                        "bookkeeping twin of H12 (shares apportioning to H12's residents)",
+                        frozenset(),
+                    )
+                )
     return out
 
 

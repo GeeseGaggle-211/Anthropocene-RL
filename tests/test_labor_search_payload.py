@@ -360,3 +360,28 @@ def test_control_roots_carry_tagged_controls_to_the_final_horizon() -> None:
     assert not plain.payload_root["record"]["control_root"]
     assert not any(c["family"].startswith("control") for c in
                    plain.payload_root["record"]["candidates"])
+
+
+def test_share_shift_twin_when_unstaffed_roles_admit_only_idle() -> None:
+    import dataclasses
+
+    from anthropocene_rl.autonomous_v7.labor_search import control_candidates
+
+    catalog = _catalog()
+    base = _base_payload(catalog)
+    counts, _ = labor_state(base, catalog)
+    masks = catalog.masks
+    activity = [list(row) for row in masks.activity]
+    for role in range(len(activity)):
+        if counts[role + 1] == 0:
+            activity[role] = [i == 0 for i in range(len(activity[role]))]
+    try:
+        restricted = dataclasses.replace(
+            catalog, masks=dataclasses.replace(masks, activity=tuple(map(tuple, activity)))
+        )
+    except (TypeError, ValueError):
+        pytest.skip("catalog masks are not a replaceable dataclass")
+    twins = [c for c in control_candidates(base, restricted) if c.family == "control-twin"]
+    assert len(twins) == 1 and "apportioning" in twins[0].description
+    assert np.array_equal(labor_state(twins[0].payload, restricted)[0], counts)
+    assert twins[0].payload["laborSpecialtyAllocation"] != base["laborSpecialtyAllocation"]
