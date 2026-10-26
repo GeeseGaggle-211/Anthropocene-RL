@@ -239,8 +239,10 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
   `row_trajectory` per continuation, typed `tail_*` fields) is accepted only by
   `pretrain-critic --learner-state-continuations`, alone or with teacher shards
   (`--dataset teacher --dataset continuation`); actor BC refuses it. Cost: one continuation is
-  2 + 2 x required_terms resolves (the world's frozen schedule, e.g. 62 terms for world 90100), see the
-  r5 data report for measured times.
+  2 + 2 x required_terms resolves (the world's frozen schedule, e.g. 62 terms for world 90100). Measured
+  locally (26 Oct, world 90100, 16 players, default map, depth 1, 2 starts, horizon 3, branch-end): 126
+  resolves and 3,611-4,585 s per continuation (about 29-36 s per resolve with a concurrent job), against
+  140 s for the learner rows themselves, so continuations dominate DAgger cost by about 60x per branch.
 
 ## 2. Collect one frozen-behavior physical rollout
 

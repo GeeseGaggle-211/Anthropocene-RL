@@ -127,6 +127,10 @@ reserved worlds 90154-90159 unless `training=False`.
   `labor_advantage.AdvantageRanker`; every candidate is scored, the top `--ranker-top` (4) plus H12 (and the
   controls) are natively evaluated, and `--ranker-full-fraction` (0.2) of roots stay fully evaluated for
   regret. Predicted A is recorded on every candidate.
+- Measured locally (26 Oct, world 90100, 8 players, `--source actor`, M=8, horizons 1,2,3, keep all,1/2,2,
+  2 streams): 54 resolves (24 search + 30 re-evaluation of the three final survivors) and 380-447 s per root;
+  a control root adds the controls to the final horizon (66 resolves, 442 s). The legacy winners-only scope
+  would have re-evaluated two candidates (about 12 fewer resolves at this root).
 - `--held-out-test` searches only the reserved worlds 90154-90159 and tags the source record and every shard
   `partition: held-out-test`; no training loader accepts it.
 
