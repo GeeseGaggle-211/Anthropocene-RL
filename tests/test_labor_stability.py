@@ -365,35 +365,79 @@ def test_early_decision_mask_ranks_turns_within_trajectory() -> None:
 # --- 4. TD(lambda) drift --------------------------------------------------------------------
 
 
-def test_td_divergence_fires_when_drift_grows_over_three_refreshes() -> None:
-    weight = 100.0
+def _td_run(steps, errors=None, weight=100.0):
+    """Feed one refresh per step (epoch 0 is the Monte Carlo replacement, then steps)."""
     monitor = TDDriftMonitor(weight, growth=3, floor=1e-3, tolerance=1e-6)
-    base = torch.full((10,), 40.0)
-    assert monitor.update(0, base - 30.0, base, growth_eligible=False) is None  # vs Monte Carlo
-    current = base
-    alarm = None
-    for epoch, step in enumerate((1.0, 2.0, 4.0), start=1):
-        previous, current = current, current + step
-        alarm = monitor.update(epoch, previous, current)
-    assert alarm is not None and alarm["reason"] == "drift-grew-over-3-refreshes"
-    assert alarm["drifts"] == pytest.approx([0.01, 0.02, 0.04])
+    current = torch.full((10,), 40.0)
+    monitor.update(0, current - 30.0, current, growth_eligible=False, error=0.0)
+    alarms = []
+    for epoch, step in enumerate(steps, start=1):
+        previous, current = current, current + step * (1 if epoch % 2 else -1)  # stay in [0, W]
+        error = None if errors is None else errors[epoch - 1]
+        alarms.append(monitor.update(epoch, previous, current, error=error))
+    return monitor, alarms
 
 
-def test_td_shrinking_drift_is_quiet_and_out_of_range_targets_alarm() -> None:
-    monitor = TDDriftMonitor(100.0, growth=3, floor=1e-3, tolerance=1e-6)
-    current = torch.full((10,), 40.0)
-    for epoch, step in enumerate((4.0, 2.0, 1.0, 0.5), start=1):
-        previous, current = current, current + step
-        assert monitor.update(epoch, previous, current) is None
-    tiny = TDDriftMonitor(100.0, growth=3, floor=1e-3, tolerance=1e-6)
-    current = torch.full((10,), 40.0)
-    for epoch, step in enumerate((1e-4, 2e-4, 4e-4), start=1):  # growing but below the floor
-        previous, current = current, current + step
-        assert tiny.update(epoch, previous, current) is None
+def _failed(monitor, key):
+    return not monitor.report()["trajectory"][key]["pass"]
+
+
+def test_td_large_early_drift_that_decays_passes() -> None:
+    steps = (30.0, 20.0, 8.0, 4.0, 2.0, 1.0)  # first two refreshes are warm-up
+    errors = (40.0, 30.0, 10.0, 5.0, 2.5, 1.0)
+    monitor, alarms = _td_run(steps, errors)
+    assert all(a is None for a in alarms)
+    report = monitor.report()
+    assert report["alarms"] == []
+    drift = report["trajectory"]["drift"]
+    assert drift["slope"] < 0 and drift["final_over_max"] == pytest.approx(0.125)
+    assert drift["series"] == pytest.approx([0.08, 0.04, 0.02, 0.01])
+    assert report["trajectory"]["error"]["pass"]
+
+
+def test_td_flat_drift_fails_the_half_max_rule() -> None:
+    monitor, alarms = _td_run((10.0, 10.0, 3.0, 3.0, 3.0, 3.0))
+    assert all(a is None for a in alarms)  # no divergence, but not diminishing
+    drift = monitor.report()["trajectory"]["drift"]
+    assert drift["final_over_max"] == 1.0 and not drift["pass"]
+    assert any(a["reason"] == "drift-trajectory-not-diminishing" for a in monitor.report()["alarms"])
+
+
+def test_td_growth_after_warmup_fails() -> None:
+    monitor, alarms = _td_run((50.0, 40.0, 1.0, 2.0, 4.0, 8.0))
+    fired = [a for a in alarms if a is not None]
+    assert fired and fired[0]["reason"].startswith("drift-rose")  # 3 increases >10%
+    assert _failed(monitor, "drift")
+    # growth inside the warm-up window is ignored
+    quiet, quiet_alarms = _td_run((1.0, 2.0, 1.0, 0.5, 0.2, 0.1))
+    assert all(a is None for a in quiet_alarms) and quiet.report()["alarms"] == []
+
+
+def test_td_error_trajectory_is_judged_separately() -> None:
+    monitor, _ = _td_run((8.0, 4.0, 2.0, 1.0, 0.5, 0.25), errors=(9.0, 9.0, 9.0, 9.0, 9.0, 9.0))
+    report = monitor.report()
+    assert report["trajectory"]["drift"]["pass"] and not report["trajectory"]["error"]["pass"]
+    assert any(a["reason"] == "error-trajectory-not-diminishing" for a in report["alarms"])
+
+
+def test_td_converged_below_floor_passes() -> None:
+    monitor, alarms = _td_run((5e-2, 5e-2, 4e-2, 5e-2, 6e-2, 5e-2))  # 5e-4 of W, flat
+    report = monitor.report()
+    assert all(a is None for a in alarms) and report["alarms"] == []
+    assert report["trajectory"]["drift"]["status"] == "converged"
+
+
+def test_td_out_of_range_target_fails_immediately() -> None:
     bounds = TDDriftMonitor(100.0, growth=3, floor=1e-3, tolerance=1e-6)
     alarm = bounds.update(0, None, torch.tensor([10.0, 100.5]))
     assert alarm["reason"] == "targets-outside-[0,W]" and alarm["out_of_bounds"] == 1
     assert bounds.update(1, None, torch.tensor([0.0, 100.0])) is None
+    assert bounds.report()["alarms"]
+
+
+def test_td_threshold_fields() -> None:
+    th = StabilityThresholds()
+    assert (th.td_warmup_refreshes, th.td_final_ratio, th.td_divergence_increase) == (2, 0.5, 0.10)
 
 
 def test_td_lambda_fit_records_refreshes() -> None:

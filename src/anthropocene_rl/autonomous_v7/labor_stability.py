@@ -96,9 +96,13 @@ class StabilityThresholds:
     saturation_early_decisions: int = 5
     saturation_expected_low_target_fraction: float = 0.05
     # 4. TD(lambda) drift: growth over 3 consecutive refreshes (r5 freeze).
-    td_growth_refreshes: int = 3
-    td_drift_floor: float = 1e-3  # drift (fraction of W) below which growth is ignored
-    td_bound_tolerance: float = 1e-6  # relative to W
+    #    Approved trajectory rule (user 26 Oct): judge the trajectory, not an absolute bound.
+    td_growth_refreshes: int = 3  # divergence: this many consecutive increases ...
+    td_divergence_increase: float = 0.10  # ... each larger than this relative increase
+    td_warmup_refreshes: int = 2  # refreshes ignored while drift and error may be large
+    td_final_ratio: float = 0.5  # final value at most this x the post-warm-up maximum
+    td_drift_floor: float = 1e-3  # values (fraction of W) below this count as converged
+    td_bound_tolerance: float = 1e-6  # hard [0, W] bound slack, relative to W
     # 5. Population head decoded tail (reference-scale units; 10% of the 0.10 bias allowance).
     upper_excess_alarm: float = 0.01
     top_bin_mass_alarm: float = 1e-3
@@ -279,22 +283,83 @@ class DominanceDetector:
         }
 
 
-class TDDriftMonitor:
-    """Mean |target change| per TD(lambda) refresh and the divergence alarm.
+def trajectory_report(series: Sequence[float], *, ratio: float, floor: float) -> dict[str, Any]:
+    """Diminishing-trajectory test on a post-warm-up series (fractions of W).
 
-    Drift is measured in units of the discount weight W. The alarm fires when
-    drift grows strictly over ``growth`` consecutive refreshes with the last
-    drift above ``floor`` (r5 freeze: 3 refreshes), or when any bootstrapped
-    target leaves [0, W] by more than ``tolerance * W``.
+    Passes when the series has converged below ``floor`` (its final value is under the
+    floor), or when the least-squares slope of log(value) over the refresh index is
+    negative and the final value is at most ``ratio`` x the series maximum. Fewer than
+    three points cannot define a slope and are reported as ``insufficient`` (no alarm).
+    """
+    values = [float(v) for v in series]
+    report: dict[str, Any] = {
+        "series": values,
+        "slope": None,
+        "final_over_max": None,
+        "status": "insufficient",
+        "pass": True,
+    }
+    if not values:
+        return report
+    peak = max(values)
+    report["final_over_max"] = values[-1] / peak if peak > 0 else 0.0
+    if values[-1] < floor:
+        report.update(status="converged", **{"pass": True})
+        return report
+    if len(values) < 3:
+        return report
+    logs = [math.log(max(v, 1e-12)) for v in values]
+    n = len(logs)
+    mean_x = (n - 1) / 2.0
+    mean_y = sum(logs) / n
+    slope = sum((i - mean_x) * (y - mean_y) for i, y in enumerate(logs)) / sum(
+        (i - mean_x) ** 2 for i in range(n)
+    )
+    report["slope"] = slope
+    ok = slope < 0 and values[-1] <= ratio * peak
+    report.update(status="diminishing" if ok else "not-diminishing", **{"pass": ok})
+    return report
+
+
+class TDDriftMonitor:
+    """TD(lambda) target drift and error trajectory checks.
+
+    Drift (mean |target change| per refresh) and error (mean |prediction - TD target| on
+    the fit rows) are in units of the discount weight W. Rules (approved trajectory rule,
+    user 26 Oct): the first ``warmup`` refreshes are ignored; afterwards each series must
+    diminish (see :func:`trajectory_report`); a divergence alarm fires on ``growth``
+    consecutive increases each larger than ``increase``; any bootstrapped target outside
+    [0, W] by more than ``tolerance * W`` alarms at once (QoL cannot leave that range).
     """
 
-    def __init__(self, weight: float, *, growth: int, floor: float, tolerance: float) -> None:
+    def __init__(
+        self,
+        weight: float,
+        *,
+        growth: int,
+        floor: float,
+        tolerance: float,
+        warmup: int = 2,
+        ratio: float = 0.5,
+        increase: float = 0.10,
+    ) -> None:
         self.weight = float(weight)
         self.growth = int(growth)
         self.floor = float(floor)
         self.tolerance = float(tolerance)
+        self.warmup = int(warmup)
+        self.ratio = float(ratio)
+        self.increase = float(increase)
         self.refreshes: list[dict[str, Any]] = []
         self.alarms: list[dict[str, Any]] = []
+
+    def _series(self, key: str) -> list[float]:
+        """Post-warm-up values; the epoch-0 refresh replaces the Monte Carlo return and is
+        not part of the trajectory (``growth_eligible`` false)."""
+        values = [
+            r[key] for r in self.refreshes if r.get(key) is not None and r["growth_eligible"]
+        ]
+        return values[self.warmup :]
 
     def update(
         self,
@@ -303,9 +368,11 @@ class TDDriftMonitor:
         current: torch.Tensor,
         *,
         growth_eligible: bool = True,
+        error: float | None = None,
     ) -> dict[str, Any] | None:
-        """``growth_eligible=False`` records a drift (e.g. the first refresh against the
-        Monte Carlo return) without counting it toward the growth alarm."""
+        """``growth_eligible=False`` records a refresh (e.g. the first one against the
+        Monte Carlo return) without counting it toward the trajectory. ``error`` is the
+        mean |prediction - TD target| on the fit rows, in the same units as the targets."""
         current = current.detach().double().reshape(-1)
         low = float(current.min()) if current.numel() else 0.0
         high = float(current.max()) if current.numel() else 0.0
@@ -318,6 +385,7 @@ class TDDriftMonitor:
             "weight": self.weight,
             "out_of_bounds": out_of_bounds,
             "drift": None,
+            "error": None if error is None else float(error) / self.weight,
             "growth_eligible": bool(growth_eligible),
         }
         if previous is not None:
@@ -328,25 +396,50 @@ class TDDriftMonitor:
         alarm = None
         if out_of_bounds:
             alarm = {"check": "td_divergence", "reason": "targets-outside-[0,W]", **record}
-        drifts = [
-            r["drift"] for r in self.refreshes if r["drift"] is not None and r["growth_eligible"]
-        ]
-        if alarm is None and len(drifts) >= self.growth:
-            tail = drifts[-self.growth :]
-            growing = all(b > a for a, b in zip(tail, tail[1:], strict=False))
-            if growing and tail[-1] > self.floor:
-                alarm = {
-                    "check": "td_divergence",
-                    "reason": f"drift-grew-over-{self.growth}-refreshes",
-                    "drifts": tail,
-                    **record,
-                }
+        if alarm is None:
+            for key in ("drift", "error"):
+                tail = self._series(key)[-(self.growth + 1) :]
+                if len(tail) == self.growth + 1:
+                    rising = all(b > a * (1.0 + self.increase) for a, b in zip(tail, tail[1:]))
+                    if rising and tail[-1] > self.floor:
+                        alarm = {
+                            "check": "td_divergence",
+                            "reason": f"{key}-rose->{int(self.increase * 100)}%-for-"
+                            f"{self.growth}-consecutive-refreshes",
+                            "series": tail,
+                            **record,
+                        }
+                        break
         if alarm is not None:
             self.alarms.append(alarm)
         return alarm
 
+    def trajectory(self) -> dict[str, Any]:
+        return {
+            key: trajectory_report(self._series(key), ratio=self.ratio, floor=self.floor)
+            for key in ("drift", "error")
+        }
+
     def report(self) -> dict[str, Any]:
-        return {"refreshes": list(self.refreshes), "alarms": list(self.alarms)}
+        trajectory = self.trajectory()
+        alarms = list(self.alarms)
+        for key, result in trajectory.items():
+            if not result["pass"]:
+                alarms.append(
+                    {
+                        "check": "td_divergence",
+                        "reason": f"{key}-trajectory-not-diminishing",
+                        **result,
+                    }
+                )
+        return {
+            "refreshes": list(self.refreshes),
+            "alarms": alarms,
+            "trajectory": trajectory,
+            "warmup_refreshes": self.warmup,
+            "final_ratio": self.ratio,
+            "floor": self.floor,
+        }
 
 
 def saturation_alarm(share: float | None, threshold: float) -> bool:
@@ -942,6 +1035,17 @@ class StabilityMonitor:
             self.population_tail.append({"step": self.step_index, **extra["population_tail"]})
 
     # ---- fit-level records -------------------------------------------------
+    def _new_td(self, weight: float) -> TDDriftMonitor:
+        return TDDriftMonitor(
+            weight,
+            growth=self.t.td_growth_refreshes,
+            floor=self.t.td_drift_floor,
+            tolerance=self.t.td_bound_tolerance,
+            warmup=self.t.td_warmup_refreshes,
+            ratio=self.t.td_final_ratio,
+            increase=self.t.td_divergence_increase,
+        )
+
     def td_refresh(
         self,
         epoch: int,
@@ -950,16 +1054,14 @@ class StabilityMonitor:
         weight: float,
         *,
         growth_eligible: bool = True,
+        error: float | None = None,
     ) -> None:
         if self.td is None:
-            self.td = TDDriftMonitor(
-                weight,
-                growth=self.t.td_growth_refreshes,
-                floor=self.t.td_drift_floor,
-                tolerance=self.t.td_bound_tolerance,
-            )
+            self.td = self._new_td(weight)
             self.applicable["td_divergence"] = True
-        alarm = self.td.update(epoch, previous, current, growth_eligible=growth_eligible)
+        alarm = self.td.update(
+            epoch, previous, current, growth_eligible=growth_eligible, error=error
+        )
         self.write({"kind": "td_refresh", **self.td.refreshes[-1]})
         if alarm:
             self._alarm(alarm)
@@ -1026,12 +1128,7 @@ class StabilityMonitor:
             setattr(self, key, list(state[key]))
         self.lr_initial = [float(v) for v in state["lr_initial"]]
         if state["td"] is not None:
-            self.td = TDDriftMonitor(
-                state["td"]["weight"],
-                growth=self.t.td_growth_refreshes,
-                floor=self.t.td_drift_floor,
-                tolerance=self.t.td_bound_tolerance,
-            )
+            self.td = self._new_td(state["td"]["weight"])
             self.td.refreshes = list(state["td"]["refreshes"])
             self.td.alarms = list(state["td"]["alarms"])
             self.applicable["td_divergence"] = True

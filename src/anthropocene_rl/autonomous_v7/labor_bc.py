@@ -2598,12 +2598,16 @@ def pretrain_critic_on_dataset(
         if monitor is not None:
             # The first refresh replaces the Monte Carlo return; its change is
             # recorded but does not count toward the growth alarm.
+            error = float(
+                (values[kept].double() - task_targets["qol_years"].double()).abs().mean()
+            )
             monitor.td_refresh(
                 epoch,
                 previous,
                 task_targets["qol_years"],
                 qol_head.discount_weight,
                 growth_eligible=epoch > 0,
+                error=error,
             )
 
     td_lambda = qol_head is not None and qol_head.target == "td-lambda"

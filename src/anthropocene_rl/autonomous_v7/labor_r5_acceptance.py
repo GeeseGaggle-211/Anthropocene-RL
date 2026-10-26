@@ -119,6 +119,32 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "proposed",
         "source": "brief s17",
     },
+    # TD(lambda) drift: judged on the trajectory (large early drift/error are expected).
+    "td_warmup_refreshes": {
+        "value": 2,
+        "status": "approved-trajectory-rule (user 26 Oct)",
+        "source": "first refreshes ignored; drift and error may be large",
+    },
+    "td_final_ratio": {
+        "value": 0.5,
+        "status": "approved-trajectory-rule (user 26 Oct)",
+        "source": "final drift/error at most 0.5x post-warm-up max; log-slope negative",
+    },
+    "td_divergence_increase": {
+        "value": 0.10,
+        "status": "approved-trajectory-rule (user 26 Oct)",
+        "source": "mandatory: 3 consecutive post-warm-up increases each >10%",
+    },
+    "td_drift_floor": {
+        "value": 1e-3,
+        "status": "approved-trajectory-rule (user 26 Oct)",
+        "source": "fraction of W; values below count as converged",
+    },
+    "td_bound_tolerance": {
+        "value": 1e-6,
+        "status": "approved-trajectory-rule (user 26 Oct)",
+        "source": "mandatory hard [0, W] target bound, relative to W (unchanged)",
+    },
     # QoL saturation monitor (r5-b item 4), relaxed for the earliest game states.
     "saturation_alarm": {
         "value": 0.05,
