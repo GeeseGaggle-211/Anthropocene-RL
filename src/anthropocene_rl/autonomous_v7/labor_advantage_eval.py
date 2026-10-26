@@ -467,8 +467,48 @@ def evaluate_advantage(
         "required_gates": required,
         "status": status,
     }
+    families = sorted({f for root in roots for f in root.families})
+    if families:
+        report["by_scenario_family"] = scenario_family_breakdown(
+            roots, prediction, families, horizons=horizons, se_multiplier=se_multiplier,
+            margin=margin,
+        )
     report["report_digest"] = _json_digest(report)
     return report
+
+
+def scenario_family_breakdown(
+    roots: Sequence[Root],
+    prediction: Mapping[str, list[np.ndarray]],
+    families: Sequence[str],
+    *,
+    horizons: Mapping[str, Sequence[int] | None],
+    se_multiplier: float = PAIR_SE_MULTIPLIER,
+    margin: float = FALSE_IMPROVEMENT_MARGIN,
+) -> dict[str, Any]:
+    """Report-only A ranking and false improvement per curated scenario family."""
+    out: dict[str, Any] = {}
+    for family in families:
+        index = [r for r, root in enumerate(roots) if family in root.families]
+        subset = [roots[r] for r in index]
+        sub_prediction = {name: [values[r] for r in index] for name, values in prediction.items()}
+        ranking = {
+            name: pairwise_ranking(
+                subset, sub_prediction, name, horizons=horizons[name], se_multiplier=se_multiplier
+            )
+            for name in ("qol_years", "population_years")
+        }
+        ranking["utility:root"] = pairwise_ranking(
+            subset, sub_prediction, "utility", personality="root", se_multiplier=se_multiplier
+        )
+        out[family] = {
+            "roots": len(subset),
+            "worlds": sorted({root.world for root in subset}),
+            "ranking": ranking,
+            "false_improvement": false_improvement(subset, sub_prediction, margin=margin),
+            "gated": False,
+        }
+    return out
 
 
 def argument_parser() -> argparse.ArgumentParser:

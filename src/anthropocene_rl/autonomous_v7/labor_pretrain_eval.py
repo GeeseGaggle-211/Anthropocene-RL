@@ -744,7 +744,30 @@ def critic_dataset_report(
             for stratum, m in strata.items()
             if m.any()
         }
+    # Report-only curated scenario family strata (labor_scenarios detection rules).
+    from .labor_scenarios import FAMILY_BITS, row_family_tags
+
+    by_family: dict[str, Any] = {}
+    tags = row_family_tags(dataset)
+    if tags is not None:
+        tags = tags[rows]
+        for family, bit in FAMILY_BITS.items():
+            m = (tags & bit) != 0
+            if not m.any():
+                continue
+            by_family[family] = {
+                name: critic_head_metrics(
+                    preds[name][m],
+                    returns[name][rows][m],
+                    worlds[m],
+                    turns[m],
+                    scale,
+                    zero_head=bool(np.all(returns[name][rows] == 0.0)),
+                )
+                for name, scale in scales.items()
+            }
     return {
+        "by_scenario_family": by_family,
         "rows": len(rows),
         "excluded_quarantined_rows": int(quarantined.sum()),
         "excluded_tail_unavailable_rows": int((~quarantined & ~available).sum()),

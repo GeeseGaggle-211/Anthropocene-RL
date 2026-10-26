@@ -125,7 +125,10 @@ CONTROL_FAMILIES = {
 FAMILY_CODES = {name: index for index, name in enumerate(FAMILIES)}
 PERTURBATION_FAMILIES = ("transfer", "activity", "movement", "fission", "trade", "joint")
 ROW_SOURCE_CODES = {"heuristic": 0, "search": 2}  # 1 is learner-state DAgger
-SOURCES = ("h12", "actor")
+# "scenario": H12-driven trajectories searched at curated scenario roots
+# (labor_scenarios roots.json); their payload roots keep source "h12" (whose state)
+# and carry scenario_family / scenario_root_id.
+SOURCES = ("h12", "actor", "scenario")
 FITTING_WORLDS = range(90100, 90160)
 
 # Keyed-stream tags (numpy SeedSequence entropy words).
@@ -1337,6 +1340,7 @@ def search_root(
     root_source: str = "h12",
     root_index: int = 0,
     ranker: Any | None = None,
+    root_extra: Mapping[str, Any] | None = None,
 ) -> RootResult | None:
     """Search one focal camp at one root. The bridge ends at an arbitrary branch.
 
@@ -1711,6 +1715,7 @@ def search_root(
         "control_root": bool(control_root),
         "population": int(catalog.population),
         "turn_years": float(catalog.turn_years),
+        **dict(root_extra or {}),
     }
     root_payload = {
         "record": root_record,
@@ -1863,9 +1868,18 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
     elif config.ranker:
         raise ValueError("the declared ranker configuration needs a ranker checkpoint")
     turns = int(job["turns"])
-    chosen = set(
-        root_turns(world, int(job["key"]), turns, int(job["roots"]), int(job.get("first_turn", 0)))
-    )
+    scenario_roots: dict[int, dict[int, Mapping[str, Any]]] = defaultdict(dict)
+    if source == "scenario":
+        # Curated roots: their decision indices on the H12 trajectory, their camps as focals.
+        for root in job.get("scenario_roots") or []:
+            scenario_roots[int(root["decision_index"])][int(root["camp"])] = root
+        chosen = set(scenario_roots)
+    else:
+        chosen = set(
+            root_turns(
+                world, int(job["key"]), turns, int(job["roots"]), int(job.get("first_turn", 0))
+            )
+        )
     rows: list[dict[str, torch.Tensor]] = []
     tables: list[dict[str, Any]] = []
     skipped: Counter[str] = Counter()
@@ -1885,9 +1899,11 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
                 break
             catalogs = native.catalogs()
             root_h12 = (
-                native.shadow_h12(step, catalogs) if (source == "h12" or index in chosen) else {}
+                native.shadow_h12(step, catalogs)
+                if (source in ("h12", "scenario") or index in chosen)
+                else {}
             )
-            if source == "h12":
+            if source in ("h12", "scenario"):
                 main_payloads = {c: root_h12[c].action for c in catalogs}
             else:
                 _, drive = labor_policy_tensors(live, normalizer, personality=resolver)
@@ -1907,11 +1923,22 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
                 row_of = {int(v["camp"]): r for r, v in enumerate(live)}
                 pair_of = {int(v["camp"]): pairs[r] for r, v in enumerate(live)}
                 eligible = [c for c in catalogs if catalogs[c].population > 0]
+                focal_limit = config.focal_per_root
+                at_root = scenario_roots.get(index, {})
+                if source == "scenario":
+                    turns_here = {int(r["turn"]) for r in at_root.values()}
+                    if turns_here != {int(step["turn"])}:
+                        raise ValueError(
+                            f"world {world} decision {index}: scenario roots name turns "
+                            f"{sorted(turns_here)}, the H12 replay is at turn {int(step['turn'])}"
+                        )
+                    eligible = [c for c in eligible if c in at_root]
+                    focal_limit = len(at_root)
                 order = focal_order(eligible, searched, [world, int(job["key"]), int(step["turn"])])
                 root_fork = native.fork()
                 done = 0
                 for focal in order:
-                    if done >= config.focal_per_root:
+                    if done >= focal_limit:
                         break
                     result = search_root(
                         native,
@@ -1925,9 +1952,20 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
                         actor=actor,
                         root_fork=root_fork,
                         key=[world, int(job["key"]), int(step["turn"]), focal],
-                        root_source=source,
+                        root_source="h12" if source == "scenario" else source,
                         root_index=len(payload_roots),
                         ranker=ranker,
+                        root_extra=(
+                            {
+                                # Distinct from an h12-source root of the same state.
+                                "root_id": f"{world}/{int(step['turn'])}/{focal}/scenario",
+                                "scenario_root_id": str(at_root[focal]["root_id"]),
+                                "scenario_family": list(at_root[focal]["families"]),
+                                "root_kind": "curated_neolithic_scenario",
+                            }
+                            if source == "scenario"
+                            else None
+                        ),
                     )
                     searched[focal] += 1
                     if result is None or not result.rows:
@@ -2257,6 +2295,13 @@ def argument_parser() -> argparse.ArgumentParser:
         help="root trajectory driver: H12 teacher or the actor (deterministic)",
     )
     parser.add_argument(
+        "--scenario-roots",
+        type=Path,
+        default=None,
+        help="labor_scenarios roots.json (or its dataset directory); required with "
+        "--source scenario, whose roots replace the keyed root draw",
+    )
+    parser.add_argument(
         "--turns", type=int, default=16, help="trajectory decisions roots are drawn from"
     )
     parser.add_argument("--first-turn", type=int, default=0)
@@ -2365,6 +2410,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = argument_parser().parse_args(argv)
     worlds = validate_search_worlds(seed_list(args.worlds), held_out_test=args.held_out_test)
+    scenario = None
+    if (args.source == "scenario") != (args.scenario_roots is not None):
+        raise ValueError("--source scenario and --scenario-roots go together")
+    if args.scenario_roots is not None:
+        from .labor_scenarios import load_scenario_roots
+
+        scenario = load_scenario_roots(args.scenario_roots)
+        expected = "held-out-test" if args.held_out_test else "fitting"
+        if scenario["partition"] != expected:
+            raise ValueError(
+                f"scenario roots of partition {scenario['partition']!r} cannot be searched as "
+                f"{expected} (calibration roots are V calibration only)"
+            )
     if (args.advantage_ranker is None) != (args.ranker_critic_checkpoint is None):
         raise ValueError("--advantage-ranker and --ranker-critic-checkpoint go together")
     if args.out.exists():
@@ -2397,6 +2455,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         height=args.height,
         separation=args.separation,
     )
+    scenario_by_world: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    if scenario is not None:
+        if dict(scenario["reset_options"]) != reset.state_dict():
+            raise ValueError(
+                "scenario roots were harvested with different reset options "
+                f"{scenario['reset_options']}; pass the same --players/--width/--height/"
+                "--separation"
+            )
+        for root in scenario["roots"]:
+            scenario_by_world[int(root["world"])].append(root)
+        worlds = [w for w in worlds if w in scenario_by_world]
+        if not worlds:
+            raise ValueError("no scenario roots in the requested worlds")
     conditioning = LaborPersonalityConditioning(
         args.personality, args.personality_key, args.personality_drift
     )
@@ -2435,6 +2506,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "continuation": "h12 (stream 0, deterministic); h12-dither (re-evaluation streams)",
         "partition": partition_for(args.held_out_test),
     }
+    if scenario is not None:
+        options["scenario_roots_digest"] = scenario["roots_digest"]
+        options["scenario_source_run"] = scenario["source_run"]
     with LaborModel9Bridge() as probe:
         source = search_source_record(
             options, probe.schema, bridge_sha, production=not args.allow_dirty
@@ -2444,7 +2518,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         {
             "world": world,
             "key": int(args.root_key),
-            "turns": int(args.turns),
+            "turns": (
+                max(int(r["decision_index"]) for r in scenario_by_world[world]) + 1
+                if scenario is not None
+                else int(args.turns)
+            ),
+            "scenario_roots": scenario_by_world.get(world, []),
             "first_turn": int(args.first_turn),
             "roots": int(args.roots_per_world),
             "source": args.source,

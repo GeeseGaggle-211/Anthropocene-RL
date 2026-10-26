@@ -1139,10 +1139,14 @@ def _load_labor_teacher_dataset(
     from .labor_teacher_data import load_labor_datasets
 
     directories = args.dataset if isinstance(args.dataset, list) else [args.dataset]
-    if len(directories) > 1 and not getattr(args, "learner_state_continuations", False):
+    if (
+        len(directories) > 1
+        and not getattr(args, "learner_state_continuations", False)
+        and not getattr(args, "curated_scenarios", False)
+    ):
         raise ValueError(
-            "pretrain-critic takes one --dataset unless --learner-state-continuations aggregates "
-            "teacher trajectories with learner-state teacher continuations"
+            "pretrain-critic takes one --dataset unless --learner-state-continuations or "
+            "--curated-scenarios aggregates teacher trajectories with those V-target sources"
         )
     return load_labor_datasets(
         [Path(d) for d in directories],
@@ -1483,8 +1487,11 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             args, normalizer, require_privileged=task.privileged_layout is not None
         )
         continuations = bool(getattr(args, "learner_state_continuations", False))
+        scenarios = bool(getattr(args, "curated_scenarios", False))
         require_critic_teacher_dataset(
-            teacher, allow_learner_state_continuation=continuations
+            teacher,
+            allow_learner_state_continuation=continuations,
+            allow_curated_scenarios=scenarios,
         )
         worlds = list(teacher["collection"]["world_seeds"])
         from .labor_stability import StabilityAbort
@@ -1502,6 +1509,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
                 require_randomized_tail=bool(getattr(args, "require_randomized_tail", False)),
                 **_cost_weight_kwargs(args),
                 **({"allow_learner_state_continuation": True} if continuations else {}),
+                **({"allow_curated_scenarios": True} if scenarios else {}),
                 **_critic_stability_kwargs(args, actor),
             )
         except StabilityAbort as error:
@@ -2089,6 +2097,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=False,
         help="admit learner-state teacher continuations (labor_dagger --teacher-continuation, "
         "row_source 3) as V^rho targets, alone or aggregated with teacher trajectories",
+    )
+    pretrain_critic.add_argument(
+        "--curated-scenarios",
+        action="store_true",
+        default=False,
+        help="admit curated Neolithic scenario trajectories (labor_scenarios, row_source 4) as "
+        "V targets, alone or aggregated; sampling then gives each source equal mass",
     )
     pretrain_critic.add_argument("--players", type=int, default=8)
     pretrain_critic.add_argument("--width", type=int, default=None)

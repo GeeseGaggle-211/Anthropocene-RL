@@ -21,6 +21,9 @@ RESERVED_HELDOUT_TEXT = "90154-90159"
 # Partition tag written into source records and shard metas.
 FITTING_PARTITION = "fitting"
 HELD_OUT_TEST_PARTITION = "held-out-test"
+# Curated calibration scenario sets (labor_scenarios, worlds 90180-90199): evaluation
+# data only; every training loader refuses them like held-out-test data.
+CALIBRATION_PARTITION = "calibration"
 
 
 def reserved_worlds(worlds: Iterable[int]) -> list[int]:
@@ -71,8 +74,23 @@ def is_held_out_test(record: Mapping[str, Any] | None) -> bool:
     )
 
 
+def is_calibration_set(record: Mapping[str, Any] | None) -> bool:
+    """Whether a source record, its options or a shard meta is tagged calibration-only."""
+    if not isinstance(record, Mapping):
+        return False
+    if record.get("partition") == CALIBRATION_PARTITION:
+        return True
+    options = record.get("options")
+    return isinstance(options, Mapping) and options.get("partition") == CALIBRATION_PARTITION
+
+
 def require_training_record(record: Mapping[str, Any] | None, context: str) -> None:
-    """Refuse a held-out-test tagged dataset/shard for training."""
+    """Refuse a held-out-test or calibration-set tagged dataset/shard for training."""
+    if is_calibration_set(record):
+        raise ValueError(
+            f"{context} refuses calibration-set data (partition {CALIBRATION_PARTITION!r}); "
+            "calibration scenario sets never train any network"
+        )
     if is_held_out_test(record):
         raise ValueError(
             f"{context} refuses held-out-test data (partition {HELD_OUT_TEST_PARTITION!r}); "

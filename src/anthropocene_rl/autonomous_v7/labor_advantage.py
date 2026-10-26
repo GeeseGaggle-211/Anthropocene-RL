@@ -788,6 +788,9 @@ class Root:
     pair_sd: dict[int, np.ndarray]
     candidates: list[CandidateRecord]
     shard: int = 0
+    # Curated scenario families of the root (labor_scenarios via labor_search
+    # --source scenario); empty for keyed h12/actor roots.
+    families: tuple[str, ...] = ()
 
     @property
     def h12(self) -> int:
@@ -960,6 +963,7 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
                 pair_sd,
                 candidates,
                 shard_index,
+                tuple(str(f) for f in raw.get("scenario_family") or ()),
             )
         )
     return CandidateSet(

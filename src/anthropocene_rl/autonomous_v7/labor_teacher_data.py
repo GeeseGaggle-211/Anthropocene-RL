@@ -487,8 +487,14 @@ def load_labor_dataset(
     if keep_privileged:
         validate_privileged_raw(dataset, LABOR_PRIVILEGED_LAYOUT_V1, context=f"labor dataset {directory}")
         dataset["collection"]["privileged_schema_version"] = LABOR_PRIVILEGED_LAYOUT_V1.schema_version
+    from .labor_worlds import CALIBRATION_PARTITION, is_calibration_set
+
     dataset["collection"]["partition"] = (
-        HELD_OUT_TEST_PARTITION if is_held_out_test(manifest["source_record"]) else "fitting"
+        HELD_OUT_TEST_PARTITION
+        if is_held_out_test(manifest["source_record"])
+        else CALIBRATION_PARTITION
+        if is_calibration_set(manifest["source_record"])
+        else "fitting"
     )
     if manifest.get("dropped_reserved_worlds"):
         dataset["collection"]["dropped_reserved_worlds"] = manifest["dropped_reserved_worlds"]
@@ -526,6 +532,8 @@ ROW_SOURCES = {
     "learner_state_dagger": 1,
     "native_search_labor_teacher": 2,
     "learner_state_teacher_continuation": 3,
+    # labor_scenarios: curated Neolithic scenario trajectories (own source mass).
+    "curated_neolithic_scenario": 4,
 }
 AGGREGATE_IDENTITY_DEFAULTS = {
     "row_source": 0,
@@ -536,6 +544,10 @@ AGGREGATE_IDENTITY_DEFAULTS = {
     "row_branch_step": -1,
     # -1: the (world, camp) teacher trajectory; >= 0: one teacher continuation.
     "row_trajectory": -1,
+    # Curated scenario identity (labor_scenarios); 0 / -1 for every other source.
+    "row_scenario_family": 0,
+    "row_scenario_tags": 0,
+    "row_root_turn": -1,
 }
 
 

@@ -244,6 +244,45 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
   resolves and 3,611-4,585 s per continuation (about 29-36 s per resolve with a concurrent job), against
   140 s for the learner rows themselves, so continuations dominate DAgger cost by about 60x per branch.
 
+### Curated Neolithic scenarios (r5 gap filling, manifest section 11)
+
+`labor_scenarios` fills family-coverage gaps in the 50-decision banks; it is not a parallel bank.
+
+* `coverage --dataset FIT50 --dataset CAL50 --out coverage.json` tags every teacher row with the
+  families below and reports rows, roots (run entries: the decision a camp enters a family) and worlds
+  per family and partition against the minima (fitting >= 32 roots over >= 4 worlds, calibration and
+  held-out >= 16 over >= 4), with entry subtypes (`reset`/`in-trajectory` head windows,
+  `initial`/`relapse` housing and clothing) and each food head's first active use (first valid label
+  staffing it) and the share of those inside the head's unlock window.
+* Families (all require `era-neolithic`; a row may carry several): `farming|herding|fishing-unlocked`
+  (first 2 decisions with Farmer/Herder/Fisher legal after an observed unmask, or from the episode's
+  first decision for reset camps; daughters inheriting a head open no window), `mixed` (same rule on two
+  or more of those heads), `small-camp` (< 100 residents), `large-camp` (> 600), `under-housed` /
+  `under-clothed` (privileged `housing-per-capita` / `cloth-per-capita` < 0.3), `fission-daughter`
+  (camp absent at the first decision, its first 2 decisions), `trade-eligible` (privileged
+  `trade-partners` >= 1, the partners `Trade.Plan` would pair this turn).
+* `collect --partition fitting|calibration|held-out-test --coverage coverage.json --exclude-dataset BANK`
+  drives each world under H12 (`--decisions`, default 50; the VM driver uses 100), keeps a keyed
+  bottom-k quota per family and world (caps from the audit's deficits, 0 for met families; or
+  `--quota-per-world`), holds a native fork per boundary that still owns a selected root, never roots a
+  state a bank with the same reset options recorded, then records the root camps' teacher trajectory for
+  `--scenario-decisions` (25) with the randomized tail. Rows: teacher shard format plus `row_source` 4
+  (`curated_neolithic_scenario`), `row_scenario_family` (root families bitmask), `row_scenario_tags`,
+  `row_root_turn`, `row_start`, `row_start_index`, `row_branch_step`, `row_trajectory` = 1,000,000 +
+  root index. Shard metas list roots; `roots.json` feeds `labor_search --source scenario --scenario-roots`
+  (payload roots keep source `h12`, root ids end `/scenario`, `scenario_family` is carried into
+  `labor_advantage` roots). `--resume` keeps verified shards; a published output is a no-op.
+* Training: `pretrain-bc --dataset FIT --dataset SCEN` (equal source mass); `pretrain-critic --dataset FIT
+  --dataset SCEN --curated-scenarios` (sampling switches to equal source mass only when scenario rows are
+  present). Calibration-partition sets are refused by every training loader; `labor_r5_acceptance run
+  --scenario-calibration-data CALSCEN` (or `SCENARIO_CAL_DATA=` in `tools/r5_critic_acceptance.sh`,
+  `SCENARIOS=1` for fitting sets in `FIT_DATA`) adds report-only per-family calibration;
+  `critic-calibration` reports `by_scenario_family` for any dataset and `labor_advantage_eval` reports
+  `by_scenario_family` A ranking when payload roots carry families (reserved roots via
+  `--partition held-out-test --held-out-test`).
+* VM: `NORMALIZER=... FIT_BANK=... CAL_BANK=... tools/r5_scenarios.sh` (coverage, gap collection per
+  partition, cost and post-fill coverage, optional `SEARCH=1`); rerun after a preemption.
+
 ### r5 critic acceptance harness (enforced stability and fitting acceptance)
 
 `labor_stability` wraps every optimizer step of `pretrain-critic` (V), `labor_advantage fit` (A) and
