@@ -1857,6 +1857,48 @@ def _command_privileged_audit(args: argparse.Namespace) -> None:
     print(json.dumps({name: f["dead_fields"] for name, f in report["families"].items()}))
 
 
+
+def _fit_normalizer_world(seed: int, turns: int, options_state: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """One world's teacher-driven observations for fit-normalizer (picklable, for --jobs)."""
+    from .labor_bc import LaborResetOptions
+
+    options = LaborResetOptions.from_mapping(dict(options_state))
+    all_live: list[Mapping[str, Any]] = []
+    with (
+        LaborModel9Bridge() as labor_bridge,
+        Model9Bridge(economic_diagnostics=True) as heur_bridge,
+    ):
+        step = labor_bridge.reset(seed, **options.reset_kwargs())
+        for turn in range(turns):
+            live = [
+                v
+                for v in step.get("villages", [])
+                if v.get("observation") is not None and not v.get("terminated")
+            ]
+            if not live:
+                break
+            all_live.extend(live)
+            if turn == turns - 1:
+                break
+
+            snap = labor_bridge._bridge.capture()
+            heur_bridge.reset(seed, movement=options.movement, withheld=options.withheld, snapshot=snap)
+            h_step = heur_bridge.step({})
+            h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+            econ_by_camp = h_step.get("economicDiagnostics") or {}
+
+            actions: dict[int, Mapping[str, Any]] = {}
+            for v in live:
+                camp = int(v["camp"])
+                cat, _ = labor_observation_fields(v["observation"])
+                h_v = h_villages.get(camp, {})
+                econ = econ_by_camp.get(str(camp))
+                _, _, action = extract_heuristic_labor_action(cat, h_v, econ)
+                actions[camp] = action
+
+            step, _ = labor_bridge.step_labor(actions)
+    return all_live
+
 def _command_fit_normalizer(args: argparse.Namespace) -> None:
     from .labor_worlds import require_training_worlds
 
@@ -1872,41 +1914,17 @@ def _command_fit_normalizer(args: argparse.Namespace) -> None:
         raise ValueError("turns must be >= 1")
     options = _labor_reset_options(args)
 
-    all_live: list[Mapping[str, Any]] = []
-    for seed in worlds:
-        with (
-            LaborModel9Bridge() as labor_bridge,
-            Model9Bridge(economic_diagnostics=True) as heur_bridge,
-        ):
-            step = labor_bridge.reset(seed, **options.reset_kwargs())
-            for turn in range(turns):
-                live = [
-                    v
-                    for v in step.get("villages", [])
-                    if v.get("observation") is not None and not v.get("terminated")
-                ]
-                if not live:
-                    break
-                all_live.extend(live)
-                if turn == turns - 1:
-                    break
+    jobs = max(1, int(getattr(args, "jobs", 1) or 1))
+    options_state = options.state_dict()
+    if jobs == 1:
+        per_world = [_fit_normalizer_world(int(seed), turns, options_state) for seed in worlds]
+    else:
+        from concurrent.futures import ProcessPoolExecutor
 
-                snap = labor_bridge._bridge.capture()
-                heur_bridge.reset(seed, movement=options.movement, withheld=options.withheld, snapshot=snap)
-                h_step = heur_bridge.step({})
-                h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
-                econ_by_camp = h_step.get("economicDiagnostics") or {}
-
-                actions: dict[int, Mapping[str, Any]] = {}
-                for v in live:
-                    camp = int(v["camp"])
-                    cat, _ = labor_observation_fields(v["observation"])
-                    h_v = h_villages.get(camp, {})
-                    econ = econ_by_camp.get(str(camp))
-                    _, _, action = extract_heuristic_labor_action(cat, h_v, econ)
-                    actions[camp] = action
-
-                step, _ = labor_bridge.step_labor(actions)
+        with ProcessPoolExecutor(max_workers=min(jobs, len(worlds))) as pool:
+            # map preserves world order, so the pooled rows are identical to the serial path.
+            per_world = list(pool.map(_fit_normalizer_world, [int(w) for w in worlds], [turns] * len(worlds), [options_state] * len(worlds)))
+    all_live: list[Mapping[str, Any]] = [row for rows in per_world for row in rows]
 
     if not all_live:
         raise ValueError("no live villages observed to fit normalizer")
@@ -2190,6 +2208,7 @@ def argument_parser() -> argparse.ArgumentParser:
     fit_normalizer.add_argument("--height", type=int, default=None)
     fit_normalizer.add_argument("--separation", type=int, default=None)
     fit_normalizer.add_argument("--no-movement", action="store_true", help="named mechanical fixture only")
+    fit_normalizer.add_argument("--jobs", type=int, default=1, help="parallel worlds (rows pooled in world order)")
     fit_normalizer.add_argument("--allow-vm-scale", action="store_true", default=False)
     fit_normalizer.add_argument("--out", type=Path, required=True)
     fit_normalizer.set_defaults(handler=_command_fit_normalizer)
