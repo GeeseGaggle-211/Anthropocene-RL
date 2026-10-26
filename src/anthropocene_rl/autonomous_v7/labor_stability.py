@@ -49,6 +49,8 @@ from typing import Any
 import torch
 from torch import nn
 
+from .labor_device import all_finite
+
 STABILITY_SCHEMA = "labor-r5-stability-v1"
 MANDATORY_CHECKS = (
     "finite_updates",
@@ -471,9 +473,9 @@ def saturation_components(
     import torch
 
     th = thresholds or StabilityThresholds()
-    z = torch.as_tensor(z).detach().reshape(-1).double()
-    frac = torch.as_tensor(target_fraction).detach().reshape(-1).double()
-    early = torch.as_tensor(early).reshape(-1).bool()
+    z = torch.as_tensor(z).detach().reshape(-1).double().cpu()
+    frac = torch.as_tensor(target_fraction).detach().reshape(-1).double().cpu()
+    early = torch.as_tensor(early).reshape(-1).bool().cpu()
     if not (z.numel() == frac.numel() == early.numel()):
         raise ValueError("saturation components need one z, target fraction and flag per row")
     low = z < -saz_threshold
@@ -579,7 +581,7 @@ def privileged_attention_mass(
         # Reduce immediately: the full [B, heads, L, L] weights are not kept.
         weights, padding = output[1].detach(), pending.pop()
         present = (
-            torch.ones(weights.shape[0], weights.shape[-1], dtype=torch.bool)
+            torch.ones(weights.shape[0], weights.shape[-1], dtype=torch.bool, device=weights.device)
             if padding is None
             else ~padding.bool()
         )
@@ -644,7 +646,9 @@ def dead_feature_counts(
     finally:
         encoder.train(was)
     unit_std = (
-        hidden.std(0, unbiased=False) if hidden.shape[0] > 1 else torch.zeros(hidden.shape[1])
+        hidden.std(0, unbiased=False)
+        if hidden.shape[0] > 1
+        else torch.zeros(hidden.shape[1], dtype=hidden.dtype, device=hidden.device)
     )
     report: dict[str, Any] = {
         "trunk_units": int(hidden.shape[1]),
@@ -863,15 +867,17 @@ class StabilityMonitor:
             module.zero_grad(set_to_none=True)
 
     def _optimizer_finite(self) -> bool:
-        for state in self.optimizer.state.values():
-            for value in state.values():
-                if isinstance(value, torch.Tensor) and value.is_floating_point():
-                    if not bool(torch.isfinite(value).all()):
-                        return False
-        return True
+        # One host sync on an accelerator (labor_device.all_finite); per tensor on CPU.
+        values = [
+            value
+            for state in self.optimizer.state.values()
+            for value in state.values()
+            if isinstance(value, torch.Tensor) and value.is_floating_point()
+        ]
+        return all_finite(values)
 
     def _parameters_finite(self) -> bool:
-        return all(bool(torch.isfinite(p).all()) for p in self.parameters)
+        return all_finite(list(self.parameters))
 
     def write(self, record: Mapping[str, Any]) -> None:
         if self._jsonl is None:

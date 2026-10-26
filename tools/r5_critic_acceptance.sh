@@ -22,6 +22,8 @@
 #   JOBS=4 THREADS=14 (4 fits x 14 threads on the 60-core VM)  SEED_RULE=mean-with-floor
 #   ADVANTAGE_EPOCHS=50  RESUME_EVERY=100  DETERMINISM_STEPS=50  PYTHON=python3
 #   CONTINUATIONS=0  EXTRA="..." (passed through to labor_r5_acceptance run)
+#   DEVICE=cpu (cuda on the GPU fitting VM: critic, A fit, evaluate and determinism probes
+#   run on the GPU; JOBS fits share it, THREADS is then the host threads per fit)
 #
 # Never point any input at sealed worlds 3000-3059; the reserved worlds 90154-90159 are
 # only ever read as RESERVED_PAYLOADS (held-out tests). Every loader refuses violations.
@@ -40,6 +42,7 @@ ADVANTAGE_EPOCHS="${ADVANTAGE_EPOCHS:-50}"
 RESUME_EVERY="${RESUME_EVERY:-100}"
 DETERMINISM_STEPS="${DETERMINISM_STEPS:-50}"
 CONTINUATIONS="${CONTINUATIONS:-0}"
+DEVICE="${DEVICE:-cpu}"
 
 cores="$(nproc 2>/dev/null || echo 0)"
 if [ "$cores" -gt 0 ] && [ $((JOBS * THREADS)) -gt "$cores" ]; then
@@ -62,7 +65,7 @@ args=(
   --arms "$ARMS" --seeds "$SEEDS" --seed-rule "$SEED_RULE"
   --advantage-epochs "$ADVANTAGE_EPOCHS" --resume-every "$RESUME_EVERY"
   --determinism-steps "$DETERMINISM_STEPS"
-  --jobs "$JOBS" --threads "$THREADS"
+  --jobs "$JOBS" --threads "$THREADS" --device "$DEVICE"
   --attempt-id "$ATTEMPT_ID" --out "$OUT"
 )
 if [ -n "${CONTROL_REPORT:-}" ]; then args+=(--control-report "$CONTROL_REPORT"); fi
@@ -70,7 +73,7 @@ if [ "$CONTINUATIONS" = "1" ]; then args+=(--learner-state-continuations); fi
 # shellcheck disable=SC2206
 if [ -n "${EXTRA:-}" ]; then args+=($EXTRA); fi
 
-echo "[r5-acceptance] $(date -u +%FT%TZ) start attempt=$ATTEMPT_ID arms=$ARMS seeds=$SEEDS jobs=$JOBS threads=$THREADS"
+echo "[r5-acceptance] $(date -u +%FT%TZ) start attempt=$ATTEMPT_ID arms=$ARMS seeds=$SEEDS jobs=$JOBS threads=$THREADS device=$DEVICE"
 "$PYTHON" -m anthropocene_rl.autonomous_v7.labor_r5_acceptance run "${args[@]}" 2>&1 | tee -a "$OUT/driver.log"
 status=${PIPESTATUS[0]}
 echo "[r5-acceptance] $(date -u +%FT%TZ) done status=$status receipt=$OUT/gate-receipt.json"

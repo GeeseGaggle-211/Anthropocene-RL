@@ -1301,7 +1301,13 @@ def _command_initialize(args: argparse.Namespace) -> None:
 
 def _command_pretrain_bc(args: argparse.Namespace) -> None:
     from .labor_bc import collect_heuristic_bc_dataset, pretrain_labor_actor_bc
+    from .labor_device import device_record, setup
 
+    device = setup(getattr(args, "device", "cpu"))
+    if device.type != "cpu" and not _bc_dataset_directories(args):
+        raise ValueError(
+            "--worlds collects from the game and runs on CPU; use --dataset for --device"
+        )
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
@@ -1359,6 +1365,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
             allow_vm_scale=getattr(args, "allow_vm_scale", False),
             reset_options=_labor_reset_options(args),
         )
+    actor.to(device)  # data stays on the host; minibatches move per step
     bc_summary = pretrain_labor_actor_bc(
         actor=actor,
         dataset=dataset,
@@ -1375,6 +1382,9 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     )
     if getattr(args, "economic_trace", None) is not None:
         bc_summary["economic_trace_dir"] = str(args.economic_trace)
+    actor.to("cpu")  # device-agnostic checkpoint
+    if device.type != "cpu":
+        bc_summary["device"] = device_record(device)
 
     actor_lr = float(
         state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
@@ -1462,7 +1472,13 @@ def _pretrain_critic_tail(args: argparse.Namespace) -> Any:
 
 def _command_pretrain_critic(args: argparse.Namespace) -> None:
     from .labor_bc import pretrain_critic_on_heuristic_next_states
+    from .labor_device import device_record, setup
 
+    device = setup(getattr(args, "device", "cpu"))
+    if device.type != "cpu" and getattr(args, "dataset", None) is None:
+        raise ValueError(
+            "--worlds collects from the game and runs on CPU; use --dataset for --device"
+        )
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
@@ -1489,6 +1505,9 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         worlds = list(teacher["collection"]["world_seeds"])
         from .labor_stability import StabilityAbort
 
+        # Critics move to the device; the frozen actor stays on CPU (not in the graph).
+        task.to(device)
+        costs.to(device)
         try:
             summary = pretrain_critic_on_dataset(
                 task_critic=task,
@@ -1508,6 +1527,10 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             _write_abort_receipt(args.out, error)
             raise
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
+        task.to("cpu")  # device-agnostic checkpoint
+        costs.to("cpu")
+        if device.type != "cpu":
+            summary["device"] = device_record(device)
     else:
         if _cost_weight_kwargs(args):
             raise ValueError("--cost-loss-weight is supported only with --dataset")
@@ -1972,6 +1995,8 @@ def _fit_normalizer_bridge_sha() -> str:
 
 
 def argument_parser() -> argparse.ArgumentParser:
+    from .labor_device import add_device_argument
+
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     initialize = commands.add_parser("initialize")
@@ -2088,6 +2113,7 @@ def argument_parser() -> argparse.ArgumentParser:
         help="opt-in directory to stream prospective economic diagnostics trace",
     )
     pretrain_bc.add_argument("--out", type=Path, required=True)
+    add_device_argument(pretrain_bc)
     add_stability_arguments(pretrain_bc)
     pretrain_bc.set_defaults(handler=_command_pretrain_bc)
 
@@ -2147,6 +2173,7 @@ def argument_parser() -> argparse.ArgumentParser:
         help="multiplier on the summed cost-critic MSE (default 1.0, unchanged)",
     )
     pretrain_critic.add_argument("--out", type=Path, required=True)
+    add_device_argument(pretrain_critic)
     add_stability_arguments(pretrain_critic)
     pretrain_critic.add_argument(
         "--resume-state",

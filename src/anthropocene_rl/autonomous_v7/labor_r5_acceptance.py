@@ -163,6 +163,13 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "approved (user 26 Oct)",
         "source": "max relative CPU drift (3.4)",
     },
+    "determinism_tolerance_cuda": {
+        "value": 1e-5,
+        "status": "PROPOSED (not approved): GPU fitting VM, co-architect review pending",
+        "source": "labor_device.CUDA_DETERMINISM_TOLERANCE: same-GPU repeat drift, "
+        "deterministic cuDNN/cuBLAS, TF32 off; a non-bitwise CUDA result within it HOLDs "
+        "until the value is approved",
+    },
     "stability_thresholds": {
         "value": "labor_stability.StabilityThresholds",
         "status": "approved (user 26 Oct)",
@@ -299,6 +306,7 @@ def source_record(repository: Path = REPOSITORY) -> dict[str, Any]:
         "labor_pretrain_eval.py",
         "labor_model.py",
         "labor_training.py",
+        "labor_device.py",
     ]
     base = Path(__file__).resolve().parent
     status = git("status", "--porcelain", "--untracked-files=no")
@@ -1031,7 +1039,12 @@ def determinism_checks(report: Mapping[str, Any] | None) -> list[dict[str, Any]]
             )
         ]
     out = []
-    tolerance = threshold("determinism_tolerance")
+    device = str(report.get("device", "cpu"))
+    cuda = device.startswith("cuda")
+    tolerance = threshold("determinism_tolerance_cuda" if cuda else "determinism_tolerance")
+    approved = not cuda or PREREGISTERED["determinism_tolerance_cuda"]["status"].startswith(
+        "approved"
+    )
     for name, result in sorted(report.get("comparisons", {}).items()):
         if result.get("bitwise"):
             out.append(
@@ -1041,6 +1054,7 @@ def determinism_checks(report: Mapping[str, Any] | None) -> list[dict[str, Any]]
             )
         else:
             value = result.get("max_relative")
+            within = value is not None and float(value) <= float(tolerance)
             out.append(
                 check(
                     f"determinism:{name}",
@@ -1048,8 +1062,18 @@ def determinism_checks(report: Mapping[str, Any] | None) -> list[dict[str, Any]]
                     value,
                     tolerance,
                     "<=",
+                    # An unapproved (proposed) CUDA tolerance can FAIL but never PASS.
+                    status=None if approved or not within else "HOLD",
                     every_seed=True,
-                    detail={"note": "within the documented CPU tolerance, not bitwise", **result},
+                    detail={
+                        "note": f"within the documented {'CUDA' if cuda else 'CPU'} "
+                        "tolerance, not bitwise",
+                        "device": device,
+                        "tolerance_status": PREREGISTERED[
+                            "determinism_tolerance_cuda" if cuda else "determinism_tolerance"
+                        ]["status"],
+                        **result,
+                    },
                 )
             )
     return out or [check("determinism", "determinism", None, "bitwise", "==")]
@@ -1592,8 +1616,12 @@ def evaluate_fit(
     trajectory_datasets: Sequence[Path] = (),
     trajectory_payloads: Sequence[tuple[str, Sequence[Path]]] = (),
     trajectory_traces: Sequence[Path] = (),
+    device: str = "cpu",
 ) -> dict[str, Any]:
     """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
+
+    ``device`` (labor_device) runs the stored-data forward passes on a GPU; every
+    metric is computed from host copies of the predictions.
 
     ``trajectory_*`` feed the non-gating section 4a diagnostics: extra critic
     datasets (teacher, DAgger and learner-state continuation data, T3), labelled
@@ -1604,13 +1632,23 @@ def evaluate_fit(
 
     from .labor_advantage import load_advantage_head, load_candidate_shards
     from .labor_advantage_eval import evaluate_advantage
+    from .labor_device import setup
     from .labor_pretrain_eval import _load_dataset, _load_models, run_critic_calibration
     from .labor_training import _normalization_digest
     from .labor_value_calibration import labor_critic_digest
 
     started = time.time()
+    target = setup(device)
     state, actor, task, costs, normalizer = _load_models(checkpoint)
-    calibration = run_critic_calibration(checkpoint, calibration_data, fit_data, batch_size)
+    task.to(target)  # the actor stays on CPU (only its parameter digest is read)
+    costs.to(target)
+    calibration = run_critic_calibration(
+        checkpoint,
+        calibration_data,
+        fit_data,
+        batch_size,
+        device=None if target.type == "cpu" else target,
+    )
     calibration["critic"] = {
         "qol_head": None if task.qol_head is None else task.qol_head.state_dict(),
         "value_support": task.support.state_dict(),
@@ -1625,6 +1663,7 @@ def evaluate_fit(
         for parameter in module.parameters():
             parameter.requires_grad_(False)
     head, adv_config = load_advantage_head(adv_state, task, costs)
+    head.to(target)
     reserved = load_candidate_shards(list(reserved_payloads))
     adv_fit = adv_state.get("fit", {})
     adv_eval = evaluate_advantage(
@@ -1667,6 +1706,8 @@ def evaluate_fit(
     )
     timings = dict(timings or {})
     timings["evaluate"] = time.time() - started
+    if target.type != "cpu":
+        timings["evaluate_device"] = str(target)
     evidence = {
         "schema": EVIDENCE_SCHEMA,
         "arm": arm,
@@ -1840,6 +1881,12 @@ def _stamp_fit_settings(path: Path, settings: Mapping[str, Any]) -> None:
     settings_path(path).write_text(json.dumps(record, indent=1, sort_keys=True), encoding="utf-8")
 
 
+def _device_flag(args: argparse.Namespace) -> list[str]:
+    """``--device`` for the stored-data stages; absent on CPU (historical command lines)."""
+    device = str(getattr(args, "device", "cpu"))
+    return [] if device == "cpu" else ["--device", device]
+
+
 def _tail_flag(args: argparse.Namespace) -> list[str]:
     """r5 freeze: every critic target uses the randomized tail; only --smoke relaxes it (HOLD)."""
     return [] if getattr(args, "smoke", False) else ["--require-randomized-tail"]
@@ -1908,6 +1955,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             "--resume-every",
             str(args.resume_every),
             "--progress",
+            *_device_flag(args),
             "--out",
             critic,
         ]
@@ -1952,6 +2000,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             work / "stability-advantage.jsonl",
             "--stability-every",
             str(args.stability_every),
+            *_device_flag(args),
         ]
         command += shlex.split(args.advantage_args or "")
         timed("advantage_fit", lambda: _run(command, log, threads))
@@ -2003,6 +2052,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             *args.reserved_payloads,
             "--timings",
             timings_path,
+            *_device_flag(args),
             "--out",
             evidence_path,
         ]
@@ -2054,6 +2104,7 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
                 str(args.determinism_steps),
                 "--stability-log",
                 work / f"stability-probe-{repeat}.jsonl",
+                *_device_flag(args),
                 "--out",
                 target,
             ]
@@ -2088,6 +2139,7 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
                 str(seed),
                 "--stability-log",
                 work / f"stability-advantage-probe-{repeat}.jsonl",
+                *_device_flag(args),
             ]
             command += shlex.split(args.advantage_args or "")
             _run(command, log, int(args.threads))
@@ -2101,9 +2153,19 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
         "critic_steps": int(args.determinism_steps),
         "advantage_epochs": int(args.determinism_advantage_epochs),
         "threads": int(args.threads),
+        "device": str(getattr(args, "device", "cpu")),
         "comparisons": comparisons,
-        "tolerance": threshold("determinism_tolerance"),
-        "note": "CPU; same seed, data, thread count and code; bitwise expected",
+        "tolerance": threshold(
+            "determinism_tolerance_cuda"
+            if str(getattr(args, "device", "cpu")).startswith("cuda")
+            else "determinism_tolerance"
+        ),
+        "note": (
+            "CUDA; same seed, data, GPU, driver and code; deterministic kernels, "
+            "proposed tolerance"
+            if str(getattr(args, "device", "cpu")).startswith("cuda")
+            else "CPU; same seed, data, thread count and code; bitwise expected"
+        ),
     }
     out.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
     return out
@@ -2203,6 +2265,7 @@ def command_run(args: argparse.Namespace) -> int:
             "control_report_sha256": file_sha256(args.control_report),
             "jobs": args.jobs,
             "threads": args.threads,
+            "device": getattr(args, "device", "cpu"),
             "smoke": bool(args.smoke),
             "failures": failures,
         },
@@ -2289,6 +2352,7 @@ def command_evaluate(args: argparse.Namespace) -> int:
         trajectory_datasets=list(args.trajectory_data or []),
         trajectory_payloads=_labelled_paths(args.trajectory_payload or []),
         trajectory_traces=list(args.trajectory_trace or []),
+        device=getattr(args, "device", "cpu"),
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -2355,6 +2419,8 @@ def summarize(receipt: Mapping[str, Any]) -> str:
 
 
 def argument_parser() -> argparse.ArgumentParser:
+    from .labor_device import add_device_argument
+
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2374,6 +2440,7 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument("--timings", type=Path, default=None)
     evaluate.add_argument("--batch-size", type=int, default=256)
+    add_device_argument(evaluate)
     _trajectory_arguments(evaluate)
     evaluate.add_argument("--out", type=Path, required=True)
     evaluate.set_defaults(handler=command_evaluate)
@@ -2451,6 +2518,13 @@ def argument_parser() -> argparse.ArgumentParser:
     run.add_argument("--determinism-advantage-epochs", type=int, default=2)
     run.add_argument("--jobs", type=int, default=4)
     run.add_argument("--threads", type=int, default=14)
+    run.add_argument(
+        "--device",
+        choices=("cpu", "cuda"),
+        default="cpu",
+        help="device for pretrain-critic, the A fit, evaluate and the determinism probes "
+        "(stored data only); initialize and the T4 trajectory recorder stay on CPU",
+    )
     run.add_argument(
         "--smoke",
         action="store_true",

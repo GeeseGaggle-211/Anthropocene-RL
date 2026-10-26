@@ -619,6 +619,9 @@ def critic_contexts(
 ) -> dict[str, torch.Tensor]:
     """Frozen per-root contexts for every objective (no gradient reaches the critic)."""
     assert_actor_batch(tensors)
+    from .labor_device import module_device, to_device
+
+    device = module_device(task_critic)
     rows = int(tensors["core"].shape[0])
     parts: dict[str, list[torch.Tensor]] = defaultdict(list)
     # Train mode (the critics have no dropout) keeps PyTorch's eval-only fused
@@ -630,16 +633,16 @@ def critic_contexts(
         with torch.no_grad():
             for start in range(0, rows, batch_size):
                 index = torch.arange(start, min(rows, start + batch_size))
-                batch = {key: value[index] for key, value in tensors.items()}
+                batch = to_device({key: value[index] for key, value in tensors.items()}, device)
                 task_priv = (
                     None
                     if privileged_raw is None
-                    else critic_privileged_batch(task_critic, privileged_raw, index)
+                    else critic_privileged_batch(task_critic, privileged_raw, index, device=device)
                 )
                 cost_priv = (
                     None
                     if privileged_raw is None
-                    else critic_privileged_batch(cost_critics, privileged_raw, index)
+                    else critic_privileged_batch(cost_critics, privileged_raw, index, device=device)
                 )
                 if task_critic.privileged_layout is not None and task_priv is None:
                     raise ValueError("privileged critic contexts need the root privileged arrays")
@@ -662,23 +665,29 @@ def state_values(
     tensors: Mapping[str, torch.Tensor],
     privileged_raw: Mapping[str, Any] | None = None,
 ) -> dict[str, torch.Tensor]:
-    """V_j per root in reference-scale units (the existing heads, unchanged)."""
+    """V_j per root in reference-scale units (the existing heads, unchanged); on CPU."""
+    from .labor_device import module_device, to_device
+
+    device = module_device(task_critic)
     with torch.no_grad():
         task_priv = (
-            None if privileged_raw is None else critic_privileged_batch(task_critic, privileged_raw)
+            None
+            if privileged_raw is None
+            else critic_privileged_batch(task_critic, privileged_raw, device=device)
         )
         cost_priv = (
             None
             if privileged_raw is None
-            else critic_privileged_batch(cost_critics, privileged_raw)
+            else critic_privileged_batch(cost_critics, privileged_raw, device=device)
         )
+        tensors = to_device(tensors, device)
         logits = task_critic(tensors, task_priv)
         costs = cost_critics(tensors, cost_priv)
     values = {
-        name: task_critic.expectation(name, logits[name]) / REFERENCE_SCALES[name]
+        name: (task_critic.expectation(name, logits[name]) / REFERENCE_SCALES[name]).cpu()
         for name in LABOR_OBJECTIVES
     }
-    values.update({name: costs[name] / REFERENCE_SCALES[name] for name in LABOR_COSTS})
+    values.update({name: (costs[name] / REFERENCE_SCALES[name]).cpu() for name in LABOR_COSTS})
     return values
 
 
@@ -1349,12 +1358,16 @@ def predict(
     roots: Sequence[Root],
 ) -> dict[str, list[np.ndarray]]:
     """Centred A per component, one array per root (candidate order)."""
+    from .labor_device import module_device
+
     flat = _flatten(roots)
+    device = module_device(head)
+    root_index = flat.root_index.to(device)
     with torch.no_grad():
-        raw = head(contexts, flat.features, flat.root_index)
+        raw = head(contexts, flat.features.to(device), root_index)
     out: dict[str, list[np.ndarray]] = {}
     for name in COMPONENTS:
-        values = centre(raw[name], flat.root_index, len(roots)).double().numpy()
+        values = centre(raw[name], root_index, len(roots)).double().cpu().numpy()
         out[name] = [
             values[flat.offsets[r] : flat.offsets[r] + len(root.candidates)]
             for r, root in enumerate(roots)
@@ -1384,10 +1397,12 @@ def fit_advantage_head(
     dominance on the shared action encoder, and train versus held-out pair
     ranking every epoch for the overfit alarm. Its receipt is ``summary["stability"]``.
     """
+    from .labor_device import module_device
     from .labor_value_calibration import labor_critic_digest
 
     config = config or AdvantageFitConfig()
     require_advantage_fit_worlds(candidates.worlds)
+    device = module_device(task_critic)
     digest_before = labor_critic_digest(task_critic, cost_critics)
     fit_worlds, held_worlds = split_worlds(candidates.worlds, config.holdout_fraction, config.seed)
     fit_set = candidates.subset(fit_worlds)
@@ -1401,6 +1416,8 @@ def fit_advantage_head(
         for name in COMPONENTS
     }
     flat = _flatten(fit_set.roots)
+    flat_features = flat.features.to(device)
+    flat_root_index = flat.root_index.to(device)
     # Admitted pairs as flat candidate indices, grouped by root for batching.
     by_root: dict[int, dict[str, list[tuple[int, int, float]]]] = defaultdict(
         lambda: defaultdict(list)
@@ -1420,6 +1437,7 @@ def fit_advantage_head(
     head = LaborAdvantageHead.for_critics(
         task_critic, cost_critics, embedding=config.embedding, hidden=config.hidden
     )
+    head.to(device)  # initialized on CPU (same initial parameters on every device)
     optimizer = torch.optim.AdamW(head.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     rng = np.random.default_rng([SHUFFLE_TAG, int(config.seed)])
     history = []
@@ -1492,15 +1510,18 @@ def fit_advantage_head(
             )
             local = torch.full((len(flat.root_index),), -1, dtype=torch.long)
             local[members] = torch.arange(len(members))
-            raw = head(contexts, flat.features[members], flat.root_index[members])
+            members_on = members.to(device)
+            raw = head(contexts, flat_features[members_on], flat_root_index[members_on])
             loss = raw["qol_years"].sum() * 0.0
             component_losses: dict[str, torch.Tensor] = {}
             for name in COMPONENTS:
                 triples = [t for r in batch for t in by_root[r][name]]
                 if not triples:
                     continue
-                index = local[torch.as_tensor([[t[0], t[1]] for t in triples], dtype=torch.long)]
-                delta = torch.as_tensor([t[2] for t in triples], dtype=torch.float32)
+                index = local[
+                    torch.as_tensor([[t[0], t[1]] for t in triples], dtype=torch.long)
+                ].to(device)
+                delta = torch.as_tensor([t[2] for t in triples], dtype=torch.float32).to(device)
                 component = pairwise_loss(
                     raw[name][index[:, 0]],
                     raw[name][index[:, 1]],
@@ -1807,7 +1828,7 @@ def qol_saturation_report(
     With ``target_fraction`` (G/W) and ``early`` the report adds the stratified
     components of ``labor_stability.saturation_components`` under ``components``.
     """
-    z = logits.detach().reshape(-1).double()
+    z = logits.detach().reshape(-1).double().cpu()
     quantiles = (
         torch.quantile(z, torch.tensor([0.0, 0.01, 0.5, 0.99, 1.0], dtype=torch.float64)).tolist()
         if z.numel()
@@ -2072,14 +2093,21 @@ def argument_parser() -> argparse.ArgumentParser:
         "(default: QoL 1-3 decisions, every other objective all horizons)",
     )
     add_stability_arguments(fit)
+    from .labor_device import add_device_argument
+
+    add_device_argument(fit)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from .labor_device import cpu_copy, device_record, setup
     from .labor_value_calibration import labor_critic_digest
 
     args = argument_parser().parse_args(argv)
+    device = setup(getattr(args, "device", "cpu"))
     task, costs = _load_critics(args.checkpoint)
+    task.to(device)  # frozen critics; the frozen actor stays on CPU (not in the graph)
+    costs.to(device)
     candidates = load_candidate_shards(args.payloads)
     config = AdvantageFitConfig(
         epochs=args.epochs,
@@ -2105,9 +2133,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         abort.parent.mkdir(parents=True, exist_ok=True)
         abort.write_text(json.dumps(error.summary, indent=2, sort_keys=True), encoding="utf-8")
         raise
+    if device.type != "cpu":
+        summary["device"] = device_record(device)
+    head.to("cpu")  # device-agnostic artifact
     payload = advantage_checkpoint_payload(
         head, critic_digest=labor_critic_digest(task, costs), config=config, fit=summary
     )
+    payload["state_dict"] = cpu_copy(payload["state_dict"])
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, args.out)
     shown = {k: v for k, v in summary.items() if k not in ("loss_history", "stability")}

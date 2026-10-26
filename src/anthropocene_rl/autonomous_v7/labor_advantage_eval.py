@@ -340,11 +340,14 @@ def bookkeeping_probe(
                 action_features(noisy),
             ]
         )
-        index = torch.full((len(features),), r, dtype=torch.long)
+        device = next(head.parameters()).device
+        index = torch.full((len(features),), r, dtype=torch.long, device=device)
         with torch.no_grad():
-            raw = head(contexts, torch.as_tensor(features, dtype=torch.float32), index)
+            raw = head(
+                contexts, torch.as_tensor(features, dtype=torch.float32, device=device), index
+            )
         for name in COMPONENTS:
-            values = raw[name].double()
+            values = raw[name].double().cpu()
             synthetic_max = max(synthetic_max, float((values - values[0]).abs().max()))
     worst = max(data_max, synthetic_max)
     return {

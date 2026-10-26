@@ -61,6 +61,7 @@ from .labor_model import (
     critic_privileged_batch,
     labor_policy_tensors,
 )
+from .labor_device import cpu_copy, module_device, to_device
 from .labor_personality import personality_for_world
 from .labor_privileged import actor_inputs, privileged_row_tensors, require_critic_training_worlds
 from .labor_worlds import (
@@ -1975,6 +1976,7 @@ def _evaluate_dataset(
     act_weights: torch.Tensor | None = None,
 ) -> tuple[float, float, float, dict[str, float]]:
     actor.eval()
+    device = module_device(actor)
     tensor_keys = [k for k, v in dataset.items() if isinstance(v, torch.Tensor)]
     N = dataset["target_specialty"].shape[0]
     total_loss_sum = 0.0
@@ -1986,7 +1988,7 @@ def _evaluate_dataset(
     with torch.no_grad():
         for start in range(0, N, batch_size):
             end = min(N, start + batch_size)
-            batch = {k: dataset[k][start:end] for k in tensor_keys}
+            batch = to_device({k: dataset[k][start:end] for k in tensor_keys}, device)
             count = end - start
             loss, spec_l1, act_l1, components = _batch_loss_and_l1(
                 actor,
@@ -2055,6 +2057,7 @@ def pretrain_labor_actor_bc(
     _refuse_critic_only_rows(dataset, "labor actor BC")
 
     opt = optimizer if optimizer is not None else torch.optim.Adam(actor.parameters(), lr=lr)
+    device = module_device(actor)
     generator = rng if rng is not None else np.random.default_rng(0)
     tensor_keys = [k for k, v in dataset.items() if isinstance(v, torch.Tensor)]
 
@@ -2078,6 +2081,9 @@ def pretrain_labor_actor_bc(
         mean_act = dataset["target_activity"][keep].mean(dim=0)
         act_weights = (mean_act + 0.02).pow(-inverse_freq_power)
         act_weights = act_weights / act_weights.mean().clamp(min=1e-8)
+        # Computed on CPU (identical values on every device), then moved once.
+        spec_weights = to_device(spec_weights, device)
+        act_weights = to_device(act_weights, device)
 
     evaluation = {
         "batch_size": batch_size,
@@ -2121,7 +2127,7 @@ def pretrain_labor_actor_bc(
         for start in range(0, N, batch_size):
             end = min(N, start + batch_size)
             batch_idx = torch.as_tensor(indices[start:end], dtype=torch.long)
-            batch = {k: dataset[k][batch_idx] for k in tensor_keys}
+            batch = to_device({k: dataset[k][batch_idx] for k in tensor_keys}, device)
 
             loss, _, _, _ = _batch_loss_and_l1(
                 actor,
@@ -2350,22 +2356,23 @@ def _critic_stability_finish(
         if saturation_final.get("components") is not None:
             monitor.record_final("qol_saturation_detail", saturation_final["components"])
     tail_rows = _probe_rows(kept, 4096)
+    device = module_device(task_critic)
     if not task_critic.is_bounded("population_years"):
         parts = []
         with torch.no_grad():
             for start in range(0, len(tail_rows), 512):
                 index = tail_rows[start : start + 512]
-                batch = {k: dataset[k][index] for k in tensor_keys}
-                p = critic_privileged_batch(task_critic, dataset, index)
+                batch = to_device({k: dataset[k][index] for k in tensor_keys}, device)
+                p = critic_privileged_batch(task_critic, dataset, index, device=device)
                 parts.append(task_critic(batch, p)["population_years"])
         monitor.record_final(
             "population_tail",
             population_tail_report(task_critic, torch.cat(parts), observed_pop_max),
         )
     probe = _probe_rows(kept, monitor.config.probe_rows)
-    batch = {k: dataset[k][probe] for k in tensor_keys}
-    task_priv = critic_privileged_batch(task_critic, dataset, probe)
-    cost_priv = critic_privileged_batch(cost_critics, dataset, probe)
+    batch = to_device({k: dataset[k][probe] for k in tensor_keys}, device)
+    task_priv = critic_privileged_batch(task_critic, dataset, probe, device=device)
+    cost_priv = critic_privileged_batch(cost_critics, dataset, probe, device=device)
     encoders = {"task": (task_critic.encoder, task_priv)}
     for name in LABOR_COSTS:
         encoders[f"cost:{name}"] = (cost_critics.encoders[name], cost_priv)
@@ -2377,9 +2384,9 @@ def _critic_stability_finish(
         },
     )
     dead_rows = _probe_rows(kept, max(monitor.config.probe_rows, 256))
-    dead_batch = {k: dataset[k][dead_rows] for k in tensor_keys}
-    dead_task = critic_privileged_batch(task_critic, dataset, dead_rows)
-    dead_cost = critic_privileged_batch(cost_critics, dataset, dead_rows)
+    dead_batch = to_device({k: dataset[k][dead_rows] for k in tensor_keys}, device)
+    dead_task = critic_privileged_batch(task_critic, dataset, dead_rows, device=device)
+    dead_cost = critic_privileged_batch(cost_critics, dataset, dead_rows, device=device)
     monitor.record_probe(
         "dead_features",
         {
@@ -2487,6 +2494,11 @@ def pretrain_critic_on_dataset(
 
     critic_params = list(task_critic.parameters()) + list(cost_critics.parameters())
     optimizer = torch.optim.Adam(critic_params, lr=lr)
+    # Modules decide the device (labor_device); data stays in host memory and each
+    # chunk/minibatch moves to the device. On CPU every move is a no-op (bitwise path).
+    device = module_device(task_critic)
+    if module_device(cost_critics) != device:
+        raise ValueError("task and cost critics are on different devices")
 
     def losses(chunk: int = 512) -> tuple[float, float]:
         # Chunked: one forward pass over every row needed ~100 GB of activations at 96k rows.
@@ -2494,17 +2506,23 @@ def pretrain_critic_on_dataset(
         with torch.no_grad():
             for start in range(0, N, chunk):
                 index = torch.arange(start, min(N, start + chunk))
-                t = {k: v[index] for k, v in tensors.items()}
+                t = to_device({k: v[index] for k, v in tensors.items()}, device)
                 count = len(index)
-                p = privileged_rows(index)
+                p = to_device(privileged_rows(index), device)
                 task_sum += count * float(
                     labor_task_value_loss(
-                        task_critic, t, {k: v[index] for k, v in task_targets.items()}, p
+                        task_critic,
+                        t,
+                        to_device({k: v[index] for k, v in task_targets.items()}, device),
+                        p,
                     )
                 )
                 cost_sum += count * float(
                     labor_cost_value_loss(
-                        cost_critics, t, {k: v[index] for k, v in cost_targets.items()}, p
+                        cost_critics,
+                        t,
+                        to_device({k: v[index] for k, v in cost_targets.items()}, device),
+                        p,
                     )
                 )
         return task_sum / N, cost_sum / N
@@ -2518,9 +2536,10 @@ def pretrain_critic_on_dataset(
         with torch.no_grad():
             for start in range(0, len(rows), chunk):
                 index = rows[start : start + chunk]
-                batch = {k: dataset[k][index] for k in tensor_keys}
-                p = critic_privileged_batch(task_critic, dataset, index)
-                parts.append(task_critic(batch, p)["qol_years"])
+                batch = to_device({k: dataset[k][index] for k in tensor_keys}, device)
+                p = critic_privileged_batch(task_critic, dataset, index, device=device)
+                # Host copies: TD targets and saturation statistics stay on CPU.
+                parts.append(task_critic(batch, p)["qol_years"].cpu())
         return torch.cat(parts)
 
     from .labor_stability import (
@@ -2667,9 +2686,10 @@ def pretrain_critic_on_dataset(
     def save_resume(epoch: int, start: int, state: Any) -> None:
         payload = {
             "fingerprint": fingerprint,
-            "task": task_critic.state_dict(),
-            "costs": cost_critics.state_dict(),
-            "optimizer": optimizer.state_dict(),
+            # Device-agnostic: always saved on CPU (labor_device.cpu_copy).
+            "task": cpu_copy(task_critic.state_dict()),
+            "costs": cpu_copy(cost_critics.state_dict()),
+            "optimizer": cpu_copy(optimizer.state_dict()),
             "td_targets": task_targets["qol_years"] if td_lambda else None,
             "saturation_initial": saturation_initial,
             "init_task": init_task,
@@ -2698,19 +2718,19 @@ def pretrain_critic_on_dataset(
             if td_lambda and steps > 0 and steps % td_interval == 0:
                 refresh_td_targets(steps)
             batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
-            b_tensors = {k: v[batch_idx] for k, v in tensors.items()}
-            b_privileged = privileged_rows(batch_idx)
+            b_tensors = to_device({k: v[batch_idx] for k, v in tensors.items()}, device)
+            b_privileged = to_device(privileged_rows(batch_idx), device)
             optimizer.zero_grad()
             task_loss, task_heads, task_output = labor_task_value_losses(
                 task_critic,
                 b_tensors,
-                {k: v[batch_idx] for k, v in task_targets.items()},
+                to_device({k: v[batch_idx] for k, v in task_targets.items()}, device),
                 b_privileged,
             )
             cost_loss, cost_heads = labor_cost_value_losses(
                 cost_critics,
                 b_tensors,
-                {k: v[batch_idx] for k, v in cost_targets.items()},
+                to_device({k: v[batch_idx] for k, v in cost_targets.items()}, device),
                 b_privileged,
             )
             loss = task_loss + cost_loss_weight * cost_loss

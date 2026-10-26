@@ -607,23 +607,27 @@ def critic_predictions(
 ) -> dict[str, np.ndarray]:
     """Decoded predictions; with ``observed_max`` (normalized target max per task
     head) also per-row value-support tail terms keyed ``"<head>/<term>"``."""
+    from .labor_device import module_device, to_device
     from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES, critic_privileged_batch
 
+    device = module_device(task)
     tensors = _input_tensors(dataset)
     out: dict[str, list[np.ndarray]] = defaultdict(list)
     with torch.no_grad():
         for index, batch in _batches(tensors, rows, batch_size):
+            batch = to_device(batch, device)
             # Critic-only privileged batch, separate from the observation batch.
-            privileged = critic_privileged_batch(task, dataset, index)
+            privileged = critic_privileged_batch(task, dataset, index, device=device)
             logits = task(batch, privileged)
             for name in LABOR_OBJECTIVES:
-                out[name].append(task.expectation(name, logits[name]).double().numpy())
+                out[name].append(task.expectation(name, logits[name]).double().cpu().numpy())
                 if observed_max is not None and not task.is_bounded(name):
                     terms = task.support_diagnostics(name, logits[name], observed_max[name])
                     for term, value in terms.items():
-                        out[f"{name}/{term}"].append(value.numpy())
-            for name, value in costs(batch, critic_privileged_batch(costs, dataset, index)).items():
-                out[name].append(value.double().numpy())
+                        out[f"{name}/{term}"].append(value.cpu().numpy())
+            cost_priv = critic_privileged_batch(costs, dataset, index, device=device)
+            for name, value in costs(batch, cost_priv).items():
+                out[name].append(value.double().cpu().numpy())
     names = tuple(LABOR_OBJECTIVES) + tuple(LABOR_COSTS)
     names += tuple(key for key in out if "/" in key)
     return {name: np.concatenate(out[name]) if out[name] else np.zeros(0) for name in names}
@@ -759,11 +763,18 @@ def critic_dataset_report(
 
 
 def run_critic_calibration(
-    checkpoint: Path, dataset_path: Path, fit_dataset_path: Path | None, batch_size: int = 256
+    checkpoint: Path,
+    dataset_path: Path,
+    fit_dataset_path: Path | None,
+    batch_size: int = 256,
+    device: Any = None,
 ) -> dict[str, Any]:
     from .labor_bc import CRITIC_DISCOUNT_YEARS
 
     _, _, task, costs, normalizer = _load_models(checkpoint)
+    if device is not None:  # forward passes only; predictions come back to the host
+        task.to(device)
+        costs.to(device)
     privileged = task.privileged_layout is not None
     calibration_dataset = _load_dataset(dataset_path, normalizer, require_privileged=privileged)
     if privileged:
