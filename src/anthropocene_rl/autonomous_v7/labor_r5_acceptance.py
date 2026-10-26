@@ -35,6 +35,13 @@ machine receipt (``gate-receipt.json``) with verdict PASS / HOLD / FAIL:
   reported, and a confounded comparison HOLDs.
 * **Determinism.** The same seed and data give bitwise-equal parameters (or
   within the documented CPU tolerance, reported as such).
+* **Trajectory diagnostics (section 4a, never gate).** Every evidence file
+  carries ``trajectory_diagnostics`` (``labor_r5_trajectory``: T1 myopia, T3
+  adaptation lag, T4 value tracking when a recorded autonomous trace is given)
+  and the receipt aggregates them per arm under ``trajectory_diagnostics``
+  (seed means and spreads), optionally compared with a baseline receipt
+  (``--trajectory-baseline``): metrics worse by more than their seed spread are
+  flagged for review. They never enter the verdict.
 
 Subcommands: ``evaluate`` (one fit's evidence), ``receipt`` (aggregate),
 ``determinism`` (compare two probe fits) and ``run`` (the full arm x seed
@@ -1103,8 +1110,13 @@ def build_receipt(
     source: Mapping[str, Any] | None = None,
     strata: Sequence[str] = STRATA,
     floor_tolerance: float | None = None,
+    trajectory_baseline: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """The gate receipt (brief section 4 fields) with the machine verdict."""
+    """The gate receipt (brief section 4 fields) with the machine verdict.
+
+    ``trajectory_diagnostics`` (section 4a) is reported beside the verdict and never
+    enters it; ``trajectory_baseline`` (an earlier receipt) adds the flagged comparison.
+    """
     by_arm: dict[str, dict[int, Mapping[str, Any]]] = defaultdict(dict)
     for record in evidence:
         by_arm[record["arm"]][int(record["seed"])] = record
@@ -1235,6 +1247,9 @@ def build_receipt(
             "status": determinism_status,
         },
         "work": _work_totals(evidence),
+        "trajectory_diagnostics": _trajectory_section(
+            evidence, [a.name for a in arms], seeds, trajectory_baseline
+        ),
         "machine_state": verdict,
         "machine_verdict": verdict,
         "verdict_basis": {
@@ -1272,6 +1287,20 @@ def build_receipt(
     }
     receipt["receipt_digest"] = json_digest(receipt)
     return receipt
+
+
+def _trajectory_section(
+    evidence: Sequence[Mapping[str, Any]],
+    arms: Sequence[str],
+    seeds: Sequence[int],
+    baseline: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    from .labor_r5_trajectory import receipt_section
+
+    try:
+        return receipt_section(evidence, arms=arms, seeds=seeds, baseline=baseline)
+    except Exception as error:  # non-gating: a broken diagnostic never blocks the receipt
+        return {"gating": False, "error": repr(error)}
 
 
 def _historical_exclusions(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1560,8 +1589,17 @@ def evaluate_fit(
     privileged: bool | None = None,
     timings: Mapping[str, float] | None = None,
     batch_size: int = 256,
+    trajectory_datasets: Sequence[Path] = (),
+    trajectory_payloads: Sequence[tuple[str, Sequence[Path]]] = (),
+    trajectory_traces: Sequence[Path] = (),
 ) -> dict[str, Any]:
-    """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability."""
+    """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
+
+    ``trajectory_*`` feed the non-gating section 4a diagnostics: extra critic
+    datasets (teacher, DAgger and learner-state continuation data, T3), labelled
+    candidate payload sets (for example one per DAgger round, T3) and autonomous
+    reports recorded with ``--record-critic-trace`` (T4).
+    """
     import torch
 
     from .labor_advantage import load_advantage_head, load_candidate_shards
@@ -1614,6 +1652,19 @@ def evaluate_fit(
         "advantage_config": adv_config.state_dict() | {"seed": None},
         "payload_digests": sorted(adv_fit.get("payload_digests", []) or []),
     }
+    trajectory = _trajectory_diagnostics(
+        task=task,
+        costs=costs,
+        head=head,
+        normalizer=normalizer,
+        dataset=dataset,
+        reserved=reserved,
+        reserved_payloads=reserved_payloads,
+        datasets=trajectory_datasets,
+        payloads=trajectory_payloads,
+        traces=trajectory_traces,
+        batch_size=batch_size,
+    )
     timings = dict(timings or {})
     timings["evaluate"] = time.time() - started
     evidence = {
@@ -1663,8 +1714,83 @@ def evaluate_fit(
             "advantage": adv_fit.get("stability"),
         },
         "timings_seconds": timings,
+        "trajectory_diagnostics": trajectory,
     }
     return evidence
+
+
+def _trajectory_diagnostics(
+    *,
+    task: Any,
+    costs: Any,
+    head: Any,
+    normalizer: Any,
+    dataset: Mapping[str, Any],
+    reserved: Any,
+    reserved_payloads: Sequence[Path],
+    datasets: Sequence[Path],
+    payloads: Sequence[tuple[str, Sequence[Path]]],
+    traces: Sequence[Path],
+    batch_size: int,
+) -> dict[str, Any]:
+    """Section 4a T1/T3/T4 for one fit; failures are recorded, never raised (non-gating)."""
+    from .labor_advantage import load_candidate_shards
+    from .labor_pretrain_eval import _load_dataset
+    from .labor_r5_trajectory import fit_diagnostics, traces_from_reports
+    from .labor_value_calibration import labor_critic_digest
+
+    started = time.time()
+    inputs: dict[str, Any] = {
+        "datasets": [str(p) for p in datasets],
+        "payloads": {label: [str(p) for p in paths] for label, paths in payloads},
+        "traces": [{"path": str(p), "sha256": file_sha256(p)} for p in traces],
+    }
+    errors: dict[str, str] = {}
+    extra, payload_sets, loaded_traces = [], [], []
+    privileged = task.privileged_layout is not None
+    for path in datasets:
+        try:
+            extra.append(
+                (str(path), _load_dataset(Path(path), normalizer, require_privileged=privileged))
+            )
+        except Exception as error:
+            errors[f"dataset:{path}"] = repr(error)
+    for label, paths in payloads:
+        try:
+            candidates = load_candidate_shards(list(paths))
+            sealed = sorted(set(candidates.worlds) & set(SEALED_WORLDS))
+            if sealed:
+                raise ValueError(f"sealed worlds {sealed[:5]} are never used")
+            payload_sets.append((str(label), candidates))
+        except Exception as error:
+            errors[f"payload:{label}"] = repr(error)
+    for path in traces:
+        try:
+            loaded_traces.extend(
+                traces_from_reports([json.loads(Path(path).read_text(encoding="utf-8"))])
+            )
+        except Exception as error:
+            errors[f"trace:{path}"] = repr(error)
+    try:
+        report = fit_diagnostics(
+            task=task,
+            costs=costs,
+            head=head,
+            calibration_dataset=dataset,
+            reserved=reserved,
+            reserved_paths=list(reserved_payloads),
+            extra_datasets=extra,
+            payload_sets=payload_sets,
+            traces=loaded_traces,
+            critic_digest=labor_critic_digest(task, costs),
+            batch_size=batch_size,
+        )
+    except Exception as error:  # never stops the evidence
+        report = {"error": repr(error), "gating": False}
+    report["inputs"] = inputs
+    report["load_errors"] = errors
+    report["seconds"] = time.time() - started
+    return report
 
 
 def _module_sha(module: Any) -> str:
@@ -1829,6 +1955,32 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
         ]
         command += shlex.split(args.advantage_args or "")
         timed("advantage_fit", lambda: _run(command, log, threads))
+    traces = [Path(p) for p in (getattr(args, "trajectory_trace", None) or [])]
+    panel = getattr(args, "trajectory_panel", None)
+    if panel:
+        trace_path = work / "critic-trace.json"
+        if not trace_path.exists():
+            trace_command = [
+                *_python(),
+                "anthropocene_rl.autonomous_v7.labor_pretrain_eval",
+                "autonomous",
+                "--checkpoint",
+                critic,
+                "--worlds",
+                panel,
+                "--turns",
+                str(args.trajectory_turns),
+                "--modes",
+                "deterministic",
+                "--record-critic-trace",
+                "--jobs",
+                "1",
+                "--out",
+                trace_path,
+            ]
+            trace_command += shlex.split(args.trajectory_autonomous_args or "")
+            timed("trajectory_trace", lambda: _run(trace_command, log, threads))
+        traces.append(trace_path)
     evidence_path = work / "evidence.json"
     if not evidence_path.exists():
         command = [
@@ -1856,6 +2008,12 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
         ]
         if args.control_report:
             command += ["--control-report", args.control_report]
+        if getattr(args, "trajectory_data", None):
+            command += ["--trajectory-data", *args.trajectory_data]
+        for item in getattr(args, "trajectory_payload", None) or []:
+            command += ["--trajectory-payload", item]
+        if traces:
+            command += ["--trajectory-trace", *traces]
         timed("evaluate", lambda: _run(command, log, threads))
     return evidence_path
 
@@ -2025,6 +2183,7 @@ def command_run(args: argparse.Namespace) -> int:
         required_seeds=args.required_seeds,
         determinism=determinism_path,
         attempt_id=args.attempt_id,
+        trajectory_baseline=getattr(args, "trajectory_baseline", None),
         out=Path(args.out) / "gate-receipt.json",
         configuration={
             "arms": [a.state_dict() for a in arms],
@@ -2061,6 +2220,12 @@ def command_receipt(args: argparse.Namespace) -> int:
     configuration = getattr(args, "configuration", None) or {
         "evidence": [str(p) for p in args.evidence]
     }
+    baseline_path = getattr(args, "trajectory_baseline", None)
+    trajectory_baseline = (
+        None
+        if baseline_path is None
+        else json.loads(Path(baseline_path).read_text(encoding="utf-8"))
+    )
     receipt = build_receipt(
         evidence,
         arms=parse_arms(args.arms),
@@ -2070,7 +2235,16 @@ def command_receipt(args: argparse.Namespace) -> int:
         determinism=determinism,
         configuration=configuration,
         attempt_id=args.attempt_id,
+        trajectory_baseline=trajectory_baseline,
     )
+    if baseline_path is not None:
+        receipt["trajectory_diagnostics"]["baseline"] = {
+            "path": str(baseline_path),
+            "sha256": file_sha256(baseline_path),
+        }
+        receipt["receipt_digest"] = json_digest(
+            {k: v for k, v in receipt.items() if k != "receipt_digest"}
+        )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     temporary = out.with_suffix(out.suffix + ".tmp")
@@ -2112,6 +2286,9 @@ def command_evaluate(args: argparse.Namespace) -> int:
         control_report=control,
         timings=timings,
         batch_size=args.batch_size,
+        trajectory_datasets=list(args.trajectory_data or []),
+        trajectory_payloads=_labelled_paths(args.trajectory_payload or []),
+        trajectory_traces=list(args.trajectory_trace or []),
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -2126,6 +2303,17 @@ def command_evaluate(args: argparse.Namespace) -> int:
         f"(G2C all heads {checks['secondary_status']})"
     )
     return 0
+
+
+def _labelled_paths(items: Sequence[str]) -> list[tuple[str, list[Path]]]:
+    """``LABEL=path[,path...]`` (repeatable) to labelled path lists in argument order."""
+    out: dict[str, list[Path]] = {}
+    for item in items:
+        label, sep, paths = str(item).partition("=")
+        if not sep or not label or not paths:
+            raise ValueError(f"--trajectory-payload expects LABEL=path[,path...], got {item!r}")
+        out.setdefault(label, []).extend(Path(p) for p in paths.split(",") if p)
+    return list(out.items())
 
 
 def command_determinism(args: argparse.Namespace) -> int:
@@ -2155,6 +2343,12 @@ def summarize(receipt: Mapping[str, Any]) -> str:
             f"  arm {name}: {gate['status']} rule={gate['rule']} seeds={gate['seeds']} "
             f"every-seed={gate['passes_in_every_seed']} per-seed={gate['per_seed_status']}"
         )
+    comparison = (receipt.get("trajectory_diagnostics") or {}).get("comparison")
+    if comparison is not None:
+        lines.append(
+            f"  trajectory diagnostics (non-gating): {comparison['flagged_count']} T-metric(s) "
+            "worse than their seed spread against the baseline"
+        )
     for finding in receipt["unresolved_findings"][:30]:
         lines.append(f"  - {finding}")
     return "\n".join(lines)
@@ -2180,6 +2374,7 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     evaluate.add_argument("--timings", type=Path, default=None)
     evaluate.add_argument("--batch-size", type=int, default=256)
+    _trajectory_arguments(evaluate)
     evaluate.add_argument("--out", type=Path, required=True)
     evaluate.set_defaults(handler=command_evaluate)
 
@@ -2191,6 +2386,12 @@ def argument_parser() -> argparse.ArgumentParser:
     receipt.add_argument("--required-seeds", type=int, default=threshold("vm_seeds"))
     receipt.add_argument("--determinism", type=Path, default=None)
     receipt.add_argument("--attempt-id", required=True)
+    receipt.add_argument(
+        "--trajectory-baseline",
+        type=Path,
+        default=None,
+        help="earlier receipt: flag T-metrics worse than their seed spread (non-gating)",
+    )
     receipt.add_argument("--out", type=Path, required=True)
     receipt.set_defaults(handler=command_receipt)
 
@@ -2257,9 +2458,42 @@ def argument_parser() -> argparse.ArgumentParser:
         help="local mechanics smoke: admit truncated-zero targets; the receipt is forced to HOLD",
     )
     run.add_argument("--attempt-id", required=True)
+    _trajectory_arguments(run)
+    run.add_argument("--trajectory-baseline", type=Path, default=None)
+    run.add_argument(
+        "--trajectory-panel",
+        default=None,
+        help="development worlds for the T4 recorder (labor_pretrain_eval autonomous "
+        "--record-critic-trace, deterministic mode) run per fit; off when absent",
+    )
+    run.add_argument("--trajectory-turns", type=int, default=25)
+    run.add_argument("--trajectory-autonomous-args", default="")
     run.add_argument("--out", type=Path, required=True)
     run.set_defaults(handler=command_run)
     return parser
+
+
+def _trajectory_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--trajectory-data",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="T3: extra critic datasets (teacher, DAgger, learner-state continuations)",
+    )
+    parser.add_argument(
+        "--trajectory-payload",
+        action="append",
+        default=[],
+        help="T3: LABEL=payload[,payload...] candidate sets (e.g. round-1=...); repeatable",
+    )
+    parser.add_argument(
+        "--trajectory-trace",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="T4: autonomous reports recorded with --record-critic-trace",
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:

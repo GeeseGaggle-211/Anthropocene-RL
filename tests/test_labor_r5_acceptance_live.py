@@ -158,6 +158,12 @@ def test_live_smoke_run_produces_a_held_receipt(tmp_path) -> None:
         "1",
         "--attempt-id",
         "live-smoke",
+        "--trajectory-panel",
+        "2000",
+        "--trajectory-turns",
+        "2",
+        "--trajectory-autonomous-args",
+        "--players 8",
         "--out",
         str(out),
     ]
@@ -182,6 +188,22 @@ def test_live_smoke_run_produces_a_held_receipt(tmp_path) -> None:
             )
             assert (work / "stability-critic.jsonl").stat().st_size > 0
             assert (work / "critic.resume.pt").exists()
+            # Section 4a diagnostics (non-gating): T1/T3 from the evaluator's data and
+            # T4 from the recorded autonomous trace of this fit's critic.
+            trajectory = evidence["trajectory_diagnostics"]
+            assert trajectory["gating"] is False and not trajectory["load_errors"]
+            assert "error" not in trajectory["t1"]["advantage"]
+            assert "error" not in trajectory["t1"]["value"]
+            assert "error" not in trajectory["t3"]["value"]
+            t4 = trajectory["t4"]
+            assert "error" not in t4 and t4["critic_digest_matches"] is True
+            assert t4["heads"]["qol_years"]["decisions"] >= 1
+            trace = json.loads((work / "critic-trace.json").read_text())
+            assert trace["record_critic_trace"] is True
+            assert all("critic_trace" in run for run in trace["runs"] if run["mode"] != "heuristic")
+    section = receipt["trajectory_diagnostics"]
+    assert section["gating"] is False
+    assert section["arms"]["privileged-e4"]["summary"]
     # Rerunning is a no-op on finished stages (resumable) and reproduces the verdict.
     assert ra.main(argv) == 0
     again = json.loads((out / "gate-receipt.json").read_text())

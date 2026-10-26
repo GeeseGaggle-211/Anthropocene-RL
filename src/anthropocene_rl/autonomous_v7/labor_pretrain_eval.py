@@ -1082,9 +1082,17 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
     from .labor_personality import personality_for_world
 
     torch.set_num_threads(1)
-    state, actor, _, _, normalizer = _load_models(Path(job["checkpoint"]))
+    state, actor, task, costs, normalizer = _load_models(Path(job["checkpoint"]))
     world = int(job["world"])
     stochastic = job["mode"] == "stochastic"
+    recorder = None
+    if job.get("record_critic_trace"):
+        # T4 (r5 section 4a): per-decision critic predictions and realised rewards.
+        # Off by default; read-only (the critic never influences the actor's action).
+        from .labor_r5_trajectory import CriticTraceRecorder
+        from .labor_value_calibration import labor_critic_digest
+
+        recorder = CriticTraceRecorder(task, costs, critic_digest=labor_critic_digest(task, costs))
     generator = torch.Generator().manual_seed(int(job["policy_seed"]) * 1_000_003 + world)
     personality = personality_for_world(labor_checkpoint_personality(state), world)
     options = LaborResetOptions.from_mapping(job["reset_options"])
@@ -1103,6 +1111,7 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
                 break
             contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
             catalogs = {context[0].camp_id: context[0] for context in contexts}
+            values = None if recorder is None else recorder.predict(live, tensors)
             execution = actor_labor_decision(
                 bridge,
                 actor,
@@ -1115,6 +1124,10 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
                 generator=generator,
             )
             next_step = execution.step
+            if recorder is not None:
+                recorder.record(
+                    step=step, live=live, tensors=tensors, values=values, execution=execution
+                )
             rejected += sum(1 for a in execution.initial_attempts.values() if not a.valid)
             retries += len(execution.retry)
             farmers = sum(
@@ -1125,7 +1138,15 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
             turns.append(_turn_record(next_step, farmers, population, terminated, nutrition))
             _track(next_step, terminated, nutrition)
             step = next_step
-    return {
+        if recorder is not None:
+            final_live = _live(step)
+            final_tensors = (
+                labor_policy_tensors(final_live, normalizer, personality=personality)[1]
+                if final_live
+                else None
+            )
+            recorder.finish(step, final_live, final_tensors)
+    result = {
         "world": world,
         "mode": job["mode"],
         "reset_identity": identity,
@@ -1133,6 +1154,9 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
         "initial_rejections": rejected,
         "retries": retries,
     }
+    if recorder is not None:
+        result["critic_trace"] = recorder.trace()
+    return result
 
 
 H12_FALLBACK_HEADS = (
@@ -1452,6 +1476,7 @@ def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
         "turns": int(args.turns),
         "reset_options": reset.state_dict(),
         "policy_seed": int(args.policy_seed),
+        "record_critic_trace": bool(getattr(args, "record_critic_trace", False)),
     }
     jobs = [dict(base, world=w, mode=m) for w in worlds for m in ("heuristic", *modes)]
     started = time.perf_counter()
@@ -1486,6 +1511,11 @@ def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
             "runs": results,
         }
     )
+    if base["record_critic_trace"]:
+        from .labor_r5_trajectory import t4_report, traces_from_reports
+
+        report["record_critic_trace"] = True
+        report["trajectory_t4"] = t4_report(traces_from_reports([report]))
     return report
 
 
@@ -1580,6 +1610,13 @@ def argument_parser() -> argparse.ArgumentParser:
     auto.add_argument("--policy-seed", type=int, default=0)
     auto.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     auto.add_argument("--allow-non-development", action="store_true")
+    auto.add_argument(
+        "--record-critic-trace",
+        action="store_true",
+        default=False,
+        help="T4: log every critic head's prediction and the realised rewards per actor "
+        "decision (runs[*].critic_trace) and add the trajectory_t4 report; off by default",
+    )
     auto.add_argument("--out", type=Path, required=True)
     return parser
 
