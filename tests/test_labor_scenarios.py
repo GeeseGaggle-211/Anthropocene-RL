@@ -10,7 +10,8 @@ import numpy as np
 import pytest
 import torch
 
-from anthropocene_rl.autonomous_v7 import labor_bc, labor_scenarios as ls
+from anthropocene_rl.autonomous_v7 import labor_bc
+from anthropocene_rl.autonomous_v7 import labor_scenarios as ls
 from anthropocene_rl.autonomous_v7 import labor_teacher_data as ltd
 from anthropocene_rl.autonomous_v7.labor_privileged import LABOR_PRIVILEGED_LAYOUT_V1 as LAYOUT
 from anthropocene_rl.autonomous_v7.labor_scenarios import (
@@ -314,7 +315,7 @@ def live(tmp_path_factory):
 
 
 def test_live_smoke_shards_roots_and_coverage(live) -> None:
-    root, _, _, teacher, scen, common = live
+    _, _, _, teacher, scen, common = live
     manifest = ltd.verify_dataset(scen)
     assert manifest["source_record"]["source_kind"] == ls.SOURCE_KIND
     meta = ltd.verify_shard(scen / "world-90100")
@@ -345,6 +346,17 @@ def test_live_smoke_shards_roots_and_coverage(live) -> None:
     assert fitting["under-housed"]["roots"] >= 2
     assert fitting["under-housed"]["roots_by_dataset"]
     assert "first_active_use" in report["partitions"]["fitting"]
+    # Unpublished, individually verified shards audit like their dataset.
+    shard_only = ls.coverage_audit([], shards=[teacher / "world-90100"])
+    alone = ls.coverage_audit([teacher])
+    def strip(report):
+        out = json.loads(json.dumps(report["partitions"]))
+        for section in out.values():
+            for family in section["families"].values():
+                family.pop("roots_by_dataset")
+        return out
+
+    assert strip(shard_only) == strip(alone)
     # Excluded bank states: same reset options only.
     excluded = ls.excluded_states([teacher], meta["reset_options"])
     assert len(excluded[90100]) == int(bank["row_world"].shape[0])
