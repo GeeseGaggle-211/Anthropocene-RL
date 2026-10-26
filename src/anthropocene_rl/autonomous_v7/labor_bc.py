@@ -59,6 +59,11 @@ from .labor_model import (
 )
 from .labor_personality import personality_for_world
 from .labor_privileged import actor_inputs, privileged_row_tensors, require_critic_training_worlds
+from .labor_worlds import (
+    require_held_out_test_worlds,
+    require_training_record,
+    require_training_worlds,
+)
 from .labor_ppo import (
     RetainedLaborAction,
     execute_labor_decision,
@@ -204,8 +209,15 @@ class LaborResetOptions:
         return cls(**{key: value[key] for key in cls().state_dict() if key in value})
 
 
-def validate_fitting_worlds(world_seeds: Sequence[int], context: str) -> list[int]:
-    """Fitting worlds exclude sealed confirmation and development-only seeds."""
+def validate_fitting_worlds(
+    world_seeds: Sequence[int], context: str, *, held_out_test: bool = False
+) -> list[int]:
+    """Fitting worlds exclude sealed confirmation, development-only and reserved seeds.
+
+    The reserved held-out worlds 90154-90159 (``labor_worlds``) are refused
+    unless ``held_out_test`` is set, in which case *only* reserved worlds are
+    accepted and the caller must tag its outputs as held-out test data.
+    """
     worlds = checked_seeds(list(world_seeds), context)
     scan({"worldSeeds": worlds}, context)
     if len(set(worlds)) != len(worlds):
@@ -215,7 +227,9 @@ def validate_fitting_worlds(world_seeds: Sequence[int], context: str) -> list[in
             raise ValueError(f"{context}: sealed confirmation world {seed} is not fitting data")
         if seed in DEVELOPMENT_WORLDS:
             raise ValueError(f"{context}: development world {seed} is development-only")
-    return worlds
+    if held_out_test:
+        return require_held_out_test_worlds(worlds, context)
+    return require_training_worlds(worlds, context)
 
 
 # ---------------------------------------------------------------------------
@@ -924,6 +938,9 @@ TAIL_CUTOFF_TURN_FIELD = "tail_cutoff_turn"
 TAIL_VALUE_PREFIX = "tail_value__"
 TAIL_STANDARD_ERROR_PREFIX = "tail_standard_error__"
 TAIL_HEADS = ("qol_years", "population_years", "feasibility", "settlement_guard")
+# Optional per-row trajectory id (>= 0) separating several trajectories of one
+# (world, camp): learner-state teacher continuations (labor_dagger).
+TRAJECTORY_FIELD = "row_trajectory"
 # Codes stored in ``tail_method``.
 TAIL_NONE_TERMINAL = 0  # the trajectory terminated inside the collection window
 TAIL_TERMINAL_EXACT = 1  # living cutoff; the continuation reached a true terminal
@@ -1308,6 +1325,87 @@ def _attach_tail_rows(
             )
 
 
+def record_teacher_transition(
+    result: WorldCollection,
+    transition: _TeacherTransition,
+    world_seed: int,
+    founded: Mapping[int, int],
+) -> None:
+    """Append one converted-teacher decision's rows (every live camp) to ``result``.
+
+    The collector's row format: pre-action inputs, the critic-only privileged
+    arrays of the same boundary, the converted label, identity and the
+    transition rewards; rejected initial recommendations are quarantined.
+    """
+    world_seed = int(world_seed)
+    decision_turn = transition.decision_turn
+    execution = transition.execution
+    for row, (village, label) in enumerate(
+        zip(transition.live, transition.labels, strict=True)
+    ):
+        camp = int(village["camp"])
+        for reason in label.reasons:
+            result.reasons[reason.split(":", 1)[0]] += 1
+        attempt = execution.initial_attempts[camp]
+        accepted = bool(attempt.valid)
+        result.counters["total_decisions"] += 1
+        result.counters["initial_accepted" if accepted else "initial_rejected"] += 1
+        if not accepted:
+            result.counters["quarantined"] += 1
+            result.quarantine.append(
+                {
+                    "world": world_seed,
+                    "camp": camp,
+                    "turn": decision_turn,
+                    "attempt": 0,
+                    "violations": [
+                        {"reasonCode": v.reason_code, "reason": v.reason}
+                        for v in attempt.violations
+                    ],
+                    "labelReasons": list(label.reasons),
+                }
+            )
+        if label.specialty_valid:
+            result.counters["labor_label_valid"] += 1
+        if label.full_action_valid:
+            result.counters["full_action_label_valid"] += 1
+        row_tensors = _one_row(transition.tensors, row)
+        if transition.privileged is not None:
+            # Raw critic-only arrays from the same decision boundary as the
+            # observation (row schema 1); never part of the actor tensors.
+            row_tensors.update(_one_row(transition.privileged, row))
+        row_tensors.update(_label_tensors(label))
+        heads = transition.head_rewards(camp, founded)
+        row_tensors.update(
+            {
+                "row_world": torch.tensor([world_seed], dtype=torch.long),
+                "row_camp": torch.tensor([camp], dtype=torch.long),
+                "row_turn": torch.tensor([decision_turn], dtype=torch.long),
+                "row_attempt": torch.tensor([0], dtype=torch.long),
+                "row_quarantined": torch.tensor([not accepted], dtype=torch.bool),
+                "reward_qol_years": torch.tensor(
+                    [transition.rewards[camp]["qol_years"]], dtype=torch.float64
+                ),
+                "reward_population_years": torch.tensor(
+                    [transition.rewards[camp]["population_years"]], dtype=torch.float64
+                ),
+                "reward_feasibility": torch.tensor(
+                    [heads["feasibility"]], dtype=torch.float64
+                ),
+                "reward_settlement_guard": torch.tensor(
+                    [heads["settlement_guard"]], dtype=torch.float64
+                ),
+                ELAPSED_YEARS_FIELD: torch.tensor(
+                    [float(transition.elapsed[camp])], dtype=torch.float64
+                ),
+                "transition_terminal": torch.tensor(
+                    [bool(transition.terminal[camp])], dtype=torch.bool
+                ),
+            }
+        )
+        result.rows.append(row_tensors)
+
+
 def collect_heuristic_world(
     *,
     normalizer: Any,
@@ -1378,71 +1476,7 @@ def collect_heuristic_world(
                             "economic": diag,
                         },
                     )
-            execution = transition.execution
-            for row, (village, label) in enumerate(
-                zip(transition.live, transition.labels, strict=True)
-            ):
-                camp = int(village["camp"])
-                for reason in label.reasons:
-                    result.reasons[reason.split(":", 1)[0]] += 1
-                attempt = execution.initial_attempts[camp]
-                accepted = bool(attempt.valid)
-                result.counters["total_decisions"] += 1
-                result.counters["initial_accepted" if accepted else "initial_rejected"] += 1
-                if not accepted:
-                    result.counters["quarantined"] += 1
-                    result.quarantine.append(
-                        {
-                            "world": int(world_seed),
-                            "camp": camp,
-                            "turn": decision_turn,
-                            "attempt": 0,
-                            "violations": [
-                                {"reasonCode": v.reason_code, "reason": v.reason}
-                                for v in attempt.violations
-                            ],
-                            "labelReasons": list(label.reasons),
-                        }
-                    )
-                if label.specialty_valid:
-                    result.counters["labor_label_valid"] += 1
-                if label.full_action_valid:
-                    result.counters["full_action_label_valid"] += 1
-                row_tensors = _one_row(transition.tensors, row)
-                if transition.privileged is not None:
-                    # Raw critic-only arrays from the same decision boundary as the
-                    # observation (row schema 1); never part of the actor tensors.
-                    row_tensors.update(_one_row(transition.privileged, row))
-                row_tensors.update(_label_tensors(label))
-                heads = transition.head_rewards(camp, founded)
-                row_tensors.update(
-                    {
-                        "row_world": torch.tensor([int(world_seed)], dtype=torch.long),
-                        "row_camp": torch.tensor([camp], dtype=torch.long),
-                        "row_turn": torch.tensor([decision_turn], dtype=torch.long),
-                        "row_attempt": torch.tensor([0], dtype=torch.long),
-                        "row_quarantined": torch.tensor([not accepted], dtype=torch.bool),
-                        "reward_qol_years": torch.tensor(
-                            [transition.rewards[camp]["qol_years"]], dtype=torch.float64
-                        ),
-                        "reward_population_years": torch.tensor(
-                            [transition.rewards[camp]["population_years"]], dtype=torch.float64
-                        ),
-                        "reward_feasibility": torch.tensor(
-                            [heads["feasibility"]], dtype=torch.float64
-                        ),
-                        "reward_settlement_guard": torch.tensor(
-                            [heads["settlement_guard"]], dtype=torch.float64
-                        ),
-                        ELAPSED_YEARS_FIELD: torch.tensor(
-                            [float(transition.elapsed[camp])], dtype=torch.float64
-                        ),
-                        "transition_terminal": torch.tensor(
-                            [bool(transition.terminal[camp])], dtype=torch.bool
-                        ),
-                    }
-                )
-                result.rows.append(row_tensors)
+            record_teacher_transition(result, transition, int(world_seed), founded)
             step = transition.next_step
             if progress is not None:
                 progress(result)
@@ -1480,6 +1514,24 @@ def world_balanced_weights(worlds: torch.Tensor, keep: torch.Tensor | None = Non
         rows = (worlds == world) & keep
         weights[rows] = total_rows / (len(kept_worlds) * float(rows.sum()))
     return weights
+
+
+def _refuse_critic_only_rows(dataset: Mapping[str, Any], context: str) -> None:
+    """Learner-state teacher continuations are V targets only; actor labels stay unchanged."""
+    collection = dataset.get("collection") if isinstance(dataset, Mapping) else None
+    kinds = set()
+    if isinstance(collection, Mapping):
+        kinds.add(collection.get("source_kind"))
+        kinds |= {c.get("source_kind") for c in collection.get("component_collections", [])}
+    sources = dataset.get("row_source")
+    if CONTINUATION_SOURCE_KIND in kinds or (
+        isinstance(sources, torch.Tensor)
+        and bool((sources.reshape(-1) == CONTINUATION_ROW_SOURCE).any())
+    ):
+        raise ValueError(
+            f"{context} refuses learner-state teacher continuation rows: they are critic "
+            "(V^rho) targets, not actor labels"
+        )
 
 
 def migrate_legacy_elapsed_field(dataset: dict[str, Any]) -> dict[str, Any]:
@@ -1557,11 +1609,18 @@ def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.T
     randomized = return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED
     n = int(dataset["row_world"].shape[0])
     returns = {name: torch.zeros(n, dtype=torch.float64) for name in names}
-    groups: dict[tuple[int, int], list[int]] = defaultdict(list)
-    for index, (world, camp) in enumerate(
-        zip(dataset["row_world"].tolist(), dataset["row_camp"].tolist(), strict=True)
+    # Teacher trajectories are (world, camp); rows carrying ``row_trajectory`` >= 0
+    # (learner-state teacher continuations) are their own trajectories within it.
+    trajectories = (
+        dataset[TRAJECTORY_FIELD].reshape(-1).tolist()
+        if TRAJECTORY_FIELD in dataset
+        else [-1] * n
+    )
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for index, (world, camp, trajectory) in enumerate(
+        zip(dataset["row_world"].tolist(), dataset["row_camp"].tolist(), trajectories, strict=True)
     ):
-        groups[(int(world), int(camp))].append(index)
+        groups[(int(world), int(camp), int(trajectory))].append(index)
     turns = dataset["row_turn"].tolist()
     elapsed = elapsed_years(dataset).reshape(-1).tolist()
     terminal = dataset["transition_terminal"].reshape(-1).tolist()
@@ -1570,7 +1629,7 @@ def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.T
         tail_values = {
             name: dataset[TAIL_VALUE_PREFIX + name].reshape(-1).double().tolist() for name in names
         }
-    for (world, camp), indices in groups.items():
+    for (world, camp, _), indices in groups.items():
         indices.sort(key=lambda i: turns[i])
         running = dict.fromkeys(names, 0.0)
         if randomized:
@@ -1967,12 +2026,20 @@ def pretrain_labor_actor_bc(
     label_smoothing: float = 1e-6,
     inverse_freq_power: float = 0.5,
 ) -> dict[str, Any]:
-    """Supervised behavioral cloning on LaborActor using heuristic dataset."""
+    """Supervised behavioral cloning on LaborActor using heuristic dataset.
+
+    Rows from the reserved held-out worlds 90154-90159 and held-out-test data
+    are refused (``labor_worlds``), exactly as for critic training.
+    """
     if not isinstance(dataset, Mapping) or "target_specialty" not in dataset:
         raise ValueError("dataset must contain target_specialty and input tensors")
     N = int(dataset["target_specialty"].shape[0])
     if N == 0:
         raise ValueError("cannot pretrain on empty dataset")
+    if "row_world" in dataset:
+        require_training_worlds(dataset["row_world"].reshape(-1).tolist(), "labor actor BC")
+    require_training_record(dataset.get("collection"), "labor actor BC")
+    _refuse_critic_only_rows(dataset, "labor actor BC")
 
     opt = optimizer if optimizer is not None else torch.optim.Adam(actor.parameters(), lr=lr)
     generator = rng if rng is not None else np.random.default_rng(0)
@@ -2066,6 +2133,10 @@ def pretrain_labor_actor_bc(
 # The only shard kind whose rewards are teacher-policy returns along one
 # chronological (world, camp) trajectory. Equal to labor_teacher_data.SOURCE_KIND.
 CRITIC_TEACHER_SOURCE_KIND = "native_heuristic_labor_teacher"
+# Teacher (H12) continuations from learner-visited (DAgger) states, closed by the
+# randomized tail: V^rho targets at learner states (labor_dagger, row_source 3).
+CONTINUATION_SOURCE_KIND = "learner_state_teacher_continuation"
+CONTINUATION_ROW_SOURCE = 3
 _CRITIC_REFUSALS = {
     "native_search_labor_teacher": (
         "search shards (row_source 2) are action labels, one per root and personality; their "
@@ -2078,16 +2149,28 @@ _CRITIC_REFUSALS = {
     "aggregated": (
         "aggregated multi-source data: critic targets need one teacher trajectory source"
     ),
+    CONTINUATION_SOURCE_KIND: (
+        "learner-state teacher continuations are V^rho targets only with "
+        "--learner-state-continuations"
+    ),
 }
 
 
-def require_critic_teacher_dataset(dataset: Mapping[str, Any]) -> None:
-    """Refuse any dataset that is not chronological heuristic-teacher returns.
+def require_critic_teacher_dataset(
+    dataset: Mapping[str, Any], *, allow_learner_state_continuation: bool = False
+) -> None:
+    """Refuse any dataset that is not teacher-policy returns.
 
     Search shards (``row_source == 2``), learner-state DAgger/actor-only shards
     and multi-source aggregates are rejected by source kind, by the
     ``actor_only`` flag and by any nonzero ``row_source`` row. A dataset
     without a source kind (in-process heuristic collection) is the teacher.
+
+    ``allow_learner_state_continuation`` additionally admits teacher (H12)
+    continuations from learner-visited states (``row_source`` 3, source kind
+    :data:`CONTINUATION_SOURCE_KIND`), alone or aggregated with teacher
+    trajectories, provided their randomized-tail arrays survived aggregation
+    (a continuation row without its tail would be a one-step truncated return).
     """
     collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
     kind = collection.get("source_kind", CRITIC_TEACHER_SOURCE_KIND)
@@ -2096,15 +2179,41 @@ def require_critic_teacher_dataset(dataset: Mapping[str, Any]) -> None:
             "pretrain-critic refuses actor-only (learner-state DAgger) data: its rewards "
             "follow the learner's short branches, not teacher-policy returns"
         )
-    if kind != CRITIC_TEACHER_SOURCE_KIND:
+    admitted = {CRITIC_TEACHER_SOURCE_KIND}
+    codes_allowed = {0}
+    if allow_learner_state_continuation:
+        admitted.add(CONTINUATION_SOURCE_KIND)
+        codes_allowed.add(CONTINUATION_ROW_SOURCE)
+        if kind == "aggregated":
+            components = {
+                c.get("source_kind") for c in collection.get("component_collections", [])
+            }
+            if not components or not components <= admitted:
+                raise ValueError(
+                    "pretrain-critic refuses aggregated data with components "
+                    f"{sorted(map(str, components - admitted))}: only heuristic-teacher "
+                    "trajectories and learner-state teacher continuations carry V targets"
+                )
+            kind = CONTINUATION_SOURCE_KIND
+    if kind not in admitted:
         reason = _CRITIC_REFUSALS.get(kind, f"unknown source kind {kind!r}")
         raise ValueError(f"pretrain-critic refuses {kind} data: {reason}")
     sources = dataset.get("row_source") if isinstance(dataset, Mapping) else None
-    if isinstance(sources, torch.Tensor) and bool((sources.reshape(-1) != 0).any()):
-        codes = sorted({int(v) for v in sources.reshape(-1).tolist()} - {0})
+    if isinstance(sources, torch.Tensor) and not set(sources.reshape(-1).tolist()) <= codes_allowed:
+        codes = sorted({int(v) for v in sources.reshape(-1).tolist()} - codes_allowed)
         raise ValueError(
             f"pretrain-critic refuses rows with row_source {codes}: only heuristic-teacher "
-            "rows (row_source 0) carry critic targets; search rows are 2, DAgger rows 1"
+            "rows (row_source 0) carry critic targets; search rows are 2, DAgger rows 1, "
+            "teacher continuations 3 (with --learner-state-continuations)"
+        )
+    if (
+        isinstance(sources, torch.Tensor)
+        and bool((sources.reshape(-1) == CONTINUATION_ROW_SOURCE).any())
+        and (TAIL_METHOD_FIELD not in dataset or TRAJECTORY_FIELD not in dataset)
+    ):
+        raise ValueError(
+            "learner-state teacher continuation rows lost their randomized tail or trajectory "
+            "ids (aggregated with truncated-zero teacher data?); refusing one-step returns"
         )
 
 
@@ -2146,6 +2255,7 @@ def pretrain_critic_on_dataset(
     rng: np.random.Generator | None = None,
     cost_loss_weight: float = 1.0,
     require_randomized_tail: bool = False,
+    allow_learner_state_continuation: bool = False,
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
 
@@ -2156,7 +2266,10 @@ def pretrain_critic_on_dataset(
     """
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
-    require_critic_teacher_dataset(dataset)
+    require_critic_teacher_dataset(
+        dataset, allow_learner_state_continuation=allow_learner_state_continuation
+    )
+    require_training_record(dataset.get("collection"), "heuristic critic pretraining")
     if require_randomized_tail and return_tail_method(dataset) != RETURN_TAIL_RANDOMIZED:
         raise ValueError(
             "pretrain-critic requires randomized-tail targets; this dataset declares "
@@ -2312,6 +2425,15 @@ def pretrain_critic_on_dataset(
         ),
         "sampling": "world-balanced-with-replacement",
         "discount_years": CRITIC_DISCOUNT_YEARS,
+        **(
+            {
+                "learner_state_continuation_rows": int(
+                    (dataset["row_source"].reshape(-1)[kept] == CONTINUATION_ROW_SOURCE).sum()
+                )
+            }
+            if allow_learner_state_continuation and "row_source" in dataset
+            else {}
+        ),
         **(
             {}
             if privileged is None

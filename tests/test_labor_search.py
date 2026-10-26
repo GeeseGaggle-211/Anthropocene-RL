@@ -325,8 +325,8 @@ def test_root_turns_and_focal_cycling_are_keyed() -> None:
 
 
 def test_search_worlds_are_fitting_only() -> None:
-    assert validate_search_worlds([90100, 90159]) == [90100, 90159]
-    for bad in ([3000], [2000], [90160]):
+    assert validate_search_worlds([90100, 90153]) == [90100, 90153]
+    for bad in ([3000], [2000], [90160], [90159]):
         with pytest.raises(ValueError):
             validate_search_worlds(bad)
 

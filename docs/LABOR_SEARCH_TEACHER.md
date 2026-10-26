@@ -99,6 +99,41 @@ The candidate table holds every candidate's components, utilities, horizon reach
 re-evaluation returns, rejected candidates and the work per root. These are forced-first-action
 finite-window returns for Q/critic diagnostics, kept distinct from V.
 
+## Candidate payload for the advantage head (r5, intervention B)
+
+Every search shard also stores `advantage-candidates.pt`, one `torch.save` dict in the model side's schema
+`labor-advantage-candidates-v1` (`labor_advantage.parse_candidate_shard` is the strict reader; field list in
+its module docstring and `docs/LABOR_ADVANTAGE.md`). It is hash-bound in the shard meta under
+`candidate_payload`; `labor_search_payload.candidate_shard_paths(dataset)` returns the verified files for
+`labor_advantage.load_candidate_shards` and, like every training loader, refuses held-out-test data and the
+reserved worlds 90154-90159 unless `training=False`.
+
+- Per root: the focal camp's observation row (`tensors`, root personality) and its raw privileged arrays
+  (`privileged`, separate), `source` (`h12` or `actor` with `--source actor`), `full_evaluation` (no
+  candidate skipped by the A-ranker), and extensions `final_horizon`, `truncated`, `horizons`,
+  `reeval_streams`, `ranker_mode`, `control_root`.
+- Per candidate: the complete executed schema-12 action, `is_h12`, `digest`, `control`, `bookkeeping_twin`,
+  and evaluations: stream 0 at every declared horizon the branch reached (or terminated before), and streams
+  1..S at the final horizon. Extensions (`labor-search-candidate-export-v1`): `compiled` (native residents and
+  worker-years), per-step rewards and years, horizon reached, `natively_evaluated`, `predicted_advantage`.
+- **Re-evaluation scope** (`--reeval-scope final-survivors`, the default): every candidate that survives to
+  the final horizon is re-evaluated, not only H12 and the contenders, so same-root pairs have paired streams
+  and an SE. The label test still compares only contenders with H12 (`--reeval-scope winners` restores the
+  old cost).
+- **Controls** (`--control-fraction`, default 0.25 of roots, keyed): all residents idle (`all-idle`), Farmer
+  adoption of 10% of residents when H12 staffs none and Farmer is legal (`delayed-benefit`), and H12 with an
+  unstaffed role's activity row moved (`bookkeeping_twin` = 0). Controls are carried to the final horizon.
+- **A-ranker** (off by default): `--advantage-ranker HEAD.pt --ranker-critic-checkpoint CKPT.pt` loads
+  `labor_advantage.AdvantageRanker`; every candidate is scored, the top `--ranker-top` (4) plus H12 (and the
+  controls) are natively evaluated, and `--ranker-full-fraction` (0.2) of roots stay fully evaluated for
+  regret. Predicted A is recorded on every candidate.
+- Measured locally (26 Oct, world 90100, 8 players, `--source actor`, M=8, horizons 1,2,3, keep all,1/2,2,
+  2 streams): 54 resolves (24 search + 30 re-evaluation of the three final survivors) and 380-447 s per root;
+  a control root adds the controls to the final horizon (66 resolves, 442 s). The legacy winners-only scope
+  would have re-evaluated two candidates (about 12 fewer resolves at this root).
+- `--held-out-test` searches only the reserved worlds 90154-90159 and tags the source record and every shard
+  `partition: held-out-test`; no training loader accepts it.
+
 ## Usage
 
 ```

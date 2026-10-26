@@ -94,6 +94,7 @@ from .labor_value_calibration import (
     labor_critic_digest,
     load_labor_anchor,
 )
+from .labor_worlds import require_training_worlds
 from .model import BOUNDED_FEATURE_CONTRACT, load_checkpoint_normalizer
 from .ppo import SMALL_SETTLEMENT, YOUNG_DAUGHTER_TURNS
 from .protocol import scan
@@ -1133,12 +1134,20 @@ def _labor_reset_options(args: argparse.Namespace) -> Any:
 def _load_labor_teacher_dataset(
     args: argparse.Namespace, normalizer: Any, *, require_privileged: bool = False
 ) -> dict[str, Any]:
-    from .labor_teacher_data import load_labor_dataset
+    """One critic dataset, or several (teacher trajectories plus learner-state continuations)."""
+    from .labor_teacher_data import load_labor_datasets
 
-    return load_labor_dataset(
-        args.dataset,
+    directories = args.dataset if isinstance(args.dataset, list) else [args.dataset]
+    if len(directories) > 1 and not getattr(args, "learner_state_continuations", False):
+        raise ValueError(
+            "pretrain-critic takes one --dataset unless --learner-state-continuations aggregates "
+            "teacher trajectories with learner-state teacher continuations"
+        )
+    return load_labor_datasets(
+        [Path(d) for d in directories],
         expected_normalizer_digest=_normalization_digest(normalizer),
         require_privileged=require_privileged,
+        drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
     )
 
 
@@ -1146,10 +1155,10 @@ def _load_privileged_normalizer(path: Path | None) -> Any:
     """A frozen privileged normalizer from ``fit-privileged-normalizer`` (or None)."""
     if path is None:
         return None
-    from .labor_privileged import PRIVILEGED_NORMALIZER_KIND, LaborPrivilegedNormalizer
+    from .labor_privileged import PRIVILEGED_NORMALIZER_KINDS, LaborPrivilegedNormalizer
 
     state = torch.load(path, map_location="cpu", weights_only=True)
-    if not isinstance(state, Mapping) or state.get("kind") != PRIVILEGED_NORMALIZER_KIND:
+    if not isinstance(state, Mapping) or state.get("kind") not in PRIVILEGED_NORMALIZER_KINDS:
         raise ValueError(f"{path} is not a fitted labor privileged normalizer")
     return LaborPrivilegedNormalizer.from_state(state["privileged_normalizer"])
 
@@ -1313,7 +1322,10 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     worlds = (
         []
         if dataset_dirs
-        else _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False))
+        else require_training_worlds(
+            _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
+            "labor pretrain-bc",
+        )
     )
 
     writer = None
@@ -1332,7 +1344,9 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         from .labor_teacher_data import load_labor_datasets
 
         dataset = load_labor_datasets(
-            dataset_dirs, expected_normalizer_digest=_normalization_digest(normalizer)
+            dataset_dirs,
+            expected_normalizer_digest=_normalization_digest(normalizer),
+            drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
         )
     else:
         dataset = collect_heuristic_bc_dataset(
@@ -1424,7 +1438,10 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         teacher = _load_labor_teacher_dataset(
             args, normalizer, require_privileged=task.privileged_layout is not None
         )
-        require_critic_teacher_dataset(teacher)
+        continuations = bool(getattr(args, "learner_state_continuations", False))
+        require_critic_teacher_dataset(
+            teacher, allow_learner_state_continuation=continuations
+        )
         worlds = list(teacher["collection"]["world_seeds"])
         summary = pretrain_critic_on_dataset(
             task_critic=task,
@@ -1437,13 +1454,15 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             rng=shuffle,
             require_randomized_tail=bool(getattr(args, "require_randomized_tail", False)),
             **_cost_weight_kwargs(args),
+            **({"allow_learner_state_continuation": True} if continuations else {}),
         )
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
     else:
         if _cost_weight_kwargs(args):
             raise ValueError("--cost-loss-weight is supported only with --dataset")
-        worlds = _parse_worlds(
-            args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+        worlds = require_training_worlds(
+            _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
+            "labor pretrain-critic",
         )
         summary = pretrain_critic_on_heuristic_next_states(
             task_critic=task,
@@ -1504,8 +1523,9 @@ def _command_collect(args: argparse.Namespace) -> None:
     sampling = torch.Generator()
     sampling.set_state(state["sampling_generator_state"])
     before_rng = sampling.get_state().clone()
-    worlds = _parse_worlds(
-        args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)
+    worlds = require_training_worlds(
+        _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
+        "labor PPO rollout collection",
     )
     writer = None
     if getattr(args, "economic_trace", None) is not None:
@@ -1775,7 +1795,9 @@ def _command_privileged_audit(args: argparse.Namespace) -> None:
     from .labor_privileged import dead_mask_audit, shard_keys
     from .labor_teacher_data import load_labor_dataset
 
-    parts = [load_labor_dataset(Path(d), require_privileged=True) for d in args.dataset]
+    parts = [
+        load_labor_dataset(Path(d), require_privileged=True, training=False) for d in args.dataset
+    ]
     arrays = {key: torch.cat([part[key] for part in parts], dim=0) for key in shard_keys()}
     report = dead_mask_audit(arrays)
     report["worlds"] = sorted({int(w) for p in parts for w in p["row_world"].reshape(-1).tolist()})
@@ -1951,6 +1973,11 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_bc.add_argument("--inverse-freq-power", type=float, default=0.5)
     pretrain_bc.add_argument("--allow-vm-scale", action="store_true", default=False)
     pretrain_bc.add_argument(
+        "--drop-reserved-worlds", action="store_true", default=False,
+        help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
+        "dataset (recorded in the summary)",
+    )
+    pretrain_bc.add_argument(
         "--economic-trace",
         type=Path,
         default=None,
@@ -1965,8 +1992,16 @@ def argument_parser() -> argparse.ArgumentParser:
         "--worlds", default=None, help="comma-separated local diagnostic seeds"
     )
     pretrain_critic.add_argument(
-        "--dataset", type=Path, default=None,
-        help="published labor_teacher_data directory (alternative to --worlds)",
+        "--dataset", type=Path, action="append", default=None,
+        help="published labor_teacher_data directory (alternative to --worlds); repeat only with "
+        "--learner-state-continuations",
+    )
+    pretrain_critic.add_argument(
+        "--learner-state-continuations",
+        action="store_true",
+        default=False,
+        help="admit learner-state teacher continuations (labor_dagger --teacher-continuation, "
+        "row_source 3) as V^rho targets, alone or aggregated with teacher trajectories",
     )
     pretrain_critic.add_argument("--players", type=int, default=8)
     pretrain_critic.add_argument("--width", type=int, default=None)
@@ -1982,6 +2017,11 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic.add_argument("--lr", type=float, default=1e-3)
     pretrain_critic.add_argument("--max-grad-norm", type=float, default=1.0)
     pretrain_critic.add_argument("--allow-vm-scale", action="store_true", default=False)
+    pretrain_critic.add_argument(
+        "--drop-reserved-worlds", action="store_true", default=False,
+        help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
+        "dataset (recorded in the summary)",
+    )
     pretrain_critic.add_argument(
         "--return-tail",
         choices=("truncated-zero", "randomized"),

@@ -21,6 +21,22 @@ truncated at the branch end. The shards are therefore ``actor_only``:
 ``labor_training pretrain-critic`` refuses them; ``pretrain-bc`` aggregates
 them with the teacher data (``--dataset A --dataset B ...``).
 
+V^rho targets at learner-visited states (amendment r5-b, item 6). With
+``--teacher-continuation branch-end`` (or ``all-visited``) the collector also
+forks every learner-visited state -- the state after the branch's last actor
+decision, or after each actor decision -- runs one teacher (H12) continuation
+from it for every live camp and closes it with the preregistered randomized
+tail (``labor_bc.RandomizedTailSettings``, the r5 method of
+``labor_teacher_data --return-tail randomized``), then restores the fork, so
+the actor rows are unchanged. Each continuation is written in the teacher
+collector's row format with the same typed ``tail_*`` fields, plus the branch
+identity, ``row_source`` 3 and a per-continuation ``row_trajectory``, into a
+separate dataset (``--continuation-out``) of source kind
+``learner_state_teacher_continuation``. ``pretrain-critic`` accepts it (alone
+or with teacher shards) only with ``--learner-state-continuations``; actor BC
+refuses it. Its observation and privileged arrays are those of the
+learner-visited state.
+
 Shards and the manifest follow ``labor_teacher_data`` (immutable shards, meta
 last, dataset.json only after every shard). ``--resume`` continues an
 interrupted output with the same source record: verified shards are kept,
@@ -53,9 +69,13 @@ from typing import Any
 import numpy as np
 import torch
 
+from . import labor_bc
 from .labor_bc import (
+    RETURN_TAIL_RANDOMIZED,
+    TRAJECTORY_FIELD,
     HeuristicLaborLabel,
     LaborResetOptions,
+    RandomizedTailSettings,
     WorldCollection,
     _concat,
     _idle_retry,
@@ -68,8 +88,6 @@ from .labor_bc import (
 )
 from .labor_ppo import execute_labor_decision
 from .labor_privileged import privileged_row_tensors
-from .protocol import seed_list
-from .provenance import ProvenanceError, checkpoint_hash, code_commit
 from .labor_teacher_data import (
     publish_dataset,
     source_record,
@@ -77,11 +95,18 @@ from .labor_teacher_data import (
     verify_shard,
     write_shard,
 )
+from .labor_worlds import require_training_worlds
+from .protocol import seed_list
+from .provenance import ProvenanceError, checkpoint_hash, code_commit
 
 DAGGER_SOURCE_KIND = "learner_state_dagger"
 DAGGER_ROW_SOURCE = 1
 DAGGER_CONTRACT = "model9-labor-dagger-learner-state-v1"
 DEFAULT_START_KEY = 4243
+CONTINUATION_SOURCE_KIND = labor_bc.CONTINUATION_SOURCE_KIND
+CONTINUATION_ROW_SOURCE = labor_bc.CONTINUATION_ROW_SOURCE
+CONTINUATION_CONTRACT = "model9-labor-dagger-teacher-continuation-v1"
+CONTINUATION_STATES = ("off", "branch-end", "all-visited")
 
 
 def draw_start_turns(
@@ -136,6 +161,77 @@ def _teacher_step(
     return execute_labor_decision(labor_bridge, catalogs, retained, _idle_retry).step
 
 
+def teacher_continuation(
+    *,
+    labor_bridge: Any,
+    heur_bridge: Any,
+    step: Mapping[str, Any],
+    world: int,
+    options: LaborResetOptions,
+    normalizer: Any,
+    personality: Any,
+    founded: Mapping[int, int],
+    tail: RandomizedTailSettings,
+    identity: Mapping[str, int],
+) -> WorldCollection | None:
+    """One teacher continuation from ``step`` with randomized-tail rows; the bridge is restored.
+
+    Rows are the teacher collector's (labels, rewards and typed tail of the
+    first teacher decision from this state, for every live camp), tagged with
+    ``identity`` (branch fields and ``row_trajectory``) and ``row_source`` 3.
+    ``personality`` is the world resolver; its lineage table is restored too.
+    """
+    if not _live(step):
+        return None
+    started = time.perf_counter()
+    turn = int(step["turn"])
+    fork, _ = labor_bridge.fork()
+    saved_table = copy.deepcopy(personality.table) if hasattr(personality, "table") else None
+    try:
+        temp = WorldCollection(world_seed=int(world))
+        transition = labor_bc._teacher_transition(
+            labor_bridge=labor_bridge,
+            heur_bridge=heur_bridge,
+            step=step,
+            world_seed=int(world),
+            options=options,
+            normalizer=normalizer,
+            personality=personality,
+            founded=founded,
+        )
+        if transition is None:
+            return None
+        temp.native_resolves += 2
+        temp.decisions += 1
+        labor_bc.record_teacher_transition(temp, transition, int(world), founded)
+        entries = labor_bc._collect_teacher_tail(
+            result=temp,
+            tail=tail,
+            labor_bridge=labor_bridge,
+            heur_bridge=heur_bridge,
+            step=transition.next_step,
+            options=options,
+            normalizer=normalizer,
+            personality=personality,
+            founded=founded,
+            window_turns=1,
+        )
+        labor_bc._attach_tail_rows(temp.rows, entries)
+    finally:
+        restored = labor_bridge.restore(fork)
+        labor_bridge.drop(fork)
+        if saved_table is not None:
+            personality.table = saved_table
+    if int(restored["turn"]) != turn:
+        raise ValueError("labor bridge restore after a teacher continuation changed the turn")
+    for row in temp.rows:
+        row["row_source"] = torch.tensor([CONTINUATION_ROW_SOURCE], dtype=torch.long)
+        for key, value in identity.items():
+            row[key] = torch.tensor([int(value)], dtype=torch.long)
+    temp.window_seconds = time.perf_counter() - started
+    return temp
+
+
 def collect_learner_world(
     *,
     actor: Any,
@@ -151,6 +247,9 @@ def collect_learner_world(
     labor_bridge_factory: Any = None,
     heuristic_bridge_factory: Any = None,
     progress: Any | None = None,
+    continuation: RandomizedTailSettings | None = None,
+    continuation_states: str = "branch-end",
+    continuations: list[WorldCollection] | None = None,
 ) -> WorldCollection:
     """Teacher prefix, forked actor branches of ``depth`` decisions, teacher labels on every branch state.
 
@@ -158,6 +257,11 @@ def collect_learner_world(
     distribution assignment); it conditions the actor and is recorded in the
     row inputs exactly as the collector does. The teacher label itself is
     personality-agnostic.
+
+    With ``continuation`` every learner-visited state (``branch-end``: after
+    the branch's last actor decision; ``all-visited``: after each) also gets
+    one teacher continuation (:func:`teacher_continuation`), appended to
+    ``continuations``; the actor rows are unchanged by it.
     """
     from .bridge import Model9Bridge
     from .labor_bridge import LaborModel9Bridge
@@ -166,10 +270,15 @@ def collect_learner_world(
     from .labor_pretrain_eval import actor_labor_decision
     from .labor_training import _settlement_guard, _transition_rewards
 
+    require_training_worlds([world_seed], "labor dagger collection")
     options = reset_options or LaborResetOptions()
     labor_factory = labor_bridge_factory or LaborModel9Bridge
     heur_factory = heuristic_bridge_factory or (lambda: Model9Bridge(economic_diagnostics=True))
     world = int(world_seed)
+    if continuation is not None and (
+        continuation_states not in CONTINUATION_STATES[1:] or continuations is None
+    ):
+        raise ValueError("teacher continuations need a state rule and an output list")
     world_personality = personality_for_world(personality, world)
     schedule = sorted((int(s), index) for index, s in enumerate(starts))
     result = WorldCollection(world_seed=world)
@@ -208,11 +317,50 @@ def collect_learner_world(
                 _stream_seed(policy_seed, world, round_index, start_index)
             )
             branch = step
+
+            def continue_teacher(
+                state: Mapping[str, Any],
+                actor_steps: int,
+                *,
+                branch_founded: Mapping[int, int] = branch_founded,
+                start: int = start,
+                start_index: int = start_index,
+            ) -> None:
+                collected = teacher_continuation(
+                    labor_bridge=labor_bridge,
+                    heur_bridge=heur_bridge,
+                    step=state,
+                    world=world,
+                    options=options,
+                    normalizer=normalizer,
+                    personality=world_personality,
+                    founded=branch_founded,
+                    tail=continuation,
+                    identity={
+                        "row_round": round_index,
+                        "row_depth": depth,
+                        "row_start": start,
+                        "row_start_index": start_index,
+                        "row_branch_step": actor_steps,
+                        TRAJECTORY_FIELD: start_index * (depth + 1) + actor_steps,
+                    },
+                )
+                if collected is not None:
+                    continuations.append(collected)
+                    result.counters["teacher_continuations"] += 1
+
+            actor_steps = 0
             try:
                 for branch_step in range(depth):
                     live = _live(branch)
                     if not live:
                         break
+                    if (
+                        continuation is not None
+                        and continuation_states == "all-visited"
+                        and branch_step > 0
+                    ):
+                        continue_teacher(branch, branch_step)
                     contexts, tensors = labor_policy_tensors(
                         live, normalizer, personality=world_personality
                     )
@@ -297,8 +445,11 @@ def collect_learner_world(
                             privileged=privileged,
                         )
                     branch = next_step
+                    actor_steps = branch_step + 1
                     if progress is not None:
                         progress(result)
+                if continuation is not None and actor_steps > 0:
+                    continue_teacher(branch, actor_steps)
             finally:
                 step = labor_bridge.restore(fork)
                 labor_bridge.drop(fork)
@@ -428,6 +579,8 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
             flush=True,
         )
 
+    tail = RandomizedTailSettings.from_state(job.get("continuation_tail"))
+    continuations: list[WorldCollection] = []
     collection = collect_learner_world(
         actor=actor,
         normalizer=normalizer,
@@ -440,8 +593,14 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         stochastic=job["actor_mode"] == "stochastic",
         policy_seed=int(job["policy_seed"]),
         progress=progress,
+        continuation=tail,
+        continuation_states=job.get("continuation_states", "branch-end"),
+        continuations=continuations,
     )
     seconds = time.perf_counter() - started
+    continuation_entry = None
+    if tail is not None:
+        continuation_entry = _write_continuation_shard(job, collection, continuations, tail)
     if not collection.rows:
         raise ValueError(f"world {world} produced no learner-state rows")
     tensors = _concat(collection.rows, f"labor dagger world {world}")
@@ -469,8 +628,119 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "quarantine": collection.quarantine,
         "surviving_camps": int(collection.surviving_camps),
         "return_tail": "learner-branch-truncated-actor-only",
+        "partition": "fitting",
     }
+    if continuation_entry is not None:
+        meta["teacher_continuation"] = {
+            "data_digest": continuation_entry["data_digest"],
+            "meta_sha256": continuation_entry["meta_sha256"],
+            "continuations": continuation_entry["continuations"],
+        }
     directory = Path(job["out"]) / f"world-{world}"
+    record = write_shard(directory, arrays, meta)
+    entry = {
+        "path": directory.name,
+        "world_seed": world,
+        "meta_sha256": checkpoint_hash(directory / "meta.json"),
+        "data_digest": record["data_digest"],
+        "rows": record["rows"],
+        "decisions": record["decisions"],
+        "native_resolves": record["native_resolves"],
+        "wall_seconds": record["wall_seconds"],
+    }
+    if continuation_entry is not None:
+        entry["continuation"] = continuation_entry
+    return entry
+
+
+def _write_continuation_shard(
+    job: Mapping[str, Any],
+    collection: WorldCollection,
+    continuations: Sequence[WorldCollection],
+    tail: RandomizedTailSettings,
+) -> dict[str, Any]:
+    """The world's teacher-continuation shard (V^rho targets at learner-visited states)."""
+    world = int(job["world_seed"])
+    rows = [row for c in continuations for row in c.rows]
+    if not rows:
+        raise ValueError(f"world {world} produced no teacher-continuation rows")
+    tensors = _concat(rows, f"labor dagger teacher continuations world {world}")
+    keep = ~tensors["row_quarantined"].reshape(-1)
+    tensors["row_weight"] = world_balanced_weights(tensors["row_world"], keep)
+    arrays = {key: value.detach().cpu().numpy() for key, value in tensors.items()}
+    counters: dict[str, int] = defaultdict(int)
+    reasons: dict[str, int] = defaultdict(int)
+    method_counts: dict[str, int] = defaultdict(int)
+    for c in continuations:
+        for key, value in c.counters.items():
+            counters[key] += int(value)
+        for key, value in c.reasons.items():
+            reasons[key] += int(value)
+        for name, value in (c.tail_record or {}).get("method_counts", {}).items():
+            method_counts[name] += int(value)
+    per = [
+        {
+            "row_start_index": int(c.rows[0]["row_start_index"].reshape(-1)[0]),
+            "row_branch_step": int(c.rows[0]["row_branch_step"].reshape(-1)[0]),
+            "row_trajectory": int(c.rows[0][TRAJECTORY_FIELD].reshape(-1)[0]),
+            "turn": int(c.rows[0]["row_turn"].reshape(-1)[0]),
+            "camps": len(c.rows),
+            "first_step_native_resolves": int(c.native_resolves),
+            "tail_decisions": int(c.tail_decisions),
+            "tail_native_resolves": int(c.tail_native_resolves),
+            "wall_seconds": float(c.window_seconds),
+            "method_counts": dict((c.tail_record or {}).get("method_counts", {})),
+        }
+        for c in continuations
+    ]
+    first = continuations[0].tail_record or {}
+    tail_record = {
+        **tail.state_dict(),
+        "prefix_terms": 1,
+        "prefix_semantics": (
+            "each row is the first teacher decision from a learner-visited state; the tail is "
+            "valued at the state after it, from one teacher continuation"
+        ),
+        "schedule_id": first.get("schedule_id"),
+        "schedule_seed": first.get("schedule_seed"),
+        "required_terms": first.get("required_terms"),
+        "stop_indices": first.get("stop_indices"),
+        "exceeds_hard_cap": first.get("exceeds_hard_cap"),
+        "critic_bootstrap_used": False,
+        "schedule_scope": "one frozen stopping schedule per world, shared by its continuations",
+        "continuations": len(continuations),
+        "method_counts": dict(sorted(method_counts.items())),
+    }
+    native_resolves = sum(c.native_resolves + c.tail_native_resolves for c in continuations)
+    seconds = sum(c.window_seconds for c in continuations)
+    meta = {
+        "source_run": job["continuation_source_run"],
+        "contract": CONTINUATION_CONTRACT,
+        "dagger_source_run": job["source_run"],
+        "world_seed": world,
+        "round": int(job["round"]),
+        "depth": int(job["depth"]),
+        "starts": [int(s) for s in job["starts"]],
+        "actor_mode": job["actor_mode"],
+        "continuation_states": job.get("continuation_states", "branch-end"),
+        "turns": int(job["horizon"]),
+        "reset_options": dict(job["reset_options"]),
+        "reset_identity": collection.reset_identity,
+        "normalizer_digest": job["normalizer_digest"],
+        "checkpoint_sha256": job["checkpoint_sha256"],
+        "decisions": int(sum(c.decisions for c in continuations)),
+        "native_resolves": int(native_resolves),
+        "wall_seconds": float(seconds),
+        "counters": dict(counters),
+        "label_unavailable_reasons": dict(sorted(reasons.items())),
+        "quarantine": [q for c in continuations for q in c.quarantine],
+        "surviving_camps": int(collection.surviving_camps),
+        "return_tail": RETURN_TAIL_RANDOMIZED,
+        "return_tail_record": tail_record,
+        "continuation_costs": per,
+        "partition": "fitting",
+    }
+    directory = Path(job["continuation_out"]) / f"world-{world}"
     record = write_shard(directory, arrays, meta)
     return {
         "path": directory.name,
@@ -481,21 +751,46 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "decisions": record["decisions"],
         "native_resolves": record["native_resolves"],
         "wall_seconds": record["wall_seconds"],
+        "continuations": len(continuations),
     }
 
 
-def _existing_shard(out: Path, world: int, source_run: str) -> dict[str, Any] | None:
+def _existing_shard(
+    out: Path,
+    world: int,
+    source_run: str,
+    continuation_out: Path | None = None,
+    continuation_source_run: str | None = None,
+) -> dict[str, Any] | None:
     directory = out / f"world-{world}"
+    side = None if continuation_out is None else continuation_out / f"world-{world}"
     if not directory.exists():
+        if side is not None and side.exists():
+            shutil.rmtree(side)  # continuation of an unpublished learner shard
         return None
     try:
         meta = verify_shard(directory)
     except (ProvenanceError, OSError, ValueError, KeyError):
         meta = None
+    side_meta = None
+    if meta is not None and side is not None:
+        try:
+            side_meta = verify_shard(side)
+        except (ProvenanceError, OSError, ValueError, KeyError):
+            side_meta = None
+        bound = meta.get("teacher_continuation") or {}
+        if (
+            side_meta is None
+            or side_meta.get("source_run") != continuation_source_run
+            or bound.get("meta_sha256") != checkpoint_hash(side / "meta.json")
+        ):
+            meta = None
     if meta is None or meta.get("source_run") != source_run:
         shutil.rmtree(directory)  # unpublished/partial shard from an interrupted run
+        if side is not None and side.exists():
+            shutil.rmtree(side)
         return None
-    return {
+    entry = {
         "path": directory.name,
         "world_seed": world,
         "meta_sha256": checkpoint_hash(directory / "meta.json"),
@@ -505,6 +800,19 @@ def _existing_shard(out: Path, world: int, source_run: str) -> dict[str, Any] | 
         "native_resolves": meta["native_resolves"],
         "wall_seconds": meta["wall_seconds"],
     }
+    if side_meta is not None:
+        entry["continuation"] = {
+            "path": side.name,
+            "world_seed": world,
+            "meta_sha256": checkpoint_hash(side / "meta.json"),
+            "data_digest": side_meta["data_digest"],
+            "rows": side_meta["rows"],
+            "decisions": side_meta["decisions"],
+            "native_resolves": side_meta["native_resolves"],
+            "wall_seconds": side_meta["wall_seconds"],
+            "continuations": len(side_meta.get("continuation_costs", [])),
+        }
+    return entry
 
 
 def argument_parser() -> argparse.ArgumentParser:
@@ -530,6 +838,34 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     collect.add_argument("--resume", action="store_true", help="continue an interrupted output")
     collect.add_argument(
+        "--teacher-continuation",
+        choices=CONTINUATION_STATES,
+        default="off",
+        help="V^rho targets: one teacher (H12) continuation from each learner-visited state "
+        "(branch-end: after the last actor decision; all-visited: after every actor decision)",
+    )
+    collect.add_argument(
+        "--continuation-out",
+        type=Path,
+        default=None,
+        help="separate dataset for the teacher continuations (source kind "
+        "learner_state_teacher_continuation)",
+    )
+    collect.add_argument(
+        "--return-tail",
+        choices=("randomized",),
+        default="randomized",
+        help="continuation tail method: the preregistered randomized teacher tail (r5)",
+    )
+    tail_defaults = RandomizedTailSettings()
+    collect.add_argument("--tail-draws", type=int, default=tail_defaults.draws)
+    collect.add_argument("--tail-rho", type=float, default=tail_defaults.rho)
+    collect.add_argument("--tail-cap", type=int, default=tail_defaults.cap)
+    collect.add_argument(
+        "--tail-schedule-seed-base", type=int, default=tail_defaults.seed_base,
+        help="each world's frozen stopping schedule uses seed base + world seed",
+    )
+    collect.add_argument(
         "--allow-dirty",
         action="store_true",
         help="development only: permit a dirty learner/simulator identity (non-production)",
@@ -549,11 +885,36 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("round, depth, starts and jobs must be positive")
     if args.depth > args.horizon:
         raise ValueError("depth cannot exceed the horizon")
+    continuation = args.teacher_continuation != "off"
+    if continuation and args.continuation_out is None:
+        raise ValueError("--teacher-continuation needs --continuation-out")
+    if not continuation and args.continuation_out is not None:
+        raise ValueError("--continuation-out needs --teacher-continuation")
+    if continuation and Path(args.continuation_out).resolve() == Path(args.out).resolve():
+        raise ValueError("--continuation-out must differ from --out")
+    tail = (
+        RandomizedTailSettings(
+            args.tail_draws, args.tail_rho, args.tail_cap, args.tail_schedule_seed_base
+        )
+        if continuation
+        else None
+    )
+    if tail is not None:
+        for world in worlds:
+            tail.schedule_seed(world)  # refuse a denied schedule seed before any collection
     if (args.out / "dataset.json").is_file():
+        if continuation and not (Path(args.continuation_out) / "dataset.json").is_file():
+            raise ProvenanceError(
+                "labor dagger output is published without its teacher-continuation dataset"
+            )
         print(json.dumps({"dataset": str(args.out), "status": "already-published"}))
         return verify_dataset(args.out)
     if args.out.exists() and not args.resume:
         raise ProvenanceError("labor dagger output exists; pass --resume or use a new directory")
+    if continuation and Path(args.continuation_out).exists() and not args.resume:
+        raise ProvenanceError(
+            "labor dagger continuation output exists; pass --resume or use a new directory"
+        )
     reset = LaborResetOptions(
         players=args.players,
         movement=not args.no_movement,
@@ -595,6 +956,12 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
         "actor_only": True,
         "partition": "fitting",
     }
+    if continuation:
+        # Recorded in the learner source too: the continuation fork/restore is part of the run.
+        options["teacher_continuation"] = {
+            "states": args.teacher_continuation,
+            "return_tail": tail.state_dict(),
+        }
     with LaborModel9Bridge() as probe:
         source = source_record(
             options,
@@ -603,25 +970,53 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
             production=not args.allow_dirty,
             source_kind=DAGGER_SOURCE_KIND,
         )
-    args.out.mkdir(parents=True, exist_ok=True)
-    source_path = args.out / "source.json"
-    if source_path.is_file():
-        previous = json.loads(source_path.read_text())
-        if previous.get("source_run") != source["source_run"]:
-            raise ProvenanceError(
-                "labor dagger resume: source record differs (checkpoint, code, bridge or options)"
+    continuation_source = None
+    if continuation:
+        with LaborModel9Bridge() as probe:
+            continuation_source = source_record(
+                {
+                    **options,
+                    "contract": CONTINUATION_CONTRACT,
+                    "dagger_source_run": source["source_run"],
+                    "actor_only": False,
+                    "v_target": "teacher-rho-continuation-from-learner-visited-states",
+                    "return_tail": tail.state_dict(),
+                },
+                probe.schema,
+                bridge_sha,
+                production=not args.allow_dirty,
+                source_kind=CONTINUATION_SOURCE_KIND,
             )
-    else:
-        tmp = args.out / "source.json.tmp"
-        tmp.write_text(json.dumps(source, sort_keys=True, allow_nan=False))
-        os.replace(tmp, source_path)
+    outputs = [(args.out, source)]
+    if continuation:
+        outputs.append((Path(args.continuation_out), continuation_source))
     expected = {f"world-{world}" for world in worlds}
-    undeclared = sorted(p.name for p in args.out.iterdir() if p.is_dir() and p.name not in expected)
-    if undeclared:
-        raise ProvenanceError(f"labor dagger output holds undeclared directories: {undeclared}")
+    for out, record in outputs:
+        out.mkdir(parents=True, exist_ok=True)
+        source_path = out / "source.json"
+        if source_path.is_file():
+            previous = json.loads(source_path.read_text())
+            if previous.get("source_run") != record["source_run"]:
+                raise ProvenanceError(
+                    "labor dagger resume: source record differs (checkpoint, code, bridge or "
+                    "options)"
+                )
+        else:
+            tmp = out / "source.json.tmp"
+            tmp.write_text(json.dumps(record, sort_keys=True, allow_nan=False))
+            os.replace(tmp, source_path)
+        undeclared = sorted(p.name for p in out.iterdir() if p.is_dir() and p.name not in expected)
+        if undeclared:
+            raise ProvenanceError(f"labor dagger output holds undeclared directories: {undeclared}")
     done = {}
     for world in worlds:
-        entry = _existing_shard(args.out, world, source["source_run"])
+        entry = _existing_shard(
+            args.out,
+            world,
+            source["source_run"],
+            Path(args.continuation_out) if continuation else None,
+            continuation_source["source_run"] if continuation else None,
+        )
         if entry is not None:
             done[world] = entry
     jobs = [
@@ -639,6 +1034,12 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
             "policy_seed": int(args.policy_seed),
             "source_run": source["source_run"],
             "out": str(args.out),
+            "continuation_tail": None if tail is None else tail.state_dict(),
+            "continuation_states": args.teacher_continuation,
+            "continuation_out": str(args.continuation_out) if continuation else None,
+            "continuation_source_run": (
+                continuation_source["source_run"] if continuation else None
+            ),
         }
         for world in worlds
         if world not in done
@@ -658,7 +1059,15 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
     if checkpoint_hash(bridge_path) != bridge_sha or code_commit() != source["learner_commit"]:
         raise ProvenanceError("labor dagger producer changed during collection; not published")
     all_shards = list(done.values()) + shards
-    manifest = publish_dataset(args.out, source, all_shards)
+    if continuation:
+        publish_dataset(
+            Path(args.continuation_out),
+            continuation_source,
+            [s["continuation"] for s in all_shards],
+        )
+    manifest = publish_dataset(
+        args.out, source, [{k: v for k, v in s.items() if k != "continuation"} for s in all_shards]
+    )
     elapsed = time.perf_counter() - started
     rows = sum(s["rows"] for s in shards)
     process_seconds = sum(s["wall_seconds"] for s in shards)
@@ -675,6 +1084,26 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
         "rows_per_minute": rows / max(elapsed, 1e-9) * 60.0,
         "rows_per_process_minute": rows / max(process_seconds, 1e-9) * 60.0,
     }
+    if continuation:
+        parts = [s["continuation"] for s in shards]
+        count = sum(int(p["continuations"]) for p in parts)
+        summary["teacher_continuation"] = {
+            "dataset": str(args.continuation_out),
+            "states": args.teacher_continuation,
+            "continuations_this_run": count,
+            "rows_this_run": int(sum(p["rows"] for p in parts)),
+            "native_resolves_this_run": int(sum(p["native_resolves"] for p in parts)),
+            "wall_seconds_this_run": float(sum(p["wall_seconds"] for p in parts)),
+            "native_resolves_per_continuation": (
+                sum(p["native_resolves"] for p in parts) / count if count else None
+            ),
+            "wall_seconds_per_continuation": (
+                sum(p["wall_seconds"] for p in parts) / count if count else None
+            ),
+            "learner_wall_seconds_this_run": float(
+                process_seconds - sum(p["wall_seconds"] for p in parts)
+            ),
+        }
     print(json.dumps(summary, sort_keys=True))
     return manifest
 

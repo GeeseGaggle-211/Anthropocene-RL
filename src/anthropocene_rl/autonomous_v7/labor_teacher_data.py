@@ -63,6 +63,14 @@ from .labor_privileged import (
     shard_keys as privileged_shard_keys,
     validate_raw as validate_privileged_raw,
 )
+from .labor_worlds import (
+    HELD_OUT_TEST_PARTITION,
+    is_held_out_test,
+    partition_for,
+    require_training_record,
+    require_training_worlds,
+    reserved_worlds,
+)
 from .protocol import scan, seed_list
 from .provenance import ProvenanceError, checkpoint_hash, code_commit, digest, simulator_identity
 
@@ -304,6 +312,7 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "surviving_camps": int(collection.surviving_camps),
         "return_tail": RETURN_TAIL_TRUNCATED_ZERO if tail is None else RETURN_TAIL_RANDOMIZED,
         "window_wall_seconds": float(collection.window_seconds),
+        "partition": job.get("partition", "fitting"),
     }
     if tail is not None:
         meta.update(
@@ -375,6 +384,8 @@ def load_labor_dataset(
     *,
     expected_normalizer_digest: str | None = None,
     require_privileged: bool = False,
+    training: bool = True,
+    drop_reserved: bool = False,
 ) -> dict[str, Any]:
     """Verify and concatenate shards; recompute world-balanced weights globally.
 
@@ -382,8 +393,16 @@ def load_labor_dataset(
     critic) rejects any shard without the critic-only privileged arrays; they
     are never zero-filled. Otherwise (actor BC) a dataset whose shards do not
     all store them is loaded without them.
+
+    ``training`` (the default; every training loader) refuses held-out-test
+    data and any shard of a reserved held-out world 90154-90159
+    (``labor_worlds``). ``drop_reserved`` instead drops those worlds' shards
+    (recorded in ``collection["dropped_reserved_worlds"]``), so an older
+    dataset that includes them can still train on its other worlds.
+    Evaluation and audit readers pass ``training=False``.
     """
     manifest = verify_dataset(Path(directory))
+    manifest = _training_view(manifest, Path(directory), training=training, drop=drop_reserved)
     privileged_flags = []
     for entry in manifest["shards"].values():
         meta = json.loads((Path(directory) / entry["path"] / "meta.json").read_text())
@@ -468,12 +487,46 @@ def load_labor_dataset(
     if keep_privileged:
         validate_privileged_raw(dataset, LABOR_PRIVILEGED_LAYOUT_V1, context=f"labor dataset {directory}")
         dataset["collection"]["privileged_schema_version"] = LABOR_PRIVILEGED_LAYOUT_V1.schema_version
+    dataset["collection"]["partition"] = (
+        HELD_OUT_TEST_PARTITION if is_held_out_test(manifest["source_record"]) else "fitting"
+    )
+    if manifest.get("dropped_reserved_worlds"):
+        dataset["collection"]["dropped_reserved_worlds"] = manifest["dropped_reserved_worlds"]
     return dataset
+
+
+def _training_view(
+    manifest: Mapping[str, Any], directory: Path, *, training: bool, drop: bool
+) -> dict[str, Any]:
+    """The verified manifest restricted to shards a training loader may read."""
+    if not training:
+        return dict(manifest)
+    context = f"labor training loader ({directory})"
+    require_training_record(manifest["source_record"], context)
+    shards = {}
+    dropped = []
+    for world, entry in manifest["shards"].items():
+        meta = json.loads((directory / entry["path"] / "meta.json").read_text())
+        require_training_record(meta, context)
+        if reserved_worlds([int(world)]):
+            if not drop:
+                require_training_worlds([int(world)], context)
+            dropped.append(int(world))
+            continue
+        shards[world] = entry
+    if not shards:
+        raise ProvenanceError(f"{context}: no training shards remain after the reserved-world guard")
+    return dict(manifest, shards=shards, dropped_reserved_worlds=sorted(dropped))
 
 
 # Identity fields that only learner-state shards carry; teacher rows get these
 # defaults when several sources are aggregated (row_source 0 = teacher).
-ROW_SOURCES = {SOURCE_KIND: 0, "learner_state_dagger": 1, "native_search_labor_teacher": 2}
+ROW_SOURCES = {
+    SOURCE_KIND: 0,
+    "learner_state_dagger": 1,
+    "native_search_labor_teacher": 2,
+    "learner_state_teacher_continuation": 3,
+}
 AGGREGATE_IDENTITY_DEFAULTS = {
     "row_source": 0,
     "row_round": 0,
@@ -481,6 +534,8 @@ AGGREGATE_IDENTITY_DEFAULTS = {
     "row_start": -1,
     "row_start_index": -1,
     "row_branch_step": -1,
+    # -1: the (world, camp) teacher trajectory; >= 0: one teacher continuation.
+    "row_trajectory": -1,
 }
 
 
@@ -513,6 +568,8 @@ def load_labor_datasets(
     *,
     expected_normalizer_digest: str | None = None,
     require_privileged: bool = False,
+    training: bool = True,
+    drop_reserved: bool = False,
 ) -> dict[str, Any]:
     """One dataset unchanged, or several sources mixed with equal source mass (brief 6.1).
 
@@ -531,12 +588,16 @@ def load_labor_datasets(
             directories[0],
             expected_normalizer_digest=expected_normalizer_digest,
             require_privileged=require_privileged,
+            training=training,
+            drop_reserved=drop_reserved,
         )
     parts = [
         load_labor_dataset(
             d,
             expected_normalizer_digest=expected_normalizer_digest,
             require_privileged=require_privileged,
+            training=training,
+            drop_reserved=drop_reserved,
         )
         for d in directories
     ]
@@ -618,7 +679,15 @@ def load_labor_datasets(
         "quarantined_rows": int((~keep).sum()),
         "world_seeds": sorted(set(dataset["row_world"].reshape(-1).tolist())),
         "sampling": "equal-source-mass-then-world-balanced-row-weights",
+        "partition": (
+            HELD_OUT_TEST_PARTITION
+            if any(p["collection"].get("partition") == HELD_OUT_TEST_PARTITION for p in parts)
+            else "fitting"
+        ),
     }
+    dropped = sorted({w for p in parts for w in p["collection"].get("dropped_reserved_worlds", [])})
+    if dropped:
+        dataset["collection"]["dropped_reserved_worlds"] = dropped
     return dataset
 
 
@@ -656,6 +725,12 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     parser.add_argument(
+        "--held-out-test",
+        action="store_true",
+        help="collect on the reserved held-out worlds 90154-90159 only; the dataset is tagged "
+        "held-out test and every training loader refuses it",
+    )
+    parser.add_argument(
         "--allow-dirty",
         action="store_true",
         help="development only: permit a dirty learner/simulator identity (recorded as non-production)",
@@ -666,7 +741,9 @@ def argument_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = argument_parser().parse_args(argv)
-    worlds = validate_fitting_worlds(seed_list(args.worlds), "labor teacher fitting worlds")
+    worlds = validate_fitting_worlds(
+        seed_list(args.worlds), "labor teacher fitting worlds", held_out_test=args.held_out_test
+    )
     if args.turns < 1 or args.jobs < 1:
         raise ValueError("turns and jobs must be positive")
     if args.out.exists():
@@ -711,7 +788,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "normalizer_digest": normalizer_digest(normalizer),
         "normalizer_checkpoint_sha256": checkpoint_hash(args.normalizer_checkpoint),
         "opening_limit": 40,
-        "partition": "fitting",
+        "partition": partition_for(args.held_out_test),
         "return_tail": (
             {"method": RETURN_TAIL_TRUNCATED_ZERO} if tail is None else tail.state_dict()
         ),
@@ -731,6 +808,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "source_run": source["source_run"],
             "out": str(args.out),
             "return_tail": None if tail is None else tail.state_dict(),
+            "partition": options["partition"],
         }
         for world in worlds
     ]
