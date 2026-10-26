@@ -41,7 +41,9 @@ from anthropocene_rl.autonomous_v7.labor_stability import (
     overfit_alarm,
     privileged_attention_mass,
     saturation_alarm,
+    saturation_components,
 )
+from anthropocene_rl.autonomous_v7.labor_advantage import early_decision_mask
 
 
 def _toy(seed: int = 0):
@@ -292,6 +294,72 @@ def test_saturated_bounded_head_fails_the_mandatory_check() -> None:
     check = summary["stability"]["checks"]["qol_saturation"]
     assert check["status"] == "FAIL" and check["final_share"] == 1.0
     assert not summary["stability"]["admitted"]
+
+
+def _sat_fixture(n_early: int, n_late: int, early_z: float, late_z: float, frac: float):
+    z = torch.cat([torch.full((n_early,), early_z), torch.full((n_late,), late_z)])
+    target = torch.full((n_early + n_late,), frac)
+    early = torch.cat([torch.ones(n_early, dtype=torch.bool), torch.zeros(n_late, dtype=torch.bool)])
+    return z, target, early
+
+
+def test_early_near_zero_qol_low_saturation_is_expected_and_quiet() -> None:
+    z, target, early = _sat_fixture(20, 80, -9.0, 0.0, 0.01)
+    report = saturation_components(z, target, early)
+    assert report["low_share"] == pytest.approx(0.2) and report["high_share"] == 0.0
+    assert report["expected_low_share"] == pytest.approx(0.2)
+    assert report["early_unexpected_share"] == 0.0 and not report["alarm"]
+    assert report["raw_share"] == pytest.approx(0.2)  # raw share alone would have alarmed
+
+
+def test_low_side_saturation_with_a_real_target_is_unexpected() -> None:
+    z, target, early = _sat_fixture(20, 80, -9.0, 0.0, 0.5)
+    report = saturation_components(z, target, early)
+    assert report["expected_low_share"] == 0.0 and report["early_unexpected_share"] == 1.0
+    assert report["alarm"]
+
+
+def test_unexpected_high_side_saturation_in_late_rows_alarms() -> None:
+    z, target, early = _sat_fixture(20, 80, 0.0, 0.0, 0.5)
+    z[40:46] = 8.0  # 6 of 80 late rows = 7.5% > 5%
+    report = saturation_components(z, target, early)
+    assert report["rest_unexpected_share"] == pytest.approx(0.075) and report["alarm"]
+    z[40:46] = 0.0
+    z[40:43] = 8.0  # 3 of 80 = 3.75% <= 5%
+    assert not saturation_components(z, target, early)["alarm"]
+
+
+def test_early_stratum_threshold_is_twenty_percent() -> None:
+    z, target, early = _sat_fixture(20, 80, 0.0, 0.0, 0.5)
+    z[:3] = 8.0  # 15% of the early stratum
+    assert not saturation_components(z, target, early)["alarm"]
+    z[:5] = 8.0  # 25%
+    report = saturation_components(z, target, early)
+    assert report["early_unexpected_share"] == pytest.approx(0.25) and report["alarm"]
+    assert report["threshold_early"] == 0.20 and report["threshold_rest"] == 0.05
+
+
+def test_saturation_threshold_fields() -> None:
+    th = StabilityThresholds()
+    assert (
+        th.saturation_expected_low_target_fraction,
+        th.saturation_early_decisions,
+        th.saturation_alarm_early,
+        th.saturation_alarm,
+    ) == (0.05, 5, 0.20, 0.05)
+
+
+def test_early_decision_mask_ranks_turns_within_trajectory() -> None:
+    dataset = {
+        "row_world": torch.tensor([1] * 7 + [1] * 3 + [2] * 2),
+        "row_camp": torch.tensor([0] * 7 + [0] * 3 + [0] * 2),
+        "row_turn": torch.tensor([6, 5, 4, 3, 2, 1, 0, 0, 1, 2, 3, 4]),
+        "row_trajectory": torch.tensor([-1] * 7 + [0] * 3 + [-1] * 2),
+    }
+    mask = early_decision_mask(dataset, 5).tolist()
+    assert mask == [False, False, True, True, True, True, True, True, True, True, True, True]
+    del dataset["row_trajectory"]  # one (world, camp) chain of 10 rows
+    assert int(early_decision_mask(dataset, 5).sum()) == 5 + 2
 
 
 # --- 4. TD(lambda) drift --------------------------------------------------------------------

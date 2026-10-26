@@ -1722,20 +1722,72 @@ def qol_td_lambda_targets(
     return target.to(torch.float32)
 
 
-def qol_saturation_report(task_critic: LaborTaskCritic, logits: torch.Tensor) -> dict[str, Any]:
-    """Saturation monitor for the bounded QoL head: share of |z| > 6 and z quantiles."""
+def early_decision_mask(dataset: Mapping[str, Any], early_decisions: int) -> torch.Tensor:
+    """Rows among the first ``early_decisions`` decisions of each trajectory.
+
+    Trajectory keys match ``labor_bc.discounted_returns`` and ``qol_td_lambda_targets``:
+    (world, camp, row_trajectory), with row_trajectory = -1 when absent (then rows are
+    ranked by ``row_turn`` within (world, camp)).
+    """
+    from .labor_bc import TRAJECTORY_FIELD
+
+    n = int(dataset["row_world"].shape[0])
+    turns = dataset["row_turn"].reshape(-1).tolist()
+    trajectories = (
+        dataset[TRAJECTORY_FIELD].reshape(-1).tolist()
+        if TRAJECTORY_FIELD in dataset
+        else [-1] * n
+    )
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for index, key in enumerate(
+        zip(
+            dataset["row_world"].reshape(-1).tolist(),
+            dataset["row_camp"].reshape(-1).tolist(),
+            trajectories,
+            strict=True,
+        )
+    ):
+        groups[(int(key[0]), int(key[1]), int(key[2]))].append(index)
+    mask = torch.zeros(n, dtype=torch.bool)
+    for indices in groups.values():
+        indices.sort(key=lambda i: turns[i])
+        for i in indices[: max(0, int(early_decisions))]:
+            mask[i] = True
+    return mask
+
+
+def qol_saturation_report(
+    task_critic: LaborTaskCritic,
+    logits: torch.Tensor,
+    *,
+    target_fraction: torch.Tensor | None = None,
+    early: torch.Tensor | None = None,
+    thresholds: Any = None,
+) -> dict[str, Any]:
+    """Saturation monitor for the bounded QoL head: share of |z| > 6 and z quantiles.
+
+    With ``target_fraction`` (G/W) and ``early`` the report adds the stratified
+    components of ``labor_stability.saturation_components`` under ``components``.
+    """
     z = logits.detach().reshape(-1).double()
     quantiles = (
         torch.quantile(z, torch.tensor([0.0, 0.01, 0.5, 0.99, 1.0], dtype=torch.float64)).tolist()
         if z.numel()
         else []
     )
-    return {
+    report = {
         "output": task_critic.qol_head.output,
         "share_abs_z_gt_6": task_critic.qol_saturation(logits),
         "z_quantiles_0_1_50_99_100": quantiles,
         "rows": int(z.numel()),
     }
+    if target_fraction is not None and early is not None:
+        from .labor_stability import saturation_components
+
+        report["components"] = saturation_components(
+            z, target_fraction, early, thresholds=thresholds
+        )
+    return report
 
 
 # ---------------------------------------------------------------------------

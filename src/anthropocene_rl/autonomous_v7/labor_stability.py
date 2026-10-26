@@ -86,7 +86,15 @@ class StabilityThresholds:
     dominance_persistence: float = 0.75  # share of window points above dominance_share
     dominance_min_progress: float = 0.01  # dominated contender's relative loss decrease
     # 3. Bounded QoL head: share of |z| > 6 (r5-b item 4 defines the monitor).
+    #    Approved with relaxation (user 26 Oct): low-side saturation on rows whose bounded
+    #    target fraction G/W is below ``saturation_expected_low_target_fraction`` is expected
+    #    (no housing/clothing yet) and excluded from the alarm share; the first
+    #    ``saturation_early_decisions`` decisions of each (world, camp, trajectory) use the
+    #    relaxed ``saturation_alarm_early``; all other rows keep ``saturation_alarm``.
     saturation_alarm: float = 0.05
+    saturation_alarm_early: float = 0.20
+    saturation_early_decisions: int = 5
+    saturation_expected_low_target_fraction: float = 0.05
     # 4. TD(lambda) drift: growth over 3 consecutive refreshes (r5 freeze).
     td_growth_refreshes: int = 3
     td_drift_floor: float = 1e-3  # drift (fraction of W) below which growth is ignored
@@ -343,6 +351,68 @@ class TDDriftMonitor:
 
 def saturation_alarm(share: float | None, threshold: float) -> bool:
     return share is not None and float(share) > float(threshold)
+
+
+def saturation_components(
+    z: Any,
+    target_fraction: Any,
+    early: Any,
+    *,
+    saz_threshold: float = 6.0,
+    thresholds: StabilityThresholds | None = None,
+) -> dict[str, Any]:
+    """Stratified saturation shares for the bounded QoL head.
+
+    ``z`` are pre-activations, ``target_fraction`` the bounded target G/W per row and
+    ``early`` a boolean early-stratum mask. A low-side row (z < -6) with target fraction
+    below the expected-low bound is expected and excluded from the unexpected share. The
+    alarm fires if either stratum's unexpected share exceeds its threshold. Stratum shares
+    are fractions of that stratum's rows; the others are fractions of all rows.
+    """
+    import torch
+
+    th = thresholds or StabilityThresholds()
+    z = torch.as_tensor(z).detach().reshape(-1).double()
+    frac = torch.as_tensor(target_fraction).detach().reshape(-1).double()
+    early = torch.as_tensor(early).reshape(-1).bool()
+    if not (z.numel() == frac.numel() == early.numel()):
+        raise ValueError("saturation components need one z, target fraction and flag per row")
+    low = z < -saz_threshold
+    high = z > saz_threshold
+    expected = low & (frac < th.saturation_expected_low_target_fraction)
+    unexpected = (low | high) & ~expected
+
+    def share(mask: Any, stratum: Any = None) -> float:
+        if stratum is None:
+            n = z.numel()
+            return float(mask.double().sum() / n) if n else 0.0
+        n = int(stratum.sum())
+        return float((mask & stratum).double().sum() / n) if n else 0.0
+
+    rest = ~early
+    early_unexpected = share(unexpected, early)
+    rest_unexpected = share(unexpected, rest)
+    return {
+        "rows": int(z.numel()),
+        "early_rows": int(early.sum()),
+        "rest_rows": int(rest.sum()),
+        "raw_share": share(low | high),
+        "low_share": share(low),
+        "high_share": share(high),
+        "expected_low_share": share(expected),
+        "early_expected_low_share": share(expected, early),
+        "rest_expected_low_share": share(expected, rest),
+        "early_unexpected_share": early_unexpected,
+        "rest_unexpected_share": rest_unexpected,
+        "threshold_early": th.saturation_alarm_early,
+        "threshold_rest": th.saturation_alarm,
+        "expected_low_target_fraction": th.saturation_expected_low_target_fraction,
+        "early_decisions": th.saturation_early_decisions,
+        "alarm": bool(
+            early_unexpected > th.saturation_alarm_early
+            or rest_unexpected > th.saturation_alarm
+        ),
+    }
 
 
 def overfit_alarm(
@@ -1015,15 +1085,20 @@ class StabilityMonitor:
             detectors={k: d.report() for k, d in self.detectors.items()},
         )
         final_sat = self.final.get("qol_saturation")
+        detail = self.final.get("qol_saturation_detail")
+        if final_sat is None:
+            sat_status = "HOLD"
+        elif detail is not None:
+            sat_status = "FAIL" if detail["alarm"] else "PASS"
+        else:
+            sat_status = "FAIL" if saturation_alarm(final_sat, th.saturation_alarm) else "PASS"
         put(
             "qol_saturation",
-            "HOLD"
-            if final_sat is None
-            else "FAIL"
-            if saturation_alarm(final_sat, th.saturation_alarm)
-            else "PASS",
+            sat_status,
             final_share=final_sat,
             threshold=th.saturation_alarm,
+            threshold_early=th.saturation_alarm_early,
+            components=detail,
             trajectory=self.saturation[-20:],
         )
         td = self.td.report() if self.td is not None else None

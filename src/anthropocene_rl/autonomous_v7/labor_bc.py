@@ -2279,10 +2279,19 @@ def json_safe(value: Any) -> Any:
     return tuple(value) if isinstance(value, list) else value
 
 
-def _qol_saturation_summary(task_critic: LaborTaskCritic, logits: torch.Tensor) -> dict[str, Any]:
+def _qol_saturation_summary(
+    task_critic: LaborTaskCritic,
+    logits: torch.Tensor,
+    *,
+    target_fraction: torch.Tensor | None = None,
+    early: torch.Tensor | None = None,
+    thresholds: Any = None,
+) -> dict[str, Any]:
     from .labor_advantage import qol_saturation_report
 
-    return qol_saturation_report(task_critic, logits)
+    return qol_saturation_report(
+        task_critic, logits, target_fraction=target_fraction, early=early, thresholds=thresholds
+    )
 
 
 def _critic_resume_fingerprint(
@@ -2338,6 +2347,8 @@ def _critic_stability_finish(
 
     if saturation_final is not None:
         monitor.record_final("qol_saturation", saturation_final["share_abs_z_gt_6"])
+        if saturation_final.get("components") is not None:
+            monitor.record_final("qol_saturation_detail", saturation_final["components"])
     tail_rows = _probe_rows(kept, 4096)
     if not task_critic.is_bounded("population_years"):
         parts = []
@@ -2555,6 +2566,26 @@ def pretrain_critic_on_dataset(
         ).max()
     )
 
+    sat_early = sat_thresholds = None
+    if qol_head is not None:
+        from .labor_advantage import early_decision_mask
+        from .labor_stability import StabilityThresholds
+
+        sat_thresholds = config.thresholds if config is not None else StabilityThresholds()
+        sat_early = early_decision_mask(dataset, sat_thresholds.saturation_early_decisions)[kept]
+
+    def saturation_summary() -> dict[str, Any]:
+        fraction = task_targets["qol_years"].reshape(-1).double() / float(
+            qol_head.discount_weight
+        )
+        return _qol_saturation_summary(
+            task_critic,
+            qol_logits(kept),
+            target_fraction=fraction,
+            early=sat_early,
+            thresholds=sat_thresholds,
+        )
+
     def refresh_td_targets(epoch: int) -> None:
         from .labor_advantage import qol_td_lambda_targets
 
@@ -2591,7 +2622,7 @@ def pretrain_critic_on_dataset(
         saturation_initial = (
             None
             if qol_head is None
-            else _qol_saturation_summary(task_critic, qol_logits(kept))
+            else saturation_summary()
         )
         init_task, init_cost = losses()
         first_epoch, first_start, epoch_state, steps = 0, 0, None, 0
@@ -2714,7 +2745,7 @@ def pretrain_critic_on_dataset(
         else {
             "qol_head": qol_head.state_dict(),
             "qol_saturation_initial": saturation_initial,
-            "qol_saturation_final": _qol_saturation_summary(task_critic, qol_logits(kept)),
+            "qol_saturation_final": saturation_summary(),
         }
     )
     stability_record: dict[str, Any] = {}

@@ -119,6 +119,27 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "proposed",
         "source": "brief s17",
     },
+    # QoL saturation monitor (r5-b item 4), relaxed for the earliest game states.
+    "saturation_alarm": {
+        "value": 0.05,
+        "status": "approved-with-relaxation (user 26 Oct)",
+        "source": "r5-b item 4; unexpected |z| > 6 share outside the early stratum",
+    },
+    "saturation_alarm_early": {
+        "value": 0.20,
+        "status": "approved-with-relaxation (user 26 Oct)",
+        "source": "early stratum: first 5 decisions per (world, camp, trajectory)",
+    },
+    "saturation_early_decisions": {
+        "value": 5,
+        "status": "approved-with-relaxation (user 26 Oct)",
+        "source": "early stratum size",
+    },
+    "saturation_expected_low_target_fraction": {
+        "value": 0.05,
+        "status": "approved-with-relaxation (user 26 Oct)",
+        "source": "low-side saturation with G/W below this is expected (no housing/clothing)",
+    },
 }
 
 
