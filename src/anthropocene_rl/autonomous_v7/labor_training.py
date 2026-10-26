@@ -1807,10 +1807,19 @@ def _command_privileged_audit(args: argparse.Namespace) -> None:
 
 
 def _command_fit_normalizer(args: argparse.Namespace) -> None:
+    from .labor_worlds import require_training_worlds
+
     worlds = _parse_worlds(args.worlds, allow_vm_scale=args.allow_vm_scale)
+    # Fitting partition only (r5 manifest section 10): never calibration (90180-90199),
+    # development (2000-2059), reserved held-out (90154-90159) or sealed (3000-3059) worlds.
+    worlds = require_training_worlds(worlds, "fit-normalizer")
+    refused = [w for w in worlds if 90180 <= w <= 90199 or 2000 <= w <= 2059]
+    if refused:
+        raise ValueError(f"fit-normalizer refuses calibration/development worlds {refused}")
     turns = int(args.turns)
     if turns < 1:
         raise ValueError("turns must be >= 1")
+    options = _labor_reset_options(args)
 
     all_live: list[Mapping[str, Any]] = []
     for seed in worlds:
@@ -1818,7 +1827,7 @@ def _command_fit_normalizer(args: argparse.Namespace) -> None:
             LaborModel9Bridge() as labor_bridge,
             Model9Bridge(economic_diagnostics=True) as heur_bridge,
         ):
-            step = labor_bridge.reset(seed)
+            step = labor_bridge.reset(seed, **options.reset_kwargs())
             for turn in range(turns):
                 live = [
                     v
@@ -1832,7 +1841,7 @@ def _command_fit_normalizer(args: argparse.Namespace) -> None:
                     break
 
                 snap = labor_bridge._bridge.capture()
-                heur_bridge.reset(seed, snapshot=snap)
+                heur_bridge.reset(seed, movement=options.movement, withheld=options.withheld, snapshot=snap)
                 h_step = heur_bridge.step({})
                 h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
                 econ_by_camp = h_step.get("economicDiagnostics") or {}
@@ -1861,10 +1870,36 @@ def _command_fit_normalizer(args: argparse.Namespace) -> None:
         {
             "feature_contract": BOUNDED_FEATURE_CONTRACT,
             "normalizer": normalizer.state_dict(),
+            "source": {
+                "fit_command": "labor_training fit-normalizer",
+                "partition": "fitting",
+                "world_seeds": [int(w) for w in worlds],
+                "turns": turns,
+                "rows": len(all_live),
+                "reset_options": options.state_dict(),
+                "learner_commit": _fit_normalizer_commit(),
+                "bridge_sha256": _fit_normalizer_bridge_sha(),
+            },
         },
         temporary,
     )
     os.replace(temporary, out_path)
+
+
+def _fit_normalizer_commit() -> str:
+    try:
+        from .provenance import code_commit
+
+        return str(code_commit())
+    except Exception:  # provenance is best-effort for a diagnostic record
+        return "unknown"
+
+
+def _fit_normalizer_bridge_sha() -> str:
+    from .bridge import DEFAULT_BRIDGE
+
+    path = Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", str(DEFAULT_BRIDGE)))
+    return checkpoint_hash(path) if path.exists() else "missing"
 
 
 def argument_parser() -> argparse.ArgumentParser:
@@ -2086,6 +2121,11 @@ def argument_parser() -> argparse.ArgumentParser:
         "--worlds", required=True, help="comma-separated local diagnostic seeds"
     )
     fit_normalizer.add_argument("--turns", type=int, default=25)
+    fit_normalizer.add_argument("--players", type=int, default=8)
+    fit_normalizer.add_argument("--width", type=int, default=None)
+    fit_normalizer.add_argument("--height", type=int, default=None)
+    fit_normalizer.add_argument("--separation", type=int, default=None)
+    fit_normalizer.add_argument("--no-movement", action="store_true", help="named mechanical fixture only")
     fit_normalizer.add_argument("--allow-vm-scale", action="store_true", default=False)
     fit_normalizer.add_argument("--out", type=Path, required=True)
     fit_normalizer.set_defaults(handler=_command_fit_normalizer)
