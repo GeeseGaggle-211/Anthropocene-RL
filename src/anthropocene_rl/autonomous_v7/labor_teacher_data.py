@@ -501,6 +501,224 @@ def load_labor_dataset(
     return dataset
 
 
+def merge_labor_datasets(
+    directories: Sequence[Path],
+    *,
+    expected_normalizer_digest: str | None = None,
+    require_privileged: bool = False,
+    training: bool = True,
+    drop_reserved: bool = False,
+) -> dict[str, Any]:
+    """Several datasets of ONE source kind, read as the one dataset their shards would form.
+
+    For the r5 collection batches (fit8-b01..b08, cal8-b01..b03): each batch is a
+    verified dataset over its own worlds. Their shards are pooled and read in the order
+    a single published dataset stores them (world key order, as ``publish_dataset``
+    writes them), with exactly the per-shard reads, concatenation and world-balanced
+    ``row_weight`` of :func:`load_labor_dataset`. Batches that partition a set of worlds
+    therefore give the same tensors, bit for bit, as one dataset collected over all of
+    them, whatever order the batches are listed in; only the provenance
+    (``dataset_digest`` over the component digests, ``component_dataset_digests``)
+    differs.
+
+    Every component is verified on its own (manifest/shard digests, training view with
+    the reserved-world guard and the calibration/held-out-test refusal when
+    ``training``). Across components it refuses: a dataset listed twice (same digest),
+    a world present in two components (a (world, camp) trajectory is one return
+    sequence), different source kinds, normalizers, return tails, randomized-tail
+    settings, collection turns, reset options or partitions, and shards whose array sets
+    differ (privileged arrays are kept only if every shard stores them, never
+    zero-filled; ``require_privileged`` refuses a shard without them).
+    """
+    directories = [Path(d) for d in directories]
+    if len(directories) < 2:
+        raise ValueError("merge_labor_datasets needs at least two datasets")
+    manifests = []
+    for directory in directories:
+        manifest = verify_dataset(directory)
+        manifest = _training_view(manifest, directory, training=training, drop=drop_reserved)
+        manifests.append(manifest)
+    digests = [m["dataset_digest"] for m in manifests]
+    if len(set(digests)) != len(digests):
+        raise ProvenanceError("the same labor dataset is listed more than once")
+    kinds = {m["source_record"].get("source_kind", SOURCE_KIND) for m in manifests}
+    if len(kinds) != 1:
+        raise ProvenanceError(f"merged labor datasets have different source kinds {sorted(kinds)}")
+    options = [m["source_record"]["options"] for m in manifests]
+    if len({json.dumps(o.get("reset_options"), sort_keys=True) for o in options}) != 1:
+        raise ProvenanceError("merged labor datasets use different reset options")
+    if len({int(o["turns"]) for o in options}) != 1:
+        raise ProvenanceError("merged labor datasets use different collection horizons (turns)")
+    if len({bool(o.get("actor_only", False)) for o in options}) != 1:
+        raise ProvenanceError("merged labor datasets disagree on actor_only")
+    partitions = {_partition(m["source_record"]) for m in manifests}
+    if len(partitions) != 1:
+        raise ProvenanceError(f"merged labor datasets mix partitions {sorted(partitions)}")
+    entries: dict[str, tuple[Path, Mapping[str, Any]]] = {}
+    for directory, manifest in zip(directories, manifests, strict=True):
+        for world, entry in manifest["shards"].items():
+            if world in entries:
+                raise ProvenanceError(
+                    f"world {world} is in two merged labor datasets ({entries[world][0]} and "
+                    f"{directory}); a world's trajectories must come from one collection"
+                )
+            entries[world] = (directory, entry)
+    # The order a single published dataset stores its shards (json sort_keys: key order).
+    ordered = [entries[world] for world in sorted(entries)]
+    metas = []
+    privileged_flags = []
+    for directory, entry in ordered:
+        meta = json.loads((directory / entry["path"] / "meta.json").read_text())
+        metas.append(meta)
+        privileged_flags.append(shard_has_privileged(meta))
+        if require_privileged and not privileged_flags[-1]:
+            raise ProvenanceError(
+                f"labor shard {directory / entry['path']} has no privileged data; it is rejected "
+                "for critic training (privileged arrays are never zero-filled)"
+            )
+    keep_privileged = all(privileged_flags)
+    tensors: dict[str, list[torch.Tensor]] = defaultdict(list)
+    counters: dict[str, int] = defaultdict(int)
+    reasons: dict[str, int] = defaultdict(int)
+    quarantine: list[Any] = []
+    normalizers = set()
+    tails: set[Any] = set()
+    tail_records: dict[str, Any] = {}
+    key_sets = set()
+    for (directory, entry), meta in zip(ordered, metas, strict=True):
+        shard = directory / entry["path"]
+        normalizers.add(meta["normalizer_digest"])
+        tails.add(meta.get("return_tail"))
+        if meta.get("return_tail_record") is not None:
+            tail_records[str(meta["world_seed"])] = meta["return_tail_record"]
+        names = {name[: -len(".npy")] for name in meta["payload"]}
+        if {ELAPSED_YEARS_FIELD, LEGACY_ELAPSED_DAYS_FIELD} <= names:
+            raise ProvenanceError("labor teacher shard stores both elapsed-years field names")
+        read = []
+        for name in meta["payload"]:
+            key = name[: -len(".npy")]
+            if is_privileged_key(key) and not keep_privileged:
+                continue  # actor-only load of a partly privileged dataset
+            array = np.load(shard / name, allow_pickle=False)
+            if key == LEGACY_ELAPSED_DAYS_FIELD:
+                key = ELAPSED_YEARS_FIELD
+            tensors[key].append(torch.from_numpy(array))
+            read.append(key)
+        key_sets.add(tuple(sorted(read)))
+        for key, value in meta["counters"].items():
+            counters[key] += int(value)
+        for key, value in meta["label_unavailable_reasons"].items():
+            reasons[key] += int(value)
+        quarantine.extend(meta["quarantine"])
+    if len(key_sets) != 1:
+        raise ProvenanceError("merged labor datasets store different arrays")
+    if len(normalizers) != 1:
+        raise ProvenanceError("merged labor datasets use different normalizers")
+    if len(tails) != 1:
+        raise ProvenanceError("merged labor datasets declare different return tails")
+    return_tail = next(iter(tails))
+    if return_tail == RETURN_TAIL_RANDOMIZED and len(tail_records) != len(ordered):
+        raise ProvenanceError("randomized-tail labor teacher shard lacks its tail record")
+    if tail_records:
+        settings = (
+            "method", "estimator", "draws", "rho", "cap", "schedule_seed_base", "prefix_terms"
+        )
+        shared = {
+            json.dumps({k: record.get(k) for k in settings}, sort_keys=True)
+            for record in tail_records.values()
+        }
+        if len(shared) != 1:
+            raise ProvenanceError("merged labor datasets use different randomized-tail settings")
+    digest_value = next(iter(normalizers))
+    if expected_normalizer_digest is not None and digest_value != expected_normalizer_digest:
+        raise ProvenanceError("merged labor dataset normalizer differs from the checkpoint's")
+    dataset: dict[str, Any] = {key: torch.cat(values, dim=0) for key, values in tensors.items()}
+    if len({int(value.shape[0]) for value in dataset.values()}) != 1:
+        raise ProvenanceError("merged labor dataset arrays disagree on the row count")
+    keep = ~dataset["row_quarantined"].reshape(-1)
+    dataset["row_weight"] = world_balanced_weights(dataset["row_world"], keep)
+    first = manifests[0]["source_record"]
+    runs = sorted(m["source_run"] for m in manifests)
+    dataset["collection"] = {
+        "label_contract": LABOR_LABEL_CONTRACT,
+        "source_kind": first.get("source_kind", SOURCE_KIND),
+        "actor_only": bool(options[0].get("actor_only", False)),
+        "rows": len(keep),
+        # Order-independent, like the tensors: the listing order does not matter.
+        "dataset_digest": digest({"merged_dataset_digests": sorted(digests)}),
+        "component_dataset_digests": sorted(digests),
+        "component_directories": [str(d) for d in directories],
+        "source_run": digest({"merged_source_runs": runs}),
+        "component_source_runs": runs,
+        "normalizer_digest": digest_value,
+        "total_decisions": int(counters["total_decisions"]),
+        "initial_accepted": int(counters["initial_accepted"]),
+        "initial_rejected": int(counters["initial_rejected"]),
+        "quarantined_rows": int(counters["quarantined"]),
+        "labor_label_valid_rows": int(counters["labor_label_valid"]),
+        "full_action_label_valid_rows": int(counters["full_action_label_valid"]),
+        "label_unavailable_reasons": dict(sorted(reasons.items())),
+        "quarantine_count": len(quarantine),
+        "world_seeds": sorted(int(world) for world in entries),
+        "turns": int(options[0]["turns"]),
+        "reset_options": options[0]["reset_options"],
+        "sampling": "world-balanced-row-weights",
+    }
+    if return_tail is not None:
+        dataset["collection"]["return_tail"] = return_tail
+    if tail_records:
+        dataset["collection"]["return_tail_by_world"] = tail_records
+    if keep_privileged:
+        validate_privileged_raw(
+            dataset, LABOR_PRIVILEGED_LAYOUT_V1, context=f"merged labor datasets {directories}"
+        )
+        dataset["collection"]["privileged_schema_version"] = (
+            LABOR_PRIVILEGED_LAYOUT_V1.schema_version
+        )
+    dataset["collection"]["partition"] = next(iter(partitions))
+    dropped = sorted({w for m in manifests for w in m.get("dropped_reserved_worlds", [])})
+    if dropped:
+        dataset["collection"]["dropped_reserved_worlds"] = dropped
+    return dataset
+
+
+def _partition(source_record: Mapping[str, Any]) -> str:
+    """The partition tag :func:`load_labor_dataset` records for a source record."""
+    from .labor_worlds import CALIBRATION_PARTITION, is_calibration_set
+
+    if is_held_out_test(source_record):
+        return HELD_OUT_TEST_PARTITION
+    if is_calibration_set(source_record):
+        return CALIBRATION_PARTITION
+    return "fitting"
+
+
+def load_labor_data(
+    directories: Path | str | Sequence[Path | str],
+    *,
+    expected_normalizer_digest: str | None = None,
+    require_privileged: bool = False,
+    training: bool = True,
+    drop_reserved: bool = False,
+) -> dict[str, Any]:
+    """One dataset exactly as :func:`load_labor_dataset`; several: :func:`merge_labor_datasets`."""
+    if isinstance(directories, (str, Path)):
+        paths = [Path(directories)]
+    else:
+        paths = [Path(d) for d in directories]
+    if not paths:
+        raise ValueError("at least one labor dataset is required")
+    kwargs = dict(
+        expected_normalizer_digest=expected_normalizer_digest,
+        require_privileged=require_privileged,
+        training=training,
+        drop_reserved=drop_reserved,
+    )
+    if len(paths) == 1:
+        return load_labor_dataset(paths[0], **kwargs)
+    return merge_labor_datasets(paths, **kwargs)
+
+
 def _training_view(
     manifest: Mapping[str, Any], directory: Path, *, training: bool, drop: bool
 ) -> dict[str, Any]:
@@ -584,8 +802,14 @@ def load_labor_datasets(
     drop_reserved: bool = False,
     family_weights: Mapping[str, float] | None = None,
     family_normalizer: Any = None,
+    merge_teacher: bool = False,
 ) -> dict[str, Any]:
     """:func:`_load_labor_datasets`, optionally with family row up-weighting.
+
+    ``merge_teacher`` (critic fitting and calibration): several heuristic-teacher
+    directories are first read as one teacher dataset by :func:`merge_labor_datasets`
+    (r5 collection batches); without it (BC, the historical behaviour) every directory
+    is its own aggregated part.
 
     ``family_weights`` (``labor_scenarios.parse_family_weights``) tags rows at load
     time with the scenario family tracker and multiplies ``row_weight`` by the max
@@ -598,12 +822,18 @@ def load_labor_datasets(
         require_privileged=require_privileged,
         training=training,
         drop_reserved=drop_reserved,
+        merge_teacher=merge_teacher,
     )
     if family_weights:
         from .labor_scenarios import reweight_dataset
 
         reweight_dataset(dataset, family_weights, normalizer=family_normalizer)
     return dataset
+
+
+def _manifest_source_kind(directory: Path) -> str:
+    manifest = json.loads((Path(directory) / "dataset.json").read_text())
+    return manifest.get("source_record", {}).get("source_kind", SOURCE_KIND)
 
 
 def _load_labor_datasets(
@@ -613,8 +843,13 @@ def _load_labor_datasets(
     require_privileged: bool = False,
     training: bool = True,
     drop_reserved: bool = False,
+    merge_teacher: bool = False,
 ) -> dict[str, Any]:
     """One dataset unchanged, or several sources mixed with equal source mass (brief 6.1).
+
+    With ``merge_teacher``, two or more heuristic-teacher directories are first merged
+    into one teacher dataset (:func:`merge_labor_datasets`); if nothing else is listed
+    that dataset is returned as is (a teacher dataset, not an aggregate).
 
     A single directory returns :func:`load_labor_dataset` exactly. Several
     directories are verified independently, grouped by source kind (the
@@ -634,16 +869,30 @@ def _load_labor_datasets(
             training=training,
             drop_reserved=drop_reserved,
         )
-    parts = [
-        load_labor_dataset(
-            d,
-            expected_normalizer_digest=expected_normalizer_digest,
-            require_privileged=require_privileged,
-            training=training,
-            drop_reserved=drop_reserved,
-        )
-        for d in directories
-    ]
+    kwargs = dict(
+        expected_normalizer_digest=expected_normalizer_digest,
+        require_privileged=require_privileged,
+        training=training,
+        drop_reserved=drop_reserved,
+    )
+    if merge_teacher:
+        teacher = [d for d in directories if _manifest_source_kind(d) == SOURCE_KIND]
+        if len(teacher) > 1:
+            # The teacher batches become one teacher dataset (world order, world-balanced);
+            # it takes the place of the first teacher directory among the other sources.
+            merged = merge_labor_datasets(teacher, **kwargs)
+            parts = []
+            for d in directories:
+                if d == teacher[0]:
+                    parts.append(merged)
+                elif d not in teacher:
+                    parts.append(load_labor_dataset(d, **kwargs))
+            if len(parts) == 1:
+                return merged
+        else:
+            parts = [load_labor_dataset(d, **kwargs) for d in directories]
+    else:
+        parts = [load_labor_dataset(d, **kwargs) for d in directories]
     digests = [p["collection"]["dataset_digest"] for p in parts]
     if len(set(digests)) != len(digests):
         raise ProvenanceError("the same labor dataset is listed more than once")

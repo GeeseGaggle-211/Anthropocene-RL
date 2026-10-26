@@ -1714,8 +1714,8 @@ def evaluate_fit(
     seed: int,
     checkpoint: Path,
     advantage: Path,
-    calibration_data: Path,
-    fit_data: Path | None,
+    calibration_data: Path | Sequence[Path],
+    fit_data: Path | Sequence[Path] | None,
     reserved_payloads: Sequence[Path],
     control_report: Mapping[str, Any] | None = None,
     privileged: bool | None = None,
@@ -1728,6 +1728,10 @@ def evaluate_fit(
     scenario_calibration_data: Path | None = None,
 ) -> dict[str, Any]:
     """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
+
+    ``calibration_data`` and ``fit_data`` are one dataset or several collection batches,
+    read as one dataset (``labor_teacher_data.merge_labor_datasets``: world order, equal
+    mass per world); a single path is read exactly as before.
 
     ``device`` (labor_device) runs the stored-data forward passes on a GPU; every
     metric is computed from host copies of the predictions.
@@ -1746,7 +1750,12 @@ def evaluate_fit(
     from .labor_advantage import load_advantage_head, load_candidate_shards
     from .labor_advantage_eval import evaluate_advantage
     from .labor_device import setup
-    from .labor_pretrain_eval import _load_dataset, _load_models, run_critic_calibration
+    from .labor_pretrain_eval import (
+        _load_dataset,
+        _load_models,
+        dataset_label,
+        run_critic_calibration,
+    )
     from .labor_training import _normalization_digest
     from .labor_value_calibration import labor_critic_digest
 
@@ -1860,10 +1869,10 @@ def evaluate_fit(
             "checkpoint": {"path": str(checkpoint), "sha256": file_sha256(checkpoint)},
             "advantage": {"path": str(advantage), "sha256": file_sha256(advantage)},
             "calibration_dataset": {
-                "path": str(calibration_data),
+                "path": dataset_label(calibration_data),
                 "digest": dataset["collection"]["dataset_digest"],
             },
-            "fit_dataset": None if fit_data is None else str(fit_data),
+            "fit_dataset": None if fit_data is None else dataset_label(fit_data),
             "reserved_payloads": [
                 {"path": str(p), "sha256": file_sha256(p) if Path(p).is_file() else None}
                 for p in reserved_payloads
@@ -2038,6 +2047,16 @@ def _tail_flag(args: argparse.Namespace) -> list[str]:
     return [] if getattr(args, "smoke", False) else ["--require-randomized-tail"]
 
 
+def _evaluation_fit_data(args: argparse.Namespace) -> list[Path]:
+    """The fitting data of the generalisation gap: every --fit-data directory when they are
+    all teacher batches; with continuation or curated scenario sources, the first one (the
+    teacher dataset, as before)."""
+    mixed = bool(args.learner_state_continuations) or bool(
+        getattr(args, "curated_scenarios", False)
+    )
+    return [args.fit_data[0]] if mixed else list(args.fit_data)
+
+
 def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
     """initialize -> pretrain-critic (exact resume) -> A fit -> evaluate; done steps are skipped."""
     work = Path(args.out) / arm.name / f"seed-{seed}"
@@ -2199,9 +2218,9 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             "--advantage",
             advantage,
             "--calibration-data",
-            args.calibration_data,
+            *args.calibration_data,
             "--fit-data",
-            args.fit_data[0],
+            *_evaluation_fit_data(args),
             "--reserved-payloads",
             *args.reserved_payloads,
             "--timings",
@@ -2429,7 +2448,11 @@ def command_run(args: argparse.Namespace) -> int:
             "scenario_calibration_data": None
             if getattr(args, "scenario_calibration_data", None) is None
             else str(args.scenario_calibration_data),
-            "calibration_data": str(args.calibration_data),
+            "calibration_data": (
+                str(args.calibration_data[0])
+                if len(args.calibration_data) == 1
+                else [str(p) for p in args.calibration_data]
+            ),
             "fit_payloads": [str(p) for p in args.fit_payloads],
             "reserved_payloads": [str(p) for p in args.reserved_payloads],
             "control_report": None if args.control_report is None else str(args.control_report),
@@ -2601,8 +2624,20 @@ def argument_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--seed", type=int, required=True)
     evaluate.add_argument("--checkpoint", type=Path, required=True)
     evaluate.add_argument("--advantage", type=Path, required=True)
-    evaluate.add_argument("--calibration-data", type=Path, required=True)
-    evaluate.add_argument("--fit-data", type=Path, default=None)
+    evaluate.add_argument(
+        "--calibration-data",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="calibration dataset(s); several batches are read as one (world order)",
+    )
+    evaluate.add_argument(
+        "--fit-data",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="teacher fitting dataset(s) for the generalisation gap; several are read as one",
+    )
     evaluate.add_argument("--reserved-payloads", type=Path, nargs="+", required=True)
     evaluate.add_argument(
         "--control-report",
@@ -2655,7 +2690,9 @@ def argument_parser() -> argparse.ArgumentParser:
         type=Path,
         nargs="+",
         required=True,
-        help="r5 teacher fitting dataset (first) plus optional continuation datasets",
+        help="r5 teacher fitting dataset(s), e.g. the collection batches fit8-b01..b08 (read "
+        "as one teacher dataset: world order, equal mass per world), plus optional "
+        "continuation or curated scenario datasets",
     )
     run.add_argument("--learner-state-continuations", action="store_true", default=False)
     run.add_argument(
@@ -2672,7 +2709,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=False,
         help="admit curated scenario fitting sets listed in --fit-data (labor_scenarios)",
     )
-    run.add_argument("--calibration-data", type=Path, required=True)
+    run.add_argument(
+        "--calibration-data",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="calibration dataset(s), e.g. cal8-b01..b03 (read as one)",
+    )
     run.add_argument(
         "--scenario-calibration-data",
         type=Path,

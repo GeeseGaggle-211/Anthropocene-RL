@@ -1135,19 +1135,19 @@ def _labor_reset_options(args: argparse.Namespace) -> Any:
 def _load_labor_teacher_dataset(
     args: argparse.Namespace, normalizer: Any, *, require_privileged: bool = False
 ) -> dict[str, Any]:
-    """One critic dataset, or several (teacher trajectories plus learner-state continuations)."""
+    """One critic dataset, or several.
+
+    Several heuristic-teacher datasets (the r5 collection batches) are read as ONE
+    teacher dataset (``labor_teacher_data.merge_labor_datasets``): shards in world order,
+    equal mass per world, a world in two batches refused. One dataset is read exactly as
+    before. Learner-state continuations (``--learner-state-continuations``) and curated
+    scenarios (``--curated-scenarios``) then join that teacher dataset as their own
+    sources (equal source mass); any other source kind is refused by
+    ``require_critic_teacher_dataset``.
+    """
     from .labor_teacher_data import load_labor_datasets
 
     directories = args.dataset if isinstance(args.dataset, list) else [args.dataset]
-    if (
-        len(directories) > 1
-        and not getattr(args, "learner_state_continuations", False)
-        and not getattr(args, "curated_scenarios", False)
-    ):
-        raise ValueError(
-            "pretrain-critic takes one --dataset unless --learner-state-continuations or "
-            "--curated-scenarios aggregates teacher trajectories with those V-target sources"
-        )
     return load_labor_datasets(
         [Path(d) for d in directories],
         expected_normalizer_digest=_normalization_digest(normalizer),
@@ -1155,6 +1155,7 @@ def _load_labor_teacher_dataset(
         drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
         family_weights=_family_weights(args),
         family_normalizer=normalizer,
+        merge_teacher=True,
     )
 
 

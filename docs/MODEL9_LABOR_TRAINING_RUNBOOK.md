@@ -361,6 +361,26 @@ python -m anthropocene_rl.autonomous_v7.labor_r5_acceptance receipt --evidence *
   --seeds 0,1,2,3,4 --seed-rule all-seeds --determinism determinism.json --attempt-id ID --out gate-receipt.json
 ```
 
+**Collection batches.** `FIT_DATA` and `CAL_DATA` (and `FIT_PAYLOADS`, `RESERVED_PAYLOADS`)
+are space- or colon-separated lists, e.g. `FIT_DATA="$I/fit8-b01:$I/fit8-b02:...:$I/fit8-b08"`
+and `CAL_DATA="$I/cal8-b01 $I/cal8-b02 $I/cal8-b03"`. `pretrain-critic --dataset` (repeatable),
+`evaluate --calibration-data/--fit-data` and `labor_pretrain_eval critic-calibration
+--dataset/--fit-dataset` take several directories. Several heuristic-teacher batches are read
+as ONE teacher dataset (`labor_teacher_data.merge_labor_datasets`). Their shards are pooled in
+the world order one published dataset stores them, with equal mass per world over the combined
+set. Batches that partition a set of worlds therefore give the same tensors and the same critic
+fit, bit for bit, as one dataset over those worlds. Listing order does not matter; only the
+provenance digest differs.
+
+Each batch is verified on its own: digests, the reserved-world guard, and the
+calibration/held-out-test refusal for training. Across batches, the merge refuses a repeated
+batch, a world in two batches, and any difference in normalizer, source kind, return tail or
+randomized-tail settings, turns, reset options, partition or stored arrays (privileged layout
+included). Critic fits still refuse reserved and G0 calibration worlds. One directory is read
+exactly as before. Learner-state continuations and curated scenarios keep their own source mass
+beside the merged teacher set. Actor BC (`pretrain-bc`) keeps its per-directory aggregation,
+unchanged.
+
 The primary gate `r5-critic-acceptance` (candidate arm) combines: admitted stability receipts for V and
 A; QoL per r5-b (a) A same-village ranking on reserved worlds, (b) bounded-head nMAE <= 0.20 and
 |bias| <= 0.10 per stratum, (c) TD residual |bias| <= 0.05 and mean |residual| <= 0.20 reference scales;

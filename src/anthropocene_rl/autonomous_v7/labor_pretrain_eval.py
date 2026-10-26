@@ -288,18 +288,29 @@ def _load_models(path: Path) -> tuple[Any, ...]:
     return state, actor, task, costs, normalizer
 
 
-def _load_dataset(path: Path, normalizer: Any, *, require_privileged: bool = False) -> dict[str, Any]:
-    from .labor_teacher_data import load_labor_dataset
+def _load_dataset(
+    path: Path | Sequence[Path], normalizer: Any, *, require_privileged: bool = False
+) -> dict[str, Any]:
+    """One evaluation dataset, or several batches read as one (``merge_labor_datasets``)."""
+    from .labor_teacher_data import load_labor_data
     from .labor_training import _normalization_digest
 
-    dataset = load_labor_dataset(
+    dataset = load_labor_data(
         path,
         expected_normalizer_digest=_normalization_digest(normalizer),
         require_privileged=require_privileged,
         training=False,  # evaluation reader: development/calibration/held-out-test data
     )
-    _check_world_policy(dataset["row_world"].tolist(), f"dataset {path}")
+    _check_world_policy(dataset["row_world"].tolist(), f"dataset {dataset_label(path)}")
     return dataset
+
+
+def dataset_label(path: Path | Sequence[Path]) -> str | list[str]:
+    """A report's dataset field: the path (one dataset, unchanged) or the list of paths."""
+    if isinstance(path, (str, Path)):
+        return str(path)
+    paths = [str(p) for p in path]
+    return paths[0] if len(paths) == 1 else paths
 
 
 def _input_tensors(dataset: Mapping[str, Any]) -> dict[str, torch.Tensor]:
@@ -808,8 +819,8 @@ def critic_dataset_report(
 
 def run_critic_calibration(
     checkpoint: Path,
-    dataset_path: Path,
-    fit_dataset_path: Path | None,
+    dataset_path: Path | Sequence[Path],
+    fit_dataset_path: Path | Sequence[Path] | None,
     batch_size: int = 256,
     device: Any = None,
 ) -> dict[str, Any]:
@@ -835,7 +846,7 @@ def run_critic_calibration(
         "schema": REPORT_SCHEMA,
         "command": "critic-calibration",
         "checkpoint": str(checkpoint),
-        "dataset": str(dataset_path),
+        "dataset": dataset_label(dataset_path),
         "targets": (
             "discounted returns over each (world, camp) trajectory, closed at the collection "
             f"horizon by the dataset's declared tail ({calibration['return_tail']}); "
@@ -855,14 +866,21 @@ def run_critic_calibration(
             "normalizer_fit_worlds": list(task.privileged_normalizer.fit_record.get("worlds", [])),
         }
     if fit_dataset_path is not None:
+        fit_dataset = _load_dataset(fit_dataset_path, normalizer, require_privileged=privileged)
+        shared = sorted(
+            {int(w) for w in fit_dataset["row_world"].reshape(-1).tolist()}
+            & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()}
+        )
+        if shared:
+            raise ValueError(f"calibration and fitting datasets share worlds {shared[:5]}")
         fitting = critic_dataset_report(
             task,
             costs,
-            _load_dataset(fit_dataset_path, normalizer, require_privileged=privileged),
+            fit_dataset,
             batch_size,
             normalizer=normalizer,
         )
-        report["fit_dataset"] = str(fit_dataset_path)
+        report["fit_dataset"] = dataset_label(fit_dataset_path)
         report["fitting"] = fitting
         gap = {}
         for name, strata in calibration["heads"].items():
@@ -1649,9 +1667,19 @@ def argument_parser() -> argparse.ArgumentParser:
     actor.add_argument("--out", type=Path, required=True)
     critic = commands.add_parser("critic-calibration")
     critic.add_argument("--checkpoint", type=Path, required=True)
-    critic.add_argument("--dataset", type=Path, required=True, help="calibration dataset")
     critic.add_argument(
-        "--fit-dataset", type=Path, default=None, help="fitting dataset (generalisation gap)"
+        "--dataset",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="calibration dataset(s); several batches are read as one (world order)",
+    )
+    critic.add_argument(
+        "--fit-dataset",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="fitting dataset(s) for the generalisation gap; several batches are read as one",
     )
     critic.add_argument("--batch-size", type=int, default=256)
     critic.add_argument("--out", type=Path, required=True)

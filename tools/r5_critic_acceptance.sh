@@ -8,12 +8,20 @@
 # Required environment (absolute paths on the VM):
 #   NORMALIZER        actor normalizer checkpoint refitted on r5 fitting worlds
 #   PRIV_NORMALIZER   privileged normalizer v2 fitted on r5 fitting worlds
-#   FIT_DATA          r5 teacher fitting dataset dir (90100-90153, 90160-90165); more dirs
-#                     may follow, space separated (learner-state continuations, with
-#                     CONTINUATIONS=1)
-#   CAL_DATA          r5 calibration dataset dir (90180-90199)
+#   FIT_DATA          r5 teacher fitting dataset dir(s) (90100-90153, 90160-90165): one dir
+#                     or the collection batches, e.g. "$I/fit8-b01 $I/fit8-b02 ..." or
+#                     "$I/fit8-b01:$I/fit8-b02:...". Several teacher batches are read as ONE
+#                     teacher dataset (shards in world order, equal mass per world; a world
+#                     in two batches, a repeated batch, a normalizer/tail/turns mismatch or
+#                     a reserved/calibration world is refused). Learner-state continuation
+#                     (CONTINUATIONS=1) or curated scenario (SCENARIOS=1) sets may follow;
+#                     they keep their own source mass.
+#   CAL_DATA          r5 calibration dataset dir(s) (90180-90199), e.g. the batches
+#                     cal8-b01..b03; same list syntax, read as one dataset
 #   FIT_PAYLOADS      search candidate payload dir(s) of fitting worlds (A pairs)
 #   RESERVED_PAYLOADS held-out-test payload dir(s) of reserved worlds 90154-90159
+# Every list variable (FIT_DATA, CAL_DATA, FIT_PAYLOADS, RESERVED_PAYLOADS) is space- or
+# colon-separated; paths must not contain spaces or colons.
 #   CONTROL_REPORT    critic3 critic-calibration JSON on 90180-90199 (other-head control)
 #   OUT               output directory (gate-receipt.json lands here)
 #   ATTEMPT_ID        receipt attempt id (new id for every corrected attempt)
@@ -57,6 +65,12 @@ if [ "$cores" -gt 0 ] && [ $((JOBS * THREADS)) -gt "$cores" ]; then
 fi
 
 mkdir -p "$OUT"
+# Space- or colon-separated path lists -> arrays.
+split_list() { local value="${1//:/ }"; read -r -a "$2" <<<"$value"; }
+split_list "$FIT_DATA" fit_data
+split_list "$CAL_DATA" cal_data
+split_list "$FIT_PAYLOADS" fit_payloads
+split_list "$RESERVED_PAYLOADS" reserved_payloads
 # CUDA fits: torch 2.14's torch._native Triton kernels need a C compiler the GPU VM lacks;
 # this switch (read once at `import torch`, inherited by every fit subprocess) keeps them
 # unregistered. Harmless on CPU. labor_device.configure refuses CUDA without it.
@@ -65,13 +79,10 @@ export PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}"
 args=(
   --normalizer-checkpoint "$NORMALIZER"
   --privileged-normalizer "$PRIV_NORMALIZER"
-  # shellcheck disable=SC2206
-  --fit-data $FIT_DATA
-  --calibration-data "$CAL_DATA"
-  # shellcheck disable=SC2206
-  --fit-payloads $FIT_PAYLOADS
-  # shellcheck disable=SC2206
-  --reserved-payloads $RESERVED_PAYLOADS
+  --fit-data "${fit_data[@]}"
+  --calibration-data "${cal_data[@]}"
+  --fit-payloads "${fit_payloads[@]}"
+  --reserved-payloads "${reserved_payloads[@]}"
   --arms "$ARMS" --seeds "$SEEDS" --seed-rule "$SEED_RULE"
   --advantage-epochs "$ADVANTAGE_EPOCHS" --resume-every "$RESUME_EVERY"
   --determinism-steps "$DETERMINISM_STEPS"

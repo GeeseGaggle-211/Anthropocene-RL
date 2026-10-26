@@ -1049,12 +1049,24 @@ def merge_candidate_sets(sets: Sequence[CandidateSet]) -> CandidateSet:
 
 
 def load_candidate_shards(paths: Sequence[Path | str]) -> CandidateSet:
+    """Candidate shards from files and directories, in the listed order.
+
+    Several payload directories (for example one per collection batch) are concatenated
+    in the given order, each directory's ``*.pt`` files sorted. A file reached twice
+    (listed twice, or through a directory and directly) is refused, as is a root id
+    repeated across shards (:func:`merge_candidate_sets`); the fit refuses reserved,
+    calibration, development and sealed worlds (:func:`require_advantage_fit_worlds`).
+    """
     files: list[Path] = []
     for path in paths:
         path = Path(path)
         files.extend(sorted(path.glob("*.pt")) if path.is_dir() else [path])
     if not files:
         raise ValueError("no candidate shard files found")
+    resolved = [f.resolve() for f in files]
+    if len(set(resolved)) != len(resolved):
+        repeated = sorted({str(f) for f in resolved if resolved.count(f) > 1})
+        raise ValueError(f"candidate shard files listed more than once: {repeated[:3]}")
     return merge_candidate_sets(
         [
             parse_candidate_shard(
