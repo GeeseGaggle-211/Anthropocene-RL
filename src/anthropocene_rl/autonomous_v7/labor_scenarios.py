@@ -655,9 +655,14 @@ def coverage_audit(
     *,
     rules: DetectionRules | None = None,
     minima: Mapping[str, tuple[int, int]] | None = None,
+    shards: Sequence[Path] = (),
 ) -> dict[str, Any]:
-    """Rows, roots and worlds per family and partition across published labor datasets."""
-    from .labor_teacher_data import verify_dataset
+    """Rows, roots and worlds per family and partition across published labor datasets.
+
+    ``shards`` adds individually verified, unpublished teacher shard directories
+    (diagnostic: an interrupted collection whose dataset.json was never written).
+    """
+    from .labor_teacher_data import verify_dataset, verify_shard
 
     rules = rules or DetectionRules()
     minima = dict(DEFAULT_MINIMA if minima is None else minima)
@@ -686,6 +691,16 @@ def coverage_audit(
                 "turns": manifest["source_record"].get("options", {}).get("turns"),
                 "reset_options": manifest["source_record"].get("options", {}).get("reset_options"),
             }
+        )
+    for shard in shards:
+        shard = Path(shard)
+        meta = verify_shard(shard)
+        label = f"unpublished-shard:{meta['data_digest'][:12]}"
+        _audit_shard(cov, _load_shard_arrays(shard, meta), rules, label)
+        cov.datasets.append(
+            {"path": str(shard), "source_kind": "unpublished-teacher-shard", "label": label,
+             "worlds": [int(meta["world_seed"])], "turns": meta.get("turns"),
+             "reset_options": meta.get("reset_options")}
         )
     partitions: dict[str, Any] = {}
     for partition in sorted(set(cov.rows) | set(cov.families)):
@@ -1516,7 +1531,14 @@ def argument_parser() -> argparse.ArgumentParser:
         )
 
     coverage = commands.add_parser("coverage", help="family coverage of published labor datasets")
-    coverage.add_argument("--dataset", type=Path, action="append", required=True)
+    coverage.add_argument("--dataset", type=Path, action="append", default=[])
+    coverage.add_argument(
+        "--shard",
+        type=Path,
+        action="append",
+        default=[],
+        help="diagnostic: an unpublished, individually verified teacher shard directory",
+    )
     coverage.add_argument(
         "--minima",
         default=None,
@@ -1599,7 +1621,11 @@ def _rules(args: argparse.Namespace) -> DetectionRules:
 
 
 def run_coverage(args: argparse.Namespace) -> dict[str, Any]:
-    report = coverage_audit(args.dataset, rules=_rules(args), minima=_parse_minima(args.minima))
+    if not args.dataset and not args.shard:
+        raise ValueError("coverage needs at least one --dataset or --shard")
+    report = coverage_audit(
+        args.dataset, rules=_rules(args), minima=_parse_minima(args.minima), shards=args.shard
+    )
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(report, sort_keys=True, indent=1))
