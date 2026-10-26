@@ -81,7 +81,7 @@ class StabilityThresholds:
     lr_backoff: float = 0.5  # "LR halving"
     max_total_rollbacks: int = 5  # a fit with more rollbacks is not admitted
     # 2. Dominance on a shared block (brief 17.2: window and progress criterion).
-    dominance_window: int = 8  # log points (8 x 25 = 200 optimizer steps)
+    dominance_window: int = 16  # log points (16 x 25 = 400 optimizer steps; user decision 26 Oct)
     dominance_share: float = 0.90  # one contender's share of the block's gradient norm
     dominance_persistence: float = 0.75  # share of window points above dominance_share
     dominance_min_progress: float = 0.01  # dominated contender's relative loss decrease

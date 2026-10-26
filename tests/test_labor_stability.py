@@ -252,7 +252,7 @@ def test_monitor_wires_dominance_on_a_shared_block_into_a_mandatory_failure() ->
         shared_heads={"shared": (list(shared.parameters()), ("a", "b"))},
     )
     x = torch.randn(32, 4)
-    for _ in range(10):
+    for _ in range(20):  # exceeds the 16-point dominance window (user decision, 26 Oct)
         optimizer.zero_grad()
         hidden = shared(x)
         # Large-but-finite residual on head a; head b reads the shared block detached, so
