@@ -34,10 +34,13 @@ which the actor's einsum backward hits; Triton needs a C compiler at runtime to
 build its launcher. torch reads ``TORCH_DISABLE_NATIVE_JIT=1``
 (``torch/_native/common_utils.check_native_jit_disabled``, cached, read at
 ``import torch``) and then registers no native DSL override, so ``aten::bmm`` stays
-on the stock cuBLAS kernel. This script sets it before importing torch unless
-``--keep-native-jit`` is given, records whether it took effect, and (with
-``--probe-native``) runs a subprocess without it to show whether the compiler
-failure reproduces.
+on the stock cuBLAS kernel. This script sets it before importing torch, records
+whether it took effect, and (with ``--probe-native``) runs a subprocess without
+it to show whether the compiler failure reproduces.
+
+The fixtures and replica loops live in ``tests/labor_parity_problems.py`` and the
+metrics in ``anthropocene_rl.autonomous_v7.labor_device_parity`` (shared with
+``tests/test_labor_device.py``).
 
 Usage (GPU VM): ``cd <repo> && PYTHONPATH=src python tools/cuda_parity_diag.py --out diag.json``.
 On a CPU-only host the CUDA parts are skipped and only the CPU runs and the
@@ -49,777 +52,44 @@ from __future__ import annotations
 import os
 import sys
 
-if __name__ == "__main__" and "--keep-native-jit" not in sys.argv:
-    # Must precede ``import torch``: torch._native reads it once while importing.
+if __name__ == "__main__":
+    # Must precede ``import torch``: torch._native reads it once while importing
+    # (labor_device.configure refuses CUDA otherwise).
     os.environ["TORCH_DISABLE_NATIVE_JIT"] = "1"
 
 import argparse
-import contextlib
-import copy
 import json
 import math
 import platform
 import subprocess
 import time
-import warnings
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import torch
-from torch import nn
 
 REPO_DEFAULT = Path(__file__).resolve().parents[1]
-MAX_GRAD_NORM = 1.0
-EPS = 1e-12
 
 
-def _fixtures(repo: Path) -> None:
-    tests = str(repo / "tests")
-    if tests not in sys.path:
-        sys.path.insert(0, tests)
-
-
-# --------------------------------------------------------------------------------------
-# Metrics
-# --------------------------------------------------------------------------------------
-
-
-def _f(x: float | None) -> float | None:
-    if x is None or not math.isfinite(x):
-        return None if x is None else (float("inf") if x > 0 else float("-inf"))
-    return float(x)
-
-
-def state_drift(
-    test: dict[str, torch.Tensor],
-    ref: dict[str, torch.Tensor],
-    init: dict[str, torch.Tensor],
-    gauge=None,
-) -> dict[str, Any]:
-    """Drift of ``test`` (CUDA) against ``ref`` (CPU) with ``init`` the shared start.
-
-    ``gauge(key, tensor)`` returns a boolean mask of elements whose loss gradient is
-    analytically zero (they do not change the fitted function); the ``*_non_gauge``
-    metrics exclude them.
-    """
-    per: dict[str, dict[str, Any]] = {}
-    diff_sq = ref_sq = upd_sq = 0.0
-    for key, b in ref.items():
-        if not b.is_floating_point():
-            continue
-        a = test[key].double()
-        b = b.double()
-        i = init[key].double()
-        d = float((a - b).abs().max()) if b.numel() else 0.0
-        bmax = float(b.abs().max()) if b.numel() else 0.0
-        imax = float(i.abs().max()) if b.numel() else 0.0
-        umax = float((b - i).abs().max()) if b.numel() else 0.0
-        diff_sq += float((a - b).square().sum())
-        ref_sq += float(b.square().sum())
-        upd_sq += float((b - i).square().sum())
-        per[key] = {
-            "numel": int(b.numel()),
-            "max_abs_diff": d,
-            "max_abs_ref": bmax,
-            "max_abs_init": imax,
-            "max_abs_update": umax,
-            "zero_init": imax == 0.0,
-            "plain": d / max(bmax, EPS),
-            "scale": d / max(bmax + imax, EPS),
-            "update": (d / umax) if umax > 0 else (0.0 if d == 0 else math.inf),
-        }
-        mask = None if gauge is None else gauge(key, b)
-        if mask is not None and bool(mask.any()):
-            keep = ~mask
-            per[key]["gauge_elements"] = int(mask.sum())
-            if bool(keep.any()):
-                dn = float((a - b)[keep].abs().max())
-                bn = float(b[keep].abs().max())
-                un = float((b - i)[keep].abs().max())
-                per[key]["plain_non_gauge"] = dn / max(bn, EPS)
-                per[key]["update_non_gauge"] = (
-                    (dn / un) if un > 0 else (0.0 if dn == 0 else math.inf)
-                )
-            else:
-                per[key]["plain_non_gauge"] = per[key]["update_non_gauge"] = 0.0
-
-    def worst(metric: str, keys=None) -> dict[str, Any]:
-        base = metric.replace("_non_gauge", "")
-        items = [(k, v.get(metric, v[base])) for k, v in per.items() if keys is None or k in keys]
-        if not items:
-            return {"value": None, "tensor": None}
-        k, v = max(items, key=lambda kv: kv[1])
-        return {"value": _f(v), "tensor": k}
-
-    nonzero_ref = {k for k, v in per.items() if v["max_abs_ref"] > 0}
-    return {
-        "worst_plain": worst("plain"),
-        "worst_plain_nonzero_ref": worst("plain", nonzero_ref),  # tests 2/3 exclude zero refs
-        "worst_scale": worst("scale"),
-        "worst_update": worst("update"),
-        "worst_plain_non_gauge": worst("plain_non_gauge"),
-        "worst_update_non_gauge": worst("update_non_gauge"),
-        "global_l2_relative": math.sqrt(diff_sq) / max(math.sqrt(ref_sq), EPS),
-        "global_l2_update_relative": (
-            math.sqrt(diff_sq) / math.sqrt(upd_sq) if upd_sq > 0 else None
-        ),
-        "per_tensor": per,
-    }
-
-
-def function_drift(
-    test: dict[str, torch.Tensor], ref: dict[str, torch.Tensor], init: dict[str, torch.Tensor]
-) -> dict[str, Any]:
-    """Output-space drift on a fixed probe batch (every fixture row), evaluated on CPU."""
-    per = {}
-    diff_sq = change_sq = ref_sq = 0.0
-    for key, b in ref.items():
-        a, i = test[key], init[key]
-        d = float((a - b).abs().max())
-        change = float((b - i).abs().max())
-        diff_sq += float((a - b).square().sum())
-        change_sq += float((b - i).square().sum())
-        ref_sq += float(b.square().sum())
-        per[key] = {
-            "plain": d / max(float(b.abs().max()), EPS),
-            "change_relative": (d / change) if change > 0 else (0.0 if d == 0 else math.inf),
-            "max_abs_change": change,
-        }
-    worst_change = max(per.items(), key=lambda kv: kv[1]["change_relative"])
-    worst_plain = max(per.items(), key=lambda kv: kv[1]["plain"])
-    return {
-        "worst_change_relative": {
-            "value": _f(worst_change[1]["change_relative"]),
-            "output": worst_change[0],
-        },
-        "worst_plain": {"value": _f(worst_plain[1]["plain"]), "output": worst_plain[0]},
-        "global_l2_relative": math.sqrt(diff_sq) / max(math.sqrt(ref_sq), EPS),
-        "global_l2_change_relative": (
-            math.sqrt(diff_sq) / math.sqrt(change_sq) if change_sq > 0 else None
-        ),
-        "per_output": per,
-    }
-
-
-def compact(drift: dict[str, Any]) -> dict[str, Any]:
-    return {k: v for k, v in drift.items() if k not in ("per_tensor", "per_output")}
-
-
-def drift_all(problem, test_state, ref_state, init_state) -> dict[str, Any]:
-    """Parameter drift (all three metrics, gauge-aware) plus output-space drift."""
-    d = state_drift(test_state, ref_state, init_state, problem.gauge)
-    d["function"] = compact(
-        function_drift(
-            problem.outputs(test_state), problem.outputs(ref_state), problem.outputs(init_state)
-        )
-    )
-    return d
-
-
-def repeat_check(a: dict[str, torch.Tensor], b: dict[str, torch.Tensor]) -> dict[str, Any]:
-    bitwise = all(torch.equal(a[k], b[k]) for k in a)
-    worst = 0.0
-    for k in a:
-        if a[k].is_floating_point() and not torch.equal(a[k], b[k]):
-            d = float((a[k].double() - b[k].double()).abs().max())
-            worst = max(worst, d / max(float(a[k].double().abs().max()), EPS))
-    return {"bitwise": bitwise, "max_relative": worst}
-
-
-def grad_compare(
-    test: dict[str, torch.Tensor | None], ref: dict[str, torch.Tensor | None]
-) -> dict[str, Any]:
-    worst, worst_key = 0.0, None
-    diff_sq = ref_sq = 0.0
-    sign_flips = elements = big_rel = 0
-    for key, g in ref.items():
-        h = test[key]
-        if g is None or h is None:
-            if (g is None) != (h is None):
-                return {"error": f"gradient presence differs at {key}"}
-            continue
-        g, h = g.double(), h.double()
-        gmax = float(g.abs().max())
-        d = float((g - h).abs().max())
-        diff_sq += float((g - h).square().sum())
-        ref_sq += float(g.square().sum())
-        nz = (g != 0) | (h != 0)
-        elements += int(nz.sum())
-        sign_flips += int((torch.sign(g) != torch.sign(h))[nz].sum())
-        big_rel += int(((g - h).abs() > 0.1 * g.abs())[nz].sum())
-        if gmax > 0 and d / gmax > worst:
-            worst, worst_key = d / gmax, key
-    return {
-        "worst_tensor_relative": worst,
-        "worst_tensor": worst_key,
-        "global_l2_relative": math.sqrt(diff_sq) / max(math.sqrt(ref_sq), EPS),
-        "nonzero_elements": elements,
-        "sign_disagreements": sign_flips,
-        "elements_rel_diff_gt_10pct": big_rel,
-    }
-
-
-def rel(a: float, b: float) -> float:
-    return abs(a - b) / max(abs(b), EPS)
-
-
-# --------------------------------------------------------------------------------------
-# Problems: one fixture each, a deterministic per-step loss, CPU-initialised modules
-# --------------------------------------------------------------------------------------
-
-
-class Problem:
-    name = ""
-    steps = 0
-    lr = 0.0
-    adam = torch.optim.Adam
-
-    def modules(self) -> dict[str, nn.Module]:
-        """Fresh CPU copies of the initial modules (prefix -> module)."""
-        return {k: copy.deepcopy(v) for k, v in self._init.items()}
-
-    def build(self, device: torch.device, state: dict[str, torch.Tensor] | None = None):
-        mods = self.modules()
-        if state is not None:
-            for prefix, module in self.trainable(mods).items():
-                module.load_state_dict(
-                    {
-                        k[len(prefix) + 1 :]: v
-                        for k, v in state.items()
-                        if k.startswith(prefix + ".")
-                    }
-                )
-        for module in mods.values():
-            module.to(device)
-            module.train()
-        return self.attach(mods, device)
-
-    def attach(self, mods, device):  # device-dependent extras (A-head contexts)
-        return mods
-
-    def trainable(self, mods) -> dict[str, nn.Module]:
-        return mods
-
-    def named_params(self, mods) -> list[tuple[str, nn.Parameter]]:
-        return [
-            (f"{prefix}.{n}", p)
-            for prefix, m in self.trainable(mods).items()
-            for n, p in m.named_parameters()
-        ]
-
-    def state(self, mods) -> dict[str, torch.Tensor]:
-        return {
-            f"{prefix}.{k}": v.detach().cpu().clone()
-            for prefix, m in self.trainable(mods).items()
-            for k, v in m.state_dict().items()
-        }
-
-    def optimizer(self, params, kind: str, sgd_scale: float):
-        if kind == "adam":
-            return self.adam(params, lr=self.lr)
-        if kind == "sgd":
-            return torch.optim.SGD(params, lr=self.lr * sgd_scale)
-        raise ValueError(kind)
-
-    def initial_extra(self) -> dict[str, Any]:
-        return {}
-
-    def gauge(self, key: str, tensor: torch.Tensor) -> torch.Tensor | None:
-        """Elements with an analytically zero loss gradient (default: attention key bias).
-
-        Softmax attention is invariant to the key-projection bias, so its true gradient is
-        exactly zero and the computed one is pure roundoff.
-        """
-        if key.endswith("self_attn.in_proj_bias"):
-            e = tensor.shape[0] // 3
-            mask = torch.zeros(tensor.shape, dtype=torch.bool)
-            mask[e : 2 * e] = True
-            return mask
-        return None
-
-    def outputs(self, state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Probe outputs of the model in ``state``, on CPU, for every fixture row."""
-        mods = self.build(torch.device("cpu"), state)
-        with torch.no_grad():
-            return {k: v.detach().double() for k, v in self._outputs(mods).items()}
-
-    def _outputs(self, mods) -> dict[str, torch.Tensor]:
-        raise NotImplementedError
-
-    def step_loss(self, mods, k: int, extra: dict[str, Any], device) -> torch.Tensor:
-        raise NotImplementedError
-
-    def real_fit(self, device: torch.device) -> dict[str, torch.Tensor]:
-        raise NotImplementedError
-
-
-class CriticProblem(Problem):
-    """tests: test_critic_fit_on_cuda_is_close_to_cpu_and_repeatable (9 Adam steps)."""
-
-    adam = torch.optim.Adam
-    lr = 1e-3
-
-    def __init__(self, target: str = "td-lambda") -> None:
-        from test_labor_device import _critic_pair
-        from test_labor_qol_head import _training_dataset
-
-        from anthropocene_rl.autonomous_v7.labor_bc import (
-            critic_target_available,
-            discounted_returns,
-            world_balanced_weights,
-        )
-        from anthropocene_rl.autonomous_v7.labor_model import LABOR_COSTS, LABOR_OBJECTIVES
-        from anthropocene_rl.autonomous_v7.labor_privileged import actor_inputs
-
-        self.name = "critic" if target == "td-lambda" else "critic_monte_carlo"
-        self.target = target
-        self._pair = lambda: _critic_pair(0, target)
-        task, costs = self._pair()
-        self._init = {"task": task, "cost": costs}
-        data = _training_dataset()
-        data["collection"] = dict(data["collection"], dataset_digest="fixture")
-        self.data = data
-        returns = discounted_returns(data)
-        n = int(data["row_world"].shape[0])
-        self.n = n
-        keep = ~data["row_quarantined"].reshape(n).bool() & critic_target_available(data)
-        kept = torch.nonzero(keep).reshape(-1)
-        self.kept = kept
-        self.tensor_keys = [
-            k
-            for k, v in actor_inputs(data).items()
-            if isinstance(v, torch.Tensor)
-            and not k.startswith(("target_", "label_", "reward_", "transition_", "row_", "tail_"))
-        ]
-        self.tensors = {k: data[k][kept] for k in self.tensor_keys}
-        self.task_targets = {name: returns[name][kept] for name in LABOR_OBJECTIVES}
-        self.cost_targets = {name: returns[name][kept] for name in LABOR_COSTS}
-        weights = world_balanced_weights(data["row_world"][kept]).double().numpy()
-        probabilities = weights / weights.sum()
-        N, batch, epochs = len(kept), 2, 3
-        generator = np.random.default_rng(7)
-        self.batches = []
-        for _ in range(epochs):
-            draws = generator.choice(N, size=N, replace=True, p=probabilities)
-            for start in range(0, N, batch):
-                self.batches.append(torch.as_tensor(draws[start : start + batch], dtype=torch.long))
-        self.steps = len(self.batches)
-        steps_per_epoch = max(1, -(-N // batch))
-        self.td_interval = max(1, -(-steps_per_epoch // 4))
-        head = getattr(task, "qol_head", None)
-        self.td = head is not None and head.target == "td-lambda"
-
-    def _outputs(self, mods):
-        task, costs = mods["task"], mods["cost"]
-        batch = {k: self.data[k] for k in self.tensor_keys}
-        out = {f"task:{n}": task.expectation(n, v) for n, v in task(batch, None).items()}
-        out.update({f"cost:{n}": v for n, v in costs(batch, None).items()})
-        return out
-
-    def _qol_logits(self, task, device) -> torch.Tensor:
-        from anthropocene_rl.autonomous_v7.labor_device import to_device
-        from anthropocene_rl.autonomous_v7.labor_model import critic_privileged_batch
-
-        rows = torch.arange(self.n)
-        parts = []
-        with torch.no_grad():
-            for start in range(0, len(rows), 512):
-                index = rows[start : start + 512]
-                batch = to_device({k: self.data[k][index] for k in self.tensor_keys}, device)
-                p = critic_privileged_batch(task, self.data, index, device=device)
-                parts.append(task(batch, p)["qol_years"].cpu())
-        return torch.cat(parts)
-
-    def step_loss(self, mods, k, extra, device):
-        from anthropocene_rl.autonomous_v7.labor_advantage import qol_td_lambda_targets
-        from anthropocene_rl.autonomous_v7.labor_device import to_device
-        from anthropocene_rl.autonomous_v7.labor_ppo import (
-            labor_cost_value_losses,
-            labor_task_value_losses,
-        )
-
-        task, costs = mods["task"], mods["cost"]
-        if self.td and k % self.td_interval == 0:  # k == 0: the fit's initial refresh
-            values = task.expectation("qol_years", self._qol_logits(task, device))
-            extra["qol"] = qol_td_lambda_targets(self.data, values, task.qol_head.td_lambda)[
-                self.kept
-            ]
-        targets = dict(self.task_targets)
-        if self.td:
-            targets["qol_years"] = extra["qol"]
-        idx = self.batches[k]
-        b = to_device({key: v[idx] for key, v in self.tensors.items()}, device)
-        task_loss, _, _ = labor_task_value_losses(
-            task, b, to_device({key: v[idx] for key, v in targets.items()}, device), None
-        )
-        cost_loss, _ = labor_cost_value_losses(
-            costs, b, to_device({key: v[idx] for key, v in self.cost_targets.items()}, device), None
-        )
-        return task_loss + 1.0 * cost_loss
-
-    def real_fit(self, device):
-        from anthropocene_rl.autonomous_v7.labor_bc import pretrain_critic_on_dataset
-        from anthropocene_rl.autonomous_v7.labor_stability import StabilityConfig
-
-        task, costs = self._pair()
-        task.to(device)
-        costs.to(device)
-        pretrain_critic_on_dataset(
-            task_critic=task,
-            cost_critics=costs,
-            dataset=self.data,
-            epochs=3,
-            batch_size=2,
-            rng=np.random.default_rng(7),
-            stability=StabilityConfig(log_every=1),
-        )
-        return self.state({"task": task, "cost": costs})
-
-
-class AdvantageProblem(Problem):
-    """tests: test_advantage_fit_parity_cpu_vs_cuda (AdamW, frozen critics)."""
-
-    name = "advantage"
-    adam = torch.optim.AdamW
-
-    def __init__(self) -> None:
-        from test_labor_privileged_model import _critics, _layout
-
-        from anthropocene_rl.autonomous_v7 import labor_advantage as la
-
-        self.la = la
-        self._critics = lambda: _critics(_layout(False))
-        shard = la.synthetic_candidate_shard(
-            worlds=tuple(range(90100, 90106)), roots_per_world=3, candidates=5, seed=1
-        )
-        config = la.AdvantageFitConfig(epochs=3, batch_roots=4, lr=2e-3, seed=0, hidden=32)
-        self.config = config
-        self.lr = config.lr
-        self.candidates = la.parse_candidate_shard(shard)
-        fit_worlds, _ = la.split_worlds(
-            self.candidates.worlds, config.holdout_fraction, config.seed
-        )
-        fit_set = self.candidates.subset(fit_worlds)
-        self.root_tensors, self.root_privileged = fit_set.root_tensors()
-        pairs = {
-            name: la.build_pairs(
-                fit_set.roots,
-                name,
-                horizons=config.horizons[name],
-                se_multiplier=config.se_multiplier,
-            )
-            for name in la.COMPONENTS
-        }
-        flat = la._flatten(fit_set.roots)
-        self.flat = flat
-        by_root: dict[int, dict[str, list]] = defaultdict(lambda: defaultdict(list))
-        for name, p in pairs.items():
-            for idx in np.flatnonzero(p.admitted):
-                r = int(p.root[idx])
-                by_root[r][name].append(
-                    (
-                        flat.offsets[r] + int(p.i[idx]),
-                        flat.offsets[r] + int(p.k[idx]),
-                        float(p.delta[idx]),
-                    )
-                )
-        trainable = sorted(by_root)
-        task, costs = self._critics()
-        torch.manual_seed(config.seed)
-        head = la.LaborAdvantageHead.for_critics(
-            task, costs, embedding=config.embedding, hidden=config.hidden
-        )
-        self._init = {"head": head, "task": task, "cost": costs}
-        rng = np.random.default_rng([la.SHUFFLE_TAG, int(config.seed)])
-        self.batches = []
-        for _ in range(config.epochs if trainable else 0):
-            order = [trainable[i] for i in rng.permutation(len(trainable))]
-            for start in range(0, len(order), config.batch_roots):
-                batch = order[start : start + config.batch_roots]
-                members = torch.cat(
-                    [
-                        torch.arange(
-                            flat.offsets[r], flat.offsets[r] + len(fit_set.roots[r].candidates)
-                        )
-                        for r in batch
-                    ]
-                )
-                local = torch.full((len(flat.root_index),), -1, dtype=torch.long)
-                local[members] = torch.arange(len(members))
-                components = {}
-                for name in la.COMPONENTS:
-                    triples = [t for r in batch for t in by_root[r][name]]
-                    if triples:
-                        components[name] = (
-                            local[
-                                torch.as_tensor([[t[0], t[1]] for t in triples], dtype=torch.long)
-                            ],
-                            torch.as_tensor([t[2] for t in triples], dtype=torch.float32),
-                        )
-                self.batches.append((members, components))
-        self.steps = len(self.batches)
-
-    def optimizer(self, params, kind, sgd_scale):
-        if kind == "adam":  # the fit's AdamW with its configured (zero) weight decay
-            return torch.optim.AdamW(params, lr=self.lr, weight_decay=self.config.weight_decay)
-        return super().optimizer(params, kind, sgd_scale)
-
-    def attach(self, mods, device):
-        for module in (mods["task"], mods["cost"]):
-            for p in module.parameters():
-                p.requires_grad_(False)
-        mods["contexts"] = self.la.critic_contexts(
-            mods["task"], mods["cost"], self.root_tensors, self.root_privileged
-        )
-        mods["features"] = self.flat.features.to(device)
-        mods["root_index"] = self.flat.root_index.to(device)
-        return mods
-
-    def trainable(self, mods):
-        return {"head": mods["head"]}
-
-    def gauge(self, key, tensor):
-        # Last-layer bias of each A head: the pairwise loss sees only A_i - A_k and use is
-        # per-root centred, so the bias has exactly zero true gradient. (The head has no
-        # attention, so no key bias.)
-        if key.startswith("head.heads.") and key.endswith(".2.bias"):
-            return torch.ones(tensor.shape, dtype=torch.bool)
-        return None
-
-    def _outputs(self, mods):
-        raw = mods["head"](mods["contexts"], mods["features"], mods["root_index"])
-        roots = len(self.flat.offsets)
-        return {
-            f"centred_A:{n}": self.la.centre(v, mods["root_index"], roots) for n, v in raw.items()
-        }
-
-    def step_loss(self, mods, k, extra, device):
-        members, components = self.batches[k]
-        on = members.to(device)
-        raw = mods["head"](mods["contexts"], mods["features"][on], mods["root_index"][on])
-        loss = raw["qol_years"].sum() * 0.0
-        for name in self.la.COMPONENTS:
-            if name not in components:
-                continue
-            index, delta = components[name]
-            index, delta = index.to(device), delta.to(device)
-            loss = loss + self.la.pairwise_loss(
-                raw[name][index[:, 0]],
-                raw[name][index[:, 1]],
-                delta,
-                regression_weight=self.config.regression_weight,
-            )
-        return loss
-
-    def real_fit(self, device):
-        from anthropocene_rl.autonomous_v7.labor_stability import StabilityConfig
-
-        task, costs = self._critics()
-        for module in (task, costs):
-            module.to(device)
-            for p in module.parameters():
-                p.requires_grad_(False)
-        head, _ = self.la.fit_advantage_head(
-            task, costs, self.candidates, self.config, stability=StabilityConfig(log_every=1)
-        )
-        return self.state({"head": head})
-
-
-class BCProblem(Problem):
-    """tests: test_bc_parity_cpu_vs_cuda (6 Adam steps, lr 5e-3)."""
-
-    name = "bc"
-    adam = torch.optim.Adam
-    lr = 5e-3
-
-    def __init__(self) -> None:
-        from test_labor_device import _bc_dataset
-
-        from anthropocene_rl.autonomous_v7.labor_model import LaborActor
-
-        self.layout, self.dataset = _bc_dataset()
-        torch.manual_seed(0)
-        self._init = {"actor": LaborActor(self.layout)}
-        self._actor = lambda: copy.deepcopy(self._init["actor"])
-        d = self.dataset
-        N = int(d["target_specialty"].shape[0])
-        self.tensor_keys = [k for k, v in d.items() if isinstance(v, torch.Tensor)]
-        keep = torch.ones(N, dtype=torch.bool)
-        valid = d.get("label_specialty_valid")
-        if valid is not None:
-            keep = valid.reshape(N).bool()
-        if "row_quarantined" in d:
-            keep = keep & ~d["row_quarantined"].reshape(N).bool()
-        if not bool(keep.any()):
-            keep = torch.ones(N, dtype=torch.bool)
-        mean_spec = d["target_specialty"][keep].mean(dim=0)
-        spec = (mean_spec + 0.02).pow(-0.5)
-        self.spec_weights = spec / spec.mean().clamp(min=1e-8)
-        mean_act = d["target_activity"][keep].mean(dim=0)
-        act = (mean_act + 0.02).pow(-0.5)
-        self.act_weights = act / act.mean().clamp(min=1e-8)
-        generator = np.random.default_rng(3)
-        self.batches = []
-        for _ in range(3):
-            indices = generator.permutation(N)
-            for start in range(0, N, 16):
-                self.batches.append(
-                    torch.as_tensor(indices[start : min(N, start + 16)], dtype=torch.long)
-                )
-        self.steps = len(self.batches)
-
-    def _outputs(self, mods):
-        from anthropocene_rl.autonomous_v7.labor_privileged import actor_inputs
-
-        output = mods["actor"](actor_inputs({k: self.dataset[k] for k in self.tensor_keys}))
-        return {
-            f"actor:{k}": v
-            for k, v in output.items()
-            if isinstance(v, torch.Tensor) and v.is_floating_point()
-        }
-
-    def step_loss(self, mods, k, extra, device):
-        from anthropocene_rl.autonomous_v7.labor_bc import _batch_loss_and_l1
-        from anthropocene_rl.autonomous_v7.labor_device import to_device
-
-        idx = self.batches[k]
-        batch = to_device({key: self.dataset[key][idx] for key in self.tensor_keys}, device)
-        loss, _, _, _ = _batch_loss_and_l1(
-            mods["actor"],
-            batch,
-            target_log_std=-2.0,
-            inactive_role_weight=0.0,
-            label_smoothing=1e-6,
-            spec_weights=to_device(self.spec_weights, device),
-            act_weights=to_device(self.act_weights, device),
-        )
-        return loss
-
-    def real_fit(self, device):
-        from anthropocene_rl.autonomous_v7.labor_bc import pretrain_labor_actor_bc
-        from anthropocene_rl.autonomous_v7.labor_stability import StabilityConfig
-
-        actor = self._actor().to(device)
-        pretrain_labor_actor_bc(
-            actor=actor,
-            dataset=self.dataset,
-            epochs=3,
-            batch_size=16,
-            lr=5e-3,
-            rng=np.random.default_rng(3),
-            stability=StabilityConfig(log_every=1),
-        )
-        return self.state({"actor": actor})
-
-
-PROBLEMS = {
-    "critic": lambda: CriticProblem("td-lambda"),
-    "critic_monte_carlo": lambda: CriticProblem("monte-carlo"),
-    "advantage": AdvantageProblem,
-    "bc": BCProblem,
-}
-
-
-# --------------------------------------------------------------------------------------
-# Engine
-# --------------------------------------------------------------------------------------
-
-
-def backend_context(backend: str):
-    if backend == "default":
-        return contextlib.nullcontext()
-    from torch.nn.attention import SDPBackend, sdpa_kernel
-
-    return sdpa_kernel(SDPBackend.MATH)
-
-
-class Recorder:
-    def __init__(self) -> None:
-        self.warnings: dict[str, int] = defaultdict(int)
-
-    @contextlib.contextmanager
-    def capture(self):
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            yield
-        for w in caught:
-            self.warnings[f"{w.category.__name__}: {str(w.message)[:200]}"] += 1
-
-
-def clone_extra(extra: dict[str, Any]) -> dict[str, Any]:
-    return {
-        k: v.clone() if isinstance(v, torch.Tensor) else copy.deepcopy(v) for k, v in extra.items()
-    }
-
-
-def run(
-    problem, device, kind, backend, sgd_scale, snapshots, recorder, perturb: float = 0.0
-) -> dict[str, Any]:
-    """One fit. ``perturb`` > 0 multiplies every gradient element by (1 + perturb * N(0, 1))
-    before clipping (a CPU stand-in for fp32 kernel reassociation error)."""
-    from anthropocene_rl.autonomous_v7.labor_device import cpu_copy
-
-    noise = torch.Generator().manual_seed(1234)
-    started = time.time()
-    with backend_context(backend), recorder.capture():
-        mods = problem.build(device)
-        named = problem.named_params(mods)
-        params = [p for _, p in named]
-        opt = problem.optimizer(params, kind, sgd_scale)
-        extra = problem.initial_extra()
-        trajectory = [problem.state(mods)]
-        snaps, losses, norms = [], [], []
-        for k in range(problem.steps):
-            if snapshots:
-                snaps.append(
-                    {
-                        "state": trajectory[-1],
-                        "opt": cpu_copy(copy.deepcopy(opt.state_dict())),
-                        "extra": clone_extra(extra),
-                    }
-                )
-            opt.zero_grad()
-            loss = problem.step_loss(mods, k, extra, device)
-            if not torch.isfinite(loss):
-                raise RuntimeError(f"{problem.name}: nonfinite loss at step {k}")
-            loss.backward()
-            if perturb > 0:
-                with torch.no_grad():
-                    for p in params:
-                        if p.grad is not None:
-                            p.grad.mul_(
-                                1 + perturb * torch.randn(p.grad.shape, generator=noise).to(p.grad)
-                            )
-            norms.append(float(nn.utils.clip_grad_norm_(params, MAX_GRAD_NORM)))
-            opt.step()
-            losses.append(float(loss.detach()))
-            trajectory.append(problem.state(mods))
-    return {
-        "losses": losses,
-        "grad_norms": norms,
-        "trajectory": trajectory,
-        "snapshots": snaps,
-        "seconds": time.time() - started,
-    }
-
-
-def one_step(problem, snap, k, device, kind, backend, sgd_scale, recorder) -> dict[str, Any]:
-    with backend_context(backend), recorder.capture():
-        mods = problem.build(device, snap["state"])
-        named = problem.named_params(mods)
-        params = [p for _, p in named]
-        opt = problem.optimizer(params, kind, sgd_scale)
-        opt.load_state_dict(copy.deepcopy(snap["opt"]))
-        extra = clone_extra(snap["extra"])
-        opt.zero_grad()
-        loss = problem.step_loss(mods, k, extra, device)
-        loss.backward()
-        grads = {n: None if p.grad is None else p.grad.detach().cpu().clone() for n, p in named}
-        nn.utils.clip_grad_norm_(params, MAX_GRAD_NORM)
-        opt.step()
-        return {"loss": float(loss.detach()), "grads": grads, "state": problem.state(mods)}
+def _repo_from_argv(argv: list[str]) -> Path:
+    for i, arg in enumerate(argv):
+        if arg == "--repo" and i + 1 < len(argv):
+            return Path(argv[i + 1]).resolve()
+        if arg.startswith("--repo="):
+            return Path(arg.split("=", 1)[1]).resolve()
+    return REPO_DEFAULT
+
+
+# The shared fixtures and replica loops live in <repo>/tests (not a package).
+sys.path.insert(0, str(_repo_from_argv(sys.argv[1:]) / "tests"))
+from labor_parity_problems import PROBLEMS, Recorder, drift_all, one_step, run  # noqa: E402
+
+from anthropocene_rl.autonomous_v7.labor_device_parity import (  # noqa: E402
+    grad_compare,
+    rel,
+    repeat_check,
+    state_drift,
+)
 
 
 def key_metrics(d: dict[str, Any]) -> dict[str, Any]:
@@ -942,7 +212,9 @@ def diagnose(problem, args, cuda, recorder) -> dict[str, Any]:
             if backend == "default" and args.proxy_levels:
                 # CPU-only amplification proxy: same fit, gradients perturbed per step.
                 entry["cpu_perturbation_proxy"] = {}
-                for level in args.proxy_levels:
+                for mode, level in (
+                    (m, x) for m in ("multiplicative", "additive") for x in args.proxy_levels
+                ):
                     noisy = run(
                         problem,
                         cpu_dev,
@@ -952,9 +224,11 @@ def diagnose(problem, args, cuda, recorder) -> dict[str, Any]:
                         False,
                         recorder,
                         perturb=level,
+                        perturb_mode=mode,
                     )
                     d = drift_all(problem, noisy["trajectory"][-1], cpu["trajectory"][-1], init)
-                    entry["cpu_perturbation_proxy"][str(level)] = {
+                    tag = str(level) if mode == "multiplicative" else f"additive:{level}"
+                    entry["cpu_perturbation_proxy"][tag] = {
                         **key_metrics(d),
                         "max_step_loss_relative": max(
                             rel(x, y) for x, y in zip(noisy["losses"], cpu["losses"], strict=True)
@@ -1138,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--problems",
         default="critic,critic_monte_carlo,advantage,bc",
-        help=f"comma list from {sorted(PROBLEMS)}",
+        help="comma list from critic, critic_monte_carlo, advantage, bc",
     )
     parser.add_argument("--backends", default="default,math", help="SDPA: default and/or math")
     parser.add_argument(
@@ -1146,11 +420,6 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=10.0,
         help="SGD learning rate = fit learning rate x this (Adam steps are ~lr per element)",
-    )
-    parser.add_argument(
-        "--keep-native-jit",
-        action="store_true",
-        help="do not set TORCH_DISABLE_NATIVE_JIT=1 (BC then needs a C compiler)",
     )
     parser.add_argument(
         "--probe-native",
@@ -1176,7 +445,6 @@ def main(argv: list[str] | None = None) -> int:
     if set(args.backends) - {"default", "math"}:
         parser.error("backends must be default and/or math")
     repo = args.repo.resolve()
-    _fixtures(repo)
 
     from anthropocene_rl.autonomous_v7 import labor_device as ld
 

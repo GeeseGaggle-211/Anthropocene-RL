@@ -24,10 +24,38 @@ to be run-to-run reproducible on the same GPU model, driver and torch build,
 but this is not guaranteed for every kernel (``warn_only`` lets an op without
 a deterministic CUDA kernel run with a warning instead of failing). The r5
 determinism probe therefore uses :data:`CUDA_DETERMINISM_TOLERANCE`
-(approved, user 26 Oct) for CUDA repeats. CPU-versus-CUDA results are never
-expected to be bitwise equal; their parity is checked by
-``tests/test_labor_device.py`` at :data:`CROSS_DEVICE_STEP_TOLERANCE` for one
-forward/backward step and is not a gate.
+(approved, user 26 Oct) for CUDA repeats, compared with the plain per-tensor
+relative metric. On the L4 (driver 580, torch 2.14.1+cu130) repeats were
+bitwise for the critic, the A head and BC. If that gate ever fails, the remedy
+is to pin the deterministic attention kernel (``torch.nn.attention.sdpa_kernel(
+SDPBackend.MATH)`` around CUDA fits; the default memory-efficient SDPA backward
+is the kernel the "non-deterministic algorithm" warning names), never to loosen
+the tolerance: the plain metric is dominated by gauge parameters (below), so any
+nondeterminism shows up there at O(1) relative.
+
+Cross-device parity (``tests/test_labor_device.py``, not a training gate).
+CPU-versus-CUDA results are never expected to be bitwise equal. Checked:
+
+* one forward/backward step from the same state, at step 0 and at a
+  mid-trajectory step (the CPU trajectory's parameters, optimizer moments and
+  TD targets loaded on both devices): loss and global-L2 gradient relative
+  error within :data:`CROSS_DEVICE_STEP_TOLERANCE`;
+* after a short fit, the outputs on the fixture rows: per output,
+  ``max|f_cuda - f_cpu| / max|f_cpu - f_init|`` within
+  :data:`CROSS_DEVICE_OUTPUT_TOLERANCE` (``labor_device_parity.function_drift``).
+
+Per-tensor parameter drift is reported only. It is ill-posed across devices:
+gauge parameters (the attention key-projection bias, the A head's last bias
+under per-root centring) have exactly zero true gradient, and Adam turns their
+roundoff gradients into learning-rate-sized steps of arbitrary sign; Adam's
+sign-like early steps do the same to other elements whose gradients are
+roundoff-sized (``diag-proposal.md``).
+
+Native JIT kernels. torch 2.14 registers ``torch._native`` overrides (a Triton
+``aten::bmm`` outer-product kernel used by the actor's einsum backward) that
+compile with a C compiler at runtime; the GPU VM has none. Every CUDA fit must
+start Python with ``TORCH_DISABLE_NATIVE_JIT=1`` in its environment (torch reads
+it once, during ``import torch``); :func:`configure` refuses CUDA otherwise.
 """
 
 from __future__ import annotations
@@ -49,9 +77,38 @@ CPU_DETERMINISM_TOLERANCE = 1e-6
 # summation order may vary, ~1e-7 per step compounded through 50 Adam steps.
 CUDA_DETERMINISM_TOLERANCE = 1e-5
 CUDA_DETERMINISM_TOLERANCE_STATUS = "approved (user 26 Oct)"
-# Parity test only (not a gate): relative loss/gradient agreement of one fp32
-# forward/backward step on CPU and CUDA with TF32 disabled.
+# Parity test only (not a gate): relative loss and global-L2 gradient agreement of one
+# fp32 forward/backward step from the same state on CPU and CUDA with TF32 disabled.
 CROSS_DEVICE_STEP_TOLERANCE = 1e-4
+# Parity test only (not a gate): after a short fit, worst per-output change-relative
+# drift max|f_cuda - f_cpu| / max|f_cpu - f_init| on the fixture rows. Measured on the
+# L4: critic 1.5e-5, A head 2e-7, BC 1.5e-4 (diag-proposal.md).
+CROSS_DEVICE_OUTPUT_TOLERANCE = 1e-3
+NATIVE_JIT_ENV = "TORCH_DISABLE_NATIVE_JIT"
+
+
+def native_jit_status() -> dict[str, Any]:
+    """Whether torch._native registered runtime-compiled (JIT) kernel overrides.
+
+    ``registered`` maps each native DSL (triton, cutedsl, ...) to the aten ops it
+    overrides; empty when ``TORCH_DISABLE_NATIVE_JIT=1`` was set before ``import torch``,
+    when the DSL is not installed, or on a torch without ``torch._native``.
+    """
+    status: dict[str, Any] = {"env": os.environ.get(NATIVE_JIT_ENV), "registered": {}}
+    try:
+        from torch._native import registry
+        from torch._native.common_utils import check_native_jit_disabled
+        from torch._native.dsl_registry import dsl_registry
+    except ImportError:
+        status["torch_native"] = False
+        return status
+    status["torch_native"] = True
+    status["disabled"] = bool(check_native_jit_disabled())
+    for name in dsl_registry.list_all_dsls():
+        ops = list(registry.get_dsl_operations(name))
+        if ops:
+            status["registered"][name] = ops
+    return status
 
 
 def add_device_argument(parser: Any) -> None:
@@ -89,6 +146,15 @@ def configure(device: torch.device) -> dict[str, Any]:
     record: dict[str, Any] = {"device": str(device), "torch": torch.__version__}
     if device.type != "cuda":
         return record
+    native = native_jit_status()
+    if native["registered"]:
+        raise RuntimeError(
+            "torch._native registered runtime-compiled kernel overrides "
+            f"{native['registered']}; they build with a C compiler at first use, which the "
+            f"GPU VM does not have. Start Python with {NATIVE_JIT_ENV}=1 in the environment "
+            "(torch reads it once, during `import torch`; setting it later has no effect)."
+        )
+    record["native_jit"] = native
     # Must be set before the first cuBLAS handle is created in this process.
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     torch.backends.cudnn.deterministic = True

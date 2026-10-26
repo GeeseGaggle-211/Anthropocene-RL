@@ -1,9 +1,87 @@
 # CPU-vs-CUDA multi-step parity: diagnosis and proposed check
 
-Status: proposal for the co-architect. No test or tolerance has been changed.
-Evidence so far comes from CPU only: `tools/cuda_parity_diag.py`, run at
-51c139a on torch 2.14.1+cpu. The GPU run that confirms it is staged but has not
-been run.
+Status: the reviewer approved the proposal on 26 Oct after the GPU run, and it
+is implemented on `feature/r5-cuda-diag` (see "Implemented"). The CPU analysis
+that motivated it follows below, unchanged.
+
+## GPU results (26 Oct; L4, driver 580, torch 2.14.1+cu130)
+
+`tools/cuda_parity_diag.py --probe-native` ran at 51c139a, exit 0, 194 s.
+
+* **Critic and A head:** the hypothesis is confirmed.
+  * Output-space drift is at most 1.5e-5 (critic) and 2e-7 (A head).
+  * The teleported one-step loss differs by about 1e-6 and the global-L2
+    gradient by about 1e-5 at every step.
+  * The worst tensors are gauge tensors.
+* **CUDA repeats:** bitwise for all four problems, under both the default and
+  the MATH attention backend.
+* **Native JIT:** with `TORCH_DISABLE_NATIVE_JIT=1`, no Triton op is registered,
+  and the bmm probe passes with the variable set and fails without it.
+* **BC is the outlier.** Its worst plain drift is 8.2e-3, on a non-gauge tensor
+  (`attention.layers.1.linear1.weight`, update-relative 3.1e-2). Its output
+  drift is 1.5e-4 on `specialty_logits`, about 150 times the multiplicative CPU
+  proxy, and its step loss drifts by up to 1.7e-5. Its teleported steps are
+  clean: loss at most 2e-7, global gradient at most 1.6e-6.
+
+### BC trajectory sensitivity
+
+Every teleported BC step from the same state agrees to about 1e-7 in loss and
+about 1e-6 in global gradient. The drift therefore comes from following two
+trajectories, not from a kernel defect.
+
+It is also not a kink, a mask or a discrete branch. With SGD, the same GPU run
+gives output drift of 6e-6, and per-step parameter drift stays at about 4e-7,
+with no jump at any step. A crossed branch would show up under SGD as well, and
+as a teleport spike.
+
+The cause is Adam acting on gradient elements whose size is at the roundoff
+level:
+* On the first steps Adam's update is close to `lr * sign(g)` for every element
+  with |g| well above eps (1e-8).
+* Each teleported BC step has about 250 sign disagreements and about 500
+  elements whose CPU and CUDA gradients differ by more than 10%, out of 8e5
+  nonzero elements.
+* Each such element takes a step of plus or minus lr in a different direction on
+  each device. lr is 5e-3 here, five times the critic's.
+* After the first step the worst plain drift is already 5.4e-3.
+
+The multiplicative CPU proxy preserves signs, so it could not show this. An
+additive proxy can, and it reproduces the BC numbers on CPU. It adds
+`1e-7 * rms(g) * N(0,1)` to every nonzero gradient element, which flips the
+signs of roundoff-sized elements and leaves exact zeros at zero.
+
+| run (CPU, additive noise 1e-7) | update-relative drift, non-gauge | output drift | step loss drift |
+|---|---|---|---|
+| BC, Adam | 2.4e-2 (`local_activity_attention.layers.0.linear1.weight`) | 6.7e-5 | 1.9e-6 |
+| BC, SGD | 5e-4 | 3e-6 | 7e-8 |
+| critic, Adam | 1.7e-4 | 6.7e-6 | 9e-8 |
+
+The critic's outputs stay at 7e-6 under the same noise. The BC actor is more
+sensitive because of its larger learning rate and its many FFN weights with
+roundoff-sized gradients. BC's 1.5e-4 output drift is still 6.7 times below the
+1e-3 output gate.
+
+## Implemented (feature/r5-cuda-diag)
+
+* `tests/test_labor_device.py`:
+  * The one-step parity test is kept.
+  * A new teleported mid-trajectory step test covers the critic, the A head and
+    BC. It gates the loss and the global-L2 gradient at 1e-4; the worst-tensor
+    gradient error is printed only.
+  * The three multi-step per-tensor checks are replaced by an output-space check
+    on the fixture rows. The worst per-output change-relative drift must be at
+    most `CROSS_DEVICE_OUTPUT_TOLERANCE` = 1e-3. An output the fit left exactly
+    unchanged is held to 1e-4 plain relative instead.
+  * Parameter drift (plain, non-gauge, global L2) is printed (`-s`), not gated.
+  * The critic CUDA repeat stays on the approved 1e-5 plain compare.
+* `labor_device_parity.py` holds the metrics. `tests/labor_parity_problems.py`
+  holds the fixtures and replica loops, shared by the tests and the diagnostic.
+* `labor_device.configure(cuda)` raises if `torch._native` has registered JIT
+  kernels. `TORCH_DISABLE_NATIVE_JIT=1` is set in `tools/r5_critic_acceptance.sh`
+  and in `tools/g0launch.py` before `import torch`, and in the gpu-vm
+  `bootstrap.sh` and README.
+* The `labor_device` docstring now says that the remedy for a failing CUDA
+  determinism gate is pinning `SDPBackend.MATH`, never loosening the tolerance.
 
 ## What fails, and why (CPU evidence)
 

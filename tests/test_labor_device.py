@@ -6,24 +6,42 @@ r5 acceptance harness. The CPU-versus-CUDA parity tests are skipped when no
 GPU is present; on the GPU fitting VM they are the bootstrap smoke test:
 
 * one forward/backward step agrees within ``CROSS_DEVICE_STEP_TOLERANCE``
-  (relative, fp32, TF32 off) for the critics, the A head and the actor BC loss;
+  (relative, fp32, TF32 off) for the critics and the actor BC loss, at step 0 and,
+  "teleported", from the CPU trajectory's mid-fit state (parameters, Adam moments,
+  TD targets) for the critic, the A head and BC (loss and global-L2 gradient);
 * short CUDA fits (critic with stability monitor and TD refresh, A head, BC)
-  finish admitted, save CPU-only state and stay close to the CPU fit;
-* two identical CUDA critic fits agree within the PROPOSED
+  finish admitted, save CPU-only state and stay close to the CPU fit in output
+  space (``CROSS_DEVICE_OUTPUT_TOLERANCE``); parameter drift is printed, not gated;
+* two identical CUDA critic fits agree within the approved
   ``CUDA_DETERMINISM_TOLERANCE``.
+
+The CUDA tests need ``TORCH_DISABLE_NATIVE_JIT=1`` in the environment before Python
+starts (``labor_device.configure`` refuses CUDA otherwise); run them with ``-s`` to see
+the drift reports.
 """
 
 from __future__ import annotations
 
 import copy
+import json
 
 import numpy as np
 import pytest
 import torch
+from labor_parity_problems import (
+    PROBLEMS as PARITY_PROBLEMS,
+)
+from labor_parity_problems import (
+    AdvantageProblem,
+    BCProblem,
+    CriticProblem,
+    _bc_dataset,
+    _critic_pair,
+    teleport,
+)
 from test_labor_privileged_model import _layout
 from test_labor_qol_head import _training_dataset
 
-from anthropocene_rl.autonomous_v7 import contracts
 from anthropocene_rl.autonomous_v7 import labor_advantage as la
 from anthropocene_rl.autonomous_v7 import labor_device as ld
 from anthropocene_rl.autonomous_v7 import labor_r5_acceptance as ra
@@ -32,13 +50,14 @@ from anthropocene_rl.autonomous_v7.labor_bc import (
     pretrain_critic_on_dataset,
     pretrain_labor_actor_bc,
 )
+from anthropocene_rl.autonomous_v7.labor_device_parity import (
+    compact,
+    function_drift,
+    state_drift,
+)
 from anthropocene_rl.autonomous_v7.labor_model import (
-    LABOR_ACTIVITY_FEATURE_WIDTH,
-    LABOR_RESOURCE_FEATURE_WIDTH,
-    LABOR_SPECIALTY_FEATURE_WIDTH,
     LaborActor,
     LaborCostCritics,
-    LaborEncoderLayout,
     LaborQoLHead,
     LaborTaskCritic,
 )
@@ -139,13 +158,31 @@ def test_cli_parsers_accept_device() -> None:
     )
     assert critic.device == "cpu"
     critic = parser.parse_args(
-        ["pretrain-critic", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
-         "--device", "cuda"]
+        [
+            "pretrain-critic",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o.pt",
+            "--device",
+            "cuda",
+        ]
     )
     assert critic.device == "cuda"
     bc = parser.parse_args(
-        ["pretrain-bc", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
-         "--device", "auto"]
+        [
+            "pretrain-bc",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o.pt",
+            "--device",
+            "auto",
+        ]
     )
     assert bc.device == "auto"
     fit = la.argument_parser().parse_args(
@@ -153,8 +190,25 @@ def test_cli_parsers_accept_device() -> None:
     )
     assert fit.device == "cuda"
     evaluate = ra.argument_parser().parse_args(
-        ["evaluate", "--arm", "a", "--seed", "0", "--checkpoint", "c", "--advantage", "a",
-         "--calibration-data", "d", "--reserved-payloads", "r", "--out", "o", "--device", "cuda"]
+        [
+            "evaluate",
+            "--arm",
+            "a",
+            "--seed",
+            "0",
+            "--checkpoint",
+            "c",
+            "--advantage",
+            "a",
+            "--calibration-data",
+            "d",
+            "--reserved-payloads",
+            "r",
+            "--out",
+            "o",
+            "--device",
+            "cuda",
+        ]
     )
     assert evaluate.device == "cuda"
 
@@ -163,8 +217,17 @@ def test_game_bound_collection_refuses_a_gpu(tmp_path) -> None:
     from anthropocene_rl.autonomous_v7 import labor_training as lt
 
     args = lt.argument_parser().parse_args(
-        ["pretrain-critic", "--checkpoint", str(tmp_path / "missing.pt"), "--worlds", "90100",
-         "--out", str(tmp_path / "o.pt"), "--device", "cuda"]
+        [
+            "pretrain-critic",
+            "--checkpoint",
+            str(tmp_path / "missing.pt"),
+            "--worlds",
+            "90100",
+            "--out",
+            str(tmp_path / "o.pt"),
+            "--device",
+            "cuda",
+        ]
     )
     with pytest.raises((RuntimeError, ValueError)):
         lt._command_pretrain_critic(args)
@@ -208,13 +271,38 @@ def _relative(a: torch.Tensor, b: torch.Tensor) -> float:
     return float((a - b).abs().max() / a.abs().max().clamp_min(1e-12))
 
 
-def _critic_pair(seed: int = 0, target: str = "td-lambda"):
-    torch.manual_seed(seed)
-    task = LaborTaskCritic(
-        _layout(False), width=16, token_width=16, qol_head=LaborQoLHead(target=target)
+def _report_and_check_drift(label, problem, cpu_state, gpu_state) -> None:
+    """Gate the short fit in output space; report parameter drift (plain, non-gauge, global).
+
+    Per-tensor parameter drift is not gated: gauge parameters (attention key bias, the A
+    head's last bias) have zero true gradient and Adam turns their roundoff gradients into
+    lr-sized steps of arbitrary sign (labor_device module docstring, diag-proposal.md).
+    """
+    init_state = problem.state(problem.modules())
+    params = state_drift(gpu_state, cpu_state, init_state, problem.gauge)
+    outputs = function_drift(
+        problem.outputs(gpu_state), problem.outputs(cpu_state), problem.outputs(init_state)
     )
-    costs = LaborCostCritics(_layout(False), width=16, token_width=16)
-    return task, costs
+    print(
+        f"[device-parity] {label} "
+        + json.dumps(
+            {
+                "parameters (reported, not gated)": {
+                    "worst_plain": params["worst_plain"],
+                    "worst_plain_non_gauge": params["worst_plain_non_gauge"],
+                    "worst_update_non_gauge": params["worst_update_non_gauge"],
+                    "global_l2_relative": params["global_l2_relative"],
+                    "global_l2_update_relative": params["global_l2_update_relative"],
+                },
+                "outputs": compact(outputs),
+            },
+            default=str,
+        )
+    )
+    worst = outputs["worst_change_relative"]
+    assert worst["value"] is not None and worst["value"] <= ld.CROSS_DEVICE_OUTPUT_TOLERANCE, worst
+    unmoved = outputs["worst_unmoved_plain"]
+    assert unmoved["value"] <= ld.CROSS_DEVICE_STEP_TOLERANCE, unmoved
 
 
 @needs_cuda
@@ -251,6 +339,23 @@ def test_critic_step_parity_cpu_vs_cuda() -> None:
                 assert _relative(p.grad, q.grad) <= 10 * ld.CROSS_DEVICE_STEP_TOLERANCE, name
 
 
+@needs_cuda
+@pytest.mark.parametrize("name", ["critic", "advantage", "bc"])
+def test_teleported_mid_trajectory_step_parity(name: str) -> None:
+    """One step from the CPU trajectory's mid-fit state (parameters, Adam moments, TD
+    targets) on both devices: loss and global-L2 gradient within the one-step tolerance.
+    Separates kernel error from trajectory divergence; the worst-tensor gradient error is
+    reported only (it is dominated by gauge tensors whose true gradient is zero)."""
+    cuda = ld.setup("cuda")
+    problem = PARITY_PROBLEMS[name]()
+    step = problem.steps // 2
+    result = teleport(problem, step, cuda)
+    print(f"[device-parity] teleport {name} " + json.dumps(result, default=str))
+    assert "error" not in result, result
+    assert result["loss_relative"] <= ld.CROSS_DEVICE_STEP_TOLERANCE, result
+    assert result["global_l2_relative"] <= ld.CROSS_DEVICE_STEP_TOLERANCE, result
+
+
 def _short_critic_fit(device: torch.device, resume=None):
     task, costs = _critic_pair()
     task.to(device)
@@ -270,7 +375,10 @@ def _short_critic_fit(device: torch.device, resume=None):
     )
     task.to("cpu")
     costs.to("cpu")
-    return summary, {**task.state_dict(), **{f"c.{k}": v for k, v in costs.state_dict().items()}}
+    return summary, {
+        **{f"task.{k}": v for k, v in task.state_dict().items()},
+        **{f"cost.{k}": v for k, v in costs.state_dict().items()},
+    }
 
 
 @needs_cuda
@@ -282,13 +390,9 @@ def test_critic_fit_on_cuda_is_close_to_cpu_and_repeatable(tmp_path) -> None:
     assert summary["stability"]["checks"]["finite_updates"]["status"] == "PASS"
     _assert_all_cpu(torch.load(tmp_path / "r.pt", weights_only=True))
     assert all(v.device.type == "cpu" for v in gpu_state.values())
-    # Nine Adam steps: cross-device drift stays small (not a gate, fp32 reassociation only).
-    worst = max(
-        _relative(cpu_state[k], gpu_state[k])
-        for k in cpu_state
-        if cpu_state[k].is_floating_point()
-    )
-    assert worst <= 1e-3
+    # Nine Adam steps: output-space parity (parameter drift reported, not gated).
+    _report_and_check_drift("critic fit", CriticProblem("td-lambda"), cpu_state, gpu_state)
+    # The approved CUDA determinism gate, unchanged (plain per-tensor compare).
     repeat = ra.compare_state_dicts(gpu_state, gpu_again)
     assert repeat["bitwise"] or repeat["max_relative"] <= ld.CUDA_DETERMINISM_TOLERANCE
 
@@ -301,13 +405,26 @@ def test_critic_resume_crosses_devices(tmp_path) -> None:
     data = _training_dataset()
     data["collection"] = dict(data["collection"], dataset_digest="fixture")
     pretrain_critic_on_dataset(
-        task_critic=task.to(cuda), cost_critics=costs.to(cuda), dataset=data, epochs=3,
-        batch_size=2, rng=np.random.default_rng(7), max_steps=4, resume_path=path, resume_every=2,
+        task_critic=task.to(cuda),
+        cost_critics=costs.to(cuda),
+        dataset=data,
+        epochs=3,
+        batch_size=2,
+        rng=np.random.default_rng(7),
+        max_steps=4,
+        resume_path=path,
+        resume_every=2,
     )
     task_b, costs_b = _critic_pair()  # resumed on CPU from a CUDA-written state
     summary = pretrain_critic_on_dataset(
-        task_critic=task_b, cost_critics=costs_b, dataset=data, epochs=3, batch_size=2,
-        rng=np.random.default_rng(7), resume_path=path, resume_every=2,
+        task_critic=task_b,
+        cost_critics=costs_b,
+        dataset=data,
+        epochs=3,
+        batch_size=2,
+        rng=np.random.default_rng(7),
+        resume_path=path,
+        resume_every=2,
     )
     assert summary["stability"]["steps"] == 9
 
@@ -329,56 +446,17 @@ def test_advantage_fit_parity_cpu_vs_cuda() -> None:
             for p in module.parameters():
                 p.requires_grad_(False)
         head, summary = la.fit_advantage_head(
-            task, costs, la.parse_candidate_shard(shard), config,
+            task,
+            costs,
+            la.parse_candidate_shard(shard),
+            config,
             stability=StabilityConfig(log_every=1),
         )
         assert summary["stability"]["checks"]["finite_updates"]["status"] == "PASS"
         assert summary["stability"]["checks"]["frozen_gradients_zero"]["status"] == "PASS"
-        heads.append(head.to("cpu").state_dict())
-    worst = max(
-        _relative(heads[0][k], heads[1][k]) for k in heads[0] if heads[0][k].abs().max() > 0
-    )
-    assert worst <= 1e-3
-
-
-def _bc_dataset(rows: int = 32, core_dim: int = 15):
-    torch.manual_seed(5)
-    target_specialty = torch.zeros(rows, 14)
-    target_specialty[:, 1], target_specialty[:, 2] = 0.8, 0.2
-    target_activity = torch.zeros(rows, 13, 22)
-    target_activity[:, 0, 1] = 1.0
-    target_activity[:, 1, 5] = 1.0
-    target_activity[:, 2:, 0] = 1.0
-    dataset = {
-        "core": torch.randn(rows, core_dim),
-        "labor_personality": torch.full((rows, 2), 0.5),
-        "movement_mask": torch.ones(rows, 8, dtype=torch.bool),
-        "region_movement_mask": torch.ones(rows, 10, dtype=torch.bool),
-        "labor_specialty_features": torch.randn(rows, 14, LABOR_SPECIALTY_FEATURE_WIDTH),
-        "labor_specialty_present": torch.ones(rows, 14, dtype=torch.bool),
-        "labor_specialty_mask": torch.ones(rows, 14, dtype=torch.bool),
-        "labor_activity_features": torch.randn(rows, 13 * 22, LABOR_ACTIVITY_FEATURE_WIDTH),
-        "labor_activity_present": torch.ones(rows, 13 * 22, dtype=torch.bool),
-        "labor_activity_mask": torch.ones(rows, 13, 22, dtype=torch.bool),
-        "labor_resource_features": torch.randn(rows, 20, LABOR_RESOURCE_FEATURE_WIDTH),
-        "labor_resource_present": torch.ones(rows, 20, dtype=torch.bool),
-        "target_specialty": target_specialty,
-        "target_activity": target_activity,
-        "target_movement_code": torch.full((rows,), -1, dtype=torch.long),
-        "target_fission": torch.zeros(rows, dtype=torch.long),
-        "target_trade_value_latent": torch.zeros(rows, 7),
-        "target_trade_gate": torch.ones(rows, 7, dtype=torch.long),
-        "target_trade_share_latent": torch.zeros(rows),
-        "collection": {"total_decisions": rows, "initial_accepted": rows},
-    }
-    for name, count, columns in contracts.SETS:
-        dataset[name] = torch.randn(rows, count, columns)
-        dataset[name + "_present"] = torch.ones(rows, count, dtype=torch.bool)
-    layout = LaborEncoderLayout(
-        core_dim, LABOR_SPECIALTY_FEATURE_WIDTH, LABOR_ACTIVITY_FEATURE_WIDTH,
-        LABOR_RESOURCE_FEATURE_WIDTH,
-    )
-    return layout, dataset
+        heads.append({f"head.{k}": v for k, v in head.to("cpu").state_dict().items()})
+    # Output space: the centred A on every fixture candidate.
+    _report_and_check_drift("advantage fit", AdvantageProblem(), heads[0], heads[1])
 
 
 @needs_cuda
@@ -397,14 +475,15 @@ def test_bc_parity_cpu_vs_cuda() -> None:
     states = []
     for model in (actor, actor_g):
         summary = pretrain_labor_actor_bc(
-            actor=model, dataset=dataset, epochs=3, batch_size=16, lr=5e-3,
-            rng=np.random.default_rng(3), stability=StabilityConfig(log_every=1),
+            actor=model,
+            dataset=dataset,
+            epochs=3,
+            batch_size=16,
+            lr=5e-3,
+            rng=np.random.default_rng(3),
+            stability=StabilityConfig(log_every=1),
         )
         assert summary["stability"]["checks"]["finite_updates"]["status"] == "PASS"
-        states.append({k: v.detach().cpu() for k, v in model.state_dict().items()})
-    worst = max(
-        _relative(states[0][k], states[1][k])
-        for k in states[0]
-        if states[0][k].is_floating_point() and states[0][k].abs().max() > 0
-    )
-    assert worst <= 1e-3
+        states.append({f"actor.{k}": v.detach().cpu() for k, v in model.state_dict().items()})
+    # Output space: the actor's logits on every fixture row.
+    _report_and_check_drift("bc fit", BCProblem(), states[0], states[1])

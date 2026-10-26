@@ -23,7 +23,8 @@
 #   ADVANTAGE_EPOCHS=50  RESUME_EVERY=100  DETERMINISM_STEPS=50  PYTHON=python3
 #   CONTINUATIONS=0  EXTRA="..." (passed through to labor_r5_acceptance run)
 #   DEVICE=cpu (cuda on the GPU fitting VM: critic, A fit, evaluate and determinism probes
-#   run on the GPU; JOBS fits share it, THREADS is then the host threads per fit)
+#   run on the GPU; JOBS fits share it, THREADS is then the host threads per fit;
+#   TORCH_DISABLE_NATIVE_JIT=1 is exported below for every fit)
 #   SCENARIOS=0       1: FIT_DATA also lists curated scenario fitting sets (labor_scenarios)
 #   SCENARIO_CAL_DATA calibration scenario set (report-only per-family calibration)
 #   FAMILY_WEIGHTS    pretrain-critic --family-weights (e.g. default; proposed values)
@@ -56,6 +57,10 @@ if [ "$cores" -gt 0 ] && [ $((JOBS * THREADS)) -gt "$cores" ]; then
 fi
 
 mkdir -p "$OUT"
+# CUDA fits: torch 2.14's torch._native Triton kernels need a C compiler the GPU VM lacks;
+# this switch (read once at `import torch`, inherited by every fit subprocess) keeps them
+# unregistered. Harmless on CPU. labor_device.configure refuses CUDA without it.
+export TORCH_DISABLE_NATIVE_JIT=1
 export PYTHONPATH="$here/src${PYTHONPATH:+:$PYTHONPATH}"
 args=(
   --normalizer-checkpoint "$NORMALIZER"

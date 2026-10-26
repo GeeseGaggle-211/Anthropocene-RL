@@ -9,6 +9,11 @@ import os
 import sys
 import time
 
+# CUDA fits (--device cuda): keep torch 2.14's runtime-compiled torch._native kernels
+# unregistered (they need a C compiler the GPU VM lacks). Read once at `import torch`, so
+# it must be set first; labor_device.configure refuses CUDA without it. No effect on CPU.
+os.environ["TORCH_DISABLE_NATIVE_JIT"] = "1"
+
 import torch
 
 SAVE_EVERY = int(os.environ.get("G0_SAVE_EVERY", "250"))
