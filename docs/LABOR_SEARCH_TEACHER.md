@@ -145,7 +145,10 @@ focal camp holds the course for `--plan-steps P` (default 3) decisions; each lat
 action at the state the plan reached, natively validated, and replaced by H12 (recorded as a `fallback`)
 when it cannot be built or is rejected. H12 continues after P. Every plan also gets a **paired control**:
 the same first step, then H12 from decision 2. Plan and control share the root fork, the first step and the
-stream's dither draws, and run on stream 0 and every re-evaluation stream to `max(final horizon, P)`.
+stream's dither draws, and run on stream 0 and every re-evaluation stream to `max(final horizon, P + 1)`
+(a decision's reward is credited on its own transition, so the last plan step needs one later decision to
+show). Templates not constructible at the root (e.g. Farmer or Herder illegal at the site) are listed in
+`plan_unavailable`.
 
 Both rows go into the candidate payload after the first-action candidates (families `plan` and
 `plan-control`, fields `plan_id`, `plan_role` = `plan` / `first-step-control`, `plan_steps`, `step_returns`
@@ -154,7 +157,7 @@ enter halving or the labels, and `labor_advantage.parse_candidate_shard` keeps t
 the first-action pairs. Old shards parse unchanged. Scoring A's first-step prediction against the plan and
 control values belongs to `labor_r5_trajectory`.
 
-Cost per plan: `(S + 1) x (4H - 3)` resolves with H = `max(final horizon, P)` and S re-evaluation streams
+Cost per plan: `(S + 1) x (4H - 3)` resolves with H = `max(final horizon, P + 1)` and S re-evaluation streams
 (the first step is shared), plus one validation per later plan step.
 
 ## Resume after preemption

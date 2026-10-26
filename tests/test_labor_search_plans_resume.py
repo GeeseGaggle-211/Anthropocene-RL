@@ -119,6 +119,19 @@ def test_plan_specs_are_keyed_and_bounded() -> None:
     assert all(s.plan_id.endswith("/P2") for s in every)
 
 
+def test_unconstructible_templates_are_recorded() -> None:
+    catalog = _catalog()
+    base = _base_payload(catalog)
+    counts, activity = labor_state(base, catalog)
+    counts = counts.copy()
+    counts[S["Farmer"]] += counts[S["Gatherer"]] - 5  # only 5 Gatherers left; 10% is 10
+    counts[S["Gatherer"]] = 5
+    few = labor_search.compose_payload(base, catalog, counts=counts, activity=activity)
+    unavailable: list[str] = []
+    assert plan_specs(few, catalog, count=3, steps=3, key=[1], unavailable=unavailable) == []
+    assert sorted(unavailable) == sorted(PLAN_TEMPLATES)
+
+
 def test_plan_budget_counts_toward_m() -> None:
     assert SearchConfig(candidates=16, plan_candidates=2).single_budget == 12
     with pytest.raises(ValueError, match="candidate budget"):
@@ -204,7 +217,8 @@ def test_search_root_exports_plans_with_paired_controls() -> None:
     assert len(singles) <= config.single_budget == 6 and len(rows) <= config.candidates
     assert len(plans) == 4 and [c["index"] for c in rows] == list(range(len(rows)))
     assert rows[len(singles):] == plans  # plan rows follow every first-action candidate
-    assert record["plan_candidates"] == 2 and record["plan_horizon"] == 3  # max(final 2, P 3)
+    assert record["plan_candidates"] == 2 and record["plan_horizon"] == 4  # max(final 2, P 3 + 1)
+    assert record["plan_unavailable"] == []
     for plan, control in zip(plans[::2], plans[1::2], strict=True):
         assert plan["plan_role"] == "plan" and control["plan_role"] == "first-step-control"
         assert plan["family"] == "plan" and control["family"] == "plan-control"
@@ -220,10 +234,10 @@ def test_search_root_exports_plans_with_paired_controls() -> None:
         assert sorted(plan["step_returns"]) == ["0", "1", "2"]
         for s in ("0", "1", "2"):
             p, c = plan["step_returns"][s], control["step_returns"][s]
-            assert len(p) == len(c) == 3 and p[0] == c[0] and p[1] != c[1]
+            assert len(p) == len(c) == 4 and p[0] == c[0] and p[1] != c[1]
         streams = sorted({e["stream"] for e in plan["evaluations"]})
         assert streams == [0, 1, 2]
-        assert sorted(e["horizon"] for e in plan["evaluations"] if e["stream"] == 0) == [1, 2, 3]
+        assert sorted(e["horizon"] for e in plan["evaluations"] if e["stream"] == 0) == [1, 2, 4]
     # Every executed focal action (plan and control, every stream) conserves and the
     # control executes H12 after the shared first step.
     control_rows = {c["index"] for c in plans if c["plan_role"] == "first-step-control"}

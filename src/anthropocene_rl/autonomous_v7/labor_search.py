@@ -1025,8 +1025,13 @@ def plan_specs(
     count: int,
     steps: int,
     key: Sequence[int],
+    unavailable: list[str] | None = None,
 ) -> list[PlanSpec]:
-    """Up to ``count`` constructible plans in a keyed template order."""
+    """Up to ``count`` constructible plans in a keyed template order.
+
+    Templates that cannot be built at this root (e.g. Farmer or Herder illegal at
+    the site, too few Gatherers) are appended to ``unavailable`` when given.
+    """
     if count <= 0:
         return []
     population = int(catalog.population)
@@ -1036,11 +1041,11 @@ def plan_specs(
         if len(out) >= count:
             break
         built = plan_step_payload(template, 0, base, catalog, amount=amount)
-        if built is None:
+        if built is None or payload_digest(built[0]) == payload_digest(base):
+            if unavailable is not None:
+                unavailable.append(template)
             continue
         payload, description = built
-        if payload_digest(payload) == payload_digest(base):
-            continue
         spec = SPECIALTIES.index(PLAN_SPECIALTY[template])
         anchor = int(labor_state(payload, catalog)[0][spec])
         out.append(
@@ -1575,8 +1580,12 @@ def evaluate_plan(
     founded: Mapping[int, int],
     society: int,
     rows: tuple[int, int],
+    catalog: LaborCatalog,
 ) -> dict[str, Any]:
     """Run one plan and its paired first-step control on each stream.
+
+    ``catalog`` is the focal camp's root catalog (the bridge may sit at any
+    branch state when this is called).
 
     Both share the root fork, the first step (executed once per stream, then
     forked) and the stream's dither draws for every other camp. The plan holds
@@ -1587,7 +1596,7 @@ def evaluate_plan(
     first_entry = _step_entry(
         0,
         spec.first.payload,
-        native.catalogs()[focal],
+        catalog,
         spec.first.description,
         valid=True,
         fallback=None,
@@ -1889,10 +1898,19 @@ def search_root(
 
     # 1a. T2 plans: keyed templates, first step natively validated at the root. Plan
     # and control rows are reserved from M and never enter halving or the labels.
+    # Every constructible template in keyed order; the first N natively valid are kept.
     plans: list[PlanSpec] = []
+    plan_unavailable: list[str] = []
     for spec in plan_specs(
-        h12.action, catalog, count=config.plan_candidates, steps=config.plan_steps, key=key
+        h12.action,
+        catalog,
+        count=len(PLAN_TEMPLATES) if config.plan_candidates else 0,
+        steps=config.plan_steps,
+        key=key,
+        unavailable=plan_unavailable,
     ):
+        if len(plans) >= config.plan_candidates:
+            break
         attempt = native.validate(focal, spec.first.payload)
         if attempt.valid:
             plans.append(spec)
@@ -2054,10 +2072,12 @@ def search_root(
             }
 
     # 3b. T2 plans and their paired first-step controls on every stream (0 and the
-    # re-evaluation streams, common random numbers with H12), to max(final, P).
+    # re-evaluation streams, common random numbers with H12), to max(final, P + 1):
+    # a decision's reward is credited on its own transition from the prior state, so
+    # the last plan step needs one H12 decision after it to show in the returns.
     plan_started = time.perf_counter()
     plan_before = native.work.resolves
-    plan_horizon = max(int(final_h), int(config.plan_steps))
+    plan_horizon = max(int(final_h), int(config.plan_steps) + 1)
     plan_results = [
         evaluate_plan(
             native,
@@ -2071,6 +2091,7 @@ def search_root(
             founded=founded,
             society=int(village["society"]),
             rows=(n + 2 * j, n + 2 * j + 1),
+            catalog=catalog,
         )
         for j, spec in enumerate(plans)
     ]
@@ -2231,6 +2252,7 @@ def search_root(
         "plan_candidates": len(plans),
         "plan_steps": int(config.plan_steps),
         "plan_horizon": int(plan_horizon) if plans else None,
+        "plan_unavailable": list(plan_unavailable),
     }
     root_payload = {
         "record": root_record,
@@ -2285,6 +2307,7 @@ def search_root(
         "final_horizon": final_h,
         "truncated_by_resolve_cap": truncated,
         "decisions": decisions,
+        "plan_unavailable": list(plan_unavailable),
         "plans": [
             plan_table(spec, result) for spec, result in zip(plans, plan_results, strict=True)
         ],

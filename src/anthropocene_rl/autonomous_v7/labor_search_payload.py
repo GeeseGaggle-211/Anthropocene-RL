@@ -67,7 +67,7 @@ Shard (``labor-advantage-candidates-v1`` fields, then exporter extensions):
   ``first-step-control`` row (family ``plan-control``: the same first step, then
   H12 from decision 2). Both carry the shared first step as ``action`` and are
   evaluated on stream 0 at every declared horizon up to the root's
-  ``plan_horizon`` = max(final horizon, P) and on streams 1..S at
+  ``plan_horizon`` = max(final horizon, P + 1) and on streams 1..S at
   ``plan_horizon``, with common random numbers shared with each other and with
   the root's candidates. Fields: ``plan_id``, ``plan_role`` (``plan`` /
   ``first-step-control``), ``plan_template``, ``plan_length``, ``plan_steps``
@@ -78,7 +78,8 @@ Shard (``labor-advantage-candidates-v1`` fields, then exporter extensions):
   step 0), ``plan_continuation`` (``h12``), ``plan_step_digests`` and
   ``plan_fallbacks`` per stream, ``step_returns`` and ``step_years_by_stream``
   ({stream: per-step raw rewards [4] / years}). Roots record
-  ``plan_candidates``, ``plan_steps`` and ``plan_horizon``. First-action readers
+  ``plan_candidates``, ``plan_steps``, ``plan_horizon`` and ``plan_unavailable``
+  (templates not constructible at the root). First-action readers
   (``labor_advantage.parse_candidate_shard``) keep plan rows apart in
   ``Root.plans``.
 """
