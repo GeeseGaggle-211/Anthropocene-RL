@@ -91,6 +91,14 @@ One shard is a ``torch.save``-d dict loadable with ``weights_only=True``::
       ]
     }
 
+Optional T2 plan rows (``labor_search --plan-candidates``) follow every
+first-action candidate and carry ``plan_id``, ``plan_role`` (``plan`` or
+``first-step-control``), ``plan_steps`` (the executed focal action per step) and
+``step_returns`` ({stream: [[4] per step]}); their ``action`` is the shared first
+step. They are parsed into ``Root.plans`` and never paired as first-action
+candidates (a plan's return is not a forced-first-action-then-H12 return).
+Shards without plan rows parse unchanged.
+
 An evaluation with ``reached_horizon < horizon`` and ``terminated`` false is a
 truncated branch and is ignored. Pair SE precedence: paired re-evaluation
 streams (both candidates, >= 2 shared streams >= 1), else per-evaluation ``se``
@@ -143,6 +151,8 @@ RETURNS_UNITS = "raw-discounted-component-return"
 COMPONENTS = (*LABOR_OBJECTIVES, *LABOR_COSTS)
 REFERENCE_SCALES = {**LABOR_OBJECTIVE_REFERENCE_SCALES, **LABOR_COST_REFERENCE_SCALES}
 CONTROLS = ("all-idle", "delayed-benefit")
+# T2 plan rows (labor_search): parsed into Root.plans, never first-action candidates.
+PLAN_ROLES = ("plan", "first-step-control")
 
 # Keyed-stream tags.
 SPLIT_TAG = 0x4153  # "AS": world split
@@ -773,6 +783,11 @@ class CandidateRecord:
     control: str | None
     twin: int | None
     evaluations: dict[tuple[int, int], Evaluation]
+    # T2 plan fields (labor_search --plan-candidates); None for first-action candidates.
+    plan_id: str | None = None
+    plan_role: str | None = None  # "plan" | "first-step-control"
+    plan_steps: list[dict[str, Any]] | None = None
+    step_returns: dict[int, np.ndarray] | None = None  # stream -> [steps, 4] raw rewards
 
 
 @dataclass
@@ -788,6 +803,9 @@ class Root:
     pair_sd: dict[int, np.ndarray]
     candidates: list[CandidateRecord]
     shard: int = 0
+    # T2 plan rows (plan and paired first-step control): diagnostic, never paired as
+    # first-action candidates. Their ``index`` is their position in the raw row list.
+    plans: list[CandidateRecord] = field(default_factory=list)
 
     @property
     def h12(self) -> int:
@@ -895,6 +913,7 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
             for h, v in (raw.get("pair_sd") or {}).items()
         }
         candidates = []
+        plans: list[CandidateRecord] = []
         raw_candidates = raw.get("candidates") or []
         for i, cand in enumerate(raw_candidates):
             clabel = f"{label} candidate {i}"
@@ -927,24 +946,42 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
                     None if se is None else _returns(se, f"{clabel} se"),
                 )
             action = dict(cand["action"])
-            candidates.append(
-                CandidateRecord(
-                    i,
-                    str(cand.get("family", "")),
-                    bool(cand["is_h12"]),
-                    str(cand.get("digest", "")),
+            plan_role = cand.get("plan_role")
+            if plan_role is not None and plan_role not in PLAN_ROLES:
+                raise ValueError(f"{clabel} plan_role must be one of {PLAN_ROLES}")
+            if plan_role is None and plans:
+                raise ValueError(f"{clabel}: plan rows must follow every first-action candidate")
+            if plan_role is not None and (bool(cand["is_h12"]) or not cand.get("plan_id")):
+                raise ValueError(f"{clabel}: a plan row needs a plan_id and cannot be H12")
+            record = CandidateRecord(
+                i,
+                str(cand.get("family", "")),
+                bool(cand["is_h12"]),
+                str(cand.get("digest", "")),
+                action,
+                action_features(
                     action,
-                    action_features(
-                        action,
-                        specialty_ids=specialty_ids,
-                        activity_ids=activity_ids,
-                        trade_groups=trade_groups,
-                    ),
-                    control,
-                    twin,
-                    evaluations,
-                )
+                    specialty_ids=specialty_ids,
+                    activity_ids=activity_ids,
+                    trade_groups=trade_groups,
+                ),
+                control,
+                twin,
+                evaluations,
             )
+            if plan_role is None:
+                candidates.append(record)
+                continue
+            record.plan_id = str(cand["plan_id"])
+            record.plan_role = str(plan_role)
+            record.plan_steps = [dict(s) for s in cand.get("plan_steps") or []]
+            record.step_returns = {
+                _int(int(s), f"{clabel} step_returns stream"): np.asarray(
+                    v, dtype=np.float64
+                ).reshape(-1, len(COMPONENTS))
+                for s, v in (cand.get("step_returns") or {}).items()
+            }
+            plans.append(record)
         if sum(c.is_h12 for c in candidates) != 1:
             raise ValueError(f"{label} must have exactly one H12 candidate")
         roots.append(
@@ -960,6 +997,7 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
                 pair_sd,
                 candidates,
                 shard_index,
+                plans,
             )
         )
     return CandidateSet(

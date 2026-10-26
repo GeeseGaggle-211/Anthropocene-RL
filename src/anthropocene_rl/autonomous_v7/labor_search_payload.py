@@ -61,6 +61,26 @@ Shard (``labor-advantage-candidates-v1`` fields, then exporter extensions):
   Each: ``horizon``, ``reached_horizon``, ``terminated``, ``stream``,
   ``returns`` [4], ``step_years``, ``se`` (None; paired SEs come from shared
   streams).
+* T2 plan rows (``--plan-candidates N``, after every first-action candidate):
+  per plan a ``plan`` row (family ``plan``: the focal camp holds the plan's
+  course for ``plan_length`` decisions, then H12) and its paired
+  ``first-step-control`` row (family ``plan-control``: the same first step, then
+  H12 from decision 2). Both carry the shared first step as ``action`` and are
+  evaluated on stream 0 at every declared horizon up to the root's
+  ``plan_horizon`` = max(final horizon, P) and on streams 1..S at
+  ``plan_horizon``, with common random numbers shared with each other and with
+  the root's candidates. Fields: ``plan_id``, ``plan_role`` (``plan`` /
+  ``first-step-control``), ``plan_template``, ``plan_length``, ``plan_steps``
+  (stream 0: per step ``step``, ``action``, ``digest``, ``description``,
+  ``valid``, ``fallback`` (None, or ``h12:<reason>`` when the step was not
+  constructible or natively rejected and H12 ran), ``conserves``,
+  ``specialty_counts``, ``population``, ``same_as_h12``; the control lists only
+  step 0), ``plan_continuation`` (``h12``), ``plan_step_digests`` and
+  ``plan_fallbacks`` per stream, ``step_returns`` and ``step_years_by_stream``
+  ({stream: per-step raw rewards [4] / years}). Roots record
+  ``plan_candidates``, ``plan_steps`` and ``plan_horizon``. First-action readers
+  (``labor_advantage.parse_candidate_shard``) keep plan rows apart in
+  ``Root.plans``.
 """
 
 from __future__ import annotations
@@ -300,6 +320,7 @@ def write_candidate_shard(path: Path, shard: Mapping[str, Any]) -> dict[str, Any
         "roots": len(roots),
         "candidates": sum(len(r["candidates"]) for r in roots),
         "evaluations": sum(len(c["evaluations"]) for r in roots for c in r["candidates"]),
+        "plan_rows": sum(1 for r in roots for c in r["candidates"] if c.get("plan_role")),
     }
 
 

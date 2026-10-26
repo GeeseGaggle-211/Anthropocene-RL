@@ -33,6 +33,15 @@ probability ``dither_probability``. A stream's draws are keyed by (world,
 root, focal, stream, step, camp), so the winner and H12 see common random
 numbers. The focal camp's first action is never dithered.
 
+T2 plans (``--plan-candidates``, diagnostic): per root, keyed multi-decision
+courses held by the focal camp for ``--plan-steps`` decisions, each with a paired
+first-step control (same first step, then H12). They count toward M, never enter
+halving or the labels, and are exported as plan rows of the candidate payload.
+
+``--resume`` continues a preempted output: verified world shards are kept,
+partial worlds are redone into fresh shards, a changed source record is refused,
+and dataset.json is published only once every world is complete.
+
 Selected labels are "best found within the search specification", never
 "optimal". Forced-first-action finite-window returns live in the candidate
 table; they are not policy V returns.
@@ -116,7 +125,17 @@ FAMILIES = (
     "control-idle",
     "control-delayed",
     "control-twin",
+    # T2 multi-decision plans (diagnostic): the plan and its paired first-step control.
+    "plan",
+    "plan-control",
 )
+PLAN_FAMILY = "plan"
+PLAN_CONTROL_FAMILY = "plan-control"
+PLAN_ROLES = ("plan", "first-step-control")
+# Plan templates: a coherent course held for P decisions by the focal camp.
+PLAN_TEMPLATES = ("farm-expand", "housing-grow", "start-herding")
+PLAN_TAG = 0x5350  # "SP": plan template draw
+DISCOURAGE_FISSION = 1  # fission policy codes: 0 Neutral, 1 Discourage, 2 Encourage
 CONTROL_FAMILIES = {
     "control-idle": "all-idle",
     "control-delayed": "delayed-benefit",
@@ -231,6 +250,11 @@ class SearchConfig:
     # Keyed share of roots that add the evaluator controls (all-idle, delayed-benefit
     # Farmer adoption, bookkeeping twin of H12), carried through halving like H12.
     control_fraction: float = 0.0
+    # T2 plan candidates (diagnostic): plans per root, each a course held for
+    # ``plan_steps`` decisions plus its paired first-step control. Both rows count
+    # toward ``candidates`` (M); they never enter halving or the label decision.
+    plan_candidates: int = 0
+    plan_steps: int = 3
 
     def __post_init__(self) -> None:
         if self.candidates < 2:
@@ -257,6 +281,18 @@ class SearchConfig:
             raise ValueError("control fraction must be in [0, 1]")
         if self.ranker_top < 1 or not 0.0 <= self.ranker_full_fraction <= 1.0:
             raise ValueError("ranker top must be positive and its full fraction in [0, 1]")
+        if self.plan_candidates < 0 or self.plan_steps < 1:
+            raise ValueError("plan candidates must be non-negative and plan steps positive")
+        if self.plan_candidates and self.candidates - 2 * self.plan_candidates < 2:
+            raise ValueError(
+                "plans count toward the candidate budget: M - 2 x plans must leave H12 and one "
+                "single-step alternative"
+            )
+
+    @property
+    def single_budget(self) -> int:
+        """Single-step candidates allowed once the plan and control rows are reserved."""
+        return self.candidates - 2 * self.plan_candidates
 
     def keep_counts(self, n: int) -> list[int]:
         """Survivors per round, non-increasing and at least one."""
@@ -299,6 +335,8 @@ class SearchConfig:
             "ranker_top": self.ranker_top,
             "ranker_full_fraction": self.ranker_full_fraction,
             "control_fraction": self.control_fraction,
+            "plan_candidates": self.plan_candidates,
+            "plan_steps": self.plan_steps,
         }
 
     @classmethod
@@ -844,6 +882,180 @@ def round_robin(families: Mapping[str, list[Candidate]]) -> list[Candidate]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# T2 plan candidates (pure construction)
+# ---------------------------------------------------------------------------
+#
+# A plan is a coherent course held for P decisions by the focal camp. Step 0 is
+# built from the root H12 action; step k >= 1 is rebuilt from H12's action at the
+# state the plan reached (so it stays complete and conserving there), then
+# natively validated; an unconstructible or rejected step falls back to H12 and
+# is recorded. After P steps H12 continues. Templates:
+#
+# * ``farm-expand``: +10% residents Gatherer -> Farmer; later steps hold at least
+#   the adopted Farmers and shift half of Farmer worker-time to field.expansion;
+# * ``housing-grow``: +10% residents Gatherer -> Craftsperson working housing and
+#   housing material; later steps grow in place (fission Discourage, idle
+#   Gatherer time to food.gather);
+# * ``start-herding``: +10% residents Gatherer -> Herder; later steps hold at least
+#   the adopted Herders and shift half of Herder worker-time to herd.expansion.
+#
+# The paired first-step control executes the same step 0, then H12 from decision 2.
+
+PLAN_SPECIALTY = {
+    "farm-expand": "Farmer",
+    "housing-grow": "Craftsperson",
+    "start-herding": "Herder",
+}
+PLAN_EXPANSION = {"farm-expand": "field.expansion", "start-herding": "herd.expansion"}
+
+
+@dataclass(frozen=True)
+class PlanSpec:
+    """One plan at one root: its template, length and validated-at-root first step."""
+
+    plan_id: str
+    template: str
+    steps: int
+    amount: int
+    anchor: int  # residents of the plan specialty after step 0 (held by later steps)
+    first: Candidate
+
+
+def ensure_share(row: np.ndarray, index: int, share: float) -> np.ndarray:
+    """A worker-time row with at least ``share`` on ``index``, the rest rescaled."""
+    row = np.asarray(row, dtype=np.float64).copy()
+    if row[index] >= share - 1e-12:
+        return row
+    rest = 1.0 - float(row[index])
+    if rest <= 1e-12:
+        return row
+    row *= (1.0 - share) / rest
+    row[index] = share
+    return row
+
+
+def plan_step_payload(
+    template: str,
+    step: int,
+    base: Mapping[str, Any],
+    catalog: LaborCatalog,
+    *,
+    amount: int,
+    anchor: int = 0,
+) -> tuple[dict[str, Any], str] | None:
+    """Plan ``template``'s focal action at plan step ``step`` built from H12's ``base``.
+
+    Returns (complete schema-12 payload, description), or None when the step is not
+    constructible at this state (the caller then executes H12 and records why).
+    """
+    if template not in PLAN_TEMPLATES:
+        raise ValueError(f"unknown plan template {template!r}")
+    counts, activity = labor_state(base, catalog)
+    if int(catalog.population) <= 0:
+        return None
+    spec = SPECIALTIES.index(PLAN_SPECIALTY[template])
+    role = spec - 1
+    try:
+        if step == 0:
+            moved = transfer(counts, activity, catalog, GATHERER, spec, int(amount))
+            if moved is None:
+                return None
+            new_counts, new_activity = moved
+            description = f"{template} step 0: transfer {amount} Gatherer->{SPECIALTIES[spec]}"
+            if template == "housing-grow":
+                housing = _activity_index(catalog, role, "goods.housing")
+                material = _activity_index(catalog, role, "goods.housing-material")
+                if housing is None:
+                    return None
+                mix = np.zeros(activity.shape[1])
+                if material is None:
+                    mix[housing] = 1.0
+                else:
+                    mix[housing] = mix[material] = 0.5
+                old = int(counts[spec])
+                previous = activity[role] if old > 0 else np.zeros(activity.shape[1])
+                new_activity[role] = (old * previous + int(amount) * mix) / (old + int(amount))
+                description += " (housing and housing material)"
+            payload = compose_payload(base, catalog, counts=new_counts, activity=new_activity)
+            return payload, description
+        new_counts, new_activity = counts.copy(), activity.copy()
+        notes = []
+        if template == "housing-grow":
+            fission = DISCOURAGE_FISSION
+            gather = _activity_index(catalog, GATHERER - 1, "food.gather")
+            if (
+                gather is not None
+                and int(counts[GATHERER]) > 0
+                and new_activity[GATHERER - 1, 0] > 0
+            ):
+                row = new_activity[GATHERER - 1]
+                row[gather] += row[0]
+                row[0] = 0.0
+                notes.append("idle Gatherer time to food.gather")
+            notes.append("fission Discourage")
+            payload = compose_payload(
+                base, catalog, counts=new_counts, activity=new_activity, fission=fission
+            )
+            return payload, f"{template} step {step}: grow in place ({', '.join(notes)})"
+        shortfall = min(max(0, int(anchor) - int(counts[spec])), int(counts[GATHERER]))
+        if shortfall > 0:
+            moved = transfer(counts, activity, catalog, GATHERER, spec, shortfall)
+            if moved is None:
+                return None
+            new_counts, new_activity = moved
+            notes.append(f"hold {SPECIALTIES[spec]} (+{shortfall} from Gatherer)")
+        if int(new_counts[spec]) <= 0:
+            return None
+        expansion = _activity_index(catalog, role, PLAN_EXPANSION[template])
+        if expansion is None:
+            return None
+        new_activity[role] = ensure_share(new_activity[role], expansion, 0.5)
+        notes.append(f"{SPECIALTIES[spec]} half time to {PLAN_EXPANSION[template]}")
+        payload = compose_payload(base, catalog, counts=new_counts, activity=new_activity)
+        return payload, f"{template} step {step}: {', '.join(notes)}"
+    except ValueError:
+        return None
+
+
+def plan_specs(
+    base: Mapping[str, Any],
+    catalog: LaborCatalog,
+    *,
+    count: int,
+    steps: int,
+    key: Sequence[int],
+) -> list[PlanSpec]:
+    """Up to ``count`` constructible plans in a keyed template order."""
+    if count <= 0:
+        return []
+    population = int(catalog.population)
+    amount = max(1, round(0.1 * population))
+    out: list[PlanSpec] = []
+    for template in _keyed_shuffle(list(PLAN_TEMPLATES), [PLAN_TAG, *key]):
+        if len(out) >= count:
+            break
+        built = plan_step_payload(template, 0, base, catalog, amount=amount)
+        if built is None:
+            continue
+        payload, description = built
+        if payload_digest(payload) == payload_digest(base):
+            continue
+        spec = SPECIALTIES.index(PLAN_SPECIALTY[template])
+        anchor = int(labor_state(payload, catalog)[0][spec])
+        out.append(
+            PlanSpec(
+                plan_id=f"{template}/P{steps}",
+                template=template,
+                steps=int(steps),
+                amount=amount,
+                anchor=anchor,
+                first=Candidate(payload, PLAN_FAMILY, description, frozenset({"labor"})),
+            )
+        )
+    return out
+
+
 def dither_payload(
     payload: Mapping[str, Any],
     catalog: LaborCatalog,
@@ -1138,8 +1350,15 @@ class NativeSearch:
         root_h12: Mapping[int, HeuristicLaborLabel],
         root_key: Sequence[int],
         keep_fork: bool,
+        focal_policy: Any | None = None,
     ) -> None:
-        """Advance ``branch`` to ``target`` decisions (or focal termination)."""
+        """Advance ``branch`` to ``target`` decisions (or focal termination).
+
+        ``focal_policy(decision, label, catalog, step)`` (plans) may replace the
+        focal camp's H12 action at decisions >= 1; it returns the payload to execute
+        or None for H12. A replaced focal action is exempt from the dither, as the
+        candidate's first action is.
+        """
         from .labor_training import _settlement_guard, _transition_rewards
 
         if branch.horizon >= target or not branch.alive:
@@ -1151,18 +1370,24 @@ class NativeSearch:
         catalogs = self.catalogs()
         before = self.work.resolves
         while branch.horizon < target and branch.alive:
+            exempt = focal if branch.horizon == 0 else None
             if branch.horizon == 0:
                 payloads = {c: root_h12[c].action for c in catalogs}
                 payloads[focal] = dict(candidate)
             else:
                 labels = self.shadow_h12(step, catalogs)
                 payloads = {c: labels[c].action for c in catalogs}
+                if focal_policy is not None and focal in labels:
+                    chosen = focal_policy(branch.horizon, labels[focal], catalogs[focal], step)
+                    if chosen is not None:
+                        payloads[focal] = dict(chosen)
+                        exempt = focal
             if branch.stream > 0:
                 payloads = self.dithered(
                     payloads,
                     catalogs,
                     key=[*root_key, branch.stream, branch.horizon],
-                    exempt=focal if branch.horizon == 0 else None,
+                    exempt=exempt,
                 )
             decision_turn = int(step["turn"])
             execution = self.execute(catalogs, payloads)
@@ -1321,6 +1546,250 @@ def _actor_candidates(
     return out
 
 
+def _step_entry(
+    step: int, payload: Mapping[str, Any], catalog: LaborCatalog, description: str, **extra: Any
+) -> dict[str, Any]:
+    counts = labor_state(payload, catalog)[0]
+    return {
+        "step": int(step),
+        "action": dict(payload),
+        "digest": payload_digest(payload),
+        "description": description,
+        "conserves": bool(conserves_labor(payload, catalog)),
+        "specialty_counts": counts.tolist(),
+        "population": int(catalog.population),
+        **extra,
+    }
+
+
+def evaluate_plan(
+    native: NativeSearch,
+    spec: PlanSpec,
+    *,
+    horizon: int,
+    streams: Sequence[int],
+    root_fork: int,
+    focal: int,
+    root_h12: Mapping[int, HeuristicLaborLabel],
+    root_key: Sequence[int],
+    founded: Mapping[int, int],
+    society: int,
+    rows: tuple[int, int],
+) -> dict[str, Any]:
+    """Run one plan and its paired first-step control on each stream.
+
+    Both share the root fork, the first step (executed once per stream, then
+    forked) and the stream's dither draws for every other camp. The plan holds
+    its course for ``spec.steps`` decisions (each step rebuilt from that state's
+    H12 action, natively validated, H12 on failure), then H12 continues; the
+    control continues under H12 from decision 2.
+    """
+    first_entry = _step_entry(
+        0,
+        spec.first.payload,
+        native.catalogs()[focal],
+        spec.first.description,
+        valid=True,
+        fallback=None,
+        same_as_h12=payload_digest(spec.first.payload) == payload_digest(root_h12[focal].action),
+    )
+    out: dict[int, dict[str, Any]] = {}
+    for stream in streams:
+        records: list[dict[str, Any]] = [first_entry]
+
+        def policy(
+            decision: int,
+            label: HeuristicLaborLabel,
+            catalog: LaborCatalog,
+            _step: Mapping[str, Any],
+            records: list[dict[str, Any]] = records,
+        ) -> dict[str, Any] | None:
+            if decision >= spec.steps:
+                return None
+            same = {"same_as_h12": False}
+            built = plan_step_payload(
+                spec.template,
+                decision,
+                label.action,
+                catalog,
+                amount=spec.amount,
+                anchor=spec.anchor,
+            )
+            if built is None:
+                records.append(
+                    _step_entry(
+                        decision,
+                        label.action,
+                        catalog,
+                        "H12 (plan step not constructible)",
+                        valid=False,
+                        fallback="h12:not-constructible",
+                        same_as_h12=True,
+                    )
+                )
+                return None
+            payload, description = built
+            attempt = native.validate(focal, payload)
+            if not attempt.valid:
+                reason = ";".join(v.reason for v in attempt.violations) or "native-rejected"
+                records.append(
+                    _step_entry(
+                        decision,
+                        label.action,
+                        catalog,
+                        f"H12 (plan step rejected: {reason})",
+                        valid=False,
+                        fallback=f"h12:{reason}",
+                        same_as_h12=True,
+                    )
+                )
+                return None
+            same["same_as_h12"] = payload_digest(payload) == payload_digest(label.action)
+            records.append(
+                _step_entry(
+                    decision, payload, catalog, description, valid=True, fallback=None, **same
+                )
+            )
+            return payload
+
+        plan = Branch(rows[0], stream, founded=dict(founded), societies={int(society)})
+        common = {
+            "root_fork": root_fork,
+            "focal": focal,
+            "candidate": spec.first.payload,
+            "root_h12": root_h12,
+            "root_key": root_key,
+        }
+        native.extend(plan, 1, keep_fork=horizon > 1, **common)
+        control = copy.deepcopy(plan)
+        control.candidate = rows[1]
+        control.fork = native.fork() if plan.fork is not None else None
+        native.extend(plan, horizon, keep_fork=False, focal_policy=policy, **common)
+        native.extend(control, horizon, keep_fork=False, **common)
+        out[int(stream)] = {"plan": plan, "control": control, "steps": records}
+    return {"spec": spec, "horizon": int(horizon), "streams": out}
+
+
+def _branch_info(branch: Branch) -> dict[str, Any]:
+    return {
+        "returns": branch.returns.copy(),
+        "horizon": branch.horizon,
+        "terminated": branch.terminated,
+        "years": list(branch.years),
+    }
+
+
+def plan_payload_rows(
+    spec: PlanSpec,
+    result: Mapping[str, Any],
+    catalog: LaborCatalog,
+    horizons: Sequence[int],
+    horizon: int,
+    config: SearchConfig,
+) -> list[dict[str, Any]]:
+    """The plan row and its first-step-control row for the candidate payload.
+
+    Both carry the shared first step as ``action`` (the actor-visible first
+    decision) and the standard ``evaluations`` (stream 0 at every declared
+    horizon up to ``horizon``, streams >= 1 at ``horizon``), plus ``plan_id``,
+    ``plan_role``, ``plan_steps`` (the executed focal action per step on stream
+    0; the control's later steps are H12) and per-step returns per stream.
+    """
+    streams = result["streams"]
+    counts = labor_state(spec.first.payload, catalog)[0]
+    rows = []
+    for role, family in zip(PLAN_ROLES, (PLAN_FAMILY, PLAN_CONTROL_FAMILY), strict=True):
+        key = "plan" if role == "plan" else "control"
+        zero = streams[0][key]
+        evaluations = payload_module.selection_evaluations(
+            zero.steps,
+            zero.years,
+            horizons,
+            terminated=zero.terminated,
+            discount_years=config.discount_years,
+        )
+        evaluations += payload_module.reevaluation_records(
+            {s: _branch_info(streams[s][key]) for s in streams if s >= 1}, horizon
+        )
+        steps = streams[0]["steps"] if role == "plan" else streams[0]["steps"][:1]
+        rows.append(
+            {
+                "index": int(zero.candidate),
+                "family": family,
+                "is_h12": False,
+                "digest": spec.first.digest(),
+                "action": dict(spec.first.payload),
+                "control": None,
+                "bookkeeping_twin": None,
+                "evaluations": evaluations,
+                "description": (
+                    spec.first.description
+                    if role == "plan"
+                    else f"first-step control of {spec.plan_id}: step 0 then H12"
+                ),
+                "chosen_heads": sorted(spec.first.chosen_heads),
+                "attempt_valid": True,
+                "natively_evaluated": True,
+                "compiled": payload_module.compiled_action(
+                    spec.first.payload, counts, float(catalog.turn_years)
+                ),
+                "horizon_reached": int(zero.horizon),
+                "terminated": bool(zero.terminated),
+                "last_round": -1,
+                "step_rewards": [list(map(float, r)) for r in zero.steps],
+                "step_years": [float(y) for y in zero.years],
+                "predicted_advantage": None,
+                # T2 plan fields (ignored by first-action readers).
+                "plan_id": spec.plan_id,
+                "plan_role": role,
+                "plan_template": spec.template,
+                "plan_length": int(spec.steps),
+                "plan_steps": steps,
+                "plan_continuation": "h12",
+                "plan_step_digests": {
+                    str(s): [e["digest"] for e in streams[s]["steps"]]
+                    if role == "plan"
+                    else [streams[s]["steps"][0]["digest"]]
+                    for s in streams
+                },
+                "plan_fallbacks": {
+                    str(s): sum(1 for e in streams[s]["steps"] if e["fallback"])
+                    if role == "plan"
+                    else 0
+                    for s in streams
+                },
+                "step_returns": {
+                    str(s): [list(map(float, r)) for r in streams[s][key].steps] for s in streams
+                },
+                "step_years_by_stream": {
+                    str(s): [float(y) for y in streams[s][key].years] for s in streams
+                },
+            }
+        )
+    return rows
+
+
+def plan_table(spec: PlanSpec, result: Mapping[str, Any]) -> dict[str, Any]:
+    """Candidate-table summary of one plan and its control (returns per stream)."""
+    streams = result["streams"]
+    return {
+        "plan_id": spec.plan_id,
+        "template": spec.template,
+        "steps": int(spec.steps),
+        "amount": int(spec.amount),
+        "horizon": int(result["horizon"]),
+        "first_digest": spec.first.digest(),
+        "plan_returns": {str(s): streams[s]["plan"].returns.tolist() for s in streams},
+        "control_returns": {str(s): streams[s]["control"].returns.tolist() for s in streams},
+        "plan_steps": [{k: v for k, v in e.items() if k != "action"} for e in streams[0]["steps"]]
+        if 0 in streams
+        else [],
+        "fallbacks": {
+            str(s): sum(1 for e in streams[s]["steps"] if e["fallback"]) for s in streams
+        },
+    }
+
+
 def search_root(
     native: NativeSearch,
     *,
@@ -1384,7 +1853,7 @@ def search_root(
     seen: set[str] = set()
     validations = 0
     for cand in proposals:
-        if len(accepted) >= config.candidates or validations >= config.validation_cap:
+        if len(accepted) >= config.single_budget or validations >= config.validation_cap:
             break
         digest = cand.digest()
         if digest in seen:
@@ -1417,6 +1886,24 @@ def search_root(
         return RootResult(
             [], {"skipped": "fewer-than-two-valid-candidates", "focal": focal, "rejected": rejected}
         )
+
+    # 1a. T2 plans: keyed templates, first step natively validated at the root. Plan
+    # and control rows are reserved from M and never enter halving or the labels.
+    plans: list[PlanSpec] = []
+    for spec in plan_specs(
+        h12.action, catalog, count=config.plan_candidates, steps=config.plan_steps, key=key
+    ):
+        attempt = native.validate(focal, spec.first.payload)
+        if attempt.valid:
+            plans.append(spec)
+        else:
+            rejected.append(
+                {
+                    "family": PLAN_FAMILY,
+                    "description": spec.first.description,
+                    "reason": ";".join(v.reason for v in attempt.violations) or "native-rejected",
+                }
+            )
 
     controls = {i for i, c in enumerate(accepted) if c.family in CONTROL_FAMILIES}
     # Root of the candidate payload: actor-visible observation row (root personality)
@@ -1566,6 +2053,30 @@ def search_root(
                 "years": list(branch.years),
             }
 
+    # 3b. T2 plans and their paired first-step controls on every stream (0 and the
+    # re-evaluation streams, common random numbers with H12), to max(final, P).
+    plan_started = time.perf_counter()
+    plan_before = native.work.resolves
+    plan_horizon = max(int(final_h), int(config.plan_steps))
+    plan_results = [
+        evaluate_plan(
+            native,
+            spec,
+            horizon=plan_horizon,
+            streams=range(config.reeval_streams + 1),
+            root_fork=root_fork,
+            focal=focal,
+            root_h12=root_h12,
+            root_key=key,
+            founded=founded,
+            society=int(village["society"]),
+            rows=(n + 2 * j, n + 2 * j + 1),
+        )
+        for j, spec in enumerate(plans)
+    ]
+    plan_resolves = native.work.resolves - plan_before
+    plan_seconds = time.perf_counter() - plan_started
+
     decisions = []
     for k, entry in enumerate(grid):
         w = winners[k]
@@ -1691,6 +2202,11 @@ def search_root(
                 "predicted_advantage": None if predicted is None else predicted[i].tolist(),
             }
         )
+    plan_horizons = sorted({*(h for h in horizons if h <= plan_horizon), plan_horizon})
+    for spec, result in zip(plans, plan_results, strict=True):
+        payload_candidates.extend(
+            plan_payload_rows(spec, result, catalog, plan_horizons, plan_horizon, config)
+        )
     root_record = {
         "root_id": f"{native.world}/{int(step['turn'])}/{focal}/{root_source}",
         "world": native.world,
@@ -1711,6 +2227,10 @@ def search_root(
         "control_root": bool(control_root),
         "population": int(catalog.population),
         "turn_years": float(catalog.turn_years),
+        # T2 plans: rows with plan_role are diagnostic (not first-action candidates).
+        "plan_candidates": len(plans),
+        "plan_steps": int(config.plan_steps),
+        "plan_horizon": int(plan_horizon) if plans else None,
     }
     root_payload = {
         "record": root_record,
@@ -1765,9 +2285,14 @@ def search_root(
         "final_horizon": final_h,
         "truncated_by_resolve_cap": truncated,
         "decisions": decisions,
+        "plans": [
+            plan_table(spec, result) for spec, result in zip(plans, plan_results, strict=True)
+        ],
         "work": {
             "search_resolves": search_resolves,
             "reeval_resolves": reeval_resolves,
+            "plan_resolves": plan_resolves,
+            "plan_wall_seconds": plan_seconds,
             "native_resolves": work.resolves - work0.resolves,
             "labor_steps": work.labor_steps - work0.labor_steps,
             "shadow_steps": work.shadow_steps - work0.shadow_steps,
@@ -2007,7 +2532,16 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "restore_checks": result["restore_checks"],
     }
     if not result["rows"]:
+        # No label rows (every root skipped): a completion marker lets --resume skip
+        # the world; it is a file, so the published dataset holds no shard for it.
         summary["path"] = None
+        marker = empty_marker(Path(job["out"]), world)
+        temporary = marker.with_name(marker.name + ".tmp")
+        temporary.write_text(
+            json.dumps({"source_run": job["source_run"], "summary": summary}, allow_nan=True),
+            encoding="utf-8",
+        )
+        os.replace(temporary, marker)
         return summary
     tensors = _concat(result["rows"], f"labor search world {world}")
     keep = ~tensors["row_quarantined"].reshape(-1)
@@ -2080,9 +2614,7 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
     staging = directory.with_name(directory.name + ".staging")
     record = write_shard(staging, arrays, meta)
     (staging / "candidates.jsonl").write_text(table_text, encoding="utf-8")
-    os.replace(
-        payload_staging / payload_module.PAYLOAD_FILE, staging / payload_module.PAYLOAD_FILE
-    )
+    os.replace(payload_staging / payload_module.PAYLOAD_FILE, staging / payload_module.PAYLOAD_FILE)
     payload_staging.rmdir()
     os.replace(staging, directory)
     summary.update(
@@ -2093,6 +2625,188 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         }
     )
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Preemption-safe resume
+# ---------------------------------------------------------------------------
+#
+# A world is complete when its shard directory ``world-<seed>`` exists (it is
+# renamed into place only after arrays, meta, candidate table and payload are
+# written) and verifies against the run's source record, or, for a world with no
+# label rows, when its ``world-<seed>.empty.json`` marker names the run. Staging
+# directories are partial worlds: --resume discards them and redoes the world
+# into a fresh shard. source.json pins the run; a resume whose source record
+# differs (learner code, bridge, checkpoints or any option) is refused.
+
+SOURCE_FILE = "source.json"
+_PARTIAL_SUFFIXES = (".staging", ".payload-staging")
+
+
+def empty_marker(out: Path, world: int) -> Path:
+    return Path(out) / f"world-{int(world)}.empty.json"
+
+
+def _shard_summary(directory: Path, world: int, source_run: str) -> dict[str, Any] | None:
+    """The write_search_shard summary of a verified complete shard, else None."""
+    from .labor_teacher_data import verify_shard
+    from .provenance import ProvenanceError, checkpoint_hash
+
+    try:
+        meta = verify_shard(directory)
+        if meta.get("source_run") != source_run or int(meta["world_seed"]) != int(world):
+            return None
+        text = (directory / "candidates.jsonl").read_text(encoding="utf-8")
+        if hashlib.sha256(text.encode("utf-8")).hexdigest() != meta.get("candidates_sha256"):
+            return None
+        payload_module.verify_candidate_payload(directory, meta)
+        tables = [json.loads(line) for line in text.splitlines() if line.strip()]
+    except (ProvenanceError, OSError, ValueError, KeyError, TypeError):
+        return None
+    return {
+        "world_seed": int(world),
+        "rows": int(meta["rows"]),
+        "tables": tables,
+        "skipped": meta.get("skipped", {}),
+        "work": meta.get("work", {}),
+        "main_path_resolves": meta.get("main_path_resolves", 0),
+        "wall_seconds": float(meta.get("wall_seconds", 0.0)),
+        "restore_checks": meta.get("restore_checks", []),
+        "path": directory.name,
+        "meta_sha256": checkpoint_hash(directory / "meta.json"),
+        "data_digest": meta["data_digest"],
+    }
+
+
+def existing_search_world(out: Path, world: int, source_run: str) -> dict[str, Any] | None:
+    """A completed world's summary (kept), or None after discarding partial state."""
+    import shutil
+
+    out = Path(out)
+    directory = out / f"world-{int(world)}"
+    for suffix in _PARTIAL_SUFFIXES:
+        partial = directory.with_name(directory.name + suffix)
+        if partial.exists():
+            shutil.rmtree(partial)  # interrupted mid-write: redo into a fresh shard
+    marker = empty_marker(out, world)
+    temporary = marker.with_name(marker.name + ".tmp")
+    if temporary.exists():
+        temporary.unlink()
+    if directory.exists():
+        summary = _shard_summary(directory, world, source_run)
+        if summary is None:
+            shutil.rmtree(directory)  # unverifiable or another run's shard
+        if marker.exists():
+            marker.unlink()
+        return summary
+    if marker.is_file():
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            summary = data["summary"]
+            if data.get("source_run") == source_run and int(summary["world_seed"]) == int(world):
+                return summary
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        marker.unlink()
+    return None
+
+
+def prepare_search_output(
+    out: Path, source: Mapping[str, Any], worlds: Sequence[int], *, resume: bool
+) -> dict[int, dict[str, Any]]:
+    """Create (or, with ``resume``, reopen) the output; returns completed worlds' summaries."""
+    from .provenance import ProvenanceError
+
+    out = Path(out)
+    if out.exists() and not resume:
+        raise ProvenanceError(
+            "labor search output exists; pass --resume or regenerate into a new directory"
+        )
+    out.mkdir(parents=True, exist_ok=True)
+    source_path = out / SOURCE_FILE
+    if source_path.is_file():
+        previous = json.loads(source_path.read_text(encoding="utf-8"))
+        if previous.get("source_run") != source["source_run"]:
+            raise ProvenanceError(
+                "labor search resume: source record differs (learner code, bridge, checkpoint "
+                "or options); regenerate into a new directory"
+            )
+    else:
+        if any(p.name != SOURCE_FILE + ".tmp" for p in out.iterdir()):
+            raise ProvenanceError("labor search resume: output has no source record")
+        temporary = out / (SOURCE_FILE + ".tmp")
+        temporary.write_text(json.dumps(dict(source), sort_keys=True, allow_nan=False))
+        os.replace(temporary, source_path)
+    declared = {f"world-{int(w)}{suffix}" for w in worlds for suffix in ("", *_PARTIAL_SUFFIXES)}
+    undeclared = sorted(p.name for p in out.iterdir() if p.is_dir() and p.name not in declared)
+    if undeclared:
+        raise ProvenanceError(f"labor search output holds undeclared directories: {undeclared}")
+    done = {}
+    for world in worlds:
+        summary = existing_search_world(out, int(world), source["source_run"])
+        if summary is not None:
+            done[int(world)] = summary
+    return done
+
+
+def run_search_jobs(
+    out: Path,
+    source: Mapping[str, Any],
+    jobs: Sequence[Mapping[str, Any]],
+    *,
+    workers: int = 1,
+    resume: bool = False,
+    before_publish: Any | None = None,
+) -> dict[str, Any]:
+    """Search every world not already complete, then report and publish dataset.json.
+
+    dataset.json is written only after every declared world is complete (this run
+    or a verified earlier one); an exception anywhere leaves the output resumable.
+    """
+    from .labor_teacher_data import publish_dataset
+
+    out = Path(out)
+    worlds = [int(job["world"]) for job in jobs]
+    done = prepare_search_output(out, source, worlds, resume=resume)
+    pending = [job for job in jobs if int(job["world"]) not in done]
+    print(
+        json.dumps({"worlds": len(worlds), "resumed_worlds": len(done), "jobs": len(pending)}),
+        file=sys.stderr,
+        flush=True,
+    )
+    started = time.perf_counter()
+    if workers <= 1 or len(pending) <= 1:
+        fresh = [write_search_shard(job) for job in pending]
+    else:
+        with ProcessPoolExecutor(max_workers=min(workers, len(pending))) as pool:
+            fresh = list(pool.map(write_search_shard, pending))
+    if before_publish is not None:
+        before_publish()
+    completed = {**done, **{int(s["world_seed"]): s for s in fresh}}
+    missing = sorted(set(worlds) - set(completed))
+    if missing:
+        raise RuntimeError(f"labor search worlds incomplete: {missing[:5]}; not published")
+    summaries = [completed[w] for w in worlds]
+    report = search_report(summaries)
+    report["elapsed_seconds"] = time.perf_counter() - started
+    report["jobs"] = int(workers)
+    report["source_run"] = source["source_run"]
+    report["resumed_worlds"] = sorted(done)
+    report["worlds_this_run"] = sorted(int(s["world_seed"]) for s in fresh)
+    temporary = out / "search_report.json.tmp"
+    temporary.write_text(json.dumps(report, sort_keys=True, indent=1))
+    os.replace(temporary, out / "search_report.json")
+    shards = [s for s in summaries if s.get("path")]
+    if shards:
+        publish_dataset(
+            out,
+            source,
+            [
+                {k: s[k] for k in ("path", "world_seed", "meta_sha256", "data_digest", "rows")}
+                for s in shards
+            ],
+        )
+    return report
 
 
 def search_source_record(
@@ -2115,6 +2829,11 @@ def search_source_record(
         "bridge_sha256": bridge_sha256,
         "options": dict(options),
         "production": bool(production),
+        # Simulator rule flags alter the physics, so a resume must refuse a change.
+        "flags": {
+            "sim_rules": os.environ.get("ANTHROPOCENE_SIM_RULES", ""),
+            "sim_statics": os.environ.get("ANTHROPOCENE_SIM_STATICS", ""),
+        },
     }
     return dict(body, source_run=digest(body))
 
@@ -2135,10 +2854,13 @@ def search_report(summaries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         }
     )
     resolves, seconds, search_res, reeval_res = [], [], [], []
+    plan_res, plan_seconds = [], []
     for t in tables:
         resolves.append(t["work"]["native_resolves"])
         search_res.append(t["work"]["search_resolves"])
         reeval_res.append(t["work"]["reeval_resolves"])
+        plan_res.append(t["work"].get("plan_resolves", 0))
+        plan_seconds.append(t["work"].get("plan_wall_seconds", 0.0))
         seconds.append(t["wall_seconds"])
         h12 = t["candidates"][0]
         for d in t["decisions"]:
@@ -2200,6 +2922,8 @@ def search_report(summaries: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "native_resolves_per_root": _stats(resolves),
         "search_resolves_per_root": _stats(search_res),
         "reeval_resolves_per_root": _stats(reeval_res),
+        "plan_resolves_per_root": _stats(plan_res),
+        "plan_wall_seconds_per_root": _stats(plan_seconds),
         "wall_seconds_per_root": _stats(seconds),
         "main_path_resolves": sum(int(s["main_path_resolves"]) for s in summaries),
         "world_wall_seconds": _stats([s["wall_seconds"] for s in summaries]),
@@ -2323,6 +3047,25 @@ def argument_parser() -> argparse.ArgumentParser:
         help="keyed share of roots that add the evaluator controls (all-idle, delayed-benefit "
         "Farmer adoption, bookkeeping twin of H12), carried to the final horizon",
     )
+    parser.add_argument(
+        "--plan-candidates",
+        type=int,
+        default=2,
+        help="T2 plans per root (diagnostic): each adds a plan row and its paired first-step "
+        "control row, both counted in --candidates; 0 disables",
+    )
+    parser.add_argument(
+        "--plan-steps",
+        type=int,
+        default=3,
+        help="P: decisions a plan holds its course before H12 continues",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue an interrupted output with the same source record: verified world "
+        "shards are kept, partial worlds are redone into fresh shards",
+    )
     parser.add_argument("--no-verify-restore", action="store_true")
     parser.add_argument(
         "--held-out-test",
@@ -2359,7 +3102,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .bridge import DEFAULT_BRIDGE
     from .labor_bridge import LaborModel9Bridge
     from .labor_personality import LaborPersonalityConditioning
-    from .labor_teacher_data import load_normalizer, normalizer_digest, publish_dataset
+    from .labor_teacher_data import load_normalizer, normalizer_digest
     from .protocol import seed_list
     from .provenance import ProvenanceError, checkpoint_hash, code_commit
 
@@ -2367,8 +3110,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     worlds = validate_search_worlds(seed_list(args.worlds), held_out_test=args.held_out_test)
     if (args.advantage_ranker is None) != (args.ranker_critic_checkpoint is None):
         raise ValueError("--advantage-ranker and --ranker-critic-checkpoint go together")
-    if args.out.exists():
-        raise ProvenanceError("labor search output exists; regenerate into a new directory")
+    if (args.out / "dataset.json").is_file():
+        from .labor_teacher_data import verify_dataset
+
+        verify_dataset(args.out)
+        print(json.dumps({"dataset": str(args.out), "status": "already-published"}))
+        return 0
+    if args.out.exists() and not args.resume:
+        raise ProvenanceError(
+            "labor search output exists; pass --resume or regenerate into a new directory"
+        )
     config = SearchConfig(
         candidates=args.candidates,
         actor_samples=args.actor_samples if args.actor_checkpoint else 0,
@@ -2389,6 +3140,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ranker_top=args.ranker_top,
         ranker_full_fraction=args.ranker_full_fraction,
         control_fraction=args.control_fraction,
+        plan_candidates=args.plan_candidates,
+        plan_steps=args.plan_steps,
     )
     reset = LaborResetOptions(
         players=args.players,
@@ -2439,7 +3192,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         source = search_source_record(
             options, probe.schema, bridge_sha, production=not args.allow_dirty
         )
-    args.out.mkdir(parents=True)
     jobs = [
         {
             "world": world,
@@ -2466,31 +3218,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
         for world in worlds
     ]
-    started = time.perf_counter()
-    if args.jobs == 1:
-        summaries = [write_search_shard(job) for job in jobs]
-    else:
-        with ProcessPoolExecutor(max_workers=min(args.jobs, len(jobs))) as pool:
-            summaries = list(pool.map(write_search_shard, jobs))
-    if checkpoint_hash(bridge_path) != bridge_sha or code_commit() != source["learner_commit"]:
-        raise ProvenanceError(
-            "labor search producer changed during generation; dataset not published"
-        )
-    report = search_report(summaries)
-    report["elapsed_seconds"] = time.perf_counter() - started
-    report["jobs"] = int(args.jobs)
-    report["source_run"] = source["source_run"]
-    (args.out / "search_report.json").write_text(json.dumps(report, sort_keys=True, indent=1))
-    shards = [s for s in summaries if s.get("path")]
-    if shards:
-        publish_dataset(
-            args.out,
-            source,
-            [
-                {k: s[k] for k in ("path", "world_seed", "meta_sha256", "data_digest", "rows")}
-                for s in shards
-            ],
-        )
+
+    def unchanged() -> None:
+        if checkpoint_hash(bridge_path) != bridge_sha or code_commit() != source["learner_commit"]:
+            raise ProvenanceError(
+                "labor search producer changed during generation; dataset not published"
+            )
+
+    report = run_search_jobs(
+        args.out, source, jobs, workers=int(args.jobs), resume=args.resume, before_publish=unchanged
+    )
     print(
         json.dumps(
             {
