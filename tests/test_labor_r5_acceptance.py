@@ -411,3 +411,115 @@ def test_parse_arms_and_preregistered_status() -> None:
         "a_ranking_min",
         "other_head_regression_max",
     } <= frozen
+
+
+# --- rolling n-step residual (r5-b criterion c) ---------------------------------------------
+
+
+def _chain(rewards, terminal_last=False, tail=None, k=5):
+    """One trajectory with an exact critic (values from the n-step recursion) and 20-year turns."""
+    import math
+
+    import numpy as np
+
+    n = len(rewards)
+    gamma = math.exp(-20.0 / 400.0)
+    last_tail = 0.0 if tail is None else tail
+    values = np.zeros(n)
+    following = 0.0 if terminal_last else last_tail
+    for i in reversed(range(n)):
+        following = rewards[i] + gamma * following
+        values[i] = following
+    args = dict(
+        reward=np.array(rewards, dtype=float),
+        elapsed=np.full(n, 20.0),
+        terminal=np.array([False] * (n - 1) + [terminal_last]),
+        turns=np.arange(n),
+        worlds=np.zeros(n, dtype=int),
+        camps=np.zeros(n, dtype=int),
+        trajectories=np.full(n, -1),
+    )
+    return values, args
+
+
+def test_exact_critic_has_zero_nstep_residual() -> None:
+    values, args = _chain([3.0, 5.0, 2.0, 4.0, 1.0, 6.0, 2.0, 2.0], terminal_last=True)
+    residual, position = ra.nstep_residuals(values, **args, k=5)
+    assert residual == pytest.approx([0.0] * 8, abs=1e-9)
+    assert list(position) == list(range(8))
+    # living end with a stored tail
+    import numpy as np
+
+    values, args = _chain([3.0, 5.0, 2.0, 4.0, 1.0, 6.0], tail=50.0)
+    codes = np.full(6, ra_tail_randomized())
+    tails = np.full(6, 50.0)
+    residual, _ = ra.nstep_residuals(values, **args, codes=codes, tails=tails, k=5)
+    assert residual == pytest.approx([0.0] * 6, abs=1e-9)
+
+
+def ra_tail_randomized() -> int:
+    from anthropocene_rl.autonomous_v7.labor_bc import TAIL_RANDOMIZED
+
+    return TAIL_RANDOMIZED
+
+
+def test_termination_inside_a_window_uses_realized_returns_and_zero_tail() -> None:
+    import math
+
+    values, args = _chain([10.0, 10.0, 10.0], terminal_last=True)
+    values[2] += 7.0  # wrong value on the terminal row only
+    residual, _ = ra.nstep_residuals(values, **args, k=5)
+    g = math.exp(-20.0 / 400.0)
+    assert residual[2] == pytest.approx(7.0)  # V - r: terminal tail is zero
+    assert residual[1] == pytest.approx(values[1] - (10.0 + g * 10.0))  # window ends at terminal
+    assert residual[0] == pytest.approx(values[0] - (10.0 + g * 10.0 + g * g * 10.0))
+
+
+def _td(normalized, position):
+    import numpy as np
+
+    normalized = np.asarray(normalized, dtype=float)
+    weights = np.ones(len(normalized))
+    return {
+        "bias": float(normalized.mean()),
+        "mae": float(np.abs(normalized).mean()),
+        "groups": ra.position_group_report(
+            normalized, np.asarray(position), weights, width=10, min_windows=100
+        ),
+    }
+
+
+def _status(td):
+    checks = ra.qol_checks(_calibration(), _advantage(), td)
+    return {c["id"]: c["status"] for c in checks if c["id"].startswith("qol:c:")}
+
+
+def test_late_drift_fails_the_position_gate_but_passes_the_aggregate() -> None:
+    position = list(range(10)) * 90 + [45] * 100  # 900 early windows, 100 in group 41-50
+    normalized = [0.0] * 900 + [0.3] * 100
+    td = _td(normalized, position)
+    statuses = _status(td)
+    assert statuses["qol:c:td-residual-abs-bias"] == "PASS"  # 0.03 <= 0.05
+    assert statuses["qol:c:td-residual-mae"] == "PASS"
+    assert statuses["qol:c:td-residual-position-41-50"] == "FAIL"
+    assert statuses["qol:c:td-residual-position-1-10"] == "PASS"
+    assert td["groups"][-1]["windows"] == 100
+
+
+def test_small_position_group_is_reported_not_gated() -> None:
+    position = list(range(10)) * 90 + [45] * 99
+    normalized = [0.0] * 900 + [0.5] * 99
+    td = _td(normalized, position)
+    late = [g for g in td["groups"] if g["first"] == 41][0]
+    assert late["windows"] == 99 and late["gated"] is False and late["bias"] == 0.5
+    assert "qol:c:td-residual-position-41-50" not in _status(td)
+
+
+def test_nstep_thresholds_are_marked_approved() -> None:
+    for name, value in (
+        ("td_nstep_k", 5),
+        ("td_position_group_width", 10),
+        ("td_position_abs_bias_max", 0.10),
+    ):
+        assert ra.PREREGISTERED[name]["value"] == value
+        assert ra.PREREGISTERED[name]["status"] == "approved (user 26 Oct)"

@@ -104,6 +104,27 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     },
     "td_residual_abs_bias_max": {"value": 0.05, "status": "proposed", "source": "reference scales"},
     "td_residual_mae_max": {"value": 0.20, "status": "proposed", "source": "reference scales"},
+    # Rolling-window n-step residual (r5-b criterion c, replaced one-step TD residual).
+    "td_nstep_k": {
+        "value": 5,
+        "status": "approved (user 26 Oct)",
+        "source": "window length in decisions, physical-time discount exp(-elapsed/400y)",
+    },
+    "td_position_group_width": {
+        "value": 10,
+        "status": "approved (user 26 Oct)",
+        "source": "decision-index groups 1-10, 11-20, ... within each village trajectory",
+    },
+    "td_position_abs_bias_max": {
+        "value": 0.10,
+        "status": "approved (user 26 Oct)",
+        "source": "per-position-group |bias| in QoL reference scales",
+    },
+    "td_position_min_windows": {
+        "value": 100,
+        "status": "approved (user 26 Oct)",
+        "source": "groups with fewer windows are reported, not gated",
+    },
     "gap_nmae_max": {"value": 0.10, "status": "proposed", "source": "cal nMAE - fit nMAE"},
     "gap_ranking_max": {"value": 0.10, "status": "proposed", "source": "fit rank - cal rank"},
     "gap_a_ranking_max": {"value": 0.10, "status": "proposed", "source": "A held-out - reserved"},
@@ -437,6 +458,20 @@ def qol_checks(
             "<=",
         )
     )
+    # Per-position gate: every group with enough windows needs |bias| <= 0.10.
+    for group in [] if td is None else td.get("groups") or []:
+        if not group.get("gated"):
+            continue
+        out.append(
+            check(
+                f"qol:c:td-residual-position-{group['first']}-{group['last']}",
+                "qol",
+                abs(float(group["bias"])),
+                threshold("td_position_abs_bias_max"),
+                "<=",
+                detail={"windows": group["windows"], "bias": group["bias"]},
+            )
+        )
     return out
 
 
@@ -1213,24 +1248,122 @@ def _work_totals(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def nstep_residuals(
+    values: Any,
+    reward: Any,
+    elapsed: Any,
+    terminal: Any,
+    turns: Any,
+    worlds: Any,
+    camps: Any,
+    trajectories: Any,
+    codes: Any = None,
+    tails: Any = None,
+    *,
+    k: int = 5,
+    discount_years: float = 400.0,
+) -> tuple[Any, Any]:
+    """Rolling n-step residuals along each trajectory, in the units of ``values``/``reward``.
+
+    residual_t = V(s_t) - [sum_{j<k} (prod_{m<j} g_m) r_{t+j} + (prod_{m<k} g_m) V(s_{t+k})]
+    with g_m = exp(-elapsed_m / discount_years), sliding one decision at a time. A window
+    that reaches a terminal row uses realized rewards through it and a zero tail; one that
+    reaches the trajectory's living end uses ``tails`` at the last row (when ``codes``
+    declares an exact/randomized tail, else zero). Trajectories are keyed (world, camp,
+    row_trajectory) and ordered by ``row_turn``. Returns (residual, position) where
+    ``position`` is the 0-based decision index within the trajectory.
+    """
+    import numpy as np
+
+    from .labor_bc import TAIL_RANDOMIZED, TAIL_TERMINAL_EXACT
+
+    n = len(values)
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for i in range(n):
+        groups[(int(worlds[i]), int(camps[i]), int(trajectories[i]))].append(i)
+    residual = np.zeros(n)
+    position = np.zeros(n, dtype=np.int64)
+    for indices in groups.values():
+        indices.sort(key=lambda i: turns[i])
+        size = len(indices)
+        for pos, i in enumerate(indices):
+            position[i] = pos
+            total, discount = 0.0, 1.0
+            tail_value = None
+            for j in range(k):
+                if pos + j >= size:
+                    break
+                row = indices[pos + j]
+                total += discount * float(reward[row])
+                discount *= math.exp(-float(elapsed[row]) / discount_years)
+                if terminal[row]:
+                    tail_value = 0.0
+                    break
+                if pos + j + 1 == size:  # living end: stored tail
+                    exact = codes is not None and codes[row] in (
+                        TAIL_TERMINAL_EXACT,
+                        TAIL_RANDOMIZED,
+                    )
+                    tail_value = float(tails[row]) if exact else 0.0
+                    break
+            else:
+                tail_value = float(values[indices[pos + k]])
+            residual[i] = float(values[i]) - (total + discount * tail_value)
+    return residual, position
+
+
+def position_group_report(
+    normalized: Any,
+    position: Any,
+    weights: Any,
+    *,
+    width: int,
+    min_windows: int,
+) -> list[dict[str, Any]]:
+    """Per-decision-index-group bias/MAE (groups 1-width, width+1-2 width, ...)."""
+    import numpy as np
+
+    groups = []
+    if not len(position):
+        return groups
+    index = np.asarray(position) // int(width)
+    for g in sorted(set(index.tolist())):
+        mask = index == g
+        w = np.asarray(weights)[mask]
+        total = float(w.sum())
+        count = int(mask.sum())
+        if total <= 0:
+            continue
+        bias = float((np.asarray(normalized)[mask] * w).sum() / total)
+        mae = float((np.abs(np.asarray(normalized)[mask]) * w).sum() / total)
+        groups.append(
+            {
+                "group": int(g),
+                "first": int(g) * width + 1,
+                "last": (int(g) + 1) * width,
+                "windows": count,
+                "bias": bias,
+                "mae": mae,
+                "gated": count >= min_windows,
+            }
+        )
+    return groups
+
+
 def td_residual_report(
     task: Any, costs: Any, dataset: Mapping[str, Any], batch_size: int = 256
 ) -> dict[str, Any]:
-    """TD residual consistency of the QoL head along each village's own trajectory.
+    """Rolling-window n-step consistency of the QoL head along each village's trajectory.
 
-    delta_i = r_i + gamma_i V(s_{i+1}) - V(s_i) in QoL reference scales, where the
-    state after a trajectory's last row is valued by its declared tail (zero at a
-    true terminal) and trajectories are keyed exactly as ``discounted_returns``.
-    Means are world-balanced over admitted rows, like nMAE/bias.
+    k-decision windows (``td_nstep_k``) with physical-time discounting; see
+    :func:`nstep_residuals`. Units are QoL reference scales. Aggregate bias/MAE are
+    world-balanced over admitted rows; ``groups`` holds the per-position bias.
     """
     import numpy as np
 
     from .labor_bc import (
-        CRITIC_DISCOUNT_YEARS,
         RETURN_TAIL_RANDOMIZED,
         TAIL_METHOD_FIELD,
-        TAIL_RANDOMIZED,
-        TAIL_TERMINAL_EXACT,
         TAIL_VALUE_PREFIX,
         TRAJECTORY_FIELD,
         critic_target_available,
@@ -1257,23 +1390,10 @@ def td_residual_report(
     randomized = return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED
     codes = _np(dataset, TAIL_METHOD_FIELD).reshape(-1) if randomized else None
     tails = _np(dataset, TAIL_VALUE_PREFIX + "qol_years").reshape(-1) if randomized else None
-    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
-    for i in range(n):
-        groups[(int(worlds[i]), int(camps[i]), int(trajectories[i]))].append(i)
-    delta = np.zeros(n)
-    for indices in groups.values():
-        indices.sort(key=lambda i: turns[i])
-        for position, i in enumerate(indices):
-            gamma = math.exp(-float(elapsed[i]) / CRITIC_DISCOUNT_YEARS)
-            if terminal[i]:
-                following = 0.0
-            elif position + 1 < len(indices):
-                following = float(values[indices[position + 1]])
-            elif randomized and codes[i] in (TAIL_TERMINAL_EXACT, TAIL_RANDOMIZED):
-                following = float(tails[i])
-            else:
-                following = 0.0
-            delta[i] = reward[i] + gamma * following - float(values[i])
+    k = int(threshold("td_nstep_k"))
+    delta, position = nstep_residuals(
+        values, reward, elapsed, terminal, turns, worlds, camps, trajectories, codes, tails, k=k
+    )
     scale = LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
     keep = ~_np(dataset, "row_quarantined").reshape(-1).astype(bool) & critic_target_available(
         dataset
@@ -1299,8 +1419,16 @@ def td_residual_report(
         "worlds": int(len(np.unique(worlds[rows]))) if len(rows) else 0,
         "scale": scale,
         "units": "QoL reference scales",
+        "window_decisions": k,
         "bias": mean(normalized) if total > 0 else None,
         "mae": mean(np.abs(normalized)) if total > 0 else None,
+        "groups": position_group_report(
+            normalized,
+            position[rows],
+            weights,
+            width=int(threshold("td_position_group_width")),
+            min_windows=int(threshold("td_position_min_windows")),
+        ),
         "strata": {
             "early_turns": {"bias": mean(normalized, early), "mae": mean(np.abs(normalized), early)}
             if early is not None
