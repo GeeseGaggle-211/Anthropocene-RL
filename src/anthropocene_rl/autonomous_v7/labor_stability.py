@@ -369,6 +369,7 @@ class TDDriftMonitor:
         *,
         growth_eligible: bool = True,
         error: float | None = None,
+        seconds: float | None = None,
     ) -> dict[str, Any] | None:
         """``growth_eligible=False`` records a refresh (e.g. the first one against the
         Monte Carlo return) without counting it toward the trajectory. ``error`` is the
@@ -388,6 +389,8 @@ class TDDriftMonitor:
             "error": None if error is None else float(error) / self.weight,
             "growth_eligible": bool(growth_eligible),
         }
+        if seconds is not None:
+            record["refresh_seconds"] = float(seconds)
         if previous is not None:
             change = (current - previous.detach().double().reshape(-1)).abs()
             record["drift"] = float(change.mean()) / self.weight if change.numel() else 0.0
@@ -435,6 +438,9 @@ class TDDriftMonitor:
         return {
             "refreshes": list(self.refreshes),
             "alarms": alarms,
+            "insufficient": sorted(
+                key for key, result in trajectory.items() if result["status"] == "insufficient"
+            ),
             "trajectory": trajectory,
             "warmup_refreshes": self.warmup,
             "final_ratio": self.ratio,
@@ -1055,12 +1061,18 @@ class StabilityMonitor:
         *,
         growth_eligible: bool = True,
         error: float | None = None,
+        seconds: float | None = None,
     ) -> None:
         if self.td is None:
             self.td = self._new_td(weight)
             self.applicable["td_divergence"] = True
         alarm = self.td.update(
-            epoch, previous, current, growth_eligible=growth_eligible, error=error
+            epoch,
+            previous,
+            current,
+            growth_eligible=growth_eligible,
+            error=error,
+            seconds=seconds,
         )
         self.write({"kind": "td_refresh", **self.td.refreshes[-1]})
         if alarm:
@@ -1199,10 +1211,31 @@ class StabilityMonitor:
             trajectory=self.saturation[-20:],
         )
         td = self.td.report() if self.td is not None else None
+        # Too few post-warm-up refreshes to judge a trajectory is missing evidence: HOLD,
+        # never a silent pass (FAIL still dominates).
+        td_status = (
+            "HOLD"
+            if td is None
+            else "FAIL"
+            if td["alarms"]
+            else "HOLD"
+            if td["insufficient"]
+            else "PASS"
+        )
         put(
             "td_divergence",
-            "FAIL" if td and td["alarms"] else "PASS" if td else "HOLD",
-            **({"refreshes": td["refreshes"], "alarms": td["alarms"]} if td else {}),
+            td_status,
+            **(
+                {
+                    "refreshes": td["refreshes"],
+                    "alarms": td["alarms"],
+                    "trajectory": td["trajectory"],
+                    "insufficient": td["insufficient"],
+                    "warmup_refreshes": td["warmup_refreshes"],
+                }
+                if td
+                else {}
+            ),
         )
         tail = self.final.get("population_tail")
         put(

@@ -440,6 +440,45 @@ def test_td_threshold_fields() -> None:
     assert (th.td_warmup_refreshes, th.td_final_ratio, th.td_divergence_increase) == (2, 0.5, 0.10)
 
 
+def _td_fit(**kwargs):
+    torch.manual_seed(0)
+    task = LaborTaskCritic(
+        _layout(False), width=16, token_width=16, qol_head=LaborQoLHead(target="td-lambda")
+    )
+    costs = LaborCostCritics(_layout(False), width=16, token_width=16)
+    return pretrain_critic_on_dataset(
+        task_critic=task, cost_critics=costs, dataset=_training_dataset(), **kwargs
+    )
+
+
+def test_td_refresh_cadence_is_configurable_in_steps_and_per_epoch() -> None:
+    # 6 rows, batch 2 -> 3 steps per epoch, 2 epochs = 6 steps
+    by_epoch = _td_fit(epochs=2, batch_size=2, td_refreshes_per_epoch=3)
+    td = by_epoch["stability"]["checks"]["td_divergence"]
+    assert len(td["refreshes"]) == 1 + 5  # start + steps 1..5 (every step)
+    by_steps = _td_fit(epochs=2, batch_size=2, td_refresh_steps=2)
+    steps = [r["epoch"] for r in by_steps["stability"]["checks"]["td_divergence"]["refreshes"]]
+    assert steps == [0, 2, 4]
+    assert all("refresh_seconds" in r for r in by_steps["stability"]["checks"]["td_divergence"]["refreshes"])
+    default = _td_fit(epochs=2, batch_size=2)  # 4 per epoch capped at one per step
+    assert len(default["stability"]["checks"]["td_divergence"]["refreshes"]) == 6
+
+
+def test_insufficient_td_trajectory_holds_instead_of_passing() -> None:
+    # Two refreshes (start + one) leave no post-warm-up points: HOLD, never PASS.
+    summary = _td_fit(epochs=1, batch_size=3, td_refresh_steps=1)
+    td = summary["stability"]["checks"]["td_divergence"]
+    assert td["status"] == "HOLD" and td["insufficient"] == ["drift", "error"]
+    assert not summary["stability"]["admitted"] or td["status"] == "HOLD"
+
+
+def test_enough_refreshes_leave_the_hold() -> None:
+    summary = _td_fit(epochs=4, batch_size=2, td_refresh_steps=1)  # 12 steps -> 12 refreshes
+    td = summary["stability"]["checks"]["td_divergence"]
+    assert td["status"] in ("PASS", "FAIL") and td["insufficient"] == []
+    assert len(td["trajectory"]["drift"]["series"]) == 12 - 1 - 2
+
+
 def test_td_lambda_fit_records_refreshes() -> None:
     torch.manual_seed(0)
     task = LaborTaskCritic(
@@ -450,7 +489,7 @@ def test_td_lambda_fit_records_refreshes() -> None:
         task_critic=task, cost_critics=costs, dataset=_training_dataset(), epochs=3, batch_size=4
     )
     td = summary["stability"]["checks"]["td_divergence"]
-    assert td["status"] in ("PASS", "FAIL") and len(td["refreshes"]) == 3
+    assert td["status"] in ("PASS", "FAIL", "HOLD") and len(td["refreshes"]) >= 3
     assert td["refreshes"][0]["growth_eligible"] is False
     assert all(r["out_of_bounds"] == 0 for r in td["refreshes"])
 

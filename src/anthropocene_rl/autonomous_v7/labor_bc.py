@@ -2414,8 +2414,15 @@ def pretrain_critic_on_dataset(
     resume_path: str | None = None,
     resume_every: int = 100,
     progress: bool = False,
+    td_refreshes_per_epoch: int = 4,
+    td_refresh_steps: int | None = None,
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
+
+    TD(lambda) QoL targets (bounded head with ``target="td-lambda"``) refresh every
+    ``td_refresh_steps`` optimizer steps, or, if that is None, ``td_refreshes_per_epoch``
+    times per epoch (default 4, about 100 steps at 400 steps per epoch); the refresh
+    cadence is a pure function of the global step, so exact resume is preserved.
 
     Returns are computed over every row of each (world, camp) trajectory;
     rows whose initial recommendation was rejected (an idle retry executed)
@@ -2586,9 +2593,19 @@ def pretrain_critic_on_dataset(
             thresholds=sat_thresholds,
         )
 
+    steps_per_epoch = max(1, -(-N // batch_size))
+    if td_refresh_steps is not None:
+        td_interval = int(td_refresh_steps)
+    else:
+        td_interval = max(1, -(-steps_per_epoch // max(1, int(td_refreshes_per_epoch))))
+    if td_interval < 1:
+        raise ValueError("TD refresh cadence must be at least one optimizer step")
+
     def refresh_td_targets(epoch: int) -> None:
+        """``epoch`` is the optimizer step at which the refresh happens (0: start)."""
         from .labor_advantage import qol_td_lambda_targets
 
+        refresh_started = time.time()
         previous = task_targets["qol_years"]
         every = torch.arange(n)
         values = task_critic.expectation("qol_years", qol_logits(every))
@@ -2608,6 +2625,7 @@ def pretrain_critic_on_dataset(
                 qol_head.discount_weight,
                 growth_eligible=epoch > 0,
                 error=error,
+                seconds=time.time() - refresh_started,
             )
 
     td_lambda = qol_head is not None and qol_head.target == "td-lambda"
@@ -2669,8 +2687,6 @@ def pretrain_critic_on_dataset(
     stop = False
     for epoch in range(first_epoch, epochs):
         resumed_epoch = resume is not None and epoch == first_epoch
-        if td_lambda and epoch > 0 and not resumed_epoch:
-            refresh_td_targets(epoch)
         if resumed_epoch:
             generator.bit_generator.state = copy.deepcopy(epoch_state)
         state_at_epoch = copy.deepcopy(generator.bit_generator.state)
@@ -2679,6 +2695,8 @@ def pretrain_critic_on_dataset(
             if max_steps is not None and steps >= max_steps:
                 stop = True
                 break
+            if td_lambda and steps > 0 and steps % td_interval == 0:
+                refresh_td_targets(steps)
             batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
             b_tensors = {k: v[batch_idx] for k, v in tensors.items()}
             b_privileged = privileged_rows(batch_idx)
