@@ -582,6 +582,37 @@ def load_labor_datasets(
     require_privileged: bool = False,
     training: bool = True,
     drop_reserved: bool = False,
+    family_weights: Mapping[str, float] | None = None,
+    family_normalizer: Any = None,
+) -> dict[str, Any]:
+    """:func:`_load_labor_datasets`, optionally with family row up-weighting.
+
+    ``family_weights`` (``labor_scenarios.parse_family_weights``) tags rows at load
+    time with the scenario family tracker and multiplies ``row_weight`` by the max
+    weight of each row's families, rescaled so every (source, world) keeps its mass;
+    the before/after shares are in ``collection["family_weighting"]``.
+    """
+    dataset = _load_labor_datasets(
+        directories,
+        expected_normalizer_digest=expected_normalizer_digest,
+        require_privileged=require_privileged,
+        training=training,
+        drop_reserved=drop_reserved,
+    )
+    if family_weights:
+        from .labor_scenarios import reweight_dataset
+
+        reweight_dataset(dataset, family_weights, normalizer=family_normalizer)
+    return dataset
+
+
+def _load_labor_datasets(
+    directories: Sequence[Path],
+    *,
+    expected_normalizer_digest: str | None = None,
+    require_privileged: bool = False,
+    training: bool = True,
+    drop_reserved: bool = False,
 ) -> dict[str, Any]:
     """One dataset unchanged, or several sources mixed with equal source mass (brief 6.1).
 

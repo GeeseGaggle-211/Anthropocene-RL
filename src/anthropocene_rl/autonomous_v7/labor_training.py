@@ -1153,7 +1153,51 @@ def _load_labor_teacher_dataset(
         expected_normalizer_digest=_normalization_digest(normalizer),
         require_privileged=require_privileged,
         drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
+        family_weights=_family_weights(args),
+        family_normalizer=normalizer,
     )
+
+
+def _family_weights(args: argparse.Namespace) -> dict[str, float] | None:
+    from .labor_scenarios import parse_family_weights
+
+    return parse_family_weights(getattr(args, "family_weights", None))
+
+
+FAMILY_SCHEDULES_KEY = "family_weight_schedules"
+
+
+def _family_schedule(
+    args: argparse.Namespace, state: Mapping[str, Any], role: str, epochs: int
+) -> Any:
+    """The fit's family weight schedule, continued from the checkpoint's ``role`` record."""
+    from .labor_scenarios import continued_schedule
+
+    weights = _family_weights(args)
+    if not weights:
+        if getattr(args, "family_weight_decay", None) is not None:
+            raise ValueError("--family-weight-decay needs --family-weights")
+        return None
+    previous = (state.get(FAMILY_SCHEDULES_KEY) or {}).get(role)
+    return continued_schedule(
+        weights,
+        getattr(args, "family_weight_decay", None),
+        getattr(args, "family_weight_decay_epochs", None),
+        int(epochs),
+        previous,
+        restart=bool(getattr(args, "family_weight_restart", False)),
+    )
+
+
+def _carry_family_schedules(
+    trainer_state: dict[str, Any], state: Mapping[str, Any], role: str, record: Any
+) -> None:
+    """Keep every role's schedule record; update ``role`` with this fit's end state."""
+    schedules = dict(state.get(FAMILY_SCHEDULES_KEY) or {})
+    if record is not None:
+        schedules[role] = dict(record)
+    if schedules:
+        trainer_state[FAMILY_SCHEDULES_KEY] = schedules
 
 
 def _load_privileged_normalizer(path: Path | None) -> Any:
@@ -1358,6 +1402,8 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
             dataset_dirs,
             expected_normalizer_digest=_normalization_digest(normalizer),
             drop_reserved=bool(getattr(args, "drop_reserved_worlds", False)),
+            family_weights=_family_weights(args),
+            family_normalizer=normalizer,
         )
     else:
         dataset = collect_heuristic_bc_dataset(
@@ -1383,9 +1429,16 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         label_smoothing=getattr(args, "label_smoothing", 1e-6),
         inverse_freq_power=getattr(args, "inverse_freq_power", 0.5),
         **_bc_stability_kwargs(args, task, costs),
+        **(
+            {"family_schedule": schedule}
+            if (schedule := _family_schedule(args, state, "actor", args.epochs)) is not None
+            else {}
+        ),
     )
     if getattr(args, "economic_trace", None) is not None:
         bc_summary["economic_trace_dir"] = str(args.economic_trace)
+    if (dataset.get("collection") or {}).get("family_weighting") is not None:
+        bc_summary["family_weighting"] = dataset["collection"]["family_weighting"]
     actor.to("cpu")  # device-agnostic checkpoint
     if device.type != "cpu":
         bc_summary["device"] = device_record(device)
@@ -1412,6 +1465,9 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
     )
     trainer_state["heuristic_bc_pretraining"] = bc_summary
+    _carry_family_schedules(
+        trainer_state, state, "actor", bc_summary.get("family_weight_schedule")
+    )
     _save_checkpoint(args.out, trainer_state)
 
 
@@ -1529,12 +1585,22 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
                 **_cost_weight_kwargs(args),
                 **({"allow_learner_state_continuation": True} if continuations else {}),
                 **({"allow_curated_scenarios": True} if scenarios else {}),
+                **(
+                    {"family_schedule": schedule}
+                    if (schedule := _family_schedule(args, state, "critic", args.epochs))
+                    is not None
+                    else {}
+                ),
                 **_critic_stability_kwargs(args, actor),
             )
         except StabilityAbort as error:
             _write_abort_receipt(args.out, error)
             raise
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
+        if teacher["collection"].get("family_weighting") is not None:
+            summary.setdefault("family_weighting", {})["loader_shares"] = teacher["collection"][
+                "family_weighting"
+            ]["shares"]
         task.to("cpu")  # device-agnostic checkpoint
         costs.to("cpu")
         if device.type != "cpu":
@@ -1594,6 +1660,12 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
     )
     trainer_state["heuristic_critic_pretraining"] = summary
+    _carry_family_schedules(
+        trainer_state,
+        state,
+        "critic",
+        (summary.get("family_weighting") or {}).get("schedule"),
+    )
     _save_checkpoint(args.out, trainer_state)
 
 
@@ -2115,6 +2187,27 @@ def argument_parser() -> argparse.ArgumentParser:
         "dataset (recorded in the summary)",
     )
     pretrain_bc.add_argument(
+        "--family-weight-decay", choices=("none", "linear", "cosine"), default=None,
+        help="decay of each family up-weight toward 1 as 1 + (w - 1) s(t) (default cosine when "
+        "--family-weights is set); keyed on the global optimizer step and continued from the "
+        "input checkpoint's schedule across rounds",
+    )
+    pretrain_bc.add_argument(
+        "--family-weight-decay-epochs", type=float, default=None,
+        help="epochs over which s goes from 1 to 0 (default: the continued schedule's, else this "
+        "fit's --epochs)",
+    )
+    pretrain_bc.add_argument(
+        "--family-weight-restart", action="store_true", default=False,
+        help="start the family weight schedule at full weight instead of continuing it",
+    )
+    pretrain_bc.add_argument(
+        "--family-weights", default=None,
+        help="up-weight scenario-family rows of --dataset (labor_scenarios): 'default' (the "
+        "proposed weights), 'family=w,...' or 'default,family=w'; each row takes its max family "
+        "weight, then every (source, world) keeps its mass",
+    )
+    pretrain_bc.add_argument(
         "--economic-trace",
         type=Path,
         default=None,
@@ -2167,6 +2260,27 @@ def argument_parser() -> argparse.ArgumentParser:
         "--drop-reserved-worlds", action="store_true", default=False,
         help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
         "dataset (recorded in the summary)",
+    )
+    pretrain_critic.add_argument(
+        "--family-weight-decay", choices=("none", "linear", "cosine"), default=None,
+        help="decay of each family up-weight toward 1 as 1 + (w - 1) s(t) (default cosine when "
+        "--family-weights is set); keyed on the global optimizer step and continued from the "
+        "input checkpoint's schedule across rounds",
+    )
+    pretrain_critic.add_argument(
+        "--family-weight-decay-epochs", type=float, default=None,
+        help="epochs over which s goes from 1 to 0 (default: the continued schedule's, else this "
+        "fit's --epochs)",
+    )
+    pretrain_critic.add_argument(
+        "--family-weight-restart", action="store_true", default=False,
+        help="start the family weight schedule at full weight instead of continuing it",
+    )
+    pretrain_critic.add_argument(
+        "--family-weights", default=None,
+        help="up-weight scenario-family rows of --dataset (labor_scenarios): 'default' (the "
+        "proposed weights), 'family=w,...' or 'default,family=w'; each row takes its max family "
+        "weight, then every (source, world) keeps its mass",
     )
     pretrain_critic.add_argument(
         "--return-tail",

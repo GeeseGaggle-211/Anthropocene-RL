@@ -555,8 +555,25 @@ def run_actor_fidelity(
             for t in range(3)
             if (third == t).any()
         },
+        "by_scenario_family": actor_fidelity_by_family(arrays, dataset, normalizer),
     }
     return report
+
+
+def actor_fidelity_by_family(
+    arrays: Mapping[str, np.ndarray], dataset: Mapping[str, Any], normalizer: Any
+) -> dict[str, Any]:
+    """Report-only actor fidelity per curated scenario family (labor_scenarios rules)."""
+    from .labor_scenarios import FAMILY_BITS, row_family_tags
+
+    tags = row_family_tags(dataset, normalizer=normalizer)
+    if tags is None:
+        return {}
+    return {
+        family: actor_fidelity_metrics(arrays, (tags & bit) != 0)
+        for family, bit in FAMILY_BITS.items()
+        if ((tags & bit) != 0).any()
+    }
 
 
 def _fmt(value: Any, digits: int = 3) -> str:
@@ -705,7 +722,11 @@ def critic_head_metrics(
 
 
 def critic_dataset_report(
-    task: Any, costs: Any, dataset: Mapping[str, Any], batch_size: int = 256
+    task: Any,
+    costs: Any,
+    dataset: Mapping[str, Any],
+    batch_size: int = 256,
+    normalizer: Any = None,
 ) -> dict[str, Any]:
     from .labor_bc import critic_target_available, discounted_returns, return_tail_method
     from .labor_bridge import SPECIALTIES
@@ -752,7 +773,7 @@ def critic_dataset_report(
     from .labor_scenarios import FAMILY_BITS, row_family_tags
 
     by_family: dict[str, Any] = {}
-    tags = row_family_tags(dataset)
+    tags = row_family_tags(dataset, normalizer=normalizer)
     if tags is not None:
         tags = tags[rows]
         for family, bit in FAMILY_BITS.items():
@@ -807,7 +828,9 @@ def run_critic_calibration(
             raise ValueError(
                 f"calibration worlds {overlap[:5]} fitted the privileged normalizer; not held out"
             )
-    calibration = critic_dataset_report(task, costs, calibration_dataset, batch_size)
+    calibration = critic_dataset_report(
+        task, costs, calibration_dataset, batch_size, normalizer=normalizer
+    )
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "command": "critic-calibration",
@@ -837,6 +860,7 @@ def run_critic_calibration(
             costs,
             _load_dataset(fit_dataset_path, normalizer, require_privileged=privileged),
             batch_size,
+            normalizer=normalizer,
         )
         report["fit_dataset"] = str(fit_dataset_path)
         report["fitting"] = fitting

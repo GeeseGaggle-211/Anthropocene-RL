@@ -26,6 +26,8 @@
 #   run on the GPU; JOBS fits share it, THREADS is then the host threads per fit)
 #   SCENARIOS=0       1: FIT_DATA also lists curated scenario fitting sets (labor_scenarios)
 #   SCENARIO_CAL_DATA calibration scenario set (report-only per-family calibration)
+#   FAMILY_WEIGHTS    pretrain-critic --family-weights (e.g. default; proposed values)
+#   FAMILY_WEIGHT_DECAY (none|linear|cosine; cosine by default with weights)  FAMILY_WEIGHT_DECAY_EPOCHS
 #
 # Never point any input at sealed worlds 3000-3059; the reserved worlds 90154-90159 are
 # only ever read as RESERVED_PAYLOADS (held-out tests). Every loader refuses violations.
@@ -74,6 +76,9 @@ args=(
 if [ -n "${CONTROL_REPORT:-}" ]; then args+=(--control-report "$CONTROL_REPORT"); fi
 if [ "$CONTINUATIONS" = "1" ]; then args+=(--learner-state-continuations); fi
 if [ "$SCENARIOS" = "1" ]; then args+=(--curated-scenarios); fi
+if [ -n "${FAMILY_WEIGHTS:-}" ]; then args+=(--family-weights "$FAMILY_WEIGHTS"); fi
+if [ -n "${FAMILY_WEIGHT_DECAY:-}" ]; then args+=(--family-weight-decay "$FAMILY_WEIGHT_DECAY"); fi
+if [ -n "${FAMILY_WEIGHT_DECAY_EPOCHS:-}" ]; then args+=(--family-weight-decay-epochs "$FAMILY_WEIGHT_DECAY_EPOCHS"); fi
 if [ -n "${SCENARIO_CAL_DATA:-}" ]; then args+=(--scenario-calibration-data "$SCENARIO_CAL_DATA"); fi
 # shellcheck disable=SC2206
 if [ -n "${EXTRA:-}" ]; then args+=($EXTRA); fi

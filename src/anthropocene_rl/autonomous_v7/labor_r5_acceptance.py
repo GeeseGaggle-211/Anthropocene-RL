@@ -764,6 +764,74 @@ def gap_checks(
     return out
 
 
+FOOD_TRADE_ADVISORY_MARGIN = 0.05
+
+
+def actor_fidelity_by_family_report(
+    actor: Any, dataset: Mapping[str, Any], normalizer: Any, batch_size: int
+) -> dict[str, Any]:
+    """Report-only actor fidelity per scenario family on the calibration rows."""
+    from .labor_pretrain_eval import _actor_arrays, actor_fidelity_by_family
+
+    try:
+        arrays = _actor_arrays(actor, dataset, batch_size)
+    except (KeyError, ValueError) as error:  # datasets without actor labels
+        return {"unavailable": str(error)}
+    return actor_fidelity_by_family(arrays, dataset, normalizer)
+
+
+def food_trade_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Advisory, never gating (user condition, 26 Oct): with family weights on, flag when
+    food-trade villages calibrate or rank worse than all rows by more than 0.05."""
+    weighting = evidence.get("family_weighting")
+    margin = FOOD_TRADE_ADVISORY_MARGIN
+    flags: list[dict[str, Any]] = []
+    calibration = _get(evidence, "calibration", "calibration") or {}
+    family = (calibration.get("by_scenario_family") or {}).get("food-trade")
+    for head, strata in (calibration.get("heads") or {}).items():
+        everything = strata.get("all") or {}
+        mine = (family or {}).get(head) or {}
+        nmae_all, nmae_ft = everything.get("nmae"), mine.get("nmae")
+        if nmae_all is not None and nmae_ft is not None:
+            flags.append(
+                {"check": f"V:{head}:nmae", "all": nmae_all, "food_trade": nmae_ft,
+                 "flag": nmae_ft > nmae_all + margin}
+            )
+        rank_all = (everything.get("ranking") or {}).get("accuracy")
+        rank_ft = (mine.get("ranking") or {}).get("accuracy")
+        if rank_all is not None and rank_ft is not None:
+            flags.append(
+                {"check": f"V:{head}:ranking", "all": rank_all, "food_trade": rank_ft,
+                 "flag": rank_ft < rank_all - margin}
+            )
+    advantage = evidence.get("advantage_eval") or {}
+    a_family = ((advantage.get("by_scenario_family") or {}).get("food-trade") or {}).get(
+        "ranking", {}
+    )
+    for head in ("qol_years", "population_years", "utility:root"):
+        rank_all = ((advantage.get("ranking") or {}).get(head) or {}).get("accuracy")
+        rank_ft = (a_family.get(head) or {}).get("accuracy")
+        if rank_all is not None and rank_ft is not None:
+            flags.append(
+                {"check": f"A:{head}:ranking", "all": rank_all, "food_trade": rank_ft,
+                 "flag": rank_ft < rank_all - margin}
+            )
+    if weighting is None:
+        status = "NOT-APPLICABLE"
+    elif not flags:
+        status = "NO-FOOD-TRADE-EVIDENCE"
+    else:
+        status = "FLAG" if any(f["flag"] for f in flags) else "OK"
+    return {
+        "check": "advisory:food-trade-vs-all",
+        "gating": False,
+        "margin": margin,
+        "family_weights_on": weighting is not None,
+        "status": status,
+        "comparisons": flags,
+    }
+
+
 def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -> dict[str, Any]:
     """Every check of one (arm, seed) fit, grouped into the primary and secondary gates."""
     primary = []
@@ -798,7 +866,39 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
         "secondary": secondary,
         "primary_status": combine([c["status"] for c in primary]),
         "secondary_status": combine([c["status"] for c in secondary]),
+        # Advisory only: never part of primary/secondary and never changes a verdict.
+        "advisory": [food_trade_advisory(evidence)],
     }
+
+
+def scenario_family_summary(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Per-family V calibration, A ranking and actor fidelity of one fit (report only)."""
+    calibration = (_get(evidence, "calibration", "calibration") or {}).get(
+        "by_scenario_family"
+    ) or {}
+    advantage = (evidence.get("advantage_eval") or {}).get("by_scenario_family") or {}
+    actor = evidence.get("actor_fidelity_by_scenario_family") or {}
+    out = {}
+    for family in sorted(set(calibration) | set(advantage) | set(actor)):
+        heads = calibration.get(family) or {}
+        out[family] = {
+            "V": {
+                head: {
+                    "rows": m.get("rows"),
+                    "nmae": m.get("nmae"),
+                    "bias": m.get("bias"),
+                    "ranking": (m.get("ranking") or {}).get("accuracy"),
+                }
+                for head, m in heads.items()
+            },
+            "A": {
+                name: (r or {}).get("accuracy")
+                for name, r in ((advantage.get(family) or {}).get("ranking") or {}).items()
+            },
+            "A_roots": (advantage.get(family) or {}).get("roots"),
+            "actor": actor.get(family) if isinstance(actor, Mapping) else None,
+        }
+    return out
 
 
 # --- seed rule -------------------------------------------------------------------------------
@@ -1147,17 +1247,26 @@ def build_receipt(
     for arm in arms:
         fits = by_arm.get(arm.name, {})
         per_seed_primary, per_seed_secondary = {}, {}
+        per_seed_advisory: dict[int, Any] = {}
+        per_seed_families: dict[int, Any] = {}
         for seed in seeds:
             if seed in fits:
                 checks = fit_checks(fits[seed], strata=strata)
                 per_seed_primary[seed] = checks["primary"]
                 per_seed_secondary[seed] = checks["secondary"]
+                per_seed_advisory[seed] = checks["advisory"]
+                per_seed_families[seed] = scenario_family_summary(fits[seed])
             else:
                 missing = [check("fit:missing", "fit", None, "present", "==", every_seed=True)]
                 per_seed_primary[seed] = missing
                 per_seed_secondary[seed] = missing
         arm_reports[arm.name] = {
             "arm": arm.state_dict(),
+            "advisory": {str(s): v for s, v in per_seed_advisory.items()},
+            "advisory_flagged": any(
+                a["status"] == "FLAG" for v in per_seed_advisory.values() for a in v
+            ),
+            "by_scenario_family": {str(s): v for s, v in per_seed_families.items()},
             GATE_ID: seed_verdict(
                 per_seed_primary,
                 rule=seed_rule,
@@ -1669,6 +1778,14 @@ def evaluate_fit(
     head, adv_config = load_advantage_head(adv_state, task, costs)
     head.to(target)
     reserved = load_candidate_shards(list(reserved_payloads))
+    # Report-only per-family A ranking: state families (food-trade guard included) of
+    # every reserved root, added to any curated scenario families it already carries.
+    from .labor_scenarios import root_state_families
+
+    for root, families in zip(
+        reserved.roots, root_state_families(reserved, normalizer), strict=True
+    ):
+        root.families = tuple(sorted(set(root.families) | set(families)))
     adv_fit = adv_state.get("fit", {})
     adv_eval = evaluate_advantage(
         task,
@@ -1769,6 +1886,10 @@ def evaluate_fit(
         "comparability": comparability,
         "calibration": calibration,
         "scenario_calibration": scenario_calibration,
+        "family_weighting": critic_summary.get("family_weighting"),
+        "actor_fidelity_by_scenario_family": actor_fidelity_by_family_report(
+            actor, dataset, normalizer, batch_size
+        ),
         "td_residual": td,
         "advantage_fit": {
             k: v for k, v in adv_fit.items() if k not in ("stability", "loss_history")
@@ -1990,6 +2111,12 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             command += ["--learner-state-continuations"]
         if getattr(args, "curated_scenarios", False):
             command += ["--curated-scenarios"]
+        if getattr(args, "family_weights", None):
+            command += ["--family-weights", args.family_weights]
+        if getattr(args, "family_weight_decay", None):
+            command += ["--family-weight-decay", args.family_weight_decay]
+        if getattr(args, "family_weight_decay_epochs", None) is not None:
+            command += ["--family-weight-decay-epochs", str(args.family_weight_decay_epochs)]
         command += shlex.split(args.critic_args or "")
 
         def fit_critic() -> None:
@@ -2143,6 +2270,12 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
                 command += ["--learner-state-continuations"]
             if getattr(args, "curated_scenarios", False):
                 command += ["--curated-scenarios"]
+            if getattr(args, "family_weights", None):
+                command += ["--family-weights", args.family_weights]
+            if getattr(args, "family_weight_decay", None):
+                command += ["--family-weight-decay", args.family_weight_decay]
+            if getattr(args, "family_weight_decay_epochs", None) is not None:
+                command += ["--family-weight-decay-epochs", str(args.family_weight_decay_epochs)]
             command += shlex.split(args.critic_args or "")
             _run(command, log, int(args.threads))
         critic_outputs.append(torch.load(target, map_location="cpu", weights_only=True))
@@ -2290,6 +2423,9 @@ def command_run(args: argparse.Namespace) -> int:
             "fit_data": [str(p) for p in args.fit_data],
             "learner_state_continuations": bool(args.learner_state_continuations),
             "curated_scenarios": bool(getattr(args, "curated_scenarios", False)),
+            "family_weights": getattr(args, "family_weights", None),
+            "family_weight_decay": getattr(args, "family_weight_decay", None),
+            "family_weight_decay_epochs": getattr(args, "family_weight_decay_epochs", None),
             "scenario_calibration_data": None
             if getattr(args, "scenario_calibration_data", None) is None
             else str(args.scenario_calibration_data),
@@ -2522,6 +2658,14 @@ def argument_parser() -> argparse.ArgumentParser:
         help="r5 teacher fitting dataset (first) plus optional continuation datasets",
     )
     run.add_argument("--learner-state-continuations", action="store_true", default=False)
+    run.add_argument(
+        "--family-weights",
+        default=None,
+        help="pretrain-critic --family-weights for every critic fit (labor_scenarios; "
+        "'default' = the proposed weights)",
+    )
+    run.add_argument("--family-weight-decay", choices=("none", "linear", "cosine"), default=None)
+    run.add_argument("--family-weight-decay-epochs", type=float, default=None)
     run.add_argument(
         "--curated-scenarios",
         action="store_true",

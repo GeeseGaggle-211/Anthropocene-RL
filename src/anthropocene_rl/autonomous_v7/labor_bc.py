@@ -2040,8 +2040,15 @@ def pretrain_labor_actor_bc(
     inverse_freq_power: float = 0.5,
     stability: Any = None,
     frozen_critics: Mapping[str, nn.Module] | None = None,
+    family_schedule: Any = None,
 ) -> dict[str, Any]:
     """Supervised behavioral cloning on LaborActor using heuristic dataset.
+
+    ``family_schedule`` (``labor_scenarios.FamilyWeightSchedule``, with a dataset
+    reweighted by ``--family-weights``) decays each family up-weight toward 1 as
+    1 + (w - 1) s(t), t the global optimizer step in epochs plus the schedule offset;
+    the current multipliers are logged in the stability JSONL. Decay ``none`` keeps
+    the loader's fixed weights.
 
     Rows from the reserved held-out worlds 90154-90159 and held-out-test data
     are refused (``labor_worlds``), exactly as for critic training.
@@ -2126,13 +2133,45 @@ def pretrain_labor_actor_bc(
             frozen=dict(frozen_critics or {}),
         )
 
+    weighter = None
+    steps_per_epoch = max(1, -(-N // batch_size))
+    global_step = 0
+    if family_schedule is not None and family_schedule.decay != "none":
+        from .labor_scenarios import FamilyRowWeighter
+
+        if "row_weight_unweighted" not in dataset or "row_family_tags" not in dataset:
+            raise ValueError("a decaying family schedule needs a --family-weights dataset")
+        weighter = FamilyRowWeighter(
+            dataset["row_weight_unweighted"].reshape(-1).numpy(),
+            dataset["row_family_tags"].reshape(-1).numpy(),
+            dataset["row_source"].reshape(-1).numpy()
+            if "row_source" in dataset
+            else np.zeros(N, dtype=np.int64),
+            dataset["row_world"].reshape(-1).numpy(),
+            family_schedule.weights,
+        )
+
+    def schedule_diagnostics() -> dict[str, Any]:
+        progress = global_step / steps_per_epoch
+        return {
+            "family_weight_progress_epochs": float(family_schedule.epoch_offset) + progress,
+            "family_weight_factor": family_schedule.factor(progress),
+            "family_weight_multipliers": family_schedule.multipliers(progress),
+        }
+
     actor.train()
     for _ in range(epochs):
         indices = generator.permutation(N)
         for start in range(0, N, batch_size):
             end = min(N, start + batch_size)
             batch_idx = torch.as_tensor(indices[start:end], dtype=torch.long)
-            batch = to_device({k: dataset[k][batch_idx] for k in tensor_keys}, device)
+            cpu_batch = {k: dataset[k][batch_idx] for k in tensor_keys}
+            if weighter is not None:
+                s = family_schedule.factor(global_step / steps_per_epoch)
+                cpu_batch["row_weight"] = torch.as_tensor(
+                    weighter.rows(batch_idx.numpy(), s), dtype=torch.float32
+                )
+            batch = to_device(cpu_batch, device)
 
             loss, _, _, _ = _batch_loss_and_l1(
                 actor,
@@ -2143,9 +2182,14 @@ def pretrain_labor_actor_bc(
                 spec_weights=spec_weights,
                 act_weights=act_weights,
             )
+            global_step += 1
             if monitor is not None:
                 opt.zero_grad()
-                monitor.step(loss, max_grad_norm=max_grad_norm)
+                monitor.step(
+                    loss,
+                    max_grad_norm=max_grad_norm,
+                    diagnostics=schedule_diagnostics if family_schedule is not None else None,
+                )
                 continue
             if not torch.isfinite(loss):
                 raise ValueError("labor BC produced a nonfinite loss")
@@ -2175,6 +2219,20 @@ def pretrain_labor_actor_bc(
         "inverse_freq_power": float(inverse_freq_power),
         "collection": copy.deepcopy(dataset.get("collection", {})),
         **({} if monitor is None else {"stability": monitor.finish()}),
+        **(
+            {}
+            if family_schedule is None
+            else {
+                "family_weight_schedule": {
+                    **family_schedule.state_dict(),
+                    "epochs_end": float(family_schedule.epoch_offset)
+                    + global_step / steps_per_epoch,
+                    "final_multipliers": family_schedule.multipliers(
+                        global_step / steps_per_epoch
+                    ),
+                }
+            }
+        ),
     }
 
 
@@ -2457,6 +2515,7 @@ def pretrain_critic_on_dataset(
     require_randomized_tail: bool = False,
     allow_learner_state_continuation: bool = False,
     allow_curated_scenarios: bool = False,
+    family_schedule: Any = None,
     stability: Any = "auto",
     frozen_actor: nn.Module | None = None,
     max_steps: int | None = None,
@@ -2546,6 +2605,36 @@ def pretrain_critic_on_dataset(
         ).double().numpy()
     else:
         weights = world_balanced_weights(dataset["row_world"][kept]).double().numpy()
+    family_weighting = (dataset.get("collection") or {}).get("family_weighting")
+    critic_family_shares = None
+    critic_weighter = None
+    if family_weighting is not None and "row_family_tags" in dataset:
+        # Family up-weighting (labor_scenarios): the same multipliers on the critic sampling
+        # weights of the admitted rows, rescaled per (source, world).
+        from .labor_scenarios import apply_family_weights, family_share_report
+
+        tags = dataset["row_family_tags"].reshape(-1)[kept].numpy()
+        sources = (
+            dataset["row_source"].reshape(-1)[kept].numpy()
+            if "row_source" in dataset
+            else np.zeros(len(kept), dtype=np.int64)
+        )
+        base = weights
+        weights = apply_family_weights(
+            base, tags, sources, dataset["row_world"].reshape(-1)[kept].numpy(),
+            family_weighting["weights"],
+        )
+        critic_family_shares = family_share_report(base, weights, tags)
+        if family_schedule is not None and family_schedule.decay != "none":
+            from .labor_scenarios import FamilyRowWeighter
+
+            # Decayed schedule: per-step probabilities from the closed-form weighter.
+            critic_weighter = FamilyRowWeighter(
+                base, tags, sources, dataset["row_world"].reshape(-1)[kept].numpy(),
+                family_schedule.weights,
+            )
+    elif family_schedule is not None:
+        raise ValueError("a family weight schedule needs a --family-weights dataset")
     probabilities = weights / weights.sum()
     N = len(kept)
 
@@ -2709,6 +2798,19 @@ def pretrain_critic_on_dataset(
     fingerprint = _critic_resume_fingerprint(
         dataset, epochs, batch_size, lr, max_grad_norm, cost_loss_weight, N
     )
+    if family_schedule is not None:
+        import hashlib
+        import json
+
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {"base": fingerprint, "family_schedule": family_schedule.state_dict()},
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    def schedule_progress() -> float:
+        return steps / steps_per_epoch
     resume = None
     if resume_path is not None and os.path.exists(resume_path):
         resume = torch.load(resume_path, map_location="cpu", weights_only=True)
@@ -2767,14 +2869,28 @@ def pretrain_critic_on_dataset(
         if resumed_epoch:
             generator.bit_generator.state = copy.deepcopy(epoch_state)
         state_at_epoch = copy.deepcopy(generator.bit_generator.state)
-        draws = generator.choice(N, size=N, replace=True, p=probabilities)
+        if critic_weighter is None:
+            draws = generator.choice(N, size=N, replace=True, p=probabilities)
+        else:
+            # One uniform per draw from the epoch-start state; each step maps its slice
+            # through that step's decayed CDF (exact on resume).
+            uniforms = generator.random(N)
         for start in range(first_start if resumed_epoch else 0, N, batch_size):
             if max_steps is not None and steps >= max_steps:
                 stop = True
                 break
             if td_lambda and steps > 0 and steps % td_interval == 0:
                 refresh_td_targets(steps)
-            batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
+            if critic_weighter is None:
+                batch_draws = draws[start : start + batch_size]
+            else:
+                factor = family_schedule.factor(schedule_progress())
+                cdf = np.cumsum(critic_weighter.weights(factor))
+                batch_draws = np.minimum(
+                    np.searchsorted(cdf, uniforms[start : start + batch_size] * cdf[-1], "right"),
+                    N - 1,
+                )
+            batch_idx = torch.as_tensor(batch_draws, dtype=torch.long)
             b_tensors = to_device({k: v[batch_idx] for k, v in tensors.items()}, device)
             b_privileged = to_device(privileged_rows(batch_idx), device)
             optimizer.zero_grad()
@@ -2811,6 +2927,15 @@ def pretrain_critic_on_dataset(
                                 task_critic,
                                 output["population_years"].detach(),
                                 observed_pop_max,
+                            )
+                        if family_schedule is not None:
+                            progress = schedule_progress()
+                            extra["family_weight_progress_epochs"] = (
+                                float(family_schedule.epoch_offset) + progress
+                            )
+                            extra["family_weight_factor"] = family_schedule.factor(progress)
+                            extra["family_weight_multipliers"] = family_schedule.multipliers(
+                                progress
                             )
                         return extra
 
@@ -2887,6 +3012,31 @@ def pretrain_critic_on_dataset(
             else "world-balanced-with-replacement"
         ),
         "discount_years": CRITIC_DISCOUNT_YEARS,
+        **(
+            {
+                "family_weighting": {
+                    "weights": dict(family_weighting["weights"]),
+                    "status": family_weighting["status"],
+                    "critic_shares": critic_family_shares,
+                    **(
+                        {}
+                        if family_schedule is None
+                        else {
+                            "schedule": {
+                                **family_schedule.state_dict(),
+                                "epochs_end": float(family_schedule.epoch_offset)
+                                + steps / steps_per_epoch,
+                                "final_multipliers": family_schedule.multipliers(
+                                    steps / steps_per_epoch
+                                ),
+                            }
+                        }
+                    ),
+                }
+            }
+            if critic_family_shares is not None
+            else {}
+        ),
         **(
             {
                 "curated_scenario_rows": int(

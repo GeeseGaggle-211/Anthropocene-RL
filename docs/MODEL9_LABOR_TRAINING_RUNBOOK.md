@@ -260,7 +260,38 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
   or more of those heads), `small-camp` (< 100 residents), `large-camp` (> 600), `under-housed` /
   `under-clothed` (privileged `housing-per-capita` / `cloth-per-capita` < 0.3), `fission-daughter`
   (camp absent at the first decision, its first 2 decisions), `trade-eligible` (privileged
-  `trade-partners` >= 1, the partners `Trade.Plan` would pair this turn).
+  `trade-partners` >= 1, the partners `Trade.Plan` would pair this turn),
+  `first-use-farming|herding|fishing` (the first decision whose valid, accepted teacher label staffs the
+  head, and the next one; once per camp). Under-housed/under-clothed use hysteresis: enter below 0.3,
+  exit above 0.4, and a re-entry is a new root only after two decisions above 0.4 (on the local 90100
+  bank this cut under-clothed roots from 1,091 to 330). Family bits are append-only.
+* Weight, not support (decision 26 Oct): the 50-decision banks meet the root minima, so the default
+  remedy is `--family-weights` on `pretrain-bc`, `pretrain-critic` and `labor_r5_acceptance run`
+  (`FAMILY_WEIGHTS=` in `tools/r5_critic_acceptance.sh`). Rows are tagged at load time (teacher
+  `row_source` 0 by the tracker, scenario rows by their stored tags, other sources untagged), each row
+  takes the max weight of its families (1 untagged), and every (source, world) group is rescaled to its
+  unweighted mass. `default` = the weights (proposed, approved 26 Oct with the decay below): first-use x10, legal-window heads and mixed x5,
+  under-housed/under-clothed x3, fission-daughter x2, others x1 (`default,family=w` overrides).
+  Summaries record the weights, status and before/after shares; `labor_scenarios weights --dataset D`
+  (or `--shard`) prints them.
+* Decay (user condition, 26 Oct): `--family-weight-decay {none,linear,cosine}` (cosine by default with
+  weights) and `--family-weight-decay-epochs E` (default: the continued schedule's, else the fit's
+  `--epochs`). Each weight acts as 1 + (w - 1) s(t), s from 1 to 0 over E epochs of the global optimizer
+  step: BC rescales each minibatch's `row_weight`; the critic maps one per-epoch uniform per draw
+  through that step's CDF (exact resume; the resume fingerprint binds the schedule). Checkpoints carry
+  `family_weight_schedules.{actor,critic}` with `epochs_end`; the next pretrain-bc/pretrain-critic with
+  the same weights and decay continues from it (DAgger refits never restart at full weight;
+  `--family-weight-restart` overrides). The stability JSONL logs `family_weight_factor` and
+  `family_weight_multipliers`. Decay `none` keeps the fixed loader weights.
+* `food-trade` guard family (never up-weighted): last turn's imported food (observation trade row
+  `food`, column `imported`) over the camp's meals per turn (privileged economy `meals-per-turn`)
+  above 0.2. Food produced is not observable at the boundary, so meal need is the denominator. Stored
+  rows recover imported food by inverting the bounded normalizer, so tagging needs the dataset's
+  normalizer and is unavailable when that column is dead in it (the local test normalizer, fitted at
+  reset, zeroes it). The acceptance evidence reports per-family V calibration, A ranking (reserved
+  roots get their state families from their tensors) and actor fidelity under `by_scenario_family`,
+  and the receipt carries the non-gating `advisory:food-trade-vs-all` (FLAG when food-trade nMAE is
+  above, or ranking below, the all-rows value by more than 0.05 with weights on).
 * `collect --partition fitting|calibration|held-out-test --coverage coverage.json --exclude-dataset BANK`
   drives each world under H12 (`--decisions`, default 50; the VM driver uses 100), keeps a keyed
   bottom-k quota per family and world (caps from the audit's deficits, 0 for met families; or

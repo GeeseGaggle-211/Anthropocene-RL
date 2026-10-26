@@ -26,8 +26,8 @@ FARMER, HERDER, FISHER = (True, False, False), (False, True, False), (False, Fal
 
 
 def _state(camp, turn=8, heads=FARMER, residents=300.0, neolithic=True, housing=1.0,
-           clothing=1.0, trade=0.0):
-    return CampState(camp, turn, heads, residents, neolithic, housing, clothing, trade)
+           clothing=1.0, trade=0.0, staffed=None):
+    return CampState(camp, turn, heads, residents, neolithic, housing, clothing, trade, staffed)
 
 
 def _run(sequence, rules=None):
@@ -79,18 +79,50 @@ def test_state_families_thresholds_and_run_entries() -> None:
     assert "small-camp" in small[0][1].tags and "small-camp" not in small[1][1].tags
     large = _run([[_state(1, residents=601.0)], [_state(1, residents=600.0)]])
     assert "large-camp" in large[0][1].tags and "large-camp" not in large[1][1].tags
-    housing = [0.0, 0.1, 0.29, 0.3, 0.2, 0.1]
+    # Hysteresis: enter below 0.3, exit above 0.4; a re-entry is a new root only after
+    # two decisions above 0.4.
+    housing = [0.0, 0.1, 0.35, 0.45, 0.2, 0.5, 0.6, 0.1, 0.35]
     out = _run([[_state(1, housing=h)] for h in housing])
-    assert ["under-housed" in o[1].tags for o in out] == [True, True, True, False, True, True]
+    assert ["under-housed" in o[1].tags for o in out] == [
+        True, True, True, False, True, False, False, True, True]
     entries = [d for d, o in enumerate(out) if "under-housed" in o[1].entries]
-    assert entries == [0, 4]
+    assert entries == [0, 7]  # the dip at 4 follows one decision above 0.4: same run
     assert out[0][1].subtypes["under-housed"] == "initial"
-    assert out[4][1].subtypes["under-housed"] == "relapse"
+    assert out[7][1].subtypes["under-housed"] == "relapse"
+    # Flicker around 0.3 without clearing 0.4 is one run.
+    flicker = _run([[_state(1, clothing=c)] for c in (0.2, 0.31, 0.29, 0.33, 0.28)])
+    assert all("under-clothed" in o[1].tags for o in flicker)
+    assert [d for d, o in enumerate(flicker) if "under-clothed" in o[1].entries] == [0]
     cloth = _run([[_state(1, clothing=0.25)]])
     assert "under-clothed" in cloth[0][1].tags
     trade = _run([[_state(1, trade=0.0)], [_state(1, trade=1.0)]])
     assert "trade-eligible" not in trade[0][1].tags and "trade-eligible" in trade[1][1].entries
     assert rules.state_dict()["housing_below"] == 0.3
+
+
+def test_first_active_use_is_the_first_staffed_decision_and_the_next() -> None:
+    none, farm, both = (False, False, False), (True, False, False), (True, True, False)
+    staffing = [None, none, farm, farm, farm, none, farm, both]
+    out = _run([[_state(1, heads=(True, True, False), staffed=s)] for s in staffing])
+    farming = ["first-use-farming" in o[1].tags for o in out]
+    herding = ["first-use-herding" in o[1].tags for o in out]
+    assert farming == [False, False, True, True, False, False, False, False]
+    assert herding == [False] * 7 + [True]
+    assert [d for d, o in enumerate(out) if "first-use-farming" in o[1].entries] == [2]
+    # A camp's first use is once: later restaffing opens nothing; the window outlives an
+    # unstaffed next decision.
+    out = _run([[_state(1, staffed=s)] for s in (farm, none, farm)])
+    assert ["first-use-farming" in o[1].tags for o in out] == [True, True, False]
+    # Label validity/quarantine come from the arrays path.
+    rows = [(90100, 8, 1, FARMER, 50.0, 1.0, 1.0, 0.0, 1), (90100, 9, 1, FARMER, 50.0, 1.0,
+                                                           1.0, 0.0, 1)]
+    arrays = _synthetic_arrays(rows)
+    arrays["target_specialty"] = np.zeros((2, 14))
+    arrays["target_specialty"][:, 2] = 0.3
+    arrays["label_specialty_valid"] = np.asarray([True, True])
+    arrays["row_quarantined"] = np.asarray([True, False])
+    tags = [set(ls.family_names(int(t))) for t in ls.row_family_tags(arrays)]
+    assert "first-use-farming" not in tags[0] and "first-use-farming" in tags[1]
 
 
 def test_paleolithic_states_carry_no_family_unless_any_era() -> None:
@@ -147,6 +179,64 @@ def test_array_path_matches_the_tracker() -> None:
                         "under-clothed", "trade-eligible"}
     assert names[4] == {"small-camp", "fission-daughter"}
     assert ls.family_mask(names[0]) == int(tags[0])
+
+
+# Family up-weighting -----------------------------------------------------------------------
+
+
+def test_family_weight_parsing_and_defaults() -> None:
+    assert ls.parse_family_weights(None) is None
+    default = ls.parse_family_weights("default")
+    assert default == ls.PROPOSED_FAMILY_WEIGHTS
+    assert ls.FAMILY_WEIGHTS_STATUS == "approved-with-decay"
+    assert default["first-use-farming"] == 10 and default["mixed"] == 5
+    assert default["fission-daughter"] == 2 and default["under-clothed"] == 3
+    assert "small-camp" not in default and "trade-eligible" not in default
+    override = ls.parse_family_weights("default,mixed=4,small-camp=1.5")
+    assert override["mixed"] == 4 and override["small-camp"] == 1.5
+    assert ls.parse_family_weights("fission-daughter=2") == {"fission-daughter": 2.0}
+    for bad in ("nope=2", "mixed", "mixed=0", "mixed=-1", "mixed=inf"):
+        with pytest.raises(ValueError):
+            ls.parse_family_weights(bad)
+
+
+def test_reweighting_takes_the_max_and_preserves_world_and_source_mass() -> None:
+    bits = ls.FAMILY_BITS
+    tags = np.asarray([0, bits["mixed"], bits["mixed"] | bits["first-use-farming"],
+                       bits["small-camp"], 0, bits["fission-daughter"]])
+    weights = {"mixed": 5.0, "first-use-farming": 10.0, "fission-daughter": 2.0}
+    assert ls.family_multipliers(tags, weights).tolist() == [1, 5, 10, 1, 1, 2]
+    base = np.asarray([1.0, 1.0, 1.0, 2.0, 0.5, 0.5])
+    sources = np.asarray([0, 0, 0, 0, 4, 4])
+    worlds = np.asarray([90100, 90100, 90101, 90101, 90100, 90100])
+    new = ls.apply_family_weights(base, tags, sources, worlds, weights)
+    for s, w in {(0, 90100), (0, 90101), (4, 90100)}:
+        group = (sources == s) & (worlds == w)
+        assert new[group].sum() == pytest.approx(base[group].sum())
+    assert new[1] / new[0] == pytest.approx(5.0)
+    assert new[2] / new[3] == pytest.approx(10.0 * 1.0 / 2.0)
+    report = ls.family_share_report(base, new, tags)
+    assert report["mixed"]["weight_share_after"] > report["mixed"]["weight_share_before"]
+    assert report["untagged"]["rows"] == 2
+    # A loaded dataset: tags at load time, row_weight replaced, report recorded.
+    rows = [(90100, 8, 1, FARMER, 50.0, 1.0, 1.0, 0.0, 1),
+            (90100, 8, 2, FARMER, 300.0, 1.0, 1.0, 0.0, 1),
+            (90100, 9, 1, FARMER, 300.0, 1.0, 1.0, 0.0, 1),
+            (90100, 9, 2, FARMER, 300.0, 1.0, 1.0, 0.0, 1),
+            (90100, 10, 1, FARMER, 300.0, 1.0, 1.0, 0.0, 1),
+            (90100, 10, 2, FARMER, 300.0, 1.0, 1.0, 0.0, 1)]
+    data = {k: torch.as_tensor(v) for k, v in _synthetic_arrays(rows).items()}
+    data["row_quarantined"] = torch.zeros(6, dtype=torch.bool)
+    data["row_weight"] = torch.ones(6)
+    record = ls.reweight_dataset(data, {"farming-unlocked": 5.0})
+    assert data["row_family_tags"].tolist()[:4] == [bits["farming-unlocked"] | bits[
+        "small-camp"], bits["farming-unlocked"], bits["farming-unlocked"],
+        bits["farming-unlocked"]]
+    assert float(data["row_weight"].sum()) == pytest.approx(6.0)
+    assert float(data["row_weight"][0]) == pytest.approx(5 * float(data["row_weight"][4]))
+    assert record["status"] == "approved-with-decay"
+    assert data["collection"]["family_weighting"]["shares"]["farming-unlocked"][
+        "weight_share_after"] == pytest.approx(20 / 22)
 
 
 # Quotas ----------------------------------------------------------------------------------
@@ -394,6 +484,37 @@ def test_live_scenario_rows_train_bc_and_critic_with_source_weighting(live) -> N
     ]
     assert summary["curated_scenario_rows"] > 0
     assert summary["sampling"].startswith("equal-source-mass")
+    # Family up-weighting through the loaders, BC and critic.
+    weighted = ltd.load_labor_datasets([teacher, scen], family_weights=ls.PROPOSED_FAMILY_WEIGHTS)
+    for code in (0, ls.ROW_SOURCE):
+        for world in (90100,):
+            group = (both["row_source"] == code) & (both["row_world"] == world)
+            assert float(weighted["row_weight"][group].sum()) == pytest.approx(
+                float(both["row_weight"][group].sum()), rel=1e-5)
+    assert "shares" in weighted["collection"]["family_weighting"]
+    labor_training_main(["pretrain-bc", "--checkpoint", str(init), "--dataset", str(teacher),
+                         "--family-weights", "default", "--epochs", "1",
+                         "--out", str(root / "bc-fw.pt")])
+    bc_state = torch.load(root / "bc-fw.pt", map_location="cpu", weights_only=True)
+    bc_record = bc_state["heuristic_bc_pretraining"]["family_weighting"]
+    assert bc_record["status"] == "approved-with-decay"
+    actor_schedule = bc_state["family_weight_schedules"]["actor"]
+    assert actor_schedule["decay"] == "cosine" and actor_schedule["epochs_end"] == 1.0
+    assert actor_schedule["final_multipliers"]["first-use-farming"] == pytest.approx(1.0)
+    # A refit round continues the decayed schedule instead of restarting at full weight.
+    labor_training_main(["pretrain-bc", "--checkpoint", str(root / "bc-fw.pt"), "--dataset",
+                         str(teacher), "--family-weights", "default", "--epochs", "1",
+                         "--out", str(root / "bc-fw2.pt")])
+    second = torch.load(root / "bc-fw2.pt", map_location="cpu", weights_only=True)[
+        "family_weight_schedules"]["actor"]
+    assert second["epoch_offset"] == 1.0 and second["epochs_end"] == 2.0
+    assert second["decay_epochs"] == 1.0
+    labor_training_main(["pretrain-critic", "--checkpoint", str(init), "--dataset", str(teacher),
+                         "--family-weights", "default,small-camp=2", "--epochs", "1",
+                         "--batch-size", "16", "--out", str(root / "critic-fw.pt")])
+    fw = torch.load(root / "critic-fw.pt", map_location="cpu", weights_only=True)[
+        "heuristic_critic_pretraining"]["family_weighting"]
+    assert fw["weights"]["small-camp"] == 2.0 and "critic_shares" in fw
 
 
 def test_live_scenario_roots_feed_search_payloads(live) -> None:
@@ -407,6 +528,7 @@ def test_live_scenario_roots_feed_search_payloads(live) -> None:
         "--normalizer-checkpoint", str(norm), "--worlds", "90100", "--source", "scenario",
         "--scenario-roots", str(scen), "--players", "8", "--candidates", "2",
         "--horizons", "1", "--keep", "all", "--personalities", "balanced",
+        "--plan-candidates", "0",
         "--reeval-streams", "2", "--control-fraction", "0", "--max-resolves", "12",
         "--no-verify-restore", "--allow-dirty", "--out", str(out),
     ]) == 0

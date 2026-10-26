@@ -113,6 +113,14 @@ HEAD_FAMILIES = (
     ("herding-unlocked", "Herder"),
     ("fishing-unlocked", "Fisher"),
 )
+# First active use: the first decision at which the camp's valid, accepted teacher
+# label staffs the head (target_specialty > 0), and the next decision.
+FIRST_USE_FAMILIES = (
+    ("first-use-farming", "Farmer"),
+    ("first-use-herding", "Herder"),
+    ("first-use-fishing", "Fisher"),
+)
+# Bit order is append-only: stored row_scenario_* masks keep their meaning.
 FAMILIES = (
     "farming-unlocked",
     "herding-unlocked",
@@ -124,8 +132,18 @@ FAMILIES = (
     "under-clothed",
     "fission-daughter",
     "trade-eligible",
+    "first-use-farming",
+    "first-use-herding",
+    "first-use-fishing",
+    "food-trade",
 )
 FAMILY_BITS = {name: 1 << index for index, name in enumerate(FAMILIES)}
+LABEL_FAMILIES = tuple(name for name, _ in FIRST_USE_FAMILIES)
+HYSTERESIS_FAMILIES = ("under-housed", "under-clothed")
+# Food-trade guard (user condition, 26 Oct): villages fed substantially by trade imports.
+# Never up-weighted; reported per family so up-weighting food production cannot silently
+# penalise them.
+NEVER_UPWEIGHTED = ("food-trade",)
 
 FITTING_WORLDS = tuple(range(90100, 90154)) + tuple(range(90160, 90166))
 CALIBRATION_WORLDS = tuple(range(90180, 90200))
@@ -202,12 +220,29 @@ class DetectionRules:
     clothing_below: float = 0.3
     trade_partners_min: float = 1.0
     require_neolithic: bool = True
+    first_use_window: int = 2
+    # Hysteresis (under-housed / under-clothed): enter below *_below, exit above
+    # *_exit; a re-entry opens a new root only after rearm_decisions decisions above exit.
+    housing_exit: float = 0.4
+    clothing_exit: float = 0.4
+    rearm_decisions: int = 2
+    # food-trade: last turn's imported food (observation trade row "food", column
+    # "imported") over the camp's meal need per turn (privileged economy meals-per-turn).
+    food_import_share: float = 0.2
 
     def __post_init__(self) -> None:
-        if int(self.head_window) < 1 or int(self.daughter_window) < 1:
+        if (
+            int(self.head_window) < 1
+            or int(self.daughter_window) < 1
+            or int(self.first_use_window) < 1
+        ):
             raise ValueError("scenario windows must be positive")
         if not self.small_below < self.large_above:
             raise ValueError("small-camp bound must be below the large-camp bound")
+        if self.housing_exit < self.housing_below or self.clothing_exit < self.clothing_below:
+            raise ValueError("hysteresis exit thresholds must not be below the entry thresholds")
+        if int(self.rearm_decisions) < 0:
+            raise ValueError("rearm decisions must be nonnegative")
 
     def state_dict(self) -> dict[str, Any]:
         return {
@@ -219,6 +254,11 @@ class DetectionRules:
             "clothing_below": float(self.clothing_below),
             "trade_partners_min": float(self.trade_partners_min),
             "require_neolithic": bool(self.require_neolithic),
+            "first_use_window": int(self.first_use_window),
+            "housing_exit": float(self.housing_exit),
+            "clothing_exit": float(self.clothing_exit),
+            "rearm_decisions": int(self.rearm_decisions),
+            "food_import_share": float(self.food_import_share),
         }
 
     @classmethod
@@ -240,6 +280,10 @@ class CampState:
     housing: float | None = None
     clothing: float | None = None
     trade_partners: float | None = None
+    # Food heads the camp's valid, accepted teacher label staffs (None: no valid label).
+    staffed: tuple[bool, bool, bool] | None = None
+    # Imported food last turn over meals per turn (None: not observable).
+    food_import_share: float | None = None
 
 
 def _feature_columns() -> dict[str, int]:
@@ -252,6 +296,7 @@ def _feature_columns() -> dict[str, int]:
         "housing": economy.index("housing-per-capita"),
         "clothing": economy.index("cloth-per-capita"),
         "trade_partners": economy.index("trade-partners"),
+        "meals": economy.index("meals-per-turn"),
         "neolithic": unlocks.index("era-neolithic"),
     }
 
@@ -262,14 +307,86 @@ def _head_columns() -> tuple[int, int, int]:
     return tuple(SPECIALTIES.index(head) for _, head in HEAD_FAMILIES)  # type: ignore[return-value]
 
 
+def _trade_columns() -> tuple[int, int, int]:
+    from . import contracts
+
+    names = [name for name, _, _ in contracts.SETS]
+    # Trade feature 6 is "imported" (simulator ElderModel9.TradeFeatureNames).
+    return names.index("trade"), contracts.TRADE_GROUPS.index("food"), 6
+
+
+def _food_imported(arrays: Mapping[str, np.ndarray], normalizer: Any) -> np.ndarray | None:
+    """Raw food imported last turn per row, or None when it cannot be recovered.
+
+    Live rows carry the raw observation trade set (``trade_raw``). Stored rows carry the
+    bounded-normalized ``trade`` set, inverted with the dataset normalizer
+    (``y = z std + mean``, ``x = sign(y) expm1|y|``); a dead (zeroed) column is unknown.
+    """
+    from . import contracts
+
+    set_index, food_row, imported = _trade_columns()
+    _, rows, width = contracts.SETS[set_index]
+    present = arrays.get("trade_present")
+    if "trade_raw" in arrays:
+        table = np.asarray(arrays["trade_raw"], dtype=np.float64).reshape(-1, rows, width)
+        value = table[:, food_row, imported]
+    elif "trade" in arrays and normalizer is not None:
+        table = np.asarray(arrays["trade"], dtype=np.float64).reshape(-1, rows, width)
+        dead = (getattr(normalizer, "dead", {}) or {}).get("trade")
+        if dead is not None and bool(np.asarray(dead).reshape(-1)[imported]):
+            return None
+        mean = float(np.asarray(normalizer.set_mean["trade"]).reshape(-1)[imported])
+        std = float(np.asarray(normalizer.set_std["trade"]).reshape(-1)[imported])
+        y = table[:, food_row, imported] * std + mean
+        value = np.sign(y) * np.expm1(np.abs(y))
+    else:
+        return None
+    if present is not None:
+        live = np.asarray(present, dtype=bool).reshape(len(value), -1)[:, food_row]
+        value = np.where(live, value, 0.0)
+    return np.maximum(value, 0.0)
+
+
+def food_trade_tagging(dataset: Mapping[str, Any], normalizer: Any) -> str:
+    """Whether the food-trade guard is observable for stored rows, and why not."""
+    if normalizer is None:
+        return "unavailable: no normalizer to recover imported food"
+    if "trade" not in dataset:
+        return "unavailable: rows carry no trade set"
+    dead = (getattr(normalizer, "dead", {}) or {}).get("trade")
+    if dead is not None and bool(np.asarray(dead).reshape(-1)[_trade_columns()[2]]):
+        return (
+            "unavailable: the normalizer zeroed the trade 'imported' column (constant where it "
+            "was fitted), so stored rows lost imported food"
+        )
+    return "available: imported food (trade row food) over meals-per-turn"
+
+
 def states_from_arrays(
-    arrays: Mapping[str, Any], rows: Sequence[int] | np.ndarray, population: Any = None
+    arrays: Mapping[str, Any],
+    rows: Sequence[int] | np.ndarray,
+    population: Any = None,
+    normalizer: Any = None,
 ) -> list[CampState]:
-    """Camp states of stored rows (teacher shard format); privileged arrays are optional."""
-    rows = np.asarray(rows, dtype=np.int64).reshape(-1)
-    np_ = {k: np.asarray(v) for k, v in arrays.items() if k in _ARRAY_KEYS}
+    """Camp states of stored rows (teacher shard format); privileged arrays are optional.
+
+    ``normalizer`` (the dataset's bounded normalizer) recovers raw imported food from the
+    normalized ``trade`` set for the food-trade family; without it food-trade is unknown.
+    """
+    selected = np.asarray(rows, dtype=np.int64).reshape(-1)
+    # Index the requested rows first: callers pass whole-bank arrays per decision.
+    np_ = {k: np.asarray(v)[selected] for k, v in arrays.items() if k in _ARRAY_KEYS}
+    if population is not None:
+        population = np.asarray(population).reshape(-1)[selected]
+    rows = np.arange(len(selected))
     heads = np_["labor_specialty_mask"].astype(bool)[:, list(_head_columns())]
     columns = _feature_columns()
+    food_imported = _food_imported(np_, normalizer)
+    staffing = labels_valid = quarantined = None
+    if "target_specialty" in np_:
+        staffing = np_["target_specialty"][:, list(_head_columns())]
+        labels_valid = np_.get("label_specialty_valid")
+        quarantined = np_.get("row_quarantined")
     economy = unlocks = None
     if "privileged_economy" in np_ and "privileged_unlocks" in np_:
         raw_economy, raw_unlocks = np_["privileged_economy"], np_["privileged_unlocks"]
@@ -281,6 +398,7 @@ def states_from_arrays(
     for r in rows.tolist():
         residents = housing = clothing = trade = None
         neolithic = None
+        food_share = None
         if economy is not None and (
             economy_present is None or bool(economy_present[r].reshape(-1)[0])
         ):
@@ -289,12 +407,21 @@ def states_from_arrays(
             housing = float(row[columns["housing"]])
             clothing = float(row[columns["clothing"]])
             trade = float(row[columns["trade_partners"]])
+            meals = float(row[columns["meals"]])
+            if food_imported is not None and meals > 0.0:
+                food_share = float(food_imported[r]) / meals
         if unlocks is not None and (
             unlocks_present is None or bool(unlocks_present[r].reshape(-1)[0])
         ):
             neolithic = bool(unlocks[r, 0, columns["neolithic"]] > 0.5)
         if residents is None and population is not None:
             residents = float(np.asarray(population).reshape(-1)[r])
+        staffed = None
+        if staffing is not None:
+            valid = labels_valid is None or bool(labels_valid.reshape(-1)[r])
+            accepted = quarantined is None or not bool(quarantined.reshape(-1)[r])
+            if valid and accepted:
+                staffed = tuple(bool(x > 0.0) for x in staffing[r])
         out.append(
             CampState(
                 camp=int(np_["row_camp"].reshape(-1)[r]),
@@ -305,12 +432,20 @@ def states_from_arrays(
                 housing=housing,
                 clothing=clothing,
                 trade_partners=trade,
+                staffed=staffed,  # type: ignore[arg-type]
+                food_import_share=food_share,
             )
         )
     return out
 
 
 _ARRAY_KEYS = {
+    "trade",
+    "trade_present",
+    "trade_raw",
+    "target_specialty",
+    "label_specialty_valid",
+    "row_quarantined",
     "labor_specialty_mask",
     "privileged_economy",
     "privileged_economy_present",
@@ -321,8 +456,16 @@ _ARRAY_KEYS = {
 }
 
 
-def states_from_live(live: Sequence[Mapping[str, Any]]) -> list[CampState]:
-    """Camp states of live bridge village rows at a decision boundary (pre-action)."""
+def states_from_live(
+    live: Sequence[Mapping[str, Any]],
+    labels: Sequence[Any] | None = None,
+    accepted: Sequence[bool] | None = None,
+) -> list[CampState]:
+    """Camp states of live bridge village rows at a decision boundary (pre-action).
+
+    ``labels`` (converted teacher labels aligned with ``live``) and ``accepted``
+    (initial recommendation valid) supply the first-active-use inputs.
+    """
     from .labor_bridge import labor_observation_fields
     from .labor_privileged import privileged_raw_batch
 
@@ -334,8 +477,38 @@ def states_from_live(live: Sequence[Mapping[str, Any]]) -> list[CampState]:
     }
     if all(isinstance(v, Mapping) and v.get("privilegedView") is not None for v in live):
         arrays.update(privileged_raw_batch(live))
+    set_index, _, _ = _trade_columns()
+    raw_trade, raw_present = [], []
+    for village in live:
+        observation = village["observation"]
+        sets, present = observation.get("sets"), observation.get("rowPresent")
+        if not sets or not present or len(sets) <= set_index:
+            raw_trade = []
+            break
+        raw_trade.append(np.asarray(sets[set_index], dtype=np.float64).reshape(-1))
+        raw_present.append(np.asarray(present[set_index], dtype=bool).reshape(-1))
+    if raw_trade:
+        arrays["trade_raw"] = np.stack(raw_trade)
+        arrays["trade_present"] = np.stack(raw_present)
     population = np.asarray([c.population for c in catalogs], dtype=np.float64)
+    if labels is not None:
+        arrays["target_specialty"] = np.asarray([lab.specialty for lab in labels], dtype=np.float64)
+        arrays["label_specialty_valid"] = np.asarray(
+            [bool(lab.specialty_valid) for lab in labels], dtype=bool
+        )
+        if accepted is not None:
+            arrays["row_quarantined"] = ~np.asarray(accepted, dtype=bool)
     return states_from_arrays(arrays, np.arange(len(live)), population)
+
+
+def states_from_transition(transition: Any) -> list[CampState]:
+    """Pre-action camp states of one teacher decision with its converted labels."""
+    attempts = transition.execution.initial_attempts
+    return states_from_live(
+        transition.live,
+        transition.labels,
+        [bool(attempts[int(v["camp"])].valid) for v in transition.live],
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +526,12 @@ class _CampHistory:
     mixed_counter: int | None = None
     mixed_kind: str | None = None
     previous_tags: frozenset[str] = frozenset()
+    used: list[bool] = field(default_factory=lambda: [False, False, False])
+    use_counter: list[int | None] = field(default_factory=lambda: [None, None, None])
+    # Hysteresis per family: [low, armed, decisions above exit].
+    hysteresis: dict[str, list[Any]] = field(
+        default_factory=lambda: {name: [False, True, 0] for name in HYSTERESIS_FAMILIES}
+    )
 
 
 @dataclass(frozen=True)
@@ -418,21 +597,57 @@ class FamilyTracker:
                     tags.add("small-camp")
                 if state.residents > rules.large_above:
                     tags.add("large-camp")
-            if state.housing is not None and state.housing < rules.housing_below:
-                tags.add("under-housed")
-                kinds["under-housed"] = "initial" if first else "relapse"
-            if state.clothing is not None and state.clothing < rules.clothing_below:
-                tags.add("under-clothed")
-                kinds["under-clothed"] = "initial" if first else "relapse"
+            hysteresis_entries: set[str] = set()
+            for name, value, below, exit_ in (
+                ("under-housed", state.housing, rules.housing_below, rules.housing_exit),
+                ("under-clothed", state.clothing, rules.clothing_below, rules.clothing_exit),
+            ):
+                memory = history.hysteresis[name]
+                if value is None:
+                    continue
+                if memory[0]:
+                    if value > exit_:
+                        memory[0], memory[2] = False, 1
+                elif value < below:
+                    memory[0] = True
+                    if memory[1] or memory[2] >= rules.rearm_decisions:
+                        hysteresis_entries.add(name)
+                        memory[1] = False
+                    memory[2] = 0
+                elif value > exit_:
+                    memory[2] += 1
+                else:
+                    memory[2] = 0
+                if memory[0]:
+                    tags.add(name)
+                    kinds[name] = "initial" if first else "relapse"
+            for index, (name, _) in enumerate(FIRST_USE_FAMILIES):
+                counter = history.use_counter[index]
+                staffs = state.staffed is not None and state.staffed[index]
+                if counter is None and staffs and not history.used[index]:
+                    history.used[index] = True
+                    counter = 0
+                if counter is not None:
+                    if counter < rules.first_use_window:
+                        tags.add(name)
+                        history.use_counter[index] = counter + 1
+                    else:
+                        history.use_counter[index] = None
             if not history.reset_camp and history.observations < rules.daughter_window:
                 tags.add("fission-daughter")
             trade = state.trade_partners
             if trade is not None and trade >= rules.trade_partners_min:
                 tags.add("trade-eligible")
+            share = state.food_import_share
+            if share is not None and share > rules.food_import_share:
+                tags.add("food-trade")
             if rules.require_neolithic and state.neolithic is False:
                 tags = set()
+                hysteresis_entries = set()
             frozen = frozenset(tags)
-            entries = frozen - history.previous_tags
+            entries = (frozen - history.previous_tags - set(HYSTERESIS_FAMILIES)) | (
+                hysteresis_entries & frozen
+            )
             out[state.camp] = Observation(
                 frozen, entries, {name: kinds[name] for name in entries if name in kinds}
             )
@@ -522,7 +737,11 @@ def _first_active_use(
 
 
 def _audit_shard(
-    cov: _Coverage, arrays: Mapping[str, np.ndarray], rules: DetectionRules, label: str
+    cov: _Coverage,
+    arrays: Mapping[str, np.ndarray],
+    rules: DetectionRules,
+    label: str,
+    normalizer: Any = None,
 ) -> None:
     worlds = arrays["row_world"].reshape(-1)
     n = len(worlds)
@@ -553,7 +772,7 @@ def _audit_shard(
                 unique_turns = np.unique(turns[rows])
                 for decision, turn in enumerate(unique_turns.tolist()):
                     at = rows[turns[rows] == turn]
-                    states = states_from_arrays(arrays, at)
+                    states = states_from_arrays(arrays, at, normalizer=normalizer)
                     observed = tracker.observe(decision, states)
                     for r, state in zip(at.tolist(), states, strict=True):
                         obs = observed[state.camp]
@@ -601,13 +820,18 @@ def _audit_scenario_rows(
 
 
 def row_family_tags(
-    dataset: Mapping[str, Any], rules: DetectionRules | None = None
+    dataset: Mapping[str, Any],
+    rules: DetectionRules | None = None,
+    tracked_sources: Sequence[int] = (0,),
+    normalizer: Any = None,
 ) -> np.ndarray | None:
     """Per-row family bitmask of a loaded labor dataset (torch or numpy arrays).
 
-    Curated scenario rows use their stored ``row_scenario_tags``; every other
-    trajectory (world, source, trajectory id) is tracked in turn order with the
-    harvest's rules. ``None`` when the dataset lacks the specialty mask.
+    Curated scenario rows use their stored ``row_scenario_tags``; teacher
+    trajectories (``tracked_sources``, default ``row_source`` 0: chronological
+    (world, trajectory) episodes) are tracked in turn order with the harvest's
+    rules. Rows of other sources (DAgger branches, search labels, continuations)
+    are untagged (0). ``None`` when the dataset lacks the specialty mask.
     """
     rules = rules or DetectionRules()
 
@@ -632,7 +856,8 @@ def row_family_tags(
     if scenario.any() and "row_scenario_tags" in arrays:
         out[scenario] = arrays["row_scenario_tags"].reshape(-1)[scenario]
     groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
-    for r in np.flatnonzero(~scenario).tolist():
+    tracked = np.isin(sources, np.asarray(list(tracked_sources), dtype=sources.dtype))
+    for r in np.flatnonzero(~scenario & tracked).tolist():
         groups[(int(worlds[r]), int(sources[r]), int(trajectories[r]))].append(r)
     for rows in groups.values():
         rows_np = np.asarray(rows, dtype=np.int64)
@@ -640,7 +865,7 @@ def row_family_tags(
         tracker = FamilyTracker(rules)
         for decision, turn in enumerate(np.unique(turns[rows_np]).tolist()):
             at = rows_np[turns[rows_np] == turn]
-            states = states_from_arrays(arrays, at)
+            states = states_from_arrays(arrays, at, normalizer=normalizer)
             observed = tracker.observe(decision, states)
             for r, state in zip(at.tolist(), states, strict=True):
                 out[r] = family_mask(observed[state.camp].tags)
@@ -648,6 +873,305 @@ def row_family_tags(
 
 
 AUDITED_SOURCE_KINDS = ("native_heuristic_labor_teacher", SOURCE_KIND)
+# Families decidable from one decision boundary alone (no trajectory history).
+STATE_FAMILIES = (
+    "small-camp",
+    "large-camp",
+    "under-housed",
+    "under-clothed",
+    "trade-eligible",
+    "food-trade",
+)
+
+
+def root_state_families(candidates: Any, normalizer: Any = None) -> list[tuple[str, ...]]:
+    """State-only families of each search root (``labor_advantage.CandidateSet``).
+
+    Roots carry one boundary (actor tensors and raw privileged arrays), so only
+    :data:`STATE_FAMILIES` apply (housing and clothing at the entry threshold).
+    """
+    tensors = {
+        k: (v.detach().cpu().numpy() if hasattr(v, "detach") else np.asarray(v))
+        for k, v in dict(candidates.tensors).items()
+    }
+    for k, v in dict(candidates.privileged or {}).items():
+        tensors[k] = v.detach().cpu().numpy() if hasattr(v, "detach") else np.asarray(v)
+    if "labor_specialty_mask" not in tensors:
+        return [() for _ in candidates.roots]
+    out = []
+    for root, row in zip(candidates.roots, candidates.rows, strict=True):
+        arrays = {k: v[row : row + 1] for k, v in tensors.items() if k in _ARRAY_KEYS}
+        arrays["row_camp"] = np.asarray([root.camp])
+        arrays["row_turn"] = np.asarray([root.turn])
+        state = states_from_arrays(arrays, [0], normalizer=normalizer)[0]
+        tags = FamilyTracker(DetectionRules()).observe(0, [state])[state.camp].tags
+        out.append(tuple(name for name in STATE_FAMILIES if name in tags))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Family row up-weighting in existing banks (no new collection)
+# ---------------------------------------------------------------------------
+
+# Defaults (co-architect proposal, approved by the user on 26 Oct with decay required).
+PROPOSED_FAMILY_WEIGHTS = {
+    "first-use-farming": 10.0,
+    "first-use-herding": 10.0,
+    "first-use-fishing": 10.0,
+    "farming-unlocked": 5.0,
+    "herding-unlocked": 5.0,
+    "fishing-unlocked": 5.0,
+    "mixed": 5.0,
+    "fission-daughter": 2.0,
+    "under-housed": 3.0,
+    "under-clothed": 3.0,
+}
+FAMILY_WEIGHTS_STATUS = "approved-with-decay"
+FAMILY_WEIGHTING_RULE = (
+    "row multiplier = max weight over the row families (1 untagged); then each "
+    "(row_source, world) group is rescaled to its unweighted mass, preserving world "
+    "balance and source mass"
+)
+
+
+def parse_family_weights(text: str | None) -> dict[str, float] | None:
+    """``default`` (the proposed weights), ``family=w,...``, or ``default,family=w`` overrides."""
+    if text is None or not str(text).strip():
+        return None
+    weights: dict[str, float] = {}
+    for item in str(text).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if item == "default":
+            weights.update(PROPOSED_FAMILY_WEIGHTS)
+            continue
+        name, sep, value = item.partition("=")
+        if not sep or name not in FAMILY_BITS:
+            raise ValueError(f"family weight {item!r}: expected family=w with a known family")
+        if name in NEVER_UPWEIGHTED:
+            raise ValueError(f"family {name!r} is a guard family and is never up-weighted")
+        w = float(value)
+        if not math.isfinite(w) or w <= 0.0:
+            raise ValueError(f"family weight {item!r} must be positive and finite")
+        weights[name] = w
+    return {name: weights[name] for name in FAMILIES if name in weights}
+
+
+DECAYS = ("none", "linear", "cosine")
+
+
+def decay_factor(kind: str, progress_epochs: float, decay_epochs: float) -> float:
+    """s(t) in [0, 1]: 1 at the start, 0 after ``decay_epochs`` epochs (``none``: always 1)."""
+    if kind not in DECAYS:
+        raise ValueError(f"family weight decay must be one of {DECAYS}")
+    if kind == "none":
+        return 1.0
+    if decay_epochs <= 0:
+        raise ValueError("family weight decay epochs must be positive")
+    x = min(1.0, max(0.0, float(progress_epochs) / float(decay_epochs)))
+    if kind == "linear":
+        return 1.0 - x
+    return 0.5 * (1.0 + math.cos(math.pi * x))
+
+
+@dataclass(frozen=True)
+class FamilyWeightSchedule:
+    """Each up-weight w acts as 1 + (w - 1) s(t), keyed on epochs of optimizer steps.
+
+    ``epoch_offset`` continues a schedule across fits (DAgger and refit rounds read it
+    from the input checkpoint), so a later round never restarts at full weight.
+    """
+
+    weights: Mapping[str, float]
+    decay: str = "cosine"
+    decay_epochs: float = 1.0
+    epoch_offset: float = 0.0
+
+    def __post_init__(self) -> None:
+        decay_factor(self.decay, 0.0, max(1e-9, float(self.decay_epochs)))
+        if float(self.epoch_offset) < 0:
+            raise ValueError("family weight schedule offset must be nonnegative")
+
+    def factor(self, epochs_into_fit: float) -> float:
+        progress = float(self.epoch_offset) + float(epochs_into_fit)
+        return decay_factor(self.decay, progress, float(self.decay_epochs))
+
+    def multipliers(self, epochs_into_fit: float) -> dict[str, float]:
+        s = self.factor(epochs_into_fit)
+        return {name: 1.0 + (float(w) - 1.0) * s for name, w in self.weights.items()}
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "weights": dict(self.weights),
+            "decay": self.decay,
+            "decay_epochs": float(self.decay_epochs),
+            "epoch_offset": float(self.epoch_offset),
+            "status": FAMILY_WEIGHTS_STATUS,
+        }
+
+
+def continued_schedule(
+    weights: Mapping[str, float] | None,
+    decay: str | None,
+    decay_epochs: float | None,
+    fit_epochs: int,
+    previous: Mapping[str, Any] | None,
+    *,
+    restart: bool = False,
+) -> FamilyWeightSchedule | None:
+    """The fit's schedule: continued from ``previous`` (same weights and decay) unless restarted.
+
+    Default decay is cosine; default decay epochs are the previous schedule's, else this
+    fit's epoch count.
+    """
+    if not weights:
+        return None
+    decay = decay or "cosine"
+    same = (
+        previous is not None
+        and not restart
+        and dict(previous.get("weights", {})) == dict(weights)
+        and previous.get("decay") == decay
+    )
+    if decay_epochs is None:
+        decay_epochs = float(previous["decay_epochs"]) if same else float(fit_epochs)
+    offset = float(previous.get("epochs_end", 0.0)) if same else 0.0
+    return FamilyWeightSchedule(dict(weights), decay, float(decay_epochs), offset)
+
+
+class FamilyRowWeighter:
+    """Closed-form decayed row weights: base (1 + (m - 1) s), each (source, world) at its mass.
+
+    With m the max family weight of a row, a group of base mass B and multiplied mass M
+    has rescale B / (B + s (M - B)), so no per-step pass over the groups is needed.
+    """
+
+    def __init__(
+        self, base: Any, tags: Any, sources: Any, worlds: Any, weights: Mapping[str, float]
+    ) -> None:
+        self.base = np.asarray(base, dtype=np.float64).reshape(-1)
+        self.m = family_multipliers(tags, weights)
+        sources = np.asarray(sources).reshape(-1)
+        worlds = np.asarray(worlds).reshape(-1)
+        keys = np.stack([sources.astype(np.int64), worlds.astype(np.int64)], axis=1)
+        _, self.group = np.unique(keys, axis=0, return_inverse=True)
+        self.group = self.group.reshape(-1)
+        groups = int(self.group.max()) + 1 if len(self.group) else 0
+        self.mass = np.bincount(self.group, weights=self.base, minlength=groups)
+        self.multiplied = np.bincount(self.group, weights=self.base * self.m, minlength=groups)
+
+    def _scale(self, s: float) -> np.ndarray:
+        denominator = self.mass + s * (self.multiplied - self.mass)
+        out = np.zeros_like(self.mass)
+        return np.divide(self.mass, denominator, out=out, where=denominator > 0)
+
+    def weights(self, s: float) -> np.ndarray:
+        return self.base * (1.0 + (self.m - 1.0) * s) * self._scale(s)[self.group]
+
+    def rows(self, index: Any, s: float) -> np.ndarray:
+        index = np.asarray(index, dtype=np.int64).reshape(-1)
+        scale = self._scale(s)
+        return self.base[index] * (1.0 + (self.m[index] - 1.0) * s) * scale[self.group[index]]
+
+
+def family_multipliers(tags: np.ndarray, weights: Mapping[str, float]) -> np.ndarray:
+    """Per-row multiplier: the max weight over the row families, 1 when untagged."""
+    tags = np.asarray(tags, dtype=np.int64).reshape(-1)
+    out = np.ones(len(tags), dtype=np.float64)
+    tagged = np.zeros(len(tags), dtype=bool)
+    best = np.zeros(len(tags), dtype=np.float64)
+    for name, w in weights.items():
+        has = (tags & FAMILY_BITS[name]) != 0
+        best = np.where(has, np.maximum(best, float(w)), best)
+        tagged |= has
+    out[tagged] = best[tagged]
+    return out
+
+
+def apply_family_weights(
+    base: Any, tags: Any, sources: Any, worlds: Any, weights: Mapping[str, float]
+) -> np.ndarray:
+    """Multiply ``base`` row weights by family multipliers, rescaling each (source, world)."""
+    base = np.asarray(base, dtype=np.float64).reshape(-1)
+    sources = np.asarray(sources).reshape(-1)
+    worlds = np.asarray(worlds).reshape(-1)
+    raw = base * family_multipliers(tags, weights)
+    out = np.zeros_like(base)
+    for key in {(int(s), int(w)) for s, w in zip(sources, worlds, strict=True)}:
+        group = (sources == key[0]) & (worlds == key[1])
+        mass, weighted = base[group].sum(), raw[group].sum()
+        if weighted > 0.0:
+            out[group] = raw[group] * (mass / weighted)
+    return out
+
+
+def family_share_report(
+    before: Any, after: Any, tags: Any, keep: Any | None = None
+) -> dict[str, Any]:
+    """Row share and weight share of each family before and after reweighting."""
+    before = np.asarray(before, dtype=np.float64).reshape(-1)
+    after = np.asarray(after, dtype=np.float64).reshape(-1)
+    tags = np.asarray(tags, dtype=np.int64).reshape(-1)
+    keep = np.ones(len(tags), dtype=bool) if keep is None else np.asarray(keep).reshape(-1)
+    total_b, total_a, rows = before[keep].sum(), after[keep].sum(), int(keep.sum())
+    out: dict[str, Any] = {}
+    for name in [*FAMILIES, "untagged"]:
+        has = (tags == 0) if name == "untagged" else ((tags & FAMILY_BITS[name]) != 0)
+        has = has & keep
+        out[name] = {
+            "rows": int(has.sum()),
+            "row_share": float(has.sum() / rows) if rows else 0.0,
+            "weight_share_before": float(before[has].sum() / total_b) if total_b else 0.0,
+            "weight_share_after": float(after[has].sum() / total_a) if total_a else 0.0,
+        }
+    return out
+
+
+def reweight_dataset(
+    dataset: dict[str, Any],
+    weights: Mapping[str, float],
+    rules: DetectionRules | None = None,
+    normalizer: Any = None,
+) -> dict[str, Any]:
+    """Up-weight family rows of a loaded labor dataset in place (tags computed at load time).
+
+    Stores ``row_family_tags`` (never a model input), replaces ``row_weight`` and
+    records the weights, their status and the before/after shares in
+    ``collection["family_weighting"]``.
+    """
+    import torch
+
+    tags = row_family_tags(dataset, rules, normalizer=normalizer)
+    if tags is None:
+        raise ValueError("family weighting needs labor_specialty_mask rows")
+    n = len(tags)
+    base = dataset["row_weight"].reshape(-1).double().numpy()
+    sources = (
+        dataset["row_source"].reshape(-1).numpy()
+        if "row_source" in dataset
+        else np.zeros(n, dtype=np.int64)
+    )
+    worlds = dataset["row_world"].reshape(-1).numpy()
+    new = apply_family_weights(base, tags, sources, worlds, weights)
+    keep = ~dataset["row_quarantined"].reshape(-1).numpy().astype(bool)
+    dataset["row_family_tags"] = torch.as_tensor(tags, dtype=torch.long)
+    # The unweighted loader weights stay available for decayed schedules.
+    dataset["row_weight_unweighted"] = dataset["row_weight"].clone()
+    dataset["row_weight"] = torch.as_tensor(new, dtype=torch.float32)
+    record = {
+        "weights": dict(weights),
+        "status": FAMILY_WEIGHTS_STATUS,
+        "rule": FAMILY_WEIGHTING_RULE,
+        "rules": (rules or DetectionRules()).state_dict(),
+        "tagged_sources": "teacher trajectories (row_source 0) by the tracker; curated scenario "
+        "rows by their stored tags; other sources untagged",
+        "shares": family_share_report(base, new, tags, keep),
+        "food_trade_tagging": food_trade_tagging(dataset, normalizer),
+    }
+    collection = dataset.setdefault("collection", {})
+    collection["family_weighting"] = record
+    return record
 
 
 def coverage_audit(
@@ -656,8 +1180,11 @@ def coverage_audit(
     rules: DetectionRules | None = None,
     minima: Mapping[str, tuple[int, int]] | None = None,
     shards: Sequence[Path] = (),
+    normalizer: Any = None,
 ) -> dict[str, Any]:
     """Rows, roots and worlds per family and partition across published labor datasets.
+
+    ``normalizer`` (the banks' bounded normalizer) enables the food-trade family.
 
     ``shards`` adds individually verified, unpublished teacher shard directories
     (diagnostic: an interrupted collection whose dataset.json was never written).
@@ -680,7 +1207,7 @@ def coverage_audit(
         for entry in manifest["shards"].values():
             shard = directory / entry["path"]
             meta = json.loads((shard / "meta.json").read_text())
-            _audit_shard(cov, _load_shard_arrays(shard, meta), rules, label)
+            _audit_shard(cov, _load_shard_arrays(shard, meta), rules, label, normalizer)
         cov.datasets.append(
             {
                 "path": str(directory),
@@ -696,7 +1223,7 @@ def coverage_audit(
         shard = Path(shard)
         meta = verify_shard(shard)
         label = f"unpublished-shard:{meta['data_digest'][:12]}"
-        _audit_shard(cov, _load_shard_arrays(shard, meta), rules, label)
+        _audit_shard(cov, _load_shard_arrays(shard, meta), rules, label, normalizer)
         cov.datasets.append(
             {"path": str(shard), "source_kind": "unpublished-teacher-shard", "label": label,
              "worlds": [int(meta["world_seed"])], "turns": meta.get("turns"),
@@ -983,7 +1510,28 @@ def collect_scenario_world(
             if not live:
                 break
             turn = int(step["turn"])
-            observed = tracker.observe(decision, states_from_live(live))
+            # First-active-use tags need this decision's teacher labels, so the boundary
+            # is forked speculatively before the transition and kept only if a root here
+            # enters a quota.
+            speculative = labor_bridge.fork()[0] if reservoir.caps else None
+            snapshot = (dict(founded), copy.deepcopy(getattr(personality, "table", None)))
+            transition = labor_bc._teacher_transition(
+                labor_bridge=labor_bridge,
+                heur_bridge=heur_bridge,
+                step=step,
+                world_seed=world,
+                options=options,
+                normalizer=normalizer,
+                personality=personality,
+                founded=founded,
+            )
+            if transition is None:
+                if speculative is not None:
+                    labor_bridge.drop(speculative)
+                break
+            harvest["decisions"] += 1
+            harvest["native_resolves"] += 2
+            observed = tracker.observe(decision, states_from_transition(transition))
             accepted = False
             for camp, obs in sorted(observed.items()):
                 if not obs.entries:
@@ -1000,33 +1548,20 @@ def collect_scenario_world(
                     ok, _ = reservoir.offer(name, decision, camp)
                     accepted = accepted or ok
             if accepted:
-                fork, _ = labor_bridge.fork()
                 stats["forks_taken"] += 1
                 forks[decision] = _Fork(
-                    fork,
+                    speculative,
                     decision,
                     turn,
-                    dict(founded),
+                    snapshot[0],
                     copy.deepcopy(tracker),
                     dict(observed),
-                    copy.deepcopy(getattr(personality, "table", None)),
+                    snapshot[1],
                 )
+            elif speculative is not None:
+                labor_bridge.drop(speculative)
             release_unreferenced()
             stats["forks_held_max"] = max(stats["forks_held_max"], len(forks))
-            transition = labor_bc._teacher_transition(
-                labor_bridge=labor_bridge,
-                heur_bridge=heur_bridge,
-                step=step,
-                world_seed=world,
-                options=options,
-                normalizer=normalizer,
-                personality=personality,
-                founded=founded,
-            )
-            if transition is None:
-                break
-            harvest["decisions"] += 1
-            harvest["native_resolves"] += 2
             step = transition.next_step
         harvest["wall_seconds"] = time.perf_counter() - started
         holders = reservoir.holders()
@@ -1047,13 +1582,6 @@ def collect_scenario_world(
             alive = set(camps)
             observations = saved.observations
             for index in range(scenario_decisions):
-                if index > 0:
-                    live = _live(step)
-                    if not live:
-                        break
-                    observations = group_tracker.observe(
-                        decision + index, states_from_live(live)
-                    )
                 transition = labor_bc._teacher_transition(
                     labor_bridge=labor_bridge,
                     heur_bridge=heur_bridge,
@@ -1066,6 +1594,10 @@ def collect_scenario_world(
                 )
                 if transition is None:
                     break
+                if index > 0:
+                    observations = group_tracker.observe(
+                        decision + index, states_from_transition(transition)
+                    )
                 temp.native_resolves += 2
                 temp.decisions += 1
                 recorded = alive & {context[0].camp_id for context in transition.contexts}
@@ -1545,6 +2077,12 @@ def argument_parser() -> argparse.ArgumentParser:
         help="support minima per partition, e.g. 'fitting=32/4,calibration=16/4'",
     )
     rule_args(coverage)
+    coverage.add_argument(
+        "--normalizer-checkpoint",
+        type=Path,
+        default=None,
+        help="the banks' bounded normalizer: enables the food-trade family (imported food)",
+    )
     coverage.add_argument("--out", type=Path, default=None)
 
     collect = commands.add_parser("collect", help="harvest gap roots and record their scenarios")
@@ -1600,6 +2138,15 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--allow-dirty", action="store_true")
     collect.add_argument("--out", type=Path, required=True)
 
+    shares = commands.add_parser(
+        "weights", help="family row and weight shares before/after --family-weights"
+    )
+    shares.add_argument("--dataset", type=Path, action="append", default=[])
+    shares.add_argument("--shard", type=Path, action="append", default=[])
+    shares.add_argument("--family-weights", default="default")
+    shares.add_argument("--normalizer-checkpoint", type=Path, default=None)
+    shares.add_argument("--out", type=Path, default=None)
+
     cost = commands.add_parser("cost", help="measured cost per root and projection")
     cost.add_argument("--dataset", type=Path, required=True)
     cost.add_argument("--roots-per-family", type=int, default=40)
@@ -1620,11 +2167,24 @@ def _rules(args: argparse.Namespace) -> DetectionRules:
     )
 
 
+def _optional_normalizer(args: argparse.Namespace) -> Any:
+    path = getattr(args, "normalizer_checkpoint", None)
+    if path is None:
+        return None
+    from .labor_teacher_data import load_normalizer
+
+    return load_normalizer(Path(path))
+
+
 def run_coverage(args: argparse.Namespace) -> dict[str, Any]:
     if not args.dataset and not args.shard:
         raise ValueError("coverage needs at least one --dataset or --shard")
     report = coverage_audit(
-        args.dataset, rules=_rules(args), minima=_parse_minima(args.minima), shards=args.shard
+        args.dataset,
+        rules=_rules(args),
+        minima=_parse_minima(args.minima),
+        shards=args.shard,
+        normalizer=_optional_normalizer(args),
     )
     if args.out is not None:
         args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -1824,6 +2384,51 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+def run_weights(args: argparse.Namespace) -> dict[str, Any]:
+    """Shares per family before/after reweighting (datasets via the training loader view)."""
+    import torch
+
+    from .labor_bc import world_balanced_weights
+    from .labor_teacher_data import load_labor_datasets, verify_shard
+
+    weights = parse_family_weights(args.family_weights)
+    if not weights:
+        raise ValueError("--family-weights is empty")
+    if args.dataset:
+        dataset = load_labor_datasets(args.dataset, training=False)
+    else:
+        parts = []
+        for shard in args.shard:
+            meta = verify_shard(Path(shard))
+            arrays = _load_shard_arrays(Path(shard), meta)
+            parts.append({k: torch.as_tensor(v) for k, v in arrays.items()})
+        if not parts:
+            raise ValueError("weights needs --dataset or --shard")
+        keys = set.intersection(*(set(p) for p in parts))
+        dataset = {k: torch.cat([p[k] for p in parts]) for k in keys}
+        keep = ~dataset["row_quarantined"].reshape(-1).bool()
+        dataset["row_weight"] = world_balanced_weights(dataset["row_world"], keep)
+    record = reweight_dataset(dataset, weights, normalizer=_optional_normalizer(args))
+    report = {
+        "weights": record["weights"],
+        "status": record["status"],
+        "rule": record["rule"],
+        "rows": int(dataset["row_world"].shape[0]),
+        "worlds": sorted({int(w) for w in dataset["row_world"].reshape(-1).tolist()}),
+        "shares": record["shares"],
+    }
+    lines = [f"{'family':18s} {'rows':>6s} {'row%':>7s} {'before%':>8s} {'after%':>8s}"]
+    for name, s in record["shares"].items():
+        lines.append(
+            f"{name:18s} {s['rows']:6d} {100 * s['row_share']:7.2f} "
+            f"{100 * s['weight_share_before']:8.2f} {100 * s['weight_share_after']:8.2f}"
+        )
+    print("\n".join(lines))
+    if args.out is not None:
+        args.out.write_text(json.dumps(report, sort_keys=True, indent=1))
+    return report
+
+
 def run_cost(args: argparse.Namespace) -> dict[str, Any]:
     out = Path(args.dataset)
     shards = []
@@ -1847,6 +2452,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         run_collect(args)
     elif args.command == "cost":
         run_cost(args)
+    elif args.command == "weights":
+        run_weights(args)
     return 0
 
 
