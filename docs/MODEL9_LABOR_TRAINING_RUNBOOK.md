@@ -244,6 +244,72 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
   resolves and 3,611-4,585 s per continuation (about 29-36 s per resolve with a concurrent job), against
   140 s for the learner rows themselves, so continuations dominate DAgger cost by about 60x per branch.
 
+### r5 critic acceptance harness (enforced stability and fitting acceptance)
+
+`labor_stability` wraps every optimizer step of `pretrain-critic` (V), `labor_advantage fit` (A) and
+`pretrain-bc` (actor BC refits). It is on by default for r5 checkpoints (a privileged block or the
+bounded QoL head) and always on for A; `--no-stability` turns it off, `--stability-log PATH` writes the
+JSONL and `--stability-every N` sets the logging interval (25). A monitored fit without failures is
+bitwise identical to an unmonitored one (tested). The receipt is stored in the fit summary under
+`stability` and its `admitted` flag is false when any mandatory check fails or holds.
+
+* Finite checks every step (loss, global pre-clip gradient norm, parameters, Adam moments). On a
+  nonfinite value: parameter and Adam rollback to the last good step, LR x 0.5, an event in the receipt;
+  K = 3 consecutive failures raise `StabilityAbort` and write `<out>.stability-abort.json`. More than 5
+  rollbacks in one fit fail `finite_updates`.
+* Every N steps: per-head losses, per-block pre-clip gradient norms (frozen actor/critic blocks must be
+  exactly zero and keep their digest), the global clip multiplier and per-block parameter-step norms.
+  Dominance detectors: QoL vs population-years on the shared task encoder, task vs each cost on the
+  global clip, QoL vs population-years on A's shared action encoder. Alarm: one contender above 0.90 of
+  the block's gradient norm on 75% of an 8-point window while another contender's loss improves by less
+  than 1% across the window.
+* Bounded QoL saturation: final share of |z| > 6 above 0.05 fails. TD(lambda): mean |target change| per
+  refresh in units of W; growth over 3 consecutive refreshes (the first refresh, replacing the Monte
+  Carlo return, is recorded but not counted) or any target outside [0, W] fails.
+* Population head: decoded upper excess above 0.01 reference scales or top-bin mass above 1e-3 on the
+  final pass fails. A: train vs held-out (within-fitting-world split) QoL pair ranking every epoch; a
+  final gap above 0.10 or a held-out fall of 0.03 from its best fails. Privileged critics: village-token
+  (or any-query) attention mass on privileged keys must reach 0.10 of the uniform share; dead privileged
+  columns and dead trunk units are reported (advisory).
+* `pretrain-critic --resume-state PATH --resume-every N` writes an exact mid-fit resume state (models,
+  Adam, epoch-start RNG, position, TD targets, monitor history) atomically and continues from it
+  bit-for-bit; `--max-steps` stops early for probes; `--progress` prints g0launch-style progress lines.
+
+`labor_r5_acceptance` turns the evidence into `gate-receipt.json` (schema
+`labor-r5-critic-acceptance-receipt-v1`) plus `evidence-manifest.json`:
+
+```bash
+# VM: 2 arms x 5 paired seeds, 4 fits at 14 threads, resumable (rerun the same command).
+NORMALIZER=... PRIV_NORMALIZER=... FIT_DATA=... CAL_DATA=... FIT_PAYLOADS=... \
+RESERVED_PAYLOADS=... CONTROL_REPORT=critic3-calibration.json OUT=... ATTEMPT_ID=r5-accept-1 \
+  tools/r5_critic_acceptance.sh
+# Pieces: evaluate one fit, aggregate, compare two checkpoints.
+python -m anthropocene_rl.autonomous_v7.labor_r5_acceptance evaluate --arm A --seed 0 --checkpoint critic.pt \
+  --advantage advantage.pt --calibration-data CAL --fit-data FIT --reserved-payloads RES \
+  --control-report critic3.json --out evidence.json
+python -m anthropocene_rl.autonomous_v7.labor_r5_acceptance receipt --evidence */seed-*/evidence.json \
+  --seeds 0,1,2,3,4 --seed-rule all-seeds --determinism determinism.json --attempt-id ID --out gate-receipt.json
+```
+
+The primary gate `r5-critic-acceptance` (candidate arm) combines: admitted stability receipts for V and
+A; QoL per r5-b (a) A same-village ranking on reserved worlds, (b) bounded-head nMAE <= 0.20 and
+|bias| <= 0.10 per stratum, (c) TD residual |bias| <= 0.05 and mean |residual| <= 0.20 reference scales;
+population-years cross-village ranking >= 0.70 per stratum (r5-b item 3); the other heads within
+0.02 of the critic3 control (`--control-report`, a missing control HOLDs); the
+A gates on reserved worlds; generalisation gaps; the declared seed rule (`all-seeds` default, or
+`mean-with-floor`: seed mean passes and the worst seed is within 0.02, stability and controls in every
+seed); the privileged-vs-control comparability (same data digest, support, tail, epochs, batch, lr,
+clip, QoL head and A config, else HOLD); determinism (bitwise, or within 1e-6 relative, else FAIL); and
+the historical fitting exclusions. Full G2C for every head is reported as the secondary gate
+`G2C-all-heads`. Missing evidence HOLDs, a demonstrated violation FAILs, a stability abort is a FAIL,
+and `--smoke` (truncated-zero targets) forces HOLD. `--local` caps seeds at 3, so a local receipt HOLDs
+on seed coverage unless `--required-seeds` is lowered for a diagnostic. Values marked `proposed` in `PREREGISTERED` await
+the user's review.
+
+`labor_qol_diagnosis` (feature/qol-diagnosis, 770ca04) predates the privileged block and the bounded
+head (it calls the critic without a privileged batch and decodes a two-hot softmax), so it runs only on
+the critic3 control; the harness's calibration strata and TD residual replace it for r5 critics.
+
 ## 2. Collect one frozen-behavior physical rollout
 
 Collection uses the typed two-proposal bridge. An initial proposal scores labor plus retained

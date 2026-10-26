@@ -89,6 +89,7 @@ from .labor_ppo import (
     two_attempt_gae,
     update_labor_policy,
 )
+from .labor_stability import add_stability_arguments
 from .labor_value_calibration import (
     labor_anchor_loss,
     labor_critic_digest,
@@ -1370,6 +1371,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         inactive_role_weight=getattr(args, "inactive_role_weight", 0.0),
         label_smoothing=getattr(args, "label_smoothing", 1e-6),
         inverse_freq_power=getattr(args, "inverse_freq_power", 0.5),
+        **_bc_stability_kwargs(args, task, costs),
     )
     if getattr(args, "economic_trace", None) is not None:
         bc_summary["economic_trace_dir"] = str(args.economic_trace)
@@ -1397,6 +1399,48 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     )
     trainer_state["heuristic_bc_pretraining"] = bc_summary
     _save_checkpoint(args.out, trainer_state)
+
+
+def _bc_stability_kwargs(args: argparse.Namespace, task: Any, costs: Any) -> dict[str, Any]:
+    """Stability monitor for BC refits: on for r5 checkpoints (or an explicit log)."""
+    from .labor_stability import is_r5_critic, stability_config_from_args
+
+    config = stability_config_from_args(args)
+    if config is None:
+        return {}
+    if config == "auto":
+        if not is_r5_critic(task):
+            return {}
+        from .labor_stability import StabilityConfig
+
+        config = StabilityConfig()
+    return {"stability": config, "frozen_critics": {"task_critic": task, "cost_critics": costs}}
+
+
+def _critic_stability_kwargs(args: argparse.Namespace, actor: Any) -> dict[str, Any]:
+    """Stability, frozen-actor check and exact resume for pretrain-critic (dataset path)."""
+    from .labor_stability import stability_config_from_args
+
+    kwargs: dict[str, Any] = {
+        "stability": stability_config_from_args(args),
+        "frozen_actor": actor,
+    }
+    if getattr(args, "resume_state", None) is not None:
+        kwargs["resume_path"] = str(args.resume_state)
+        kwargs["resume_every"] = int(getattr(args, "resume_every", 100))
+    if getattr(args, "max_steps", None) is not None:
+        kwargs["max_steps"] = int(args.max_steps)
+    if getattr(args, "progress", False):
+        kwargs["progress"] = True
+    return kwargs
+
+
+def _write_abort_receipt(out: Path, error: Any) -> None:
+    import json
+
+    path = out.with_suffix(out.suffix + ".stability-abort.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(error.summary, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def _cost_weight_kwargs(args: argparse.Namespace) -> dict[str, float]:
@@ -1443,19 +1487,26 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             teacher, allow_learner_state_continuation=continuations
         )
         worlds = list(teacher["collection"]["world_seeds"])
-        summary = pretrain_critic_on_dataset(
-            task_critic=task,
-            cost_critics=costs,
-            dataset=teacher,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            lr=args.lr,
-            max_grad_norm=args.max_grad_norm,
-            rng=shuffle,
-            require_randomized_tail=bool(getattr(args, "require_randomized_tail", False)),
-            **_cost_weight_kwargs(args),
-            **({"allow_learner_state_continuation": True} if continuations else {}),
-        )
+        from .labor_stability import StabilityAbort
+
+        try:
+            summary = pretrain_critic_on_dataset(
+                task_critic=task,
+                cost_critics=costs,
+                dataset=teacher,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.lr,
+                max_grad_norm=args.max_grad_norm,
+                rng=shuffle,
+                require_randomized_tail=bool(getattr(args, "require_randomized_tail", False)),
+                **_cost_weight_kwargs(args),
+                **({"allow_learner_state_continuation": True} if continuations else {}),
+                **_critic_stability_kwargs(args, actor),
+            )
+        except StabilityAbort as error:
+            _write_abort_receipt(args.out, error)
+            raise
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
     else:
         if _cost_weight_kwargs(args):
@@ -2019,6 +2070,7 @@ def argument_parser() -> argparse.ArgumentParser:
         help="opt-in directory to stream prospective economic diagnostics trace",
     )
     pretrain_bc.add_argument("--out", type=Path, required=True)
+    add_stability_arguments(pretrain_bc)
     pretrain_bc.set_defaults(handler=_command_pretrain_bc)
 
     pretrain_critic = commands.add_parser("pretrain-critic")
@@ -2077,6 +2129,18 @@ def argument_parser() -> argparse.ArgumentParser:
         help="multiplier on the summed cost-critic MSE (default 1.0, unchanged)",
     )
     pretrain_critic.add_argument("--out", type=Path, required=True)
+    add_stability_arguments(pretrain_critic)
+    pretrain_critic.add_argument(
+        "--resume-state",
+        type=Path,
+        default=None,
+        help="exact mid-fit resume file (written every --resume-every steps; resumed if present)",
+    )
+    pretrain_critic.add_argument("--resume-every", type=int, default=100)
+    pretrain_critic.add_argument(
+        "--max-steps", type=int, default=None, help="stop after N optimizer steps (probes)"
+    )
+    pretrain_critic.add_argument("--progress", action="store_true", default=False)
     pretrain_critic.set_defaults(handler=_command_pretrain_critic)
 
     collect = commands.add_parser("collect")
