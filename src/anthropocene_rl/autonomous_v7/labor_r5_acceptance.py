@@ -1616,6 +1616,7 @@ def evaluate_fit(
     trajectory_payloads: Sequence[tuple[str, Sequence[Path]]] = (),
     trajectory_traces: Sequence[Path] = (),
     device: str = "cpu",
+    scenario_calibration_data: Path | None = None,
 ) -> dict[str, Any]:
     """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
 
@@ -1626,6 +1627,10 @@ def evaluate_fit(
     datasets (teacher, DAgger and learner-state continuation data, T3), labelled
     candidate payload sets (for example one per DAgger round, T3) and autonomous
     reports recorded with ``--record-critic-trace`` (T4).
+
+    ``scenario_calibration_data`` (labor_scenarios calibration scenario set) adds the
+    report-only per-family calibration under ``scenario_calibration``; per-family A
+    ranking on reserved scenario roots is ``advantage_eval.by_scenario_family``.
     """
     import torch
 
@@ -1674,6 +1679,26 @@ def evaluate_fit(
         fit_worlds=adv_fit.get("fit_worlds", []),
         se_multiplier=adv_config.se_multiplier,
     )
+    scenario_calibration = None
+    if scenario_calibration_data is not None:
+        report = run_critic_calibration(
+            checkpoint,
+            scenario_calibration_data,
+            None,
+            batch_size,
+            device=None if target.type == "cpu" else target,
+        )
+        scenario_calibration = {
+            "dataset": str(scenario_calibration_data),
+            "dataset_digest": report["calibration"]["dataset_digest"],
+            "rows": report["calibration"]["rows"],
+            "worlds": report["calibration"]["worlds"],
+            "all": {
+                name: strata.get("all") for name, strata in report["calibration"]["heads"].items()
+            },
+            "by_scenario_family": report["calibration"].get("by_scenario_family", {}),
+            "gated": False,
+        }
     critic_summary = state.get("heuristic_critic_pretraining", {})
     sidecar = settings_path(checkpoint)
     fit_settings = json.loads(sidecar.read_text(encoding="utf-8")) if sidecar.exists() else {}
@@ -1743,6 +1768,7 @@ def evaluate_fit(
         },
         "comparability": comparability,
         "calibration": calibration,
+        "scenario_calibration": scenario_calibration,
         "td_residual": td,
         "advantage_fit": {
             k: v for k, v in adv_fit.items() if k not in ("stability", "loss_history")
@@ -1962,6 +1988,8 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             command += ["--dataset", directory]
         if args.learner_state_continuations:
             command += ["--learner-state-continuations"]
+        if getattr(args, "curated_scenarios", False):
+            command += ["--curated-scenarios"]
         command += shlex.split(args.critic_args or "")
 
         def fit_critic() -> None:
@@ -2055,6 +2083,8 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             "--out",
             evidence_path,
         ]
+        if getattr(args, "scenario_calibration_data", None):
+            command += ["--scenario-calibration-data", args.scenario_calibration_data]
         if args.control_report:
             command += ["--control-report", args.control_report]
         if getattr(args, "trajectory_data", None):
@@ -2111,6 +2141,8 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
                 command += ["--dataset", directory]
             if args.learner_state_continuations:
                 command += ["--learner-state-continuations"]
+            if getattr(args, "curated_scenarios", False):
+                command += ["--curated-scenarios"]
             command += shlex.split(args.critic_args or "")
             _run(command, log, int(args.threads))
         critic_outputs.append(torch.load(target, map_location="cpu", weights_only=True))
@@ -2257,6 +2289,10 @@ def command_run(args: argparse.Namespace) -> int:
             "init_world": args.init_world,
             "fit_data": [str(p) for p in args.fit_data],
             "learner_state_continuations": bool(args.learner_state_continuations),
+            "curated_scenarios": bool(getattr(args, "curated_scenarios", False)),
+            "scenario_calibration_data": None
+            if getattr(args, "scenario_calibration_data", None) is None
+            else str(args.scenario_calibration_data),
             "calibration_data": str(args.calibration_data),
             "fit_payloads": [str(p) for p in args.fit_payloads],
             "reserved_payloads": [str(p) for p in args.reserved_payloads],
@@ -2352,6 +2388,7 @@ def command_evaluate(args: argparse.Namespace) -> int:
         trajectory_payloads=_labelled_paths(args.trajectory_payload or []),
         trajectory_traces=list(args.trajectory_trace or []),
         device=getattr(args, "device", "cpu"),
+        scenario_calibration_data=args.scenario_calibration_data,
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -2438,6 +2475,12 @@ def argument_parser() -> argparse.ArgumentParser:
         help="critic3 critic-calibration JSON on calibration worlds 90180-90199",
     )
     evaluate.add_argument("--timings", type=Path, default=None)
+    evaluate.add_argument(
+        "--scenario-calibration-data",
+        type=Path,
+        default=None,
+        help="labor_scenarios calibration scenario set (report-only per-family calibration)",
+    )
     evaluate.add_argument("--batch-size", type=int, default=256)
     add_device_argument(evaluate)
     _trajectory_arguments(evaluate)
@@ -2479,7 +2522,20 @@ def argument_parser() -> argparse.ArgumentParser:
         help="r5 teacher fitting dataset (first) plus optional continuation datasets",
     )
     run.add_argument("--learner-state-continuations", action="store_true", default=False)
+    run.add_argument(
+        "--curated-scenarios",
+        action="store_true",
+        default=False,
+        help="admit curated scenario fitting sets listed in --fit-data (labor_scenarios)",
+    )
     run.add_argument("--calibration-data", type=Path, required=True)
+    run.add_argument(
+        "--scenario-calibration-data",
+        type=Path,
+        default=None,
+        help="labor_scenarios calibration scenario set: report-only per-family calibration "
+        "(fitting scenario sets join --fit-data with --critic-args --curated-scenarios)",
+    )
     run.add_argument(
         "--fit-payloads",
         type=Path,

@@ -815,6 +815,9 @@ class Root:
     # T2 plan rows (plan and paired first-step control): diagnostic, never paired as
     # first-action candidates. Their ``index`` is their position in the raw row list.
     plans: list[CandidateRecord] = field(default_factory=list)
+    # Curated scenario families of the root (labor_scenarios via labor_search
+    # --source scenario); empty for keyed h12/actor roots.
+    families: tuple[str, ...] = ()
 
     @property
     def h12(self) -> int:
@@ -1007,6 +1010,7 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
                 candidates,
                 shard_index,
                 plans,
+                tuple(str(f) for f in raw.get("scenario_family") or ()),
             )
         )
     return CandidateSet(

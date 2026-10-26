@@ -24,6 +24,8 @@
 #   CONTINUATIONS=0  EXTRA="..." (passed through to labor_r5_acceptance run)
 #   DEVICE=cpu (cuda on the GPU fitting VM: critic, A fit, evaluate and determinism probes
 #   run on the GPU; JOBS fits share it, THREADS is then the host threads per fit)
+#   SCENARIOS=0       1: FIT_DATA also lists curated scenario fitting sets (labor_scenarios)
+#   SCENARIO_CAL_DATA calibration scenario set (report-only per-family calibration)
 #
 # Never point any input at sealed worlds 3000-3059; the reserved worlds 90154-90159 are
 # only ever read as RESERVED_PAYLOADS (held-out tests). Every loader refuses violations.
@@ -43,6 +45,7 @@ RESUME_EVERY="${RESUME_EVERY:-100}"
 DETERMINISM_STEPS="${DETERMINISM_STEPS:-50}"
 CONTINUATIONS="${CONTINUATIONS:-0}"
 DEVICE="${DEVICE:-cpu}"
+SCENARIOS="${SCENARIOS:-0}"
 
 cores="$(nproc 2>/dev/null || echo 0)"
 if [ "$cores" -gt 0 ] && [ $((JOBS * THREADS)) -gt "$cores" ]; then
@@ -70,6 +73,8 @@ args=(
 )
 if [ -n "${CONTROL_REPORT:-}" ]; then args+=(--control-report "$CONTROL_REPORT"); fi
 if [ "$CONTINUATIONS" = "1" ]; then args+=(--learner-state-continuations); fi
+if [ "$SCENARIOS" = "1" ]; then args+=(--curated-scenarios); fi
+if [ -n "${SCENARIO_CAL_DATA:-}" ]; then args+=(--scenario-calibration-data "$SCENARIO_CAL_DATA"); fi
 # shellcheck disable=SC2206
 if [ -n "${EXTRA:-}" ]; then args+=($EXTRA); fi
 

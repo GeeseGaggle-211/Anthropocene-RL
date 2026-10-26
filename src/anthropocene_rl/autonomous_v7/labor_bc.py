@@ -1337,12 +1337,15 @@ def record_teacher_transition(
     transition: _TeacherTransition,
     world_seed: int,
     founded: Mapping[int, int],
+    camps: set[int] | None = None,
 ) -> None:
     """Append one converted-teacher decision's rows (every live camp) to ``result``.
 
     The collector's row format: pre-action inputs, the critic-only privileged
     arrays of the same boundary, the converted label, identity and the
     transition rewards; rejected initial recommendations are quarantined.
+    ``camps`` restricts the recorded rows (and their counters) to those camps
+    (curated scenario roots, ``labor_scenarios``); every camp still acted.
     """
     world_seed = int(world_seed)
     decision_turn = transition.decision_turn
@@ -1351,6 +1354,8 @@ def record_teacher_transition(
         zip(transition.live, transition.labels, strict=True)
     ):
         camp = int(village["camp"])
+        if camps is not None and camp not in camps:
+            continue
         for reason in label.reasons:
             result.reasons[reason.split(":", 1)[0]] += 1
         attempt = execution.initial_attempts[camp]
@@ -2185,6 +2190,10 @@ CRITIC_TEACHER_SOURCE_KIND = "native_heuristic_labor_teacher"
 # randomized tail: V^rho targets at learner states (labor_dagger, row_source 3).
 CONTINUATION_SOURCE_KIND = "learner_state_teacher_continuation"
 CONTINUATION_ROW_SOURCE = 3
+# Curated Neolithic scenario trajectories (labor_scenarios): H12 teacher rows from
+# keyed family roots, closed by the randomized tail (row_source 4).
+SCENARIO_SOURCE_KIND = "curated_neolithic_scenario"
+SCENARIO_ROW_SOURCE = 4
 _CRITIC_REFUSALS = {
     "native_search_labor_teacher": (
         "search shards (row_source 2) are action labels, one per root and personality; their "
@@ -2201,11 +2210,17 @@ _CRITIC_REFUSALS = {
         "learner-state teacher continuations are V^rho targets only with "
         "--learner-state-continuations"
     ),
+    SCENARIO_SOURCE_KIND: (
+        "curated Neolithic scenario trajectories are V targets only with --curated-scenarios"
+    ),
 }
 
 
 def require_critic_teacher_dataset(
-    dataset: Mapping[str, Any], *, allow_learner_state_continuation: bool = False
+    dataset: Mapping[str, Any],
+    *,
+    allow_learner_state_continuation: bool = False,
+    allow_curated_scenarios: bool = False,
 ) -> None:
     """Refuse any dataset that is not teacher-policy returns.
 
@@ -2219,6 +2234,10 @@ def require_critic_teacher_dataset(
     :data:`CONTINUATION_SOURCE_KIND`), alone or aggregated with teacher
     trajectories, provided their randomized-tail arrays survived aggregation
     (a continuation row without its tail would be a one-step truncated return).
+
+    ``allow_curated_scenarios`` likewise admits curated Neolithic scenario
+    trajectories (``row_source`` 4, :data:`SCENARIO_SOURCE_KIND`), alone or
+    aggregated with the sources above, under the same tail requirement.
     """
     collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
     kind = collection.get("source_kind", CRITIC_TEACHER_SOURCE_KIND)
@@ -2232,17 +2251,21 @@ def require_critic_teacher_dataset(
     if allow_learner_state_continuation:
         admitted.add(CONTINUATION_SOURCE_KIND)
         codes_allowed.add(CONTINUATION_ROW_SOURCE)
-        if kind == "aggregated":
-            components = {
-                c.get("source_kind") for c in collection.get("component_collections", [])
-            }
-            if not components or not components <= admitted:
-                raise ValueError(
-                    "pretrain-critic refuses aggregated data with components "
-                    f"{sorted(map(str, components - admitted))}: only heuristic-teacher "
-                    "trajectories and learner-state teacher continuations carry V targets"
-                )
-            kind = CONTINUATION_SOURCE_KIND
+    if allow_curated_scenarios:
+        admitted.add(SCENARIO_SOURCE_KIND)
+        codes_allowed.add(SCENARIO_ROW_SOURCE)
+    if (allow_learner_state_continuation or allow_curated_scenarios) and kind == "aggregated":
+        components = {
+            c.get("source_kind") for c in collection.get("component_collections", [])
+        }
+        if not components or not components <= admitted:
+            raise ValueError(
+                "pretrain-critic refuses aggregated data with components "
+                f"{sorted(map(str, components - admitted))}: only heuristic-teacher "
+                "trajectories, learner-state teacher continuations (--learner-state-"
+                "continuations) and curated scenarios (--curated-scenarios) carry V targets"
+            )
+        kind = CRITIC_TEACHER_SOURCE_KIND
     if kind not in admitted:
         reason = _CRITIC_REFUSALS.get(kind, f"unknown source kind {kind!r}")
         raise ValueError(f"pretrain-critic refuses {kind} data: {reason}")
@@ -2252,7 +2275,8 @@ def require_critic_teacher_dataset(
         raise ValueError(
             f"pretrain-critic refuses rows with row_source {codes}: only heuristic-teacher "
             "rows (row_source 0) carry critic targets; search rows are 2, DAgger rows 1, "
-            "teacher continuations 3 (with --learner-state-continuations)"
+            "teacher continuations 3 (with --learner-state-continuations), curated scenarios 4 "
+            "(with --curated-scenarios)"
         )
     if (
         isinstance(sources, torch.Tensor)
@@ -2263,6 +2287,23 @@ def require_critic_teacher_dataset(
             "learner-state teacher continuation rows lost their randomized tail or trajectory "
             "ids (aggregated with truncated-zero teacher data?); refusing one-step returns"
         )
+    if isinstance(sources, torch.Tensor) and bool(
+        (sources.reshape(-1) == SCENARIO_ROW_SOURCE).any()
+    ):
+        # Scenario windows may be declared truncated-zero (legacy fixture); a randomized
+        # scenario set whose tails were dropped by aggregation is refused.
+        declared = (
+            {c.get("return_tail") for c in collection.get("component_collections", [])}
+            if collection.get("source_kind") == "aggregated"
+            else {collection.get("return_tail")}
+        )
+        if TRAJECTORY_FIELD not in dataset or (
+            TAIL_METHOD_FIELD not in dataset and declared != {RETURN_TAIL_TRUNCATED_ZERO}
+        ):
+            raise ValueError(
+                "curated scenario rows lost their randomized tail or trajectory ids "
+                "(aggregated with truncated-zero teacher data?); refusing truncated returns"
+            )
 
 
 def _tail_settings_summary(collection: Mapping[str, Any]) -> dict[str, Any]:
@@ -2415,6 +2456,7 @@ def pretrain_critic_on_dataset(
     cost_loss_weight: float = 1.0,
     require_randomized_tail: bool = False,
     allow_learner_state_continuation: bool = False,
+    allow_curated_scenarios: bool = False,
     stability: Any = "auto",
     frozen_actor: nn.Module | None = None,
     max_steps: int | None = None,
@@ -2450,7 +2492,9 @@ def pretrain_critic_on_dataset(
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
     require_critic_teacher_dataset(
-        dataset, allow_learner_state_continuation=allow_learner_state_continuation
+        dataset,
+        allow_learner_state_continuation=allow_learner_state_continuation,
+        allow_curated_scenarios=allow_curated_scenarios,
     )
     require_training_record(dataset.get("collection"), "heuristic critic pretraining")
     if require_randomized_tail and return_tail_method(dataset) != RETURN_TAIL_RANDOMIZED:
@@ -2488,7 +2532,20 @@ def pretrain_critic_on_dataset(
         return None if privileged is None else {k: v[index] for k, v in privileged.items()}
     task_targets = {name: returns[name][kept] for name in LABOR_OBJECTIVES}
     cost_targets = {name: returns[name][kept] for name in LABOR_COSTS}
-    weights = world_balanced_weights(dataset["row_world"][kept]).double().numpy()
+    scenario_rows = "row_source" in dataset and bool(
+        (dataset["row_source"].reshape(-1)[kept] == SCENARIO_ROW_SOURCE).any()
+    )
+    if scenario_rows:
+        # Curated scenarios are their own source: equal source mass, world-balanced within
+        # each source (labor_teacher_data.source_world_balanced_weights). Without scenario
+        # rows the sampling is unchanged (world-balanced).
+        from .labor_teacher_data import source_world_balanced_weights
+
+        weights = source_world_balanced_weights(
+            dataset["row_source"].reshape(-1)[kept], dataset["row_world"].reshape(-1)[kept]
+        ).double().numpy()
+    else:
+        weights = world_balanced_weights(dataset["row_world"][kept]).double().numpy()
     probabilities = weights / weights.sum()
     N = len(kept)
 
@@ -2824,8 +2881,21 @@ def pretrain_critic_on_dataset(
             if tail_method == RETURN_TAIL_RANDOMIZED
             else {}
         ),
-        "sampling": "world-balanced-with-replacement",
+        "sampling": (
+            "equal-source-mass-then-world-balanced-with-replacement"
+            if scenario_rows
+            else "world-balanced-with-replacement"
+        ),
         "discount_years": CRITIC_DISCOUNT_YEARS,
+        **(
+            {
+                "curated_scenario_rows": int(
+                    (dataset["row_source"].reshape(-1)[kept] == SCENARIO_ROW_SOURCE).sum()
+                )
+            }
+            if scenario_rows
+            else {}
+        ),
         **(
             {
                 "learner_state_continuation_rows": int(
