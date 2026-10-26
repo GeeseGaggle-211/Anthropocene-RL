@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import copy
 import math
+import os
+import sys
+import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -47,6 +50,7 @@ from .labor_bridge import (
 )
 from .labor_model import (
     LABOR_COSTS,
+    LABOR_OBJECTIVE_REFERENCE_SCALES,
     LABOR_OBJECTIVES,
     LaborActor,
     LaborCostCritics,
@@ -65,6 +69,8 @@ from .labor_worlds import (
     require_training_worlds,
 )
 from .labor_ppo import (
+    labor_cost_value_losses,
+    labor_task_value_losses,
     RetainedLaborAction,
     execute_labor_decision,
     labor_cost_value_loss,
@@ -2025,11 +2031,18 @@ def pretrain_labor_actor_bc(
     inactive_role_weight: float = 0.0,
     label_smoothing: float = 1e-6,
     inverse_freq_power: float = 0.5,
+    stability: Any = None,
+    frozen_critics: Mapping[str, nn.Module] | None = None,
 ) -> dict[str, Any]:
     """Supervised behavioral cloning on LaborActor using heuristic dataset.
 
     Rows from the reserved held-out worlds 90154-90159 and held-out-test data
     are refused (``labor_worlds``), exactly as for critic training.
+
+    ``stability`` (a :class:`~.labor_stability.StabilityConfig`; the
+    ``pretrain-bc`` CLI turns it on for r5 checkpoints) wraps every step in the
+    enforced stability monitor; ``frozen_critics`` must then receive exactly
+    zero gradient (no cross-network gradient, r5-b item 6).
     """
     if not isinstance(dataset, Mapping) or "target_specialty" not in dataset:
         raise ValueError("dataset must contain target_specialty and input tensors")
@@ -2078,6 +2091,30 @@ def pretrain_labor_actor_bc(
         actor, dataset, **evaluation
     )
 
+    from .labor_stability import StabilityMonitor, resolve_stability
+
+    stability_config = resolve_stability(stability, r5=True)
+    monitor = None
+    if stability_config is not None:
+        if optimizer is not None and {id(p) for g in opt.param_groups for p in g["params"]} != {
+            id(p) for p in actor.parameters()
+        }:
+            raise ValueError("monitored BC needs an optimizer over exactly the actor parameters")
+        blocks = {"actor_encoder": list(actor.encoder.parameters())}
+        for name, module in actor.named_children():
+            if name != "encoder":
+                params = list(module.parameters())
+                if params:
+                    blocks[f"actor_head:{name}"] = params
+        monitor = StabilityMonitor(
+            stability_config,
+            fit="pretrain-bc",
+            optimizer=opt,
+            parameters=list(actor.parameters()),
+            blocks=blocks,
+            frozen=dict(frozen_critics or {}),
+        )
+
     actor.train()
     for _ in range(epochs):
         indices = generator.permutation(N)
@@ -2095,6 +2132,10 @@ def pretrain_labor_actor_bc(
                 spec_weights=spec_weights,
                 act_weights=act_weights,
             )
+            if monitor is not None:
+                opt.zero_grad()
+                monitor.step(loss, max_grad_norm=max_grad_norm)
+                continue
             if not torch.isfinite(loss):
                 raise ValueError("labor BC produced a nonfinite loss")
             opt.zero_grad()
@@ -2122,6 +2163,7 @@ def pretrain_labor_actor_bc(
         "label_smoothing": float(label_smoothing),
         "inverse_freq_power": float(inverse_freq_power),
         "collection": copy.deepcopy(dataset.get("collection", {})),
+        **({} if monitor is None else {"stability": monitor.finish()}),
     }
 
 
@@ -2243,6 +2285,105 @@ def _qol_saturation_summary(task_critic: LaborTaskCritic, logits: torch.Tensor) 
     return qol_saturation_report(task_critic, logits)
 
 
+def _critic_resume_fingerprint(
+    dataset: Mapping[str, Any],
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    max_grad_norm: float,
+    cost_loss_weight: float,
+    rows: int,
+) -> str:
+    """What a resume state must match: data, schedule and admitted row count."""
+    import hashlib
+    import json
+
+    collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
+    body = {
+        "dataset_digest": collection.get("dataset_digest"),
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "lr": float(lr),
+        "max_grad_norm": float(max_grad_norm),
+        "cost_loss_weight": float(cost_loss_weight),
+        "rows": int(rows),
+    }
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _probe_rows(kept: torch.Tensor, count: int) -> torch.Tensor:
+    """Evenly spaced admitted rows (deterministic, no RNG)."""
+    if len(kept) <= count:
+        return kept
+    positions = torch.linspace(0, len(kept) - 1, count).round().long()
+    return kept[positions]
+
+
+def _critic_stability_finish(
+    monitor: Any,
+    task_critic: LaborTaskCritic,
+    cost_critics: LaborCostCritics,
+    dataset: Mapping[str, Any],
+    kept: torch.Tensor,
+    tensor_keys: Sequence[str],
+    saturation_final: Mapping[str, Any] | None,
+    observed_pop_max: float,
+) -> dict[str, Any]:
+    """Final saturation, decoded population tail, attention mass and dead features."""
+    from .labor_stability import (
+        dead_feature_counts,
+        population_tail_report,
+        privileged_attention_mass,
+    )
+
+    if saturation_final is not None:
+        monitor.record_final("qol_saturation", saturation_final["share_abs_z_gt_6"])
+    tail_rows = _probe_rows(kept, 4096)
+    if not task_critic.is_bounded("population_years"):
+        parts = []
+        with torch.no_grad():
+            for start in range(0, len(tail_rows), 512):
+                index = tail_rows[start : start + 512]
+                batch = {k: dataset[k][index] for k in tensor_keys}
+                p = critic_privileged_batch(task_critic, dataset, index)
+                parts.append(task_critic(batch, p)["population_years"])
+        monitor.record_final(
+            "population_tail",
+            population_tail_report(task_critic, torch.cat(parts), observed_pop_max),
+        )
+    probe = _probe_rows(kept, monitor.config.probe_rows)
+    batch = {k: dataset[k][probe] for k in tensor_keys}
+    task_priv = critic_privileged_batch(task_critic, dataset, probe)
+    cost_priv = critic_privileged_batch(cost_critics, dataset, probe)
+    encoders = {"task": (task_critic.encoder, task_priv)}
+    for name in LABOR_COSTS:
+        encoders[f"cost:{name}"] = (cost_critics.encoders[name], cost_priv)
+    monitor.record_probe(
+        "privileged_attention",
+        {
+            name: privileged_attention_mass(encoder, batch, priv)
+            for name, (encoder, priv) in encoders.items()
+        },
+    )
+    dead_rows = _probe_rows(kept, max(monitor.config.probe_rows, 256))
+    dead_batch = {k: dataset[k][dead_rows] for k in tensor_keys}
+    dead_task = critic_privileged_batch(task_critic, dataset, dead_rows)
+    dead_cost = critic_privileged_batch(cost_critics, dataset, dead_rows)
+    monitor.record_probe(
+        "dead_features",
+        {
+            name: dead_feature_counts(
+                encoder,
+                dead_batch,
+                dead_task if name == "task" else dead_cost,
+                std=monitor.t.dead_unit_std,
+            )
+            for name, (encoder, _) in encoders.items()
+        },
+    )
+    return monitor.finish()
+
+
 def pretrain_critic_on_dataset(
     *,
     task_critic: LaborTaskCritic,
@@ -2256,6 +2397,12 @@ def pretrain_critic_on_dataset(
     cost_loss_weight: float = 1.0,
     require_randomized_tail: bool = False,
     allow_learner_state_continuation: bool = False,
+    stability: Any = "auto",
+    frozen_actor: nn.Module | None = None,
+    max_steps: int | None = None,
+    resume_path: str | None = None,
+    resume_every: int = 100,
+    progress: bool = False,
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
 
@@ -2263,6 +2410,17 @@ def pretrain_critic_on_dataset(
     rows whose initial recommendation was rejected (an idle retry executed)
     are excluded from fitting because their continuation is not the
     heuristic's. Minibatches are drawn with world-balanced probabilities.
+
+    ``stability`` (``labor_stability``): ``"auto"`` (default) enables the
+    enforced stability monitor for r5 critics (privileged block or bounded QoL
+    head); a :class:`~.labor_stability.StabilityConfig` enables it explicitly,
+    ``None`` disables it. A monitored fit without failures is bitwise identical
+    to an unmonitored one; its receipt is returned under ``"stability"``.
+    ``frozen_actor`` is checked to receive exactly zero gradient. ``max_steps``
+    stops after that many optimizer steps (determinism probes). ``resume_path``
+    writes an exact mid-fit resume state every ``resume_every`` steps
+    (atomic ``.tmp`` then replace, the ``tools/g0launch.py`` partial pattern)
+    and, if the file exists at start, continues from it bit-for-bit.
     """
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
@@ -2347,50 +2505,207 @@ def pretrain_critic_on_dataset(
                 parts.append(task_critic(batch, p)["qol_years"])
         return torch.cat(parts)
 
-    def refresh_td_targets() -> None:
+    from .labor_stability import (
+        StabilityMonitor,
+        is_r5_critic,
+        population_tail_report,
+        resolve_stability,
+    )
+
+    config = resolve_stability(stability, r5=is_r5_critic(task_critic))
+    monitor = None
+    if config is not None:
+        blocks = {"task_encoder": list(task_critic.encoder.parameters())}
+        for name in LABOR_OBJECTIVES:
+            blocks[f"task_head:{name}"] = list(task_critic.heads[name].parameters())
+        for name in LABOR_COSTS:
+            blocks[f"cost_encoder:{name}"] = list(cost_critics.encoders[name].parameters())
+            blocks[f"cost_head:{name}"] = list(cost_critics.heads[name].parameters())
+        task_blocks = ["task_encoder", *(f"task_head:{n}" for n in LABOR_OBJECTIVES)]
+        monitor = StabilityMonitor(
+            config,
+            fit="pretrain-critic",
+            optimizer=optimizer,
+            parameters=critic_params,
+            blocks=blocks,
+            frozen={} if frozen_actor is None else {"actor": frozen_actor},
+            shared_heads={
+                "task_encoder": (blocks["task_encoder"], tuple(LABOR_OBJECTIVES)),
+            },
+            contender_blocks={
+                "global_clip": {
+                    "task": task_blocks,
+                    **{
+                        name: [f"cost_encoder:{name}", f"cost_head:{name}"]
+                        for name in LABOR_COSTS
+                    },
+                }
+            },
+            applicable={
+                "qol_saturation": qol_head is not None,
+                "population_tail": not task_critic.is_bounded("population_years"),
+                "privileged_attention": task_critic.privileged_layout is not None,
+                "dead_features": True,
+            },
+        )
+    observed_pop_max = float(
+        (
+            task_targets["population_years"]
+            / LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
+        ).max()
+    )
+
+    def refresh_td_targets(epoch: int) -> None:
         from .labor_advantage import qol_td_lambda_targets
 
+        previous = task_targets["qol_years"]
         every = torch.arange(n)
         values = task_critic.expectation("qol_years", qol_logits(every))
         task_targets["qol_years"] = qol_td_lambda_targets(dataset, values, qol_head.td_lambda)[
             kept
         ]
+        if monitor is not None:
+            # The first refresh replaces the Monte Carlo return; its change is
+            # recorded but does not count toward the growth alarm.
+            monitor.td_refresh(
+                epoch,
+                previous,
+                task_targets["qol_years"],
+                qol_head.discount_weight,
+                growth_eligible=epoch > 0,
+            )
 
     td_lambda = qol_head is not None and qol_head.target == "td-lambda"
-    if td_lambda:
-        refresh_td_targets()
-    saturation_initial = (
-        None
-        if qol_head is None
-        else _qol_saturation_summary(task_critic, qol_logits(kept))
-    )
-    init_task, init_cost = losses()
     generator = rng if rng is not None else np.random.default_rng(0)
-    for epoch in range(epochs):
-        if td_lambda and epoch > 0:
-            refresh_td_targets()
+    fingerprint = _critic_resume_fingerprint(
+        dataset, epochs, batch_size, lr, max_grad_norm, cost_loss_weight, N
+    )
+    resume = None
+    if resume_path is not None and os.path.exists(resume_path):
+        resume = torch.load(resume_path, map_location="cpu", weights_only=True)
+        if resume.get("fingerprint") != fingerprint:
+            raise ValueError(f"resume state {resume_path} belongs to a different critic fit")
+    if resume is None:
+        if td_lambda:
+            refresh_td_targets(0)
+        saturation_initial = (
+            None
+            if qol_head is None
+            else _qol_saturation_summary(task_critic, qol_logits(kept))
+        )
+        init_task, init_cost = losses()
+        first_epoch, first_start, epoch_state, steps = 0, 0, None, 0
+    else:
+        task_critic.load_state_dict(resume["task"])
+        cost_critics.load_state_dict(resume["costs"])
+        optimizer.load_state_dict(resume["optimizer"])
+        if td_lambda:
+            task_targets["qol_years"] = resume["td_targets"]
+        saturation_initial = resume["saturation_initial"]
+        init_task, init_cost = float(resume["init_task"]), float(resume["init_cost"])
+        first_epoch, first_start = int(resume["epoch"]), int(resume["start"])
+        epoch_state, steps = resume["generator_state"], int(resume["steps"])
+        if monitor is not None:
+            if resume.get("monitor") is None:
+                raise ValueError("resume state has no stability monitor history")
+            monitor.load_state_dict(resume["monitor"])
+    started = time.time()
+
+    def save_resume(epoch: int, start: int, state: Any) -> None:
+        payload = {
+            "fingerprint": fingerprint,
+            "task": task_critic.state_dict(),
+            "costs": cost_critics.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "td_targets": task_targets["qol_years"] if td_lambda else None,
+            "saturation_initial": saturation_initial,
+            "init_task": init_task,
+            "init_cost": init_cost,
+            "epoch": epoch,
+            "start": start,
+            "steps": steps,
+            "generator_state": state,
+            "monitor": None if monitor is None else monitor.state_dict(),
+        }
+        temporary = resume_path + ".tmp"
+        torch.save(payload, temporary)
+        os.replace(temporary, resume_path)
+
+    stop = False
+    for epoch in range(first_epoch, epochs):
+        resumed_epoch = resume is not None and epoch == first_epoch
+        if td_lambda and epoch > 0 and not resumed_epoch:
+            refresh_td_targets(epoch)
+        if resumed_epoch:
+            generator.bit_generator.state = copy.deepcopy(epoch_state)
+        state_at_epoch = copy.deepcopy(generator.bit_generator.state)
         draws = generator.choice(N, size=N, replace=True, p=probabilities)
-        for start in range(0, N, batch_size):
+        for start in range(first_start if resumed_epoch else 0, N, batch_size):
+            if max_steps is not None and steps >= max_steps:
+                stop = True
+                break
             batch_idx = torch.as_tensor(draws[start : start + batch_size], dtype=torch.long)
             b_tensors = {k: v[batch_idx] for k, v in tensors.items()}
             b_privileged = privileged_rows(batch_idx)
             optimizer.zero_grad()
-            loss = labor_task_value_loss(
+            task_loss, task_heads, task_output = labor_task_value_losses(
                 task_critic,
                 b_tensors,
                 {k: v[batch_idx] for k, v in task_targets.items()},
                 b_privileged,
-            ) + cost_loss_weight * labor_cost_value_loss(
+            )
+            cost_loss, cost_heads = labor_cost_value_losses(
                 cost_critics,
                 b_tensors,
                 {k: v[batch_idx] for k, v in cost_targets.items()},
                 b_privileged,
             )
-            if not torch.isfinite(loss):
-                raise ValueError("heuristic critic pretraining produced a nonfinite loss")
-            loss.backward()
-            nn.utils.clip_grad_norm_(critic_params, max_grad_norm)
-            optimizer.step()
+            loss = task_loss + cost_loss_weight * cost_loss
+            if monitor is None:
+                if not torch.isfinite(loss):
+                    raise ValueError("heuristic critic pretraining produced a nonfinite loss")
+                loss.backward()
+                nn.utils.clip_grad_norm_(critic_params, max_grad_norm)
+                optimizer.step()
+            else:
+
+                def diagnostics(output: Mapping[str, torch.Tensor] = task_output) -> dict[str, Any]:
+                    with torch.no_grad():
+                        extra: dict[str, Any] = {}
+                        if qol_head is not None:
+                            extra["qol_saturation"] = task_critic.qol_saturation(
+                                output["qol_years"]
+                            )
+                        if not task_critic.is_bounded("population_years"):
+                            extra["population_tail"] = population_tail_report(
+                                task_critic,
+                                output["population_years"].detach(),
+                                observed_pop_max,
+                            )
+                        return extra
+
+                head_losses = {name: value.mean() for name, value in task_heads.items()}
+                head_losses["task"] = task_loss
+                head_losses.update({name: value.mean() for name, value in cost_heads.items()})
+                monitor.step(
+                    loss,
+                    max_grad_norm=max_grad_norm,
+                    head_losses=head_losses,
+                    diagnostics=diagnostics,
+                )
+            steps += 1
+            if progress and steps % 25 == 0:
+                elapsed = time.time() - started
+                print(
+                    f"[progress] steps={steps} epoch={epoch} elapsed_s={elapsed:.0f}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            due = resume_path is not None and steps % max(1, resume_every) == 0
+            if due and start + batch_size < N:
+                save_resume(epoch, start + batch_size, state_at_epoch)
+        if stop:
+            break
     final_task, final_cost = losses()
     collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
     qol_record = (
@@ -2402,7 +2717,20 @@ def pretrain_critic_on_dataset(
             "qol_saturation_final": _qol_saturation_summary(task_critic, qol_logits(kept)),
         }
     )
+    stability_record: dict[str, Any] = {}
+    if monitor is not None:
+        stability_record["stability"] = _critic_stability_finish(
+            monitor,
+            task_critic,
+            cost_critics,
+            dataset,
+            kept,
+            tensor_keys,
+            qol_record.get("qol_saturation_final"),
+            observed_pop_max,
+        )
     return {
+        **stability_record,
         **qol_record,
         "contract": LABOR_CRITIC_CONTRACT,
         "epochs": int(epochs),

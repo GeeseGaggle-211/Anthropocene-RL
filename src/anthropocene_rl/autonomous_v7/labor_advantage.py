@@ -1329,12 +1329,22 @@ def fit_advantage_head(
     cost_critics: LaborCostCritics,
     candidates: CandidateSet,
     config: AdvantageFitConfig | None = None,
+    *,
+    stability: Any = "auto",
+    frozen_actor: nn.Module | None = None,
 ) -> tuple[LaborAdvantageHead, dict[str, Any]]:
     """Fit A on same-root pairs of fitting worlds; the critic stays frozen.
 
     Worlds are split (fit / held-out) before pairs are built; the held-out
     worlds' pairs are only scored. Reserved, calibration, development and
     sealed worlds are refused.
+
+    ``stability`` (default ``"auto"``: on, the A head is an r5 component) wraps
+    every step in the enforced stability monitor (``labor_stability``): finite
+    checks with parameter+Adam rollback and LR halving, per-block gradient
+    norms, frozen critic/actor gradients exactly zero, QoL/population-years
+    dominance on the shared action encoder, and train versus held-out pair
+    ranking every epoch for the overfit alarm. Its receipt is ``summary["stability"]``.
     """
     from .labor_value_calibration import labor_critic_digest
 
@@ -1375,7 +1385,59 @@ def fit_advantage_head(
     optimizer = torch.optim.AdamW(head.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     rng = np.random.default_rng([SHUFFLE_TAG, int(config.seed)])
     history = []
-    for _ in range(config.epochs if trainable else 0):
+    from .labor_stability import StabilityMonitor, resolve_stability
+
+    stability_config = resolve_stability(stability, r5=True)
+    monitor = None
+    h_contexts = None
+    if stability_config is not None:
+        blocks = {"action_encoder": list(head.action_encoder.parameters())}
+        for name in COMPONENTS:
+            blocks[f"head:{name}"] = list(head.heads[name].parameters())
+        frozen = {"task_critic": task_critic, "cost_critics": cost_critics}
+        if frozen_actor is not None:
+            frozen["actor"] = frozen_actor
+        monitor = StabilityMonitor(
+            stability_config,
+            fit="advantage-fit",
+            optimizer=optimizer,
+            parameters=list(head.parameters()),
+            blocks=blocks,
+            frozen=frozen,
+            shared_heads={
+                "action_encoder": (blocks["action_encoder"], ("qol_years", "population_years"))
+            },
+            applicable={"advantage_overfit": True},
+        )
+        if held_set.roots:
+            h_tensors_e, h_priv_e = held_set.root_tensors()
+            h_contexts = critic_contexts(task_critic, cost_critics, h_tensors_e, h_priv_e)
+
+    def epoch_rankings() -> dict[str, dict[str, float | None]]:
+        from .labor_advantage_eval import pairwise_ranking
+
+        out: dict[str, dict[str, float | None]] = {}
+        for label, roots, ctx in (
+            ("train", fit_set.roots, contexts),
+            ("heldout", held_set.roots, h_contexts),
+        ):
+            if not roots or ctx is None:
+                out[label] = {name: None for name in ("qol_years", "population_years")}
+                continue
+            prediction = predict(head, ctx, roots)
+            out[label] = {
+                name: pairwise_ranking(
+                    roots,
+                    prediction,
+                    name,
+                    horizons=config.horizons[name],
+                    se_multiplier=config.se_multiplier,
+                )["accuracy"]
+                for name in ("qol_years", "population_years")
+            }
+        return out
+
+    for epoch_number in range(config.epochs if trainable else 0):
         order = [trainable[i] for i in rng.permutation(len(trainable))]
         total = 0.0
         for start in range(0, len(order), config.batch_roots):
@@ -1394,25 +1456,46 @@ def fit_advantage_head(
             local[members] = torch.arange(len(members))
             raw = head(contexts, flat.features[members], flat.root_index[members])
             loss = raw["qol_years"].sum() * 0.0
+            component_losses: dict[str, torch.Tensor] = {}
             for name in COMPONENTS:
                 triples = [t for r in batch for t in by_root[r][name]]
                 if not triples:
                     continue
                 index = local[torch.as_tensor([[t[0], t[1]] for t in triples], dtype=torch.long)]
                 delta = torch.as_tensor([t[2] for t in triples], dtype=torch.float32)
-                loss = loss + pairwise_loss(
+                component = pairwise_loss(
                     raw[name][index[:, 0]],
                     raw[name][index[:, 1]],
                     delta,
                     regression_weight=config.regression_weight,
                 )
-            if not torch.isfinite(loss):
-                raise ValueError("advantage fit produced a nonfinite loss")
-            loss.backward()
-            nn.utils.clip_grad_norm_(head.parameters(), config.max_grad_norm)
-            optimizer.step()
+                component_losses[name] = component
+                loss = loss + component
+            if monitor is None:
+                if not torch.isfinite(loss):
+                    raise ValueError("advantage fit produced a nonfinite loss")
+                loss.backward()
+                nn.utils.clip_grad_norm_(head.parameters(), config.max_grad_norm)
+                optimizer.step()
+            else:
+                both = all(n in component_losses for n in ("qol_years", "population_years"))
+                if not monitor.step(
+                    loss,
+                    max_grad_norm=config.max_grad_norm,
+                    head_losses=component_losses if both else None,
+                ):
+                    continue
             total += float(loss.detach()) * len(batch)
         history.append(total / max(1, len(order)))
+        if monitor is not None:
+            ranks = epoch_rankings()
+            monitor.epoch_ranking(
+                epoch_number,
+                ranks["train"]["qol_years"],
+                ranks["heldout"]["qol_years"],
+                population_years={k: ranks[k]["population_years"] for k in ranks},
+                loss=history[-1],
+            )
     if labor_critic_digest(task_critic, cost_critics) != digest_before:
         raise AssertionError("advantage fit changed the frozen critic")
     summary: dict[str, Any] = {
@@ -1430,6 +1513,8 @@ def fit_advantage_head(
         "critic_digest": digest_before,
         "parameters": parameter_counts(head),
     }
+    if monitor is not None:
+        summary["stability"] = monitor.finish()
     if held_set.roots:
         from .labor_advantage_eval import pairwise_ranking
 
@@ -1581,6 +1666,7 @@ def qol_td_lambda_targets(
         TAIL_RANDOMIZED,
         TAIL_TERMINAL_EXACT,
         TAIL_VALUE_PREFIX,
+        TRAJECTORY_FIELD,
         elapsed_years,
         return_tail_method,
     )
@@ -1599,15 +1685,24 @@ def qol_td_lambda_targets(
     if randomized:
         codes = dataset[TAIL_METHOD_FIELD].reshape(-1).tolist()
         tails = dataset[TAIL_VALUE_PREFIX + "qol_years"].reshape(-1).double().tolist()
-    groups: dict[tuple[int, int], list[int]] = defaultdict(list)
-    for index, (world, camp) in enumerate(
+    # Same trajectory keys as labor_bc.discounted_returns: a learner-state teacher
+    # continuation (row_trajectory >= 0) is its own trajectory within its (world, camp),
+    # so it is never chained onto the teacher trajectory or another continuation.
+    trajectories = (
+        dataset[TRAJECTORY_FIELD].reshape(-1).tolist()
+        if TRAJECTORY_FIELD in dataset
+        else [-1] * n
+    )
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for index, (world, camp, trajectory) in enumerate(
         zip(
             dataset["row_world"].reshape(-1).tolist(),
             dataset["row_camp"].reshape(-1).tolist(),
+            trajectories,
             strict=True,
         )
     ):
-        groups[(int(world), int(camp))].append(index)
+        groups[(int(world), int(camp), int(trajectory))].append(index)
     target = torch.zeros(n, dtype=torch.float64)
     for indices in groups.values():
         indices.sort(key=lambda i: turns[i])
@@ -1856,7 +1951,17 @@ def _load_critics(checkpoint: Path) -> tuple[LaborTaskCritic, LaborCostCritics]:
     return task, costs
 
 
+def _load_actor(checkpoint: Path) -> nn.Module:
+    """The checkpoint's actor, trainable, so the A fit can prove it receives no gradient."""
+    from .labor_training import _models_from_checkpoint
+
+    state = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    return _models_from_checkpoint(state)[1]
+
+
 def argument_parser() -> argparse.ArgumentParser:
+    from .labor_stability import add_stability_arguments
+
     parser = argparse.ArgumentParser(description="Fit the labor dueling advantage head (B)")
     sub = parser.add_subparsers(dest="command", required=True)
     fit = sub.add_parser("fit", help="fit A on candidate-payload shards (fitting worlds only)")
@@ -1876,6 +1981,7 @@ def argument_parser() -> argparse.ArgumentParser:
         help="per-objective horizons, e.g. 'qol_years=1,2,3;population_years=all' "
         "(default: QoL 1-3 decisions, every other objective all horizons)",
     )
+    add_stability_arguments(fit)
     return parser
 
 
@@ -1893,13 +1999,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         seed=args.seed,
         horizons=AdvantageFitConfig.parse_horizons(args.horizons),
     )
-    head, summary = fit_advantage_head(task, costs, candidates, config)
+    from .labor_stability import StabilityAbort, stability_config_from_args
+
+    try:
+        head, summary = fit_advantage_head(
+            task,
+            costs,
+            candidates,
+            config,
+            stability=stability_config_from_args(args),
+            frozen_actor=_load_actor(args.checkpoint),
+        )
+    except StabilityAbort as error:
+        abort = args.out.with_suffix(args.out.suffix + ".stability-abort.json")
+        abort.parent.mkdir(parents=True, exist_ok=True)
+        abort.write_text(json.dumps(error.summary, indent=2, sort_keys=True), encoding="utf-8")
+        raise
     payload = advantage_checkpoint_payload(
         head, critic_digest=labor_critic_digest(task, costs), config=config, fit=summary
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(payload, args.out)
-    print(json.dumps({k: v for k, v in summary.items() if k != "loss_history"}, indent=2))
+    shown = {k: v for k, v in summary.items() if k not in ("loss_history", "stability")}
+    print(json.dumps(shown, indent=2))
+    if "stability" in summary:
+        print(f"stability admitted: {summary['stability']['admitted']}")
     return 0
 
 

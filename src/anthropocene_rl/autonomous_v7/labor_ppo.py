@@ -1016,6 +1016,22 @@ def labor_task_value_loss(
     (``labor_model.critic_privileged_batch``), passed separately from ``tensors``.
     """
 
+    return labor_task_value_losses(critic, tensors, targets, privileged)[0]
+
+
+def labor_task_value_losses(
+    critic: torch.nn.Module,
+    tensors: Mapping[str, torch.Tensor],
+    targets: Mapping[str, torch.Tensor],
+    privileged: Mapping[str, torch.Tensor] | None = None,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    """:func:`labor_task_value_loss` plus the per-head row losses and head outputs.
+
+    The mean is computed by exactly the same operations, so a training loop that
+    uses this form is bitwise identical to one using the scalar form; the extra
+    returns feed the stability monitor (per-head losses, gradient dominance).
+    """
+
     if set(targets) != set(LABOR_OBJECTIVES):
         raise ValueError(f"task targets must be exactly {list(LABOR_OBJECTIVES)}")
     output = critic(tensors, privileged)
@@ -1028,7 +1044,8 @@ def labor_task_value_loss(
             raise ValueError(f"{name} target must be a vector")
         # Two-hot cross entropy (historical) or the bounded QoL head's loss.
         losses.append(critic.value_loss(name, output[name], value))
-    return torch.stack(losses, dim=0).mean()
+    per_head = dict(zip(LABOR_OBJECTIVES, losses, strict=True))
+    return torch.stack(losses, dim=0).mean(), per_head, output
 
 
 def labor_cost_value_loss(
@@ -1039,6 +1056,17 @@ def labor_cost_value_loss(
 ) -> torch.Tensor:
     """Mean squared error across distinct feasibility and guard critics."""
 
+    return labor_cost_value_losses(critics, tensors, targets, privileged)[0]
+
+
+def labor_cost_value_losses(
+    critics: torch.nn.Module,
+    tensors: Mapping[str, torch.Tensor],
+    targets: Mapping[str, torch.Tensor],
+    privileged: Mapping[str, torch.Tensor] | None = None,
+) -> tuple[torch.Tensor, dict[str, torch.Tensor]]:
+    """:func:`labor_cost_value_loss` plus the per-cost row losses (same operations)."""
+
     if set(targets) != set(LABOR_COSTS):
         raise ValueError(f"cost targets must be exactly {list(LABOR_COSTS)}")
     output = critics(tensors, privileged)
@@ -1048,4 +1076,5 @@ def labor_cost_value_loss(
     for name in LABOR_COSTS:
         target = _vector(targets[name], len(output[name]), f"{name} target")
         losses.append((output[name] - target).square())
-    return torch.stack(losses, dim=0).mean()
+    per_head = dict(zip(LABOR_COSTS, losses, strict=True))
+    return torch.stack(losses, dim=0).mean(), per_head
