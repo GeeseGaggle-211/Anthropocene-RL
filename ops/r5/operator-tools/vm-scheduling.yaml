@@ -1,0 +1,12 @@
+lastStartTimestamp: '2026-10-26T19:45:17.743-07:00'
+resourcePolicies:
+- https://www.googleapis.com/compute/v1/projects/anthropocene-508912/regions/us-central1/resourcePolicies/g0-autostart5
+scheduling:
+  automaticRestart: false
+  instanceTerminationAction: STOP
+  maxRunDuration:
+    nanos: 0
+    seconds: '144000'
+  onHostMaintenance: TERMINATE
+  preemptible: false
+  provisioningModel: STANDARD
