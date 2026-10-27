@@ -2,6 +2,18 @@
 
 Reviewed by the co-architect, 27 Oct ~05:00Z. Derived from the harness audit at b6a1290. Steps marked (U) are not yet executed.
 
+## Update 27 Oct ~06:30Z: use d9555a3
+
+The early-stop guards are merged into `feature/r5-integration` at `d9555a3`. Use the tarball gs://.../model9/r5/code/r5-int-rl-d9555a3.tar.gz (sha256 `45f776f6c4008f8396cb82a92be264db4ffc65814a6cb77e630ff09e5f13db15`) instead of b6a1290.
+
+Step 4 then becomes a single run, with no segmenting. Add these flags to the pretrain-critic command and drop `--max-steps`:
+
+```
+--stability-early-stop --validation-dataset $I/fit8-b04
+```
+
+This gives a per-epoch `kind=validation` record and a `validation_divergence` advisory alarm, and it aborts live on a gradient-dominance alarm, TD divergence or more than 5 rollbacks. Run step 5 (critic-calibration on b04) once, at the end. The TD-residual snippet in step 6 is unchanged.
+
 ## Inputs (GPU VM)
 
 | Item | Path |

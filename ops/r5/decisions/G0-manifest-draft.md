@@ -229,3 +229,10 @@ r5 is approved and frozen: §8, §9 and these decisions.
   - (1) Read-only harness audit (Sonnet ad5c2d7169ef85d47): which checks act live and which only at the end; convert end-only checks into early stops or operator-watched JSONL triggers.
   - (2) Pilot critic fit on partial data, NOT gate evidence: fit on fit8-b01+b03, validate on fit8-b04 (overfit and calibration); provisional privileged normalizer; 1 seed, privileged arm; CUDA; ≥ 4 TD refreshes. The GPU VM is being recreated on-demand (Sonnet a4b59f4231c0970d2); code tarball b6a1290 (sha 960fe799…).
   - (3) Scale-out runs seeds sequentially with an early stop: if the first privileged-arm seed fails stability, stop the arm and diagnose.
+- 2026-10-27 ~06:30Z (reviewer): early-stop guards d9555a3 reviewed and fast-forwarded into feature/r5-integration.
+  - Live StabilityAbort on would-FAIL dominance, TD divergence and >5 rollbacks (same check ids and thresholds).
+  - Population-tail live alarm (advisory).
+  - Per-epoch V validation on CAL_DATA with a validation_divergence advisory. Training is bitwise unchanged, tested.
+  - Seed-0 gate on the candidate arm.
+  - Accepted deviation: validation runs in train mode (dropout 0, guarded) to avoid the fused eval fast path.
+  - Tarball r5-int-rl-d9555a3 (sha 45f776f6…). The pilot now uses --stability-early-stop --validation-dataset fit8-b04.
