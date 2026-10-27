@@ -2717,6 +2717,76 @@ def _critic_validation_set(
     }
 
 
+@dataclass(frozen=True)
+class AutoQoLLossWeight:
+    """``--qol-loss-weight auto``: a GradNorm-lite controller of the QoL task-loss weight.
+
+    Every stability log step (``--stability-every``) the monitor measures each task head's
+    unweighted gradient norm on the shared task encoder (``shared_head_grad_norm``); with
+    raw norms q (QoL) and p (population-years, weight w_p) the effective QoL share at weight
+    w is w q / (w q + w_p p), the dominance detector's share definition. The weight that
+    puts the share exactly at ``target_share`` is w* = s / (1 - s) * w_p p / q (w* = max if
+    q = 0). The applied weight follows a log-space EMA,
+    ln w <- (1 - ema) ln w + ema ln clamp(w*, min, max), clamped to [min, max], and takes
+    effect from the next optimizer step. Pure float arithmetic on monitor readings: no RNG,
+    no effect on the step that was measured, persisted in the exact resume state.
+    """
+
+    target_share: float = 0.3
+    ema: float = 0.3
+    minimum: float = 1.0
+    maximum: float = 200.0
+    initial: float = 1.0
+
+    def __post_init__(self) -> None:
+        for name in ("target_share", "ema", "minimum", "maximum", "initial"):
+            if not math.isfinite(float(getattr(self, name))):
+                raise ValueError(f"auto QoL weight {name} must be finite")
+        if not 0.0 < self.target_share < 1.0:
+            raise ValueError("auto QoL weight target share must be in (0, 1)")
+        if not 0.0 < self.ema <= 1.0:
+            raise ValueError("auto QoL weight EMA must be in (0, 1]")
+        if not 0.0 < self.minimum <= self.maximum:
+            raise ValueError("auto QoL weight needs 0 < minimum <= maximum")
+        if not self.minimum <= self.initial <= self.maximum:
+            raise ValueError("auto QoL weight initial value must lie in [minimum, maximum]")
+
+    def state_dict(self) -> dict[str, float]:
+        return {
+            "target_share": float(self.target_share),
+            "ema": float(self.ema),
+            "minimum": float(self.minimum),
+            "maximum": float(self.maximum),
+            "initial": float(self.initial),
+        }
+
+    def clamp(self, value: float) -> float:
+        return min(self.maximum, max(self.minimum, float(value)))
+
+    def update(
+        self, weight: float, qol_norm: float, population_norm: float, population_weight: float
+    ) -> dict[str, float]:
+        """One controller update from raw (unweighted) encoder gradient norms."""
+        q = max(0.0, float(qol_norm))
+        p = max(0.0, float(population_weight) * float(population_norm))
+        share = (weight * q) / (weight * q + p) if weight * q + p > 0.0 else 0.0
+        ideal = (
+            self.maximum
+            if q <= 0.0
+            else self.target_share / (1.0 - self.target_share) * p / q
+        )
+        target = self.clamp(ideal) if ideal > 0.0 else self.minimum
+        updated = self.clamp(
+            math.exp((1.0 - self.ema) * math.log(weight) + self.ema * math.log(target))
+        )
+        return {
+            "qol_share_effective": share,
+            "qol_weight_ideal": float(ideal),
+            "qol_weight_target": target,
+            "qol_weight_next": updated,
+        }
+
+
 def pretrain_critic_on_dataset(
     *,
     task_critic: LaborTaskCritic,
@@ -2741,8 +2811,24 @@ def pretrain_critic_on_dataset(
     td_refreshes_per_epoch: int = 4,
     td_refresh_steps: int | None = None,
     validation_dataset: Mapping[str, Any] | None = None,
+    task_loss_weights: Mapping[str, float] | None = None,
+    qol_loss_weight_auto: AutoQoLLossWeight | None = None,
+    best_validation_sink: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
+
+    Task-head balance (r5 critic balance; every default keeps the historical fit bitwise):
+    ``task_loss_weights`` multiplies each task head's row loss in the training objective
+    (missing heads 1.0; all-1.0 is the unweighted historical mean). ``qol_loss_weight_auto``
+    (:class:`AutoQoLLossWeight`, needs the stability monitor) adapts the QoL weight from the
+    monitor's shared-encoder gradient shares. Weights act on the optimizer objective only:
+    every reported loss (step head losses, validation, initial/final) stays unweighted, and
+    the weight in force is logged on every step record (``task_loss_weights``).
+    ``qol_excess_bce`` (BCE - H(p*), the logistic QoL head's readable loss) is logged in
+    step, validation and final records. With ``validation_dataset``, the epoch of lowest
+    validation ``total`` is reported under ``validation.best`` and, if
+    ``best_validation_sink`` is a dict, its critic states are written into it
+    (``task``/``costs``/``epoch``); tracking reads parameters only (trajectory unchanged).
 
     ``validation_dataset`` (monitoring only, never training data): at each completed epoch
     the same loss components are computed on its admitted rows (no gradient, fixed row
@@ -2775,6 +2861,25 @@ def pretrain_critic_on_dataset(
     """
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
+    weight_values = {name: 1.0 for name in LABOR_OBJECTIVES}
+    if task_loss_weights is not None:
+        unknown = sorted(set(task_loss_weights) - set(LABOR_OBJECTIVES))
+        if unknown:
+            raise ValueError(f"task loss weights name unknown heads {unknown}")
+        for name, value in task_loss_weights.items():
+            value = float(value)
+            if not math.isfinite(value) or value <= 0.0:
+                raise ValueError(f"task loss weight {name} must be finite and positive")
+            weight_values[name] = value
+    if qol_loss_weight_auto is not None:
+        if task_loss_weights is not None and "qol_years" in task_loss_weights:
+            raise ValueError("give the QoL weight either explicitly or as auto, not both")
+        weight_values["qol_years"] = float(qol_loss_weight_auto.initial)
+    # All-1.0 fixed weights are the historical unweighted objective (bitwise default path).
+    weighted = qol_loss_weight_auto is not None or any(
+        v != 1.0 for v in weight_values.values()
+    )
+    weight_history: list[dict[str, Any]] = []
     require_critic_teacher_dataset(
         dataset,
         allow_learner_state_continuation=allow_learner_state_continuation,
@@ -2871,23 +2976,37 @@ def pretrain_critic_on_dataset(
     if module_device(cost_critics) != device:
         raise ValueError("task and cost critics are on different devices")
 
+    excess_sum: list[float | None] = [None]  # QoL excess BCE of the last losses() pass
+
+    def qol_excess(
+        output: Mapping[str, torch.Tensor], targets: Mapping[str, torch.Tensor]
+    ) -> torch.Tensor | None:
+        """Per-row BCE - H(p*) of a logistic bounded QoL head, else None (no gradient)."""
+        excess_of = getattr(task_critic, "qol_excess_bce", None)
+        if excess_of is None or getattr(task_critic, "qol_head", None) is None:
+            return None
+        return excess_of(output["qol_years"], targets["qol_years"])
+
     def losses(chunk: int = 512) -> tuple[float, float]:
         # Chunked: one forward pass over every row needed ~100 GB of activations at 96k rows.
+        # labor_task_value_losses()[0] is labor_task_value_loss (same operations); its head
+        # outputs also give the QoL excess BCE without a second forward pass.
         task_sum = cost_sum = 0.0
+        excess: float | None = None
         with torch.no_grad():
             for start in range(0, N, chunk):
                 index = torch.arange(start, min(N, start + chunk))
                 t = to_device({k: v[index] for k, v in tensors.items()}, device)
                 count = len(index)
                 p = to_device(privileged_rows(index), device)
-                task_sum += count * float(
-                    labor_task_value_loss(
-                        task_critic,
-                        t,
-                        to_device({k: v[index] for k, v in task_targets.items()}, device),
-                        p,
-                    )
+                chunk_targets = to_device({k: v[index] for k, v in task_targets.items()}, device)
+                chunk_loss, _, chunk_output = labor_task_value_losses(
+                    task_critic, t, chunk_targets, p
                 )
+                task_sum += count * float(chunk_loss)
+                rows_excess = qol_excess(chunk_output, chunk_targets)
+                if rows_excess is not None:
+                    excess = (excess or 0.0) + float(rows_excess.sum())
                 cost_sum += count * float(
                     labor_cost_value_loss(
                         cost_critics,
@@ -2896,6 +3015,7 @@ def pretrain_critic_on_dataset(
                         p,
                     )
                 )
+        excess_sum[0] = None if excess is None else excess / N
         return task_sum / N, cost_sum / N
 
     # Bounded QoL head (amendment r5-b item 4): saturation monitor every fit,
@@ -2956,6 +3076,11 @@ def pretrain_critic_on_dataset(
                 "dead_features": True,
             },
         )
+    if qol_loss_weight_auto is not None and monitor is None:
+        raise ValueError("--qol-loss-weight auto reads the stability monitor; enable it")
+    excess_progress = monitor is not None and monitor.config.dominance_excess_loss
+    if excess_progress and (qol_head is None or qol_head.output != "logistic"):
+        raise ValueError("--dominance-excess-loss needs a logistic bounded QoL head")
     observed_pop_max = float(
         (
             task_targets["population_years"]
@@ -3058,6 +3183,10 @@ def pretrain_critic_on_dataset(
             validation_history = ValidationMonitor()
     epoch_loss_sum: torch.Tensor | None = None
     epoch_loss_steps = 0
+    best_validation: dict[str, Any] = {
+        "epoch": None, "step": None, "total": None, "task_state": None, "cost_state": None,
+        "per_head": {},
+    }
 
     def validation_logits(rows: torch.Tensor, chunk: int = 512) -> torch.Tensor:
         data = validation["dataset"]
@@ -3095,12 +3224,11 @@ def pretrain_critic_on_dataset(
                 local = torch.arange(start, min(count, start + chunk))
                 t = to_device({k: data[k][index] for k in tensor_keys}, device)
                 p = critic_privileged_batch(task_critic, data, index, device=device)
-                _, heads, output = task_losses(
-                    task_critic,
-                    t,
-                    to_device({k: v[local] for k, v in task_targets_v.items()}, device),
-                    p,
-                )
+                chunk_targets = to_device({k: v[local] for k, v in task_targets_v.items()}, device)
+                _, heads, output = task_losses(task_critic, t, chunk_targets, p)
+                rows_excess = qol_excess(output, chunk_targets)
+                if rows_excess is not None:
+                    sums["qol_excess_bce"] += float(rows_excess.sum())
                 _, c_heads = cost_losses(
                     cost_critics,
                     t,
@@ -3131,11 +3259,20 @@ def pretrain_critic_on_dataset(
             "total": task_v + cost_loss_weight * cost_v,
             "task": task_v,
             "cost": cost_v,
-            "heads": {k: v for k, v in heads_mean.items() if k != "qol_years_monte_carlo"},
+            "heads": {
+                k: v
+                for k, v in heads_mean.items()
+                if k not in ("qol_years_monte_carlo", "qol_excess_bce")
+            },
             "qol_target": "td-lambda" if td_lambda else "monte-carlo",
             **(
                 {"qol_years_monte_carlo": heads_mean["qol_years_monte_carlo"]}
                 if td_lambda
+                else {}
+            ),
+            **(
+                {"qol_excess_bce": heads_mean["qol_excess_bce"]}
+                if "qol_excess_bce" in heads_mean
                 else {}
             ),
         }
@@ -3143,6 +3280,21 @@ def pretrain_critic_on_dataset(
             monitor.record_validation(record)
         else:
             validation_history.update(record)
+        # Best-validation tracking (lowest total; earliest epoch on ties): reads parameters.
+        for head, value in record["heads"].items():
+            seen = best_validation["per_head"].get(head)
+            if seen is None or value < seen["loss"]:
+                best_validation["per_head"][head] = {"epoch": int(epoch), "loss": float(value)}
+        if best_validation["epoch"] is None or record["total"] < best_validation["total"]:
+            best_validation.update(
+                epoch=int(epoch),
+                step=int(steps),
+                total=float(record["total"]),
+                # Cloned: cpu_copy returns CPU tensors as they are (they would alias the
+                # live parameters).
+                task_state={k: v.detach().cpu().clone() for k, v in task_critic.state_dict().items()},
+                cost_state={k: v.detach().cpu().clone() for k, v in cost_critics.state_dict().items()},
+            )
 
     generator = rng if rng is not None else np.random.default_rng(0)
     fingerprint = _critic_resume_fingerprint(
@@ -3155,6 +3307,24 @@ def pretrain_critic_on_dataset(
         fingerprint = hashlib.sha256(
             json.dumps(
                 {"base": fingerprint, "family_schedule": family_schedule.state_dict()},
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+    if weighted:
+        import hashlib
+        import json
+
+        # Only a weighted fit extends the fingerprint (default resume files stay valid).
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "base": fingerprint,
+                    "task_loss_weights": weight_values,
+                    "qol_loss_weight_auto": None
+                    if qol_loss_weight_auto is None
+                    else qol_loss_weight_auto.state_dict(),
+                },
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
@@ -3175,6 +3345,7 @@ def pretrain_critic_on_dataset(
             else saturation_summary()
         )
         init_task, init_cost = losses()
+        init_excess = excess_sum[0]
         first_epoch, first_start, epoch_state, steps = 0, 0, None, 0
     else:
         task_critic.load_state_dict(resume["task"])
@@ -3184,6 +3355,15 @@ def pretrain_critic_on_dataset(
             task_targets["qol_years"] = resume["td_targets"]
         saturation_initial = resume["saturation_initial"]
         init_task, init_cost = float(resume["init_task"]), float(resume["init_cost"])
+        init_excess = resume.get("init_qol_excess_bce")
+        if weighted:
+            saved_weights = resume.get("task_loss_weights")
+            if saved_weights is None:
+                raise ValueError("resume state has no task loss weight state")
+            weight_values.update({k: float(v) for k, v in saved_weights["values"].items()})
+            weight_history[:] = copy.deepcopy(list(saved_weights["history"]))
+        if resume.get("best_validation") is not None:
+            best_validation.update(copy.deepcopy(resume["best_validation"]))
         first_epoch, first_start = int(resume["epoch"]), int(resume["start"])
         epoch_state, steps = resume["generator_state"], int(resume["steps"])
         if monitor is not None:
@@ -3215,8 +3395,15 @@ def pretrain_critic_on_dataset(
             "steps": steps,
             "generator_state": state,
             "monitor": None if monitor is None else monitor.state_dict(),
+            "init_qol_excess_bce": init_excess,
         }
+        if weighted:
+            payload["task_loss_weights"] = {
+                "values": dict(weight_values),
+                "history": copy.deepcopy(weight_history),
+            }
         if validation is not None:
+            payload["best_validation"] = best_validation
             # The partial epoch's training-loss accumulator and (monitor off) the history.
             payload["validation_epoch"] = (
                 None if epoch_loss_sum is None else float(epoch_loss_sum),
@@ -3262,11 +3449,14 @@ def pretrain_critic_on_dataset(
             b_tensors = to_device({k: v[batch_idx] for k, v in tensors.items()}, device)
             b_privileged = to_device(privileged_rows(batch_idx), device)
             optimizer.zero_grad()
+            b_task_targets = to_device({k: v[batch_idx] for k, v in task_targets.items()}, device)
+            step_weights = dict(weight_values) if weighted else None
             task_loss, task_heads, task_output = labor_task_value_losses(
                 task_critic,
                 b_tensors,
-                to_device({k: v[batch_idx] for k, v in task_targets.items()}, device),
+                b_task_targets,
                 b_privileged,
+                **({} if step_weights is None else {"weights": step_weights}),
             )
             cost_loss, cost_heads = labor_cost_value_losses(
                 cost_critics,
@@ -3284,6 +3474,13 @@ def pretrain_critic_on_dataset(
                 optimizer.step()
             else:
 
+                def batch_excess(
+                    output: Mapping[str, torch.Tensor] = task_output,
+                    targets: Mapping[str, torch.Tensor] = b_task_targets,
+                ) -> float | None:
+                    rows_excess = qol_excess(output, targets)
+                    return None if rows_excess is None else float(rows_excess.mean())
+
                 def diagnostics(output: Mapping[str, torch.Tensor] = task_output) -> dict[str, Any]:
                     with torch.no_grad():
                         extra: dict[str, Any] = {}
@@ -3291,6 +3488,9 @@ def pretrain_critic_on_dataset(
                             extra["qol_saturation"] = task_critic.qol_saturation(
                                 output["qol_years"]
                             )
+                        excess_value = batch_excess()
+                        if excess_value is not None:
+                            extra["qol_excess_bce"] = excess_value
                         if not task_critic.is_bounded("population_years"):
                             extra["population_tail"] = population_tail_report(
                                 task_critic,
@@ -3311,11 +3511,44 @@ def pretrain_critic_on_dataset(
                 head_losses = {name: value.mean() for name, value in task_heads.items()}
                 head_losses["task"] = task_loss
                 head_losses.update({name: value.mean() for name, value in cost_heads.items()})
+                def weight_hook(
+                    effective: Mapping[str, Mapping[str, float]],
+                    raw: Mapping[str, Mapping[str, float]],
+                    used: Mapping[str, float] | None = step_weights,
+                ) -> dict[str, Any]:
+                    """Log the weights this step used; update the auto QoL weight."""
+                    fields: dict[str, Any] = {"task_loss_weights": dict(used)}
+                    if qol_loss_weight_auto is not None:
+                        norms = raw["task_encoder"]
+                        update = qol_loss_weight_auto.update(
+                            used["qol_years"],
+                            norms["qol_years"],
+                            norms["population_years"],
+                            used["population_years"],
+                        )
+                        weight_values["qol_years"] = update["qol_weight_next"]
+                        entry = {"step": int(monitor.step_index), **update}
+                        weight_history.append(entry)
+                        fields["qol_loss_weight_auto"] = entry
+                    return fields
+
                 accepted = monitor.step(
                     loss,
                     max_grad_norm=max_grad_norm,
                     head_losses=head_losses,
                     diagnostics=diagnostics,
+                    **(
+                        {}
+                        if step_weights is None
+                        else {"head_grad_scales": step_weights, "log_hook": weight_hook}
+                    ),
+                    **(
+                        {
+                            "progress_losses": lambda: {"qol_years": batch_excess()},
+                        }
+                        if excess_progress
+                        else {}
+                    ),
                 )
             if validation is not None and accepted:
                 # Read-only accumulation on the device (no host sync per step).
@@ -3338,6 +3571,7 @@ def pretrain_critic_on_dataset(
         if validation is not None:
             evaluate_validation(epoch + 1)
     final_task, final_cost = losses()
+    final_excess = excess_sum[0]
     collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
     qol_record = (
         {}
@@ -3379,11 +3613,49 @@ def pretrain_critic_on_dataset(
                 if history is None
                 else history.report()
             ),
+            "best": {
+                "criterion": "lowest validation total (earliest epoch on ties)",
+                "epoch": best_validation["epoch"],
+                "step": best_validation["step"],
+                "total": best_validation["total"],
+                "per_head": copy.deepcopy(best_validation["per_head"]),
+            },
+        }
+        if best_validation_sink is not None and best_validation["epoch"] is not None:
+            best_validation_sink.update(
+                epoch=best_validation["epoch"],
+                step=best_validation["step"],
+                total=best_validation["total"],
+                task=best_validation["task_state"],
+                costs=best_validation["cost_state"],
+            )
+    weight_record: dict[str, Any] = {}
+    if weighted:
+        weight_record["task_loss_weights"] = {
+            "mode": "auto-qol" if qol_loss_weight_auto is not None else "fixed",
+            "final": dict(weight_values),
+            **(
+                {}
+                if qol_loss_weight_auto is None
+                else {
+                    "auto": qol_loss_weight_auto.state_dict(),
+                    "history": copy.deepcopy(weight_history),
+                }
+            ),
+            "note": "weights act on the optimizer objective; reported losses are unweighted",
+        }
+    excess_record: dict[str, Any] = {}
+    if final_excess is not None:
+        excess_record = {
+            "initial_qol_excess_bce": init_excess,
+            "final_qol_excess_bce": final_excess,
         }
     return {
         **stability_record,
         **qol_record,
         **validation_record,
+        **weight_record,
+        **excess_record,
         "contract": LABOR_CRITIC_CONTRACT,
         "epochs": int(epochs),
         "rows": int(N),

@@ -1543,6 +1543,33 @@ class LaborTaskCritic(nn.Module):
             return torch.nn.functional.binary_cross_entropy_with_logits(z, mean, reduction="none")
         return (torch.nn.functional.silu(z) - mean).square()
 
+    def qol_target_fraction(self, target: torch.Tensor) -> torch.Tensor:
+        """p* = clamp(G / (scale W), 0, 1) in float64, exactly as :meth:`value_loss` builds it."""
+        if self.qol_head is None:
+            raise ValueError("this task critic has no bounded QoL head")
+        w = self.qol_head.discount_weight
+        if self.qol_head.scale != 1.0:
+            w = w * self.qol_head.scale
+        return (target.detach().double() / w).clamp(0.0, 1.0)
+
+    def qol_excess_bce(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor | None:
+        """Per-row BCE - H(p*) = KL(p* || q) of the logistic QoL head (float64, no gradient).
+
+        The Bernoulli cross entropy against a soft target is bounded below by the target's
+        entropy H(p*), not by zero, so the raw loss sits near its floor and its relative
+        decrease is unreadable; the excess is zero exactly at a perfect fit. None for the
+        ``silu-clamp`` fallback (a squared error, already zero at its optimum).
+        """
+        if self.qol_head is None or self.qol_head.output != "logistic":
+            return None
+        with torch.no_grad():
+            bce = self.value_loss("qol_years", logits.detach(), target.detach()).double()
+            # The loss's own (logit-dtype) p*, so the excess is exactly zero at q = p*.
+            p = self.qol_target_fraction(target.reshape(-1)).to(logits.dtype).double()
+            p = p.to(bce.device)
+            entropy = -(torch.special.xlogy(p, p) + torch.special.xlogy(1.0 - p, 1.0 - p))
+            return bce - entropy
+
     def check_support(self) -> None:
         """Reject a bins buffer (e.g. a loaded one) that differs from the declared support."""
         if self.bins.shape != (self.support.bins,) or not torch.equal(

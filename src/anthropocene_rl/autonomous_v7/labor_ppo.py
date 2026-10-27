@@ -1024,12 +1024,18 @@ def labor_task_value_losses(
     tensors: Mapping[str, torch.Tensor],
     targets: Mapping[str, torch.Tensor],
     privileged: Mapping[str, torch.Tensor] | None = None,
+    weights: Mapping[str, float] | None = None,
 ) -> tuple[torch.Tensor, dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     """:func:`labor_task_value_loss` plus the per-head row losses and head outputs.
 
     The mean is computed by exactly the same operations, so a training loop that
     uses this form is bitwise identical to one using the scalar form; the extra
     returns feed the stability monitor (per-head losses, gradient dominance).
+
+    ``weights`` (per-head task loss weights, ``pretrain-critic --task-loss-weights``):
+    None (default) keeps the historical unweighted mean, operation for operation. With
+    weights the mean is over ``w_h * loss_h`` rows (same 1 / (heads * rows) denominator);
+    the returned per-head row losses stay unweighted.
     """
 
     if set(targets) != set(LABOR_OBJECTIVES):
@@ -1045,7 +1051,17 @@ def labor_task_value_losses(
         # Two-hot cross entropy (historical) or the bounded QoL head's loss.
         losses.append(critic.value_loss(name, output[name], value))
     per_head = dict(zip(LABOR_OBJECTIVES, losses, strict=True))
-    return torch.stack(losses, dim=0).mean(), per_head, output
+    if weights is None:
+        return torch.stack(losses, dim=0).mean(), per_head, output
+    if set(weights) != set(LABOR_OBJECTIVES):
+        raise ValueError(f"task loss weights must name exactly {list(LABOR_OBJECTIVES)}")
+    stacked = torch.stack(losses, dim=0)
+    scale = torch.tensor(
+        [float(weights[name]) for name in LABOR_OBJECTIVES],
+        dtype=stacked.dtype,
+        device=stacked.device,
+    ).reshape(-1, *([1] * (stacked.ndim - 1)))
+    return (stacked * scale).mean(), per_head, output
 
 
 def labor_cost_value_loss(

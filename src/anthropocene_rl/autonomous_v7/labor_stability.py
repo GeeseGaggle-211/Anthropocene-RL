@@ -154,6 +154,11 @@ class StabilityConfig:
     # Live early stop on would-FAIL conditions (EARLY_STOP_CHECKS); off in the library,
     # on in labor_r5_acceptance run. Same thresholds and definitions as ``checks()``.
     early_stop: bool = False
+    # ``--dominance-excess-loss``: the shared-head dominance detector judges the bounded
+    # logistic QoL head's progress on its excess BCE (BCE - H(p*)) instead of the raw BCE,
+    # whose entropy floor makes relative progress structurally tiny. Off by default (the
+    # approved check's measurement is unchanged); recorded only when on.
+    dominance_excess_loss: bool = False
 
     def __post_init__(self) -> None:
         if self.log_every < 1:
@@ -174,6 +179,7 @@ class StabilityConfig:
             "inject_nonfinite_param_steps": list(self.inject_nonfinite_param_steps),
             # Recorded only when on: receipts of fits without it are unchanged.
             **({"early_stop": True} if self.early_stop else {}),
+            **({"dominance_excess_loss": True} if self.dominance_excess_loss else {}),
         }
 
     @property
@@ -1112,12 +1118,29 @@ class StabilityMonitor:
         max_grad_norm: float,
         head_losses: Mapping[str, torch.Tensor] | None = None,
         diagnostics: Callable[[], Mapping[str, Any]] | None = None,
+        head_grad_scales: Mapping[str, float] | None = None,
+        progress_losses: Callable[[], Mapping[str, float]] | None = None,
+        log_hook: Callable[
+            [Mapping[str, Mapping[str, float]], Mapping[str, Mapping[str, float]]],
+            Mapping[str, Any],
+        ]
+        | None = None,
     ) -> bool:
         """zero_grad was called by the caller; backward, clip, step, check, maybe roll back.
 
         ``head_losses`` are scalar losses (same graph as ``loss``) of the shared
         blocks' head contenders and of the contender blocks; they are read only
         on log steps. Returns False when the step was rolled back.
+
+        ``head_grad_scales`` (per-head task loss weights): a head's loss enters ``loss``
+        multiplied by its scale, so its effective gradient on a shared block is the
+        unweighted head-loss gradient times the scale; the record's
+        ``shared_head_grad_norm`` and the dominance detector then use the effective norms
+        and ``shared_head_grad_norm_unweighted`` keeps the raw ones. ``progress_losses``
+        (read on log steps, only with ``config.dominance_excess_loss``) replaces head
+        losses in the shared-head detectors' progress criterion. ``log_hook(effective,
+        raw)`` runs on successful log steps and its fields join the step record. None of
+        them touches the step's arithmetic.
         """
         self.step_index += 1
         log = self.is_log_step()
@@ -1209,6 +1232,18 @@ class StabilityMonitor:
         self.consecutive = 0
         self.successful_steps += 1
         if log:
+            raw_norms = shared_norms
+            if head_grad_scales is not None:
+                shared_norms = {
+                    block: {
+                        head: value * float(head_grad_scales.get(head, 1.0))
+                        for head, value in norms.items()
+                    }
+                    for block, norms in raw_norms.items()
+                }
+            detector_losses = head_values
+            if self.config.dominance_excess_loss and progress_losses is not None:
+                detector_losses = {**head_values, **dict(progress_losses())}
             saved = {id(p): s for p, s in zip(self.parameters, self._good_params, strict=True)}
             steps = {
                 name: _norm(p.detach() - saved[id(p)] for p in params)
@@ -1228,8 +1263,12 @@ class StabilityMonitor:
                     "lr": [float(g["lr"]) for g in self.optimizer.param_groups],
                 }
             )
+            if head_grad_scales is not None:
+                record["shared_head_grad_norm_unweighted"] = raw_norms
+            if detector_losses is not head_values:
+                record["dominance_progress_losses"] = detector_losses
             for block, norms in shared_norms.items():
-                alarm = self.detectors[block].update(self.step_index, norms, head_values)
+                alarm = self.detectors[block].update(self.step_index, norms, detector_losses)
                 if alarm:
                     self._alarm(alarm)
             contender_norms = {}
@@ -1250,6 +1289,8 @@ class StabilityMonitor:
                 extra = dict(diagnostics())
                 record.update(extra)
                 self._record_diagnostics(extra)
+            if log_hook is not None:
+                record.update(dict(log_hook(shared_norms, raw_norms)))
             self.write(record)
         self._snapshot()
         # After the step is committed and logged: the stopped fit's state is its last step.
@@ -1621,15 +1662,19 @@ def stability_config_from_args(
     if getattr(args, "no_stability", False):
         if early:
             raise ValueError("--stability-early-stop needs the stability monitor")
+        if getattr(args, "dominance_excess_loss", False):
+            raise ValueError("--dominance-excess-loss needs the stability monitor")
         return None
     jsonl = getattr(args, "stability_log", None) or default_jsonl
     every = getattr(args, "stability_every", None)
-    if jsonl is None and every is None and not early:
+    excess = bool(getattr(args, "dominance_excess_loss", False))
+    if jsonl is None and every is None and not early and not excess:
         return "auto"
     return StabilityConfig(
         log_every=int(every or 25),
         jsonl=None if jsonl is None else str(jsonl),
         early_stop=early,
+        dominance_excess_loss=excess,
     )
 
 

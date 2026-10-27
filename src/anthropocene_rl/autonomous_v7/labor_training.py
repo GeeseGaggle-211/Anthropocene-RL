@@ -1554,6 +1554,47 @@ def _cost_weight_kwargs(args: argparse.Namespace) -> dict[str, float]:
     return {} if weight == 1.0 else {"cost_loss_weight": weight}
 
 
+def _task_weight_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    """``--task-loss-weights`` / ``--qol-loss-weight``: per-head task loss weights.
+
+    Only non-default settings are passed, keeping default runs byte-identical.
+    """
+    from .labor_bc import AutoQoLLossWeight
+
+    weights: dict[str, float] = {}
+    text = getattr(args, "task_loss_weights", None)
+    if text:
+        for item in str(text).split(","):
+            name, sep, value = item.strip().partition("=")
+            if not sep or name.strip() not in LABOR_OBJECTIVES:
+                raise ValueError(
+                    f"--task-loss-weights takes head=weight for heads {list(LABOR_OBJECTIVES)}"
+                )
+            if name.strip() in weights:
+                raise ValueError(f"--task-loss-weights repeats {name.strip()}")
+            weights[name.strip()] = float(value)
+    qol = getattr(args, "qol_loss_weight", None)
+    kwargs: dict[str, Any] = {}
+    if qol is not None:
+        if "qol_years" in weights:
+            raise ValueError("give the QoL weight in --task-loss-weights or --qol-loss-weight")
+        if str(qol).strip().lower() == "auto":
+            kwargs["qol_loss_weight_auto"] = AutoQoLLossWeight(
+                target_share=float(getattr(args, "qol_weight_target_share", 0.3)),
+                ema=float(getattr(args, "qol_weight_ema", 0.3)),
+            )
+        else:
+            weights["qol_years"] = float(qol)
+    for name, value in weights.items():
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"task loss weight {name} must be finite and positive")
+    if any(value != 1.0 for value in weights.values()):
+        kwargs["task_loss_weights"] = weights
+    elif weights and "qol_loss_weight_auto" in kwargs:
+        kwargs["task_loss_weights"] = weights
+    return kwargs
+
+
 def _pretrain_critic_tail(args: argparse.Namespace) -> Any:
     """Randomized-tail settings for in-process (--worlds) critic collection, or None."""
     from .labor_bc import RandomizedTailSettings
@@ -1602,6 +1643,9 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         )
         worlds = list(teacher["collection"]["world_seeds"])
         validation = _load_validation_dataset(args, normalizer, task)
+        if getattr(args, "select_best_validation", False) and validation is None:
+            raise ValueError("--select-best-validation needs --validation-dataset")
+        best_sink: dict[str, Any] | None = {} if validation is not None else None
         from .labor_stability import StabilityAbort
 
         # Critics move to the device; the frozen actor stays on CPU (not in the graph).
@@ -1628,7 +1672,9 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
                     else {}
                 ),
                 **_critic_stability_kwargs(args, actor),
+                **_task_weight_kwargs(args),
                 **({} if validation is None else {"validation_dataset": validation}),
+                **({} if best_sink is None else {"best_validation_sink": best_sink}),
             )
         except StabilityAbort as error:
             _write_abort_receipt(args.out, error)
@@ -1648,8 +1694,16 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         if device.type != "cpu":
             summary["device"] = device_record(device)
     else:
+        best_sink = None
         if _cost_weight_kwargs(args):
             raise ValueError("--cost-loss-weight is supported only with --dataset")
+        if _task_weight_kwargs(args) or getattr(args, "dominance_excess_loss", False):
+            raise ValueError(
+                "--task-loss-weights / --qol-loss-weight / --dominance-excess-loss are "
+                "supported only with --dataset"
+            )
+        if getattr(args, "select_best_validation", False):
+            raise ValueError("--select-best-validation needs --validation-dataset")
         if getattr(args, "validation_dataset", None):
             raise ValueError("--validation-dataset is supported only with --dataset")
         worlds = require_training_worlds(
@@ -1710,7 +1764,81 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         "critic",
         (summary.get("family_weighting") or {}).get("schedule"),
     )
-    _save_checkpoint(args.out, trainer_state)
+    def rebuild_with_best() -> dict[str, Any]:
+        task.load_state_dict(best_sink["task"])
+        costs.load_state_dict(best_sink["costs"])
+        return _trainer_checkpoint(
+            actor,
+            task,
+            costs,
+            normalizer,
+            layout,
+            actor_optimizer,
+            critic_optimizer,
+            personality=personality,
+            optimizer_seed=int(state["optimizer_seed"]),
+            iteration=int(state["iteration"]),
+            sampling_generator=sampling,
+            shuffle_rng=shuffle,
+            critic_training_world_seeds=updated_critic_worlds,
+            critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
+        )
+
+    _save_critic_checkpoints(
+        Path(args.out),
+        trainer_state,
+        best_sink,
+        select=bool(getattr(args, "select_best_validation", False)),
+        rebuild_with_best=rebuild_with_best,
+    )
+
+
+def _save_critic_checkpoints(
+    out: Path,
+    trainer_state: dict[str, Any],
+    best_sink: Mapping[str, Any] | None,
+    *,
+    select: bool,
+    rebuild_with_best: Any,
+) -> None:
+    """Write pretrain-critic's checkpoint(s).
+
+    Without a best-validation record (no --validation-dataset): ``out`` only, as before.
+    With one: ``<out>.best-val.pt`` holds the same trainer checkpoint with the critic
+    weights of the epoch of lowest validation total; ``out`` holds the final weights, or,
+    with ``select`` (--select-best-validation), the best ones while the final weights go to
+    ``<out>.final.pt``. The training trajectory and the final weights are unchanged.
+    """
+    if not best_sink:
+        _save_checkpoint(out, trainer_state)
+        return
+    summary = dict(trainer_state["heuristic_critic_pretraining"])
+    best_path = out.with_name(out.name + ".best-val.pt")
+    final_path = out.with_name(out.name + ".final.pt")
+    record = {
+        "epoch": int(best_sink["epoch"]),
+        "step": int(best_sink["step"]),
+        "validation_total": float(best_sink["total"]),
+        "best_validation_checkpoint": str(best_path),
+        "selected": "best-validation" if select else "final",
+        **({"final_checkpoint": str(final_path)} if select else {}),
+    }
+    summary["best_validation"] = record
+    final_state = dict(
+        trainer_state, heuristic_critic_pretraining=dict(summary, checkpoint_weights="final")
+    )
+    # Written before the best weights are loaded: the payload's state-dict tensors share
+    # storage with the live parameters.
+    _save_checkpoint(final_path if select else out, final_state)
+    best_state = rebuild_with_best()
+    for key, value in trainer_state.items():
+        best_state.setdefault(key, value)
+    best_state["heuristic_critic_pretraining"] = dict(
+        summary, checkpoint_weights=f"best-validation-epoch-{record['epoch']}"
+    )
+    _save_checkpoint(best_path, best_state)
+    if select:
+        _save_checkpoint(out, best_state)
 
 
 def _command_collect(args: argparse.Namespace) -> None:
@@ -2352,6 +2480,36 @@ def argument_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.0,
         help="multiplier on the summed cost-critic MSE (default 1.0, unchanged)",
+    )
+    pretrain_critic.add_argument(
+        "--task-loss-weights",
+        default=None,
+        help="per-head task loss weights 'qol_years=W1,population_years=W2' (default 1.0 each, "
+        "unchanged); they scale each head's term of the optimizer objective only",
+    )
+    pretrain_critic.add_argument(
+        "--qol-loss-weight",
+        default=None,
+        help="QoL task loss weight: a number, or 'auto' (GradNorm-lite: every --stability-every "
+        "steps set the weight so QoL's share of the task-encoder gradient targets "
+        "--qol-weight-target-share, log-space EMA, clamped to [1, 200]; needs the monitor)",
+    )
+    pretrain_critic.add_argument("--qol-weight-target-share", type=float, default=0.3)
+    pretrain_critic.add_argument("--qol-weight-ema", type=float, default=0.3)
+    pretrain_critic.add_argument(
+        "--dominance-excess-loss",
+        action="store_true",
+        default=False,
+        help="the task-encoder dominance detector judges QoL progress on its excess BCE "
+        "(BCE - H(p*)) instead of the raw BCE (off by default: changes an approved check's "
+        "measurement; recorded in the stability config)",
+    )
+    pretrain_critic.add_argument(
+        "--select-best-validation",
+        action="store_true",
+        default=False,
+        help="with --validation-dataset: --out holds the critic of the epoch of lowest "
+        "validation total (also <out>.best-val.pt); the final weights go to <out>.final.pt",
     )
     pretrain_critic.add_argument("--out", type=Path, required=True)
     add_device_argument(pretrain_critic)
