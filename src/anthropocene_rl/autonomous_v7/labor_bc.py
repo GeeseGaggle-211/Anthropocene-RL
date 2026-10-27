@@ -46,6 +46,7 @@ from .labor_bridge import (
     LaborCatalog,
     LaborModel9Bridge,
     LaborPolicySample,
+    SIMPLEX_TOLERANCE,
     _simplex,
 )
 from .labor_model import (
@@ -316,7 +317,10 @@ def convert_heuristic_labor_label(
     ``n_r * dt`` and role idle is the nonnegative residual. Unstaffed roles
     emit canonical role idle and are excluded from the activity loss. Native
     residual fallback gathering stays Gatherer work; missing, unmapped or
-    over-budget work makes the labor label unavailable instead.
+    over-budget work makes the labor label unavailable instead. So does a role
+    whose work is within the staffing tolerance but whose shares overrun the
+    simplex tolerance (``activity-simplex-tolerance-overrun``): its row cannot
+    be a simplex, and is typed unavailable rather than repaired.
     """
 
     reasons: list[str] = []
@@ -603,8 +607,26 @@ def convert_heuristic_labor_label(
             over_budget = True
             shares = shares / used
         else:
-            shares[0] = max(0.0, 1.0 - float(shares[1:].sum()))
-            role_valid[role] = True
+            filled = shares.copy()
+            filled[0] = max(0.0, 1.0 - float(filled[1:].sum()))
+            if (
+                used > 1.0
+                and act_mask[role].any()
+                and not math.isclose(
+                    math.fsum(np.clip(filled, 0.0, 1.0)), 1.0, rel_tol=0.0, abs_tol=SIMPLEX_TOLERANCE
+                )
+            ):
+                # Work inside the staffing tolerance (LABEL_TOLERANCE) but past the
+                # simplex tolerance (SIMPLEX_TOLERANCE): the residual idle share cannot
+                # absorb the overrun, so the converted row is not a simplex. Typed
+                # exactly like over-budget work -- the labor label is unavailable and
+                # only the executable drive is rescaled -- never repaired into a target.
+                reasons.append(f"activity-simplex-tolerance-overrun:role{role}")
+                over_budget = True
+                shares = shares / used
+            else:
+                shares = filled
+                role_valid[role] = True
         label_activity[role] = shares
         drive_activity[role] = shares
 
