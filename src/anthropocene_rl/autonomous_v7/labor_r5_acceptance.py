@@ -412,20 +412,25 @@ def stability_checks(label: str, summary: Mapping[str, Any] | None) -> list[dict
             )
         ]
     out = []
+    # A live early stop (labor_stability EARLY_STOP_CHECKS) FAILs the same check id the
+    # end-of-run judgement uses; the row then says where the fit was stopped.
+    early = summary.get("early_stop") or {}
     for name, record in sorted((summary.get("checks") or {}).items()):
         if not record.get("mandatory") or record.get("status") == "NOT_APPLICABLE":
             continue
-        out.append(
-            check(
-                f"stability:{label}:{name}",
-                "stability",
-                record.get("status"),
-                "PASS",
-                "==",
-                status=record.get("status"),
-                every_seed=True,
-            )
+        row = check(
+            f"stability:{label}:{name}",
+            "stability",
+            record.get("status"),
+            "PASS",
+            "==",
+            status=record.get("status"),
+            every_seed=True,
         )
+        if early.get("check") == name:
+            row["stopped_early_at_step"] = int(early["step"])
+            row["early_stop_reason"] = early.get("reason")
+        out.append(row)
     injected = bool(summary.get("fault_injection"))
     out.append(
         check(
@@ -867,8 +872,29 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
         "primary_status": combine([c["status"] for c in primary]),
         "secondary_status": combine([c["status"] for c in secondary]),
         # Advisory only: never part of primary/secondary and never changes a verdict.
-        "advisory": [food_trade_advisory(evidence)],
+        "advisory": [food_trade_advisory(evidence), *validation_advisories(evidence)],
     }
+
+
+def validation_advisories(evidence: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Non-gating: the V critic's per-epoch held-out validation (``--validation-dataset``)
+    and its validation_divergence alarm. Absent when the fit ran without validation."""
+    record = _get(evidence, "stability", "critic", "validation")
+    if record is None:
+        return []
+    return [
+        {
+            "check": "advisory:critic-validation-divergence",
+            "gating": False,
+            "status": record.get("status"),
+            "rule": record.get("rule"),
+            "alarms": record.get("alarms", []),
+            "epochs": [
+                {k: e.get(k) for k in ("epoch", "train_loss", "total", "task", "cost")}
+                for e in record.get("epochs", [])
+            ],
+        }
+    ]
 
 
 def scenario_family_summary(evidence: Mapping[str, Any]) -> dict[str, Any]:
@@ -2047,6 +2073,27 @@ def _tail_flag(args: argparse.Namespace) -> list[str]:
     return [] if getattr(args, "smoke", False) else ["--require-randomized-tail"]
 
 
+def _early_stop_flag(args: argparse.Namespace) -> list[str]:
+    """Live early stop on would-FAIL stability conditions (on in ``run`` unless disabled)."""
+    return ["--stability-early-stop"] if getattr(args, "stability_early_stop", False) else []
+
+
+def _validation_flag(args: argparse.Namespace) -> list[Any]:
+    """V critic per-epoch held-out validation on the calibration datasets (monitoring only;
+    the calibration worlds are evaluation-only and never reach the training loader)."""
+    if not getattr(args, "critic_validation", False):
+        return []
+    return ["--validation-dataset", *args.calibration_data]
+
+
+def require_calibration_not_trained(args: argparse.Namespace) -> None:
+    """Calibration directories are evaluation-only: never a --fit-data directory."""
+    fit = {Path(p).resolve() for p in args.fit_data}
+    shared = sorted(str(p) for p in args.calibration_data if Path(p).resolve() in fit)
+    if shared:
+        raise ValueError(f"calibration data listed as fitting data: {shared}")
+
+
 def _evaluation_fit_data(args: argparse.Namespace) -> list[Path]:
     """The fitting data of the generalisation gap: every --fit-data directory when they are
     all teacher batches; with continuation or curated scenario sources, the first one (the
@@ -2115,12 +2162,14 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             work / "stability-critic.jsonl",
             "--stability-every",
             str(args.stability_every),
+            *_early_stop_flag(args),
             "--resume-state",
             work / "critic.resume.pt",
             "--resume-every",
             str(args.resume_every),
             "--progress",
             *_device_flag(args),
+            *_validation_flag(args),
             "--out",
             critic,
         ]
@@ -2173,6 +2222,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             work / "stability-advantage.jsonl",
             "--stability-every",
             str(args.stability_every),
+            *_early_stop_flag(args),
             *_device_flag(args),
         ]
         command += shlex.split(args.advantage_args or "")
@@ -2379,6 +2429,7 @@ def command_run(args: argparse.Namespace) -> int:
     seeds = [int(s) for s in args.seeds.split(",")]
     if args.local and len(seeds) > threshold("local_seeds_max"):
         raise ValueError(f"local runs use at most {threshold('local_seeds_max')} seeds")
+    require_calibration_not_trained(args)
     Path(args.out).mkdir(parents=True, exist_ok=True)
     jobs = [(arm, seed) for seed in seeds for arm in arms]
     failures = {}
@@ -2408,8 +2459,34 @@ def command_run(args: argparse.Namespace) -> int:
                 failures["determinism"] = repr(error)
         return evidence
 
-    with ThreadPoolExecutor(max_workers=max(1, int(args.jobs))) as pool:
-        list(pool.map(one, jobs))
+    def launch(batch) -> None:
+        with ThreadPoolExecutor(max_workers=max(1, int(args.jobs))) as pool:
+            list(pool.map(one, batch))
+
+    gate: dict[str, Any] | None = None
+    if getattr(args, "no_seed_gate", False) or len(seeds) < 2:
+        launch(jobs)
+    else:
+        # Seed gate: every arm's first seed, then the candidate's verdict decides whether
+        # the remaining seeds spend their compute.
+        launch([(arm, seeds[0]) for arm in arms])
+        gate = seed_gate_report(
+            Path(args.out) / candidate.name / f"seed-{seeds[0]}", candidate, seeds[0]
+        )
+        rest = [(arm, seed) for seed in seeds[1:] for arm in arms]
+        if gate["tripped"]:
+            gate["skipped"] = [f"{arm.name}/seed-{seed}" for arm, seed in rest]
+            print(
+                f"[r5-acceptance] seed gate: {candidate.name} seed {seeds[0]} "
+                f"{gate['reason']}; seeds {seeds[1:]} not launched",
+                file=sys.stderr,
+                flush=True,
+            )
+            jobs = [(arm, seeds[0]) for arm in arms]
+        else:
+            launch(rest)
+        gate_path = Path(args.out) / "seed-gate.json"
+        gate_path.write_text(json.dumps(gate, indent=1, sort_keys=True), encoding="utf-8")
     evidence_paths = []
     for arm, seed in jobs:
         work = Path(args.out) / arm.name / f"seed-{seed}"
@@ -2462,9 +2539,73 @@ def command_run(args: argparse.Namespace) -> int:
             "device": getattr(args, "device", "cpu"),
             "smoke": bool(args.smoke),
             "failures": failures,
+            # Monitoring options of this harness (non-gating provenance).
+            "stability_early_stop": bool(getattr(args, "stability_early_stop", False)),
+            "critic_validation": bool(getattr(args, "critic_validation", False)),
+            "seed_gate": gate
+            if gate is not None
+            else {
+                "enabled": False,
+                "reason": "--no-seed-gate"
+                if getattr(args, "no_seed_gate", False)
+                else "single seed",
+            },
         },
     )
     return command_receipt(receipt_args)
+
+
+def seed_gate_report(work: Path, arm: ArmSpec, seed: int) -> dict[str, Any]:
+    """Seed gate: does the candidate's first seed end in StabilityAbort or a stability FAIL?
+
+    Evidence: the ``*.stability-abort.json`` receipts (an abort, live early stop included) or,
+    for a completed fit, the stability rows of ``fit_checks`` (the same rows the receipt
+    judges). A fit that failed for another reason or left no evidence does not trip the gate
+    (it HOLDs in the receipt as before)."""
+    report: dict[str, Any] = {
+        "enabled": True,
+        "arm": arm.name,
+        "seed": int(seed),
+        "tripped": False,
+        "reason": None,
+        "evidence": None,
+    }
+    aborted = {}
+    for label in ("critic", "advantage"):
+        path = work / f"{label}.pt.stability-abort.json"
+        if path.exists():
+            summary = json.loads(path.read_text(encoding="utf-8"))
+            aborted[label] = {
+                "path": str(path),
+                "mandatory_failed": summary.get("mandatory_failed"),
+                "early_stop": summary.get("early_stop"),
+                "rollbacks": summary.get("rollbacks"),
+                "steps": summary.get("steps"),
+            }
+    if aborted:
+        report.update(tripped=True, reason="stability-abort", evidence=aborted)
+        return report
+    path = work / "evidence.json"
+    if not path.exists():
+        report["reason"] = "no-evidence (fit failed for a non-stability reason or is missing)"
+        return report
+    evidence = json.loads(path.read_text(encoding="utf-8"))
+    rows = stability_checks("critic", _get(evidence, "stability", "critic")) + stability_checks(
+        "advantage", _get(evidence, "stability", "advantage")
+    )
+    failed = [r for r in rows if r["status"] == "FAIL"]
+    if failed:
+        report.update(
+            tripped=True,
+            reason="stability-fail",
+            evidence={"path": str(path), "failed": [r["id"] for r in failed]},
+        )
+    else:
+        report["evidence"] = {
+            "path": str(path),
+            "stability_statuses": {r["id"]: r["status"] for r in rows},
+        }
+    return report
 
 
 def command_receipt(args: argparse.Namespace) -> int:
@@ -2494,6 +2635,23 @@ def command_receipt(args: argparse.Namespace) -> int:
         attempt_id=args.attempt_id,
         trajectory_baseline=trajectory_baseline,
     )
+    seed_gate = configuration.get("seed_gate")
+    if isinstance(seed_gate, Mapping) and seed_gate.get("tripped"):
+        # The candidate's first seed failed stability: the remaining seeds were not run.
+        receipt["seed_gate"] = dict(seed_gate)
+        receipt["unresolved_findings"].append(
+            {
+                "check": "seed-gate",
+                "status": "FAIL",
+                "arm": seed_gate.get("arm"),
+                "seed": seed_gate.get("seed"),
+                "reason": seed_gate.get("reason"),
+                "skipped": seed_gate.get("skipped", []),
+            }
+        )
+        receipt["receipt_digest"] = json_digest(
+            {k: v for k, v in receipt.items() if k != "receipt_digest"}
+        )
     if baseline_path is not None:
         receipt["trajectory_diagnostics"]["baseline"] = {
             "path": str(baseline_path),
@@ -2755,6 +2913,29 @@ def argument_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-grad-norm", type=float, default=1.0)
     run.add_argument("--advantage-epochs", type=int, default=50)
     run.add_argument("--stability-every", type=int, default=25)
+    run.add_argument(
+        "--no-stability-early-stop",
+        dest="stability_early_stop",
+        action="store_false",
+        default=True,
+        help="judge gradient dominance, TD divergence and total rollbacks only at the end of "
+        "each fit (by default a fit stops the moment one of them trips: same thresholds)",
+    )
+    run.add_argument(
+        "--no-critic-validation",
+        dest="critic_validation",
+        action="store_false",
+        default=True,
+        help="skip the V critic's per-epoch held-out validation on --calibration-data "
+        "(monitoring only; the fit is bitwise unchanged either way)",
+    )
+    run.add_argument(
+        "--no-seed-gate",
+        action="store_true",
+        default=False,
+        help="launch every seed at once (by default the first seed of every arm runs first and "
+        "a candidate StabilityAbort or stability FAIL stops the remaining seeds)",
+    )
     run.add_argument("--resume-every", type=int, default=100)
     run.add_argument("--determinism-steps", type=int, default=50)
     run.add_argument("--determinism-advantage-epochs", type=int, default=2)

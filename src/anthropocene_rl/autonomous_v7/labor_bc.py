@@ -2634,6 +2634,67 @@ def _critic_stability_finish(
     return monitor.finish()
 
 
+def _stochastic_modules(*modules: nn.Module) -> list[str]:
+    """Submodules whose train-mode forward is stochastic or updates state (refused for
+    validation, which must not consume the RNG or change the fit)."""
+    found = []
+    for root in modules:
+        for name, module in root.named_modules():
+            dropout = (isinstance(module, nn.Dropout) and float(module.p) > 0.0) or (
+                isinstance(module, nn.MultiheadAttention) and float(module.dropout) > 0.0
+            )
+            if dropout or isinstance(module, nn.modules.batchnorm._BatchNorm):
+                found.append(name)
+    return found
+
+
+def _critic_validation_set(
+    dataset: Mapping[str, Any],
+    *,
+    training_worlds: set[int],
+    tensor_keys: Sequence[str],
+    tail_method: str,
+) -> dict[str, Any]:
+    """Held-out validation rows of a critic fit (monitoring only, never training data).
+
+    The same admission rule and return definition as the training rows; its worlds must be
+    disjoint from the training worlds and may not be reserved held-out-test or sealed
+    worlds (calibration worlds 90180-90199 are the intended source)."""
+    from .labor_privileged import RESERVED_HELDOUT_WORLDS
+
+    if return_tail_method(dataset) != tail_method:
+        raise ValueError(
+            f"validation dataset declares return tail {return_tail_method(dataset)!r}; the fit "
+            f"uses {tail_method!r}"
+        )
+    missing = [k for k in tensor_keys if k not in dataset]
+    if missing:
+        raise ValueError(f"validation dataset lacks critic inputs {missing[:5]}")
+    n = int(dataset["row_world"].shape[0])
+    keep = ~dataset["row_quarantined"].reshape(n).bool() & critic_target_available(dataset)
+    rows = torch.nonzero(keep).reshape(-1)
+    if not len(rows):
+        raise ValueError("validation dataset has no admitted rows")
+    worlds = {int(w) for w in dataset["row_world"].reshape(-1)[rows].tolist()}
+    overlap = sorted(worlds & set(training_worlds))
+    if overlap:
+        raise ValueError(f"validation worlds overlap the training worlds {overlap[:5]}")
+    reserved = {int(w) for w in RESERVED_HELDOUT_WORLDS}
+    banned = sorted(w for w in worlds if w in SEALED_WORLDS or w in reserved)
+    if banned:
+        raise ValueError(
+            f"validation refuses reserved held-out-test or sealed worlds {banned[:5]}"
+        )
+    returns = discounted_returns(dataset)
+    return {
+        "dataset": dataset,
+        "rows": rows,
+        "worlds": sorted(worlds),
+        "task_targets": {name: returns[name][rows] for name in LABOR_OBJECTIVES},
+        "cost_targets": {name: returns[name][rows] for name in LABOR_COSTS},
+    }
+
+
 def pretrain_critic_on_dataset(
     *,
     task_critic: LaborTaskCritic,
@@ -2657,8 +2718,17 @@ def pretrain_critic_on_dataset(
     progress: bool = False,
     td_refreshes_per_epoch: int = 4,
     td_refresh_steps: int | None = None,
+    validation_dataset: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
+
+    ``validation_dataset`` (monitoring only, never training data): at each completed epoch
+    the same loss components are computed on its admitted rows (no gradient, fixed row
+    order, torch RNG forked and restored, trainer generator untouched) and logged as
+    ``kind=validation``; the non-gating ``validation_divergence`` alarm fires when the
+    validation total rises on 2 consecutive epochs while the epoch training loss (mean of
+    its accepted minibatch losses) falls. The fit's arithmetic is unchanged, so the fitted
+    parameters are bitwise identical with or without it (tested on CPU).
 
     TD(lambda) QoL targets (bounded head with ``target="td-lambda"``) refresh every
     ``td_refresh_steps`` optimizer steps, or, if that is None, ``td_refreshes_per_epoch``
@@ -2927,6 +2997,115 @@ def pretrain_critic_on_dataset(
             )
 
     td_lambda = qol_head is not None and qol_head.target == "td-lambda"
+
+    # Held-out validation (monitoring only): its rows never reach the minibatch sampler,
+    # which draws only from ``kept`` of the training dataset above.
+    validation = None
+    validation_history = None  # used only when the stability monitor is off
+    if validation_dataset is not None:
+        stochastic = _stochastic_modules(task_critic, cost_critics)
+        if stochastic:
+            raise ValueError(
+                f"validation needs a deterministic critic forward; stochastic modules {stochastic}"
+            )
+        validation = _critic_validation_set(
+            validation_dataset,
+            training_worlds={int(w) for w in dataset["row_world"].reshape(-1)[kept].tolist()},
+            tensor_keys=tensor_keys,
+            tail_method=tail_method,
+        )
+        if monitor is None:
+            from .labor_stability import ValidationMonitor
+
+            validation_history = ValidationMonitor()
+    epoch_loss_sum: torch.Tensor | None = None
+    epoch_loss_steps = 0
+
+    def validation_logits(rows: torch.Tensor, chunk: int = 512) -> torch.Tensor:
+        data = validation["dataset"]
+        parts = []
+        for start in range(0, len(rows), chunk):
+            index = rows[start : start + chunk]
+            batch = to_device({k: data[k][index] for k in tensor_keys}, device)
+            p = critic_privileged_batch(task_critic, data, index, device=device)
+            parts.append(task_critic(batch, p)["qol_years"].cpu())
+        return torch.cat(parts)
+
+    def evaluate_validation(epoch: int, chunk: int = 512) -> None:
+        """Validation losses after a completed epoch; reads parameters, writes nothing to the
+        fit. Same per-head losses as training (TD(lambda) QoL targets bootstrapped through the
+        current head on the validation trajectories, as training refreshes its own)."""
+        from .labor_ppo import labor_cost_value_losses as cost_losses
+        from .labor_ppo import labor_task_value_losses as task_losses
+
+        data, rows = validation["dataset"], validation["rows"]
+        count = len(rows)
+        sums: dict[str, float] = defaultdict(float)
+        devices = [device.index or 0] if device.type == "cuda" else []
+        with torch.random.fork_rng(devices=devices), torch.no_grad():
+            task_targets_v = dict(validation["task_targets"])
+            if td_lambda:
+                from .labor_advantage import qol_td_lambda_targets
+
+                every = torch.arange(int(data["row_world"].shape[0]))
+                values = task_critic.expectation("qol_years", validation_logits(every))
+                task_targets_v["qol_years"] = qol_td_lambda_targets(
+                    data, values, qol_head.td_lambda
+                )[rows]
+            for start in range(0, count, chunk):
+                index = rows[start : start + chunk]
+                local = torch.arange(start, min(count, start + chunk))
+                t = to_device({k: data[k][index] for k in tensor_keys}, device)
+                p = critic_privileged_batch(task_critic, data, index, device=device)
+                _, heads, output = task_losses(
+                    task_critic,
+                    t,
+                    to_device({k: v[local] for k, v in task_targets_v.items()}, device),
+                    p,
+                )
+                _, c_heads = cost_losses(
+                    cost_critics,
+                    t,
+                    to_device({k: v[local] for k, v in validation["cost_targets"].items()}, device),
+                    p,
+                )
+                for name, value in {**heads, **c_heads}.items():
+                    sums[name] += float(value.double().sum())
+                if td_lambda:
+                    monte_carlo = task_critic.value_loss(
+                        "qol_years",
+                        output["qol_years"],
+                        to_device(validation["task_targets"]["qol_years"][local], device),
+                    )
+                    sums["qol_years_monte_carlo"] += float(monte_carlo.double().sum())
+        heads_mean = {name: value / count for name, value in sums.items()}
+        task_v = sum(heads_mean[name] for name in LABOR_OBJECTIVES) / len(LABOR_OBJECTIVES)
+        cost_v = sum(heads_mean[name] for name in LABOR_COSTS) / len(LABOR_COSTS)
+        record = {
+            "epoch": int(epoch),
+            "step": int(steps),
+            "rows": int(count),
+            "worlds": len(validation["worlds"]),
+            "train_loss": None
+            if not epoch_loss_steps
+            else float(epoch_loss_sum) / epoch_loss_steps,
+            "train_steps": int(epoch_loss_steps),
+            "total": task_v + cost_loss_weight * cost_v,
+            "task": task_v,
+            "cost": cost_v,
+            "heads": {k: v for k, v in heads_mean.items() if k != "qol_years_monte_carlo"},
+            "qol_target": "td-lambda" if td_lambda else "monte-carlo",
+            **(
+                {"qol_years_monte_carlo": heads_mean["qol_years_monte_carlo"]}
+                if td_lambda
+                else {}
+            ),
+        }
+        if monitor is not None:
+            monitor.record_validation(record)
+        else:
+            validation_history.update(record)
+
     generator = rng if rng is not None else np.random.default_rng(0)
     fingerprint = _critic_resume_fingerprint(
         dataset, epochs, batch_size, lr, max_grad_norm, cost_loss_weight, N
@@ -2973,6 +3152,13 @@ def pretrain_critic_on_dataset(
             if resume.get("monitor") is None:
                 raise ValueError("resume state has no stability monitor history")
             monitor.load_state_dict(resume["monitor"])
+        if validation is not None and resume.get("validation_epoch") is not None:
+            loss_sum, epoch_loss_steps = resume["validation_epoch"]
+            epoch_loss_sum = None if loss_sum is None else torch.tensor(
+                float(loss_sum), dtype=torch.float64, device=device
+            )
+            if validation_history is not None and resume.get("validation_history"):
+                validation_history.load_state_dict(resume["validation_history"])
     started = time.time()
 
     def save_resume(epoch: int, start: int, state: Any) -> None:
@@ -2992,6 +3178,15 @@ def pretrain_critic_on_dataset(
             "generator_state": state,
             "monitor": None if monitor is None else monitor.state_dict(),
         }
+        if validation is not None:
+            # The partial epoch's training-loss accumulator and (monitor off) the history.
+            payload["validation_epoch"] = (
+                None if epoch_loss_sum is None else float(epoch_loss_sum),
+                int(epoch_loss_steps),
+            )
+            payload["validation_history"] = (
+                None if validation_history is None else validation_history.state_dict()
+            )
         temporary = resume_path + ".tmp"
         torch.save(payload, temporary)
         os.replace(temporary, resume_path)
@@ -3002,6 +3197,8 @@ def pretrain_critic_on_dataset(
         if resumed_epoch:
             generator.bit_generator.state = copy.deepcopy(epoch_state)
         state_at_epoch = copy.deepcopy(generator.bit_generator.state)
+        if validation is not None and not resumed_epoch:
+            epoch_loss_sum, epoch_loss_steps = None, 0
         if critic_weighter is None:
             draws = generator.choice(N, size=N, replace=True, p=probabilities)
         else:
@@ -3040,6 +3237,7 @@ def pretrain_critic_on_dataset(
                 b_privileged,
             )
             loss = task_loss + cost_loss_weight * cost_loss
+            accepted = True
             if monitor is None:
                 if not torch.isfinite(loss):
                     raise ValueError("heuristic critic pretraining produced a nonfinite loss")
@@ -3075,12 +3273,17 @@ def pretrain_critic_on_dataset(
                 head_losses = {name: value.mean() for name, value in task_heads.items()}
                 head_losses["task"] = task_loss
                 head_losses.update({name: value.mean() for name, value in cost_heads.items()})
-                monitor.step(
+                accepted = monitor.step(
                     loss,
                     max_grad_norm=max_grad_norm,
                     head_losses=head_losses,
                     diagnostics=diagnostics,
                 )
+            if validation is not None and accepted:
+                # Read-only accumulation on the device (no host sync per step).
+                value = loss.detach().double()
+                epoch_loss_sum = value if epoch_loss_sum is None else epoch_loss_sum + value
+                epoch_loss_steps += 1
             steps += 1
             if progress and steps % 25 == 0:
                 elapsed = time.time() - started
@@ -3094,6 +3297,8 @@ def pretrain_critic_on_dataset(
                 save_resume(epoch, start + batch_size, state_at_epoch)
         if stop:
             break
+        if validation is not None:
+            evaluate_validation(epoch + 1)
     final_task, final_cost = losses()
     collection = dataset.get("collection", {}) if isinstance(dataset, Mapping) else {}
     qol_record = (
@@ -3117,9 +3322,23 @@ def pretrain_critic_on_dataset(
             qol_record.get("qol_saturation_final"),
             observed_pop_max,
         )
+    validation_record: dict[str, Any] = {}
+    if validation is not None:
+        history = monitor.validation if monitor is not None else validation_history
+        validation_record["validation"] = {
+            "gating": False,
+            "worlds": validation["worlds"],
+            "rows": len(validation["rows"]),
+            **(
+                {"status": "NO-COMPLETED-EPOCH", "epochs": [], "alarms": []}
+                if history is None
+                else history.report()
+            ),
+        }
     return {
         **stability_record,
         **qol_record,
+        **validation_record,
         "contract": LABOR_CRITIC_CONTRACT,
         "epochs": int(epochs),
         "rows": int(N),

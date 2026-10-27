@@ -36,6 +36,13 @@
 #   SCENARIOS=0       1: FIT_DATA also lists curated scenario fitting sets (labor_scenarios)
 #   SCENARIO_CAL_DATA calibration scenario set (report-only per-family calibration)
 #   FAMILY_WEIGHTS    pretrain-critic --family-weights (e.g. default; proposed values)
+#   EARLY_STOP=1      live stability early stop in every V and A fit (gradient_dominance or
+#                     td_divergence alarm, or >5 rollbacks: same thresholds as the end-of-run
+#                     checks); 0 judges them only at the end of each fit
+#   CRITIC_VALIDATION=1  per-epoch V validation on CAL_DATA (monitoring only: non-gating
+#                     validation_divergence advisory, fits bitwise unchanged); 0 skips it
+#   SEED_GATE=1       run the first seed of every arm first; a candidate StabilityAbort or
+#                     stability FAIL stops the remaining seeds (seed-gate.json); 0 launches all
 #   FAMILY_WEIGHT_DECAY (none|linear|cosine; cosine by default with weights)  FAMILY_WEIGHT_DECAY_EPOCHS
 #
 # Never point any input at sealed worlds 3000-3059; the reserved worlds 90154-90159 are
@@ -57,6 +64,9 @@ DETERMINISM_STEPS="${DETERMINISM_STEPS:-50}"
 CONTINUATIONS="${CONTINUATIONS:-0}"
 DEVICE="${DEVICE:-cpu}"
 SCENARIOS="${SCENARIOS:-0}"
+EARLY_STOP="${EARLY_STOP:-1}"
+CRITIC_VALIDATION="${CRITIC_VALIDATION:-1}"
+SEED_GATE="${SEED_GATE:-1}"
 
 cores="$(nproc 2>/dev/null || echo 0)"
 if [ "$cores" -gt 0 ] && [ $((JOBS * THREADS)) -gt "$cores" ]; then
@@ -92,6 +102,9 @@ args=(
 if [ -n "${CONTROL_REPORT:-}" ]; then args+=(--control-report "$CONTROL_REPORT"); fi
 if [ "$CONTINUATIONS" = "1" ]; then args+=(--learner-state-continuations); fi
 if [ "$SCENARIOS" = "1" ]; then args+=(--curated-scenarios); fi
+if [ "$EARLY_STOP" = "0" ]; then args+=(--no-stability-early-stop); fi
+if [ "$CRITIC_VALIDATION" = "0" ]; then args+=(--no-critic-validation); fi
+if [ "$SEED_GATE" = "0" ]; then args+=(--no-seed-gate); fi
 if [ -n "${FAMILY_WEIGHTS:-}" ]; then args+=(--family-weights "$FAMILY_WEIGHTS"); fi
 if [ -n "${FAMILY_WEIGHT_DECAY:-}" ]; then args+=(--family-weight-decay "$FAMILY_WEIGHT_DECAY"); fi
 if [ -n "${FAMILY_WEIGHT_DECAY_EPOCHS:-}" ]; then args+=(--family-weight-decay-epochs "$FAMILY_WEIGHT_DECAY_EPOCHS"); fi
@@ -99,7 +112,7 @@ if [ -n "${SCENARIO_CAL_DATA:-}" ]; then args+=(--scenario-calibration-data "$SC
 # shellcheck disable=SC2206
 if [ -n "${EXTRA:-}" ]; then args+=($EXTRA); fi
 
-echo "[r5-acceptance] $(date -u +%FT%TZ) start attempt=$ATTEMPT_ID arms=$ARMS seeds=$SEEDS jobs=$JOBS threads=$THREADS device=$DEVICE"
+echo "[r5-acceptance] $(date -u +%FT%TZ) start attempt=$ATTEMPT_ID arms=$ARMS seeds=$SEEDS jobs=$JOBS threads=$THREADS device=$DEVICE early_stop=$EARLY_STOP critic_validation=$CRITIC_VALIDATION seed_gate=$SEED_GATE"
 "$PYTHON" -m anthropocene_rl.autonomous_v7.labor_r5_acceptance run "${args[@]}" 2>&1 | tee -a "$OUT/driver.log"
 status=${PIPESTATUS[0]}
 echo "[r5-acceptance] $(date -u +%FT%TZ) done status=$status receipt=$OUT/gate-receipt.json"

@@ -331,11 +331,40 @@ bitwise identical to an unmonitored one (tested). The receipt is stored in the f
   exactly zero and keep their digest), the global clip multiplier and per-block parameter-step norms.
   Dominance detectors: QoL vs population-years on the shared task encoder, task vs each cost on the
   global clip, QoL vs population-years on A's shared action encoder. Alarm: one contender above 0.90 of
-  the block's gradient norm on 75% of an 8-point window while another contender's loss improves by less
-  than 1% across the window.
-* Bounded QoL saturation: final share of |z| > 6 above 0.05 fails. TD(lambda): mean |target change| per
-  refresh in units of W; growth over 3 consecutive refreshes (the first refresh, replacing the Monte
-  Carlo return, is recorded but not counted) or any target outside [0, W] fails.
+  the block's gradient norm on 75% of a 16-point window (16 log points x 25 steps = 400 optimizer
+  steps; user decision 26 Oct) while another contender's loss improves by less than 1% (mean of the
+  window's second half against its first half).
+* Bounded QoL saturation (share of pre-activations with |z| > 6, judged on the final full pass,
+  stratified; approved relaxation 26 Oct): low-side rows whose bounded target G/W is below 0.05 are
+  expected (no housing/clothing yet) and excluded; the first 5 decisions of each (world, camp,
+  trajectory) fail above 0.20 of unexpected saturation, every other row above 0.05.
+* TD(lambda): per refresh, drift (mean |target change|) and error (mean |prediction - TD target|) in
+  units of W. The first refresh (replacing the Monte Carlo return) is recorded but not counted, and the
+  next 2 refreshes are warm-up. Live alarm: 3 consecutive rises each above 10% (and above the 1e-3
+  floor), or any target outside [0, W]. End of run: each post-warm-up series must diminish (negative
+  log slope and final value at most 0.5 x its maximum, or converged below the floor); too few
+  refreshes HOLD.
+* Live early stop (`--stability-early-stop`, on `pretrain-critic`, `labor_advantage fit` and
+  `pretrain-bc`; off by default, on in `labor_r5_acceptance run`): a gradient_dominance alarm, a live
+  td_divergence alarm or more than 5 total rollbacks raises `StabilityAbort` at once. The thresholds
+  and definitions are those of the end-of-run checks, so the abort receipt
+  (`<out>.stability-abort.json`) FAILs the same check id and adds `early_stop` (check, reason, step).
+  The acceptance row carries `stopped_early_at_step`. QoL saturation and the population tail stay
+  end-of-run judgements; with the option on, the population tail adds a live non-gating `kind=alarm`
+  (minibatch, on entry; listed under `advisories`). Without a trip the fit is bitwise unchanged.
+* Held-out validation of V (`pretrain-critic --validation-dataset DIR...`, monitoring only): at every
+  epoch end the same loss components (per head, task, cost, total) are computed on the admitted rows
+  of those datasets. The pass runs without gradient, in a fixed row order, under a forked and restored
+  torch RNG; the trainer generator is untouched. The critics have no dropout or batch norm (refused
+  otherwise), so the forward is the fitting graph. Records are `kind=validation`. A TD(lambda) QoL
+  target is bootstrapped through the current head on the validation trajectories, and the Monte Carlo
+  QoL loss is also reported. The non-gating `validation_divergence` alarm fires when the validation total
+  rises on 2 consecutive epochs while the epoch training loss falls (mean of its accepted minibatch
+  losses). The validation worlds must be disjoint from the training worlds; reserved and sealed worlds
+  are refused, and the training loader still refuses calibration worlds. The fitted parameters are
+  bitwise identical with validation on or off (tested on CPU). The result goes in the fit summary and
+  the stability receipt under `validation`, and in the acceptance receipt as the advisory
+  `advisory:critic-validation-divergence`.
 * Population head: decoded upper excess above 0.01 reference scales or top-bin mass above 1e-3 on the
   final pass fails. A: train vs held-out (within-fitting-world split) QoL pair ranking every epoch; a
   final gap above 0.10 or a held-out fall of 0.03 from its best fails. Privileged critics: village-token
@@ -360,6 +389,17 @@ python -m anthropocene_rl.autonomous_v7.labor_r5_acceptance evaluate --arm A --s
 python -m anthropocene_rl.autonomous_v7.labor_r5_acceptance receipt --evidence */seed-*/evidence.json \
   --seeds 0,1,2,3,4 --seed-rule all-seeds --determinism determinism.json --attempt-id ID --out gate-receipt.json
 ```
+
+**Catching failures before the scale-out.** `labor_r5_acceptance run` (and so
+`tools/r5_critic_acceptance.sh`) passes `--stability-early-stop` to every V and A fit and
+`--validation-dataset $CAL_DATA` to every V fit; the calibration directories may not also be fitting
+directories. The seed gate runs the first seed of every arm first, concurrently up to `JOBS`. If the
+candidate arm's first seed ends in `StabilityAbort` (early stop included) or any stability FAIL, the
+remaining seeds are not launched: `seed-gate.json` records the evidence, and the receipt FAILs with a
+top-level `seed_gate` and a `seed-gate` unresolved finding. Otherwise the remaining seeds launch as
+before. `--no-seed-gate` restores the single launch of every arm x seed;
+`--no-stability-early-stop` and `--no-critic-validation` turn the other two off (script:
+`SEED_GATE=0`, `EARLY_STOP=0`, `CRITIC_VALIDATION=0`).
 
 **Collection batches.** `FIT_DATA` and `CAL_DATA` (and `FIT_PAYLOADS`, `RESERVED_PAYLOADS`)
 are space- or colon-separated lists, e.g. `FIT_DATA="$I/fit8-b01:$I/fit8-b02:...:$I/fit8-b08"`

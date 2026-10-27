@@ -64,6 +64,16 @@ MANDATORY_CHECKS = (
 )
 ADVISORY_CHECKS = ("dead_features",)
 STATUSES = ("PASS", "FAIL", "HOLD", "NOT_APPLICABLE")
+# Live early stop (``StabilityConfig.early_stop``): conditions that are already a mandatory
+# FAIL under the end-of-run judgement stop the fit the moment they trip, under the check id
+# ``checks()`` FAILs for them: a gradient_dominance alarm, a live td_divergence alarm
+# (growth after warm-up or a target outside [0, W]) and more than max_total_rollbacks
+# rollbacks (finite_updates). QoL saturation and the population tail stay end-of-run
+# judgements; the population tail adds a live, non-gating alarm.
+EARLY_STOP_CHECKS = ("gradient_dominance", "td_divergence", "finite_updates")
+# Held-out validation (monitoring only): the advisory alarm fires when the validation total
+# loss rises on this many consecutive epochs while the training loss falls.
+VALIDATION_DIVERGENCE_EPOCHS = 2
 
 
 class StabilityAbort(ValueError):
@@ -138,6 +148,9 @@ class StabilityConfig:
     thresholds: StabilityThresholds = field(default_factory=StabilityThresholds)
     inject_nonfinite_grad_steps: tuple[int, ...] = ()
     inject_nonfinite_param_steps: tuple[int, ...] = ()
+    # Live early stop on would-FAIL conditions (EARLY_STOP_CHECKS); off in the library,
+    # on in labor_r5_acceptance run. Same thresholds and definitions as ``checks()``.
+    early_stop: bool = False
 
     def __post_init__(self) -> None:
         if self.log_every < 1:
@@ -156,6 +169,8 @@ class StabilityConfig:
             "thresholds": self.thresholds.state_dict(),
             "inject_nonfinite_grad_steps": list(self.inject_nonfinite_grad_steps),
             "inject_nonfinite_param_steps": list(self.inject_nonfinite_param_steps),
+            # Recorded only when on: receipts of fits without it are unchanged.
+            **({"early_stop": True} if self.early_stop else {}),
         }
 
     @property
@@ -541,6 +556,70 @@ def overfit_alarm(
     }
 
 
+class ValidationMonitor:
+    """Per-epoch held-out validation losses of a critic fit (monitoring only).
+
+    Each record carries ``epoch``, the epoch's training loss ``train_loss`` (mean of its
+    accepted minibatch losses) and the validation ``total``. The non-gating
+    ``validation_divergence`` alarm fires when the validation total rose on each of the
+    last ``epochs`` epochs while the training loss fell on each of them (strict changes).
+    """
+
+    def __init__(self, epochs: int = VALIDATION_DIVERGENCE_EPOCHS) -> None:
+        if epochs < 1:
+            raise ValueError("validation divergence needs at least one epoch")
+        self.epochs = int(epochs)
+        self.records: list[dict[str, Any]] = []
+        self.alarms: list[dict[str, Any]] = []
+
+    def update(self, record: Mapping[str, Any]) -> dict[str, Any] | None:
+        self.records.append(dict(record))
+        tail = [
+            r
+            for r in self.records
+            if r.get("train_loss") is not None and r.get("total") is not None
+        ][-(self.epochs + 1) :]
+        if len(tail) < self.epochs + 1:
+            return None
+        pairs = list(zip(tail, tail[1:], strict=False))
+        rising = all(b["total"] > a["total"] for a, b in pairs)
+        falling = all(b["train_loss"] < a["train_loss"] for a, b in pairs)
+        if not (rising and falling):
+            return None
+        alarm = {
+            "check": "validation_divergence",
+            "gating": False,
+            "epoch": int(tail[-1]["epoch"]),
+            "epochs": self.epochs,
+            "validation_total": [float(r["total"]) for r in tail],
+            "train_loss": [float(r["train_loss"]) for r in tail],
+        }
+        self.alarms.append(alarm)
+        return alarm
+
+    def report(self) -> dict[str, Any]:
+        return {
+            "gating": False,
+            "rule": f"validation total rose on {self.epochs} consecutive epochs while the "
+            "training loss fell",
+            "epochs": list(self.records),
+            "alarms": list(self.alarms),
+            "status": "FLAG" if self.alarms else "OK",
+        }
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "epochs": self.epochs,
+            "records": _jsonable(self.records),
+            "alarms": _jsonable(self.alarms),
+        }
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        self.epochs = int(state["epochs"])
+        self.records = [dict(r) for r in state["records"]]
+        self.alarms = [dict(a) for a in state["alarms"]]
+
+
 # ---------------------------------------------------------------------------
 # Probe diagnostics
 # ---------------------------------------------------------------------------
@@ -826,6 +905,13 @@ class StabilityMonitor:
         self.epoch_rankings: list[dict[str, Any]] = []
         self.probes: dict[str, Any] = {}
         self.final: dict[str, Any] = {}
+        # Live early stop and non-gating live advisories (validation divergence, the
+        # population tail); their summary keys appear only when used.
+        self.early_stop: dict[str, Any] | None = None
+        self._pending_stop: dict[str, Any] | None = None
+        self.advisories: list[dict[str, Any]] = []
+        self._tail_alarmed = False
+        self.validation: ValidationMonitor | None = None
         self.lr_initial = [float(g["lr"]) for g in optimizer.param_groups]
         self.started = time.time()
         self._jsonl = None
@@ -895,6 +981,42 @@ class StabilityMonitor:
         record = {"step": self.step_index, **alarm}
         self.alarms.append(record)
         self.write({"kind": "alarm", **record})
+        if alarm.get("check") in ("gradient_dominance", "td_divergence"):
+            # Every such alarm is a mandatory FAIL in ``checks()`` (dominance: any detector
+            # alarm; TD: any live alarm of TDDriftMonitor.update).
+            self._request_stop(
+                str(alarm["check"]), str(alarm.get("reason") or alarm["check"]), record
+            )
+
+    def _advisory(self, alarm: Mapping[str, Any]) -> None:
+        """A live, non-gating alarm: logged and listed, never part of ``checks()``."""
+        record = {"step": self.step_index, "gating": False, **alarm}
+        self.advisories.append(record)
+        self.write({"kind": "alarm", **record})
+
+    def _request_stop(self, check: str, reason: str, evidence: Mapping[str, Any]) -> None:
+        if self.config.early_stop and self._pending_stop is None:
+            self._pending_stop = {
+                "check": check,
+                "reason": reason,
+                "step": self.step_index,
+                "evidence": dict(evidence),
+            }
+
+    def _maybe_stop(self) -> None:
+        """Raise :class:`StabilityAbort` once a requested early stop is pending."""
+        if self._pending_stop is None:
+            return
+        self.early_stop = {"stopped_early": True, **self._pending_stop}
+        self._pending_stop = None
+        summary = self.summary()
+        self.write({"kind": "abort", "early_stop": self.early_stop, "summary": summary})
+        self.close()
+        raise StabilityAbort(
+            f"{self.fit}: early stop at step {self.early_stop['step']}: "
+            f"{self.early_stop['check']} ({self.early_stop['reason']})",
+            summary,
+        )
 
     # ---- the guarded step --------------------------------------------------
     def is_log_step(self) -> bool:
@@ -991,6 +1113,15 @@ class StabilityMonitor:
                     f"(K={self.t.max_consecutive_failures}); last {reason}",
                     summary,
                 )
+            if self.rollbacks > self.t.max_total_rollbacks:
+                # The end-of-run finite_updates rule: more than max_total_rollbacks FAILs.
+                self._request_stop(
+                    "finite_updates",
+                    f"rollbacks {self.rollbacks} > max_total_rollbacks "
+                    f"{self.t.max_total_rollbacks}",
+                    event,
+                )
+                self._maybe_stop()
             return False
         self.consecutive = 0
         self.successful_steps += 1
@@ -1038,13 +1169,37 @@ class StabilityMonitor:
                 self._record_diagnostics(extra)
             self.write(record)
         self._snapshot()
+        # After the step is committed and logged: the stopped fit's state is its last step.
+        self._maybe_stop()
         return True
 
     def _record_diagnostics(self, extra: Mapping[str, Any]) -> None:
         if "qol_saturation" in extra and extra["qol_saturation"] is not None:
             self.saturation.append({"step": self.step_index, "share": extra["qol_saturation"]})
         if "population_tail" in extra and extra["population_tail"] is not None:
-            self.population_tail.append({"step": self.step_index, **extra["population_tail"]})
+            tail = extra["population_tail"]
+            self.population_tail.append({"step": self.step_index, **tail})
+            if self.config.early_stop:
+                # Live, non-gating alarm (a user-escalation item, never a stop); the
+                # end-of-run check still judges the final full pass. Alarms on entry only.
+                exceeded = (
+                    float(tail["upper_excess"]) > self.t.upper_excess_alarm
+                    or float(tail["top_bin_mass"]) > self.t.top_bin_mass_alarm
+                )
+                if exceeded and not self._tail_alarmed:
+                    self._advisory(
+                        {
+                            "check": "population_tail",
+                            "live": True,
+                            "upper_excess": float(tail["upper_excess"]),
+                            "top_bin_mass": float(tail["top_bin_mass"]),
+                            "upper_excess_alarm": self.t.upper_excess_alarm,
+                            "top_bin_mass_alarm": self.t.top_bin_mass_alarm,
+                            "note": "minibatch diagnostic; the end-of-run check judges the "
+                            "final full pass",
+                        }
+                    )
+                self._tail_alarmed = exceeded
 
     # ---- fit-level records -------------------------------------------------
     def _new_td(self, weight: float) -> TDDriftMonitor:
@@ -1083,6 +1238,17 @@ class StabilityMonitor:
         self.write({"kind": "td_refresh", **self.td.refreshes[-1]})
         if alarm:
             self._alarm(alarm)
+        self._maybe_stop()
+
+    def record_validation(self, record: Mapping[str, Any]) -> dict[str, Any] | None:
+        """One epoch's held-out validation losses (monitoring only, never gating)."""
+        if self.validation is None:
+            self.validation = ValidationMonitor()
+        alarm = self.validation.update(record)
+        self.write({"kind": "validation", **record})
+        if alarm:
+            self._advisory(alarm)
+        return alarm
 
     def epoch_ranking(
         self, epoch: int, train: float | None, heldout: float | None, **extra: Any
@@ -1130,6 +1296,9 @@ class StabilityMonitor:
                 for name, d in self.detectors.items()
             },
             "lr_initial": list(self.lr_initial),
+            "advisories": _jsonable(self.advisories),
+            "tail_alarmed": self._tail_alarmed,
+            "validation": None if self.validation is None else self.validation.state_dict(),
         }
 
     def load_state_dict(self, state: Mapping[str, Any]) -> None:
@@ -1157,6 +1326,12 @@ class StabilityMonitor:
             detector.dominant_windows = int(saved["dominant_windows"])
         if self.epoch_rankings:
             self.applicable["advantage_overfit"] = True
+        # Resume files written before the live advisories existed lack these keys.
+        self.advisories = list(state.get("advisories") or [])
+        self._tail_alarmed = bool(state.get("tail_alarmed", False))
+        if state.get("validation") is not None:
+            self.validation = ValidationMonitor()
+            self.validation.load_state_dict(state["validation"])
         self._snapshot()
         self.write({"kind": "resumed", "step": self.step_index})
 
@@ -1326,6 +1501,14 @@ class StabilityMonitor:
                 "jsonl": self.config.jsonl,
                 "fault_injection": self.config.fault_injection,
                 "seconds": round(time.time() - self.started, 3),
+                # New fields appear only when used (non-gating, never part of ``checks()``).
+                **({"early_stop": self.early_stop} if self.early_stop is not None else {}),
+                **({"advisories": self.advisories} if self.advisories else {}),
+                **(
+                    {"validation": self.validation.report()}
+                    if self.validation is not None
+                    else {}
+                ),
             }
         )
 
@@ -1347,17 +1530,33 @@ def split_frozen(modules: Mapping[str, nn.Module | None]) -> dict[str, nn.Module
 def stability_config_from_args(
     args: Any, default_jsonl: str | os.PathLike | None = None
 ) -> StabilityConfig | str | None:
-    """CLI helper: ``--no-stability`` / ``--stability-log`` / ``--stability-every``."""
+    """CLI helper: ``--no-stability`` / ``--stability-log`` / ``--stability-every`` /
+    ``--stability-early-stop`` (which, like a log path, enables the monitor explicitly)."""
+    early = bool(getattr(args, "stability_early_stop", False))
     if getattr(args, "no_stability", False):
+        if early:
+            raise ValueError("--stability-early-stop needs the stability monitor")
         return None
     jsonl = getattr(args, "stability_log", None) or default_jsonl
     every = getattr(args, "stability_every", None)
-    if jsonl is None and every is None:
+    if jsonl is None and every is None and not early:
         return "auto"
-    return StabilityConfig(log_every=int(every or 25), jsonl=None if jsonl is None else str(jsonl))
+    return StabilityConfig(
+        log_every=int(every or 25),
+        jsonl=None if jsonl is None else str(jsonl),
+        early_stop=early,
+    )
 
 
 def add_stability_arguments(parser: Any) -> None:
     parser.add_argument("--no-stability", action="store_true", help="disable the stability monitor")
     parser.add_argument("--stability-log", type=Path, default=None, help="stability JSONL path")
     parser.add_argument("--stability-every", type=int, default=None, help="log every N steps (25)")
+    parser.add_argument(
+        "--stability-early-stop",
+        action="store_true",
+        default=False,
+        help="raise StabilityAbort the moment a would-FAIL condition trips (a gradient_dominance "
+        "or td_divergence alarm, or more than max_total_rollbacks rollbacks); the same "
+        "thresholds as the end-of-run checks (off by default)",
+    )

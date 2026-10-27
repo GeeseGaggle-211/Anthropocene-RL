@@ -1506,6 +1506,23 @@ def _critic_stability_kwargs(args: argparse.Namespace, actor: Any) -> dict[str, 
     return kwargs
 
 
+def _load_validation_dataset(args: argparse.Namespace, normalizer: Any, task: Any) -> Any:
+    """``--validation-dataset``: held-out rows for monitoring only, read by the evaluation
+    loader (never the training loader) and never a training --dataset directory."""
+    paths = getattr(args, "validation_dataset", None)
+    if not paths:
+        return None
+    training = {Path(p).resolve() for p in (args.dataset or [])}
+    shared = sorted(str(p) for p in paths if Path(p).resolve() in training)
+    if shared:
+        raise ValueError(f"--validation-dataset repeats training --dataset directories {shared}")
+    from .labor_pretrain_eval import _load_dataset
+
+    return _load_dataset(
+        [Path(p) for p in paths], normalizer, require_privileged=task.privileged_layout is not None
+    )
+
+
 def _write_abort_receipt(out: Path, error: Any) -> None:
     import json
 
@@ -1567,6 +1584,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             allow_curated_scenarios=scenarios,
         )
         worlds = list(teacher["collection"]["world_seeds"])
+        validation = _load_validation_dataset(args, normalizer, task)
         from .labor_stability import StabilityAbort
 
         # Critics move to the device; the frozen actor stays on CPU (not in the graph).
@@ -1593,10 +1611,16 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
                     else {}
                 ),
                 **_critic_stability_kwargs(args, actor),
+                **({} if validation is None else {"validation_dataset": validation}),
             )
         except StabilityAbort as error:
             _write_abort_receipt(args.out, error)
             raise
+        if validation is not None:
+            summary["validation"]["datasets"] = [str(p) for p in args.validation_dataset]
+            summary["validation"]["dataset_digest"] = validation["collection"].get(
+                "dataset_digest"
+            )
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
         if teacher["collection"].get("family_weighting") is not None:
             summary.setdefault("family_weighting", {})["loader_shares"] = teacher["collection"][
@@ -1609,6 +1633,8 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     else:
         if _cost_weight_kwargs(args):
             raise ValueError("--cost-loss-weight is supported only with --dataset")
+        if getattr(args, "validation_dataset", None):
+            raise ValueError("--validation-dataset is supported only with --dataset")
         worlds = require_training_worlds(
             _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
             "labor pretrain-critic",
@@ -2316,6 +2342,15 @@ def argument_parser() -> argparse.ArgumentParser:
         "--max-steps", type=int, default=None, help="stop after N optimizer steps (probes)"
     )
     pretrain_critic.add_argument("--progress", action="store_true", default=False)
+    pretrain_critic.add_argument(
+        "--validation-dataset",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="held-out dataset dir(s) (e.g. the calibration batches 90180-90199) evaluated at "
+        "every epoch end for monitoring only (kind=validation records and the non-gating "
+        "validation_divergence alarm); never training data, the fit is bitwise unchanged",
+    )
     pretrain_critic.set_defaults(handler=_command_pretrain_critic)
 
     collect = commands.add_parser("collect")
