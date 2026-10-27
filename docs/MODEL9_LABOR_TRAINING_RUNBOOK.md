@@ -93,7 +93,10 @@ only comparable at the same support.
 * Campaign r5 (intervention brief 2026-10-26, item 1): new checkpoints use `initialize ...
   --campaign-r5`, which declares `LABOR_CAMPAIGN_R5_VALUE_SUPPORT` = `-0.5,2.5,255`
   (`labor_model.py`). An explicit `--critic-value-support` must agree with it. Without the flag
-  the implicit historical default is unchanged.
+  the implicit historical default is unchanged. With a bounded `--qol-head` it also declares the
+  QoL head scale 2.0 (`LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE`, contract key `qolHeadScale`; head range
+  (0, 2W), user decision 27 Oct); `--qol-head-scale S` overrides it. Checkpoints without the key
+  are the historical (0, W) head and load unchanged. See `docs/LABOR_ADVANTAGE.md`.
 * Existing checkpoint: `labor_critic_support convert --checkpoint in.pt
   --critic-value-support=LOW,HIGH,BINS --out converted.pt` re-initialises only the two task-head
   output layers (seeded, default the optimizer seed) and keeps the task encoder, cost critics,
@@ -335,13 +338,24 @@ bitwise identical to an unmonitored one (tested). The receipt is stored in the f
   steps; user decision 26 Oct) while another contender's loss improves by less than 1% (mean of the
   window's second half against its first half).
 * Bounded QoL saturation (share of pre-activations with |z| > 6, judged on the final full pass,
-  stratified; approved relaxation 26 Oct): low-side rows whose bounded target G/W is below 0.05 are
+  stratified; approved relaxation 26 Oct): low-side rows whose target G/W is below 0.05 are
   expected (no housing/clothing yet) and excluded; the first 5 decisions of each (world, camp,
-  trajectory) fail above 0.20 of unexpected saturation, every other row above 0.05.
+  trajectory) fail above 0.20 of unexpected saturation, every other row above 0.05. The stratum is
+  judged on G/W whatever the head scale (at scale 2 that is p* < 0.025 in head units), so it means
+  the same physical QoL.
 * TD(lambda): per refresh, drift (mean |target change|) and error (mean |prediction - TD target|) in
   units of W. The first refresh (replacing the Monte Carlo return) is recorded but not counted, and the
   next 2 refreshes are warm-up. Live alarm: 3 consecutive rises each above 10% (and above the 1e-3
-  floor), or any target outside [0, W]. End of run: each post-warm-up series must diminish (negative
+  floor), or a hard-check violation (user decision 27 Oct, replacing the flat [0, W] bound, which
+  fired on correct randomized-roulette overshoot): any target below 0 or above its per-row
+  admissible bound U_i (1 + 1e-6) (`targets-outside-admissible-bound`; U_i is the TD(lambda)
+  recursion with the head maximum for every bootstrapped V and max(tail, head maximum) after the
+  last row), a reward outside [0, dt] (`rewards-outside-[0,dt]`), a discount other than
+  exp(-elapsed / tau) (`discount-not-exp(-elapsed/tau)`) or a decoded head value outside its range
+  (`head-outside-range`). Each refresh record carries the counts, `upper_max` and non-gating
+  `diagnostics` (share of rows whose tail exceeds W, max tail / W, clipped targets). Receipts from
+  before the change carry the old reason `targets-outside-[0,W]`, which still FAILs and stops.
+  End of run: each post-warm-up series must diminish (negative
   log slope and final value at most 0.5 x its maximum, or converged below the floor); too few
   refreshes HOLD.
 * Live early stop (`--stability-early-stop`, on `pretrain-critic`, `labor_advantage fit` and

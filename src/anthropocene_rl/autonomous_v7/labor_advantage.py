@@ -1797,6 +1797,203 @@ def qol_td_lambda_targets(
     return target.to(torch.float32)
 
 
+def _qol_trajectories(dataset: Mapping[str, Any]) -> list[list[int]]:
+    """Row indices per (world, camp, row_trajectory), each sorted by ``row_turn``.
+
+    The same keys and order as :func:`qol_td_lambda_targets` and
+    ``labor_bc.discounted_returns``.
+    """
+    from .labor_bc import TRAJECTORY_FIELD
+
+    n = int(dataset["row_world"].shape[0])
+    turns = dataset["row_turn"].reshape(-1).tolist()
+    trajectories = (
+        dataset[TRAJECTORY_FIELD].reshape(-1).tolist()
+        if TRAJECTORY_FIELD in dataset
+        else [-1] * n
+    )
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for index, (world, camp, trajectory) in enumerate(
+        zip(
+            dataset["row_world"].reshape(-1).tolist(),
+            dataset["row_camp"].reshape(-1).tolist(),
+            trajectories,
+            strict=True,
+        )
+    ):
+        groups[(int(world), int(camp), int(trajectory))].append(index)
+    out = []
+    for indices in groups.values():
+        indices.sort(key=lambda i: turns[i])
+        out.append(indices)
+    return out
+
+
+def qol_tail_terms(dataset: Mapping[str, Any], lam: float) -> dict[str, torch.Tensor]:
+    """Per-row tail value and its coefficient in the TD(lambda) QoL target.
+
+    ``tail`` is the trajectory's declared tail (zero without one), ``has_tail`` marks rows
+    of trajectories closed by a terminal-exact or randomized tail and ``coefficient`` is
+    c_i with G_i = (terms without the tail) + c_i * tail: c_last = gamma_last,
+    c_i = lam * gamma_i * c_{i+1}, and zero at or before a terminal row. ``lam = 1``
+    gives the Monte Carlo return's discount from row i to the cutoff state.
+    """
+    from .labor_bc import (
+        CRITIC_DISCOUNT_YEARS,
+        RETURN_TAIL_RANDOMIZED,
+        TAIL_METHOD_FIELD,
+        TAIL_RANDOMIZED,
+        TAIL_TERMINAL_EXACT,
+        TAIL_VALUE_PREFIX,
+        elapsed_years,
+        return_tail_method,
+    )
+
+    n = int(dataset["row_world"].shape[0])
+    coefficient = torch.zeros(n, dtype=torch.float64)
+    tail_value = torch.zeros(n, dtype=torch.float64)
+    has_tail = torch.zeros(n, dtype=torch.bool)
+    if return_tail_method(dataset) != RETURN_TAIL_RANDOMIZED:
+        return {"coefficient": coefficient, "tail": tail_value, "has_tail": has_tail}
+    codes = dataset[TAIL_METHOD_FIELD].reshape(-1).tolist()
+    tails = dataset[TAIL_VALUE_PREFIX + "qol_years"].reshape(-1).double().tolist()
+    elapsed = elapsed_years(dataset).reshape(-1).tolist()
+    terminal = dataset["transition_terminal"].reshape(-1).tolist()
+    for indices in _qol_trajectories(dataset):
+        last = indices[-1]
+        if codes[last] not in (TAIL_TERMINAL_EXACT, TAIL_RANDOMIZED):
+            continue
+        c_next = 1.0
+        for position, i in enumerate(reversed(indices)):
+            gamma = math.exp(-float(elapsed[i]) / CRITIC_DISCOUNT_YEARS)
+            if terminal[i]:
+                c = 0.0
+            elif position == 0:
+                c = gamma  # (1 - lam) tail + lam tail
+            else:
+                c = float(lam) * gamma * c_next
+            coefficient[i] = c
+            tail_value[i] = tails[last]
+            has_tail[i] = True
+            c_next = c
+    return {"coefficient": coefficient, "tail": tail_value, "has_tail": has_tail}
+
+
+def qol_tail_weight(
+    dataset: Mapping[str, Any], target: torch.Tensor, lam: float
+) -> torch.Tensor:
+    """Share of each row's target value carried by the tail: c_i tail_i / G_i in [0, 1]
+    (zero without a tail or at G_i = 0). ``target`` is one G_i per dataset row."""
+    terms = qol_tail_terms(dataset, lam)
+    target = target.reshape(-1).double()
+    part = terms["coefficient"] * terms["tail"]
+    weight = torch.where(target > 0, part / target.clamp_min(1e-300), torch.zeros_like(part))
+    return torch.where(terms["has_tail"], weight.clamp(0.0, 1.0), torch.zeros_like(part))
+
+
+def qol_td_admissibility(
+    dataset: Mapping[str, Any],
+    values: torch.Tensor,
+    lam: float,
+    *,
+    head_max: float,
+    weight: float,
+    discount_years: float,
+    rows: torch.Tensor | None = None,
+    tolerance: float = 1e-6,
+) -> dict[str, Any]:
+    """Per-row admissible upper bound U_i of the TD(lambda) QoL targets, and the bug checks.
+
+    U_i is the backward recursion of :func:`qol_td_lambda_targets` with the head maximum
+    (scale * W) in place of every bootstrapped V and max(tail, head maximum) after the last
+    row: ``U_i = r_i + gamma_i [(1 - lam) V_max + lam U_{i+1}]`` (``U_i = r_i`` at a
+    terminal row). It never falls below the target while rewards, discounts and the head
+    are what they claim to be, and it admits correct randomized-roulette overshoot (single
+    tail estimates above W). Those claims are checked separately: rewards outside
+    [0, elapsed], a recursion discount other than exp(-elapsed / ``discount_years``) (the
+    head's declared tau) and decoded head values outside [0, head maximum], each with
+    relative slack ``tolerance``. ``rows`` restricts the returned bound and every count
+    to those rows (the fit rows); the result is what ``TDDriftMonitor.update`` takes as
+    ``admissibility``. Diagnostics (never gating): rows whose tail exceeds W and the
+    largest tail / W.
+    """
+    from .labor_bc import (
+        CRITIC_DISCOUNT_YEARS,
+        RETURN_TAIL_RANDOMIZED,
+        TAIL_METHOD_FIELD,
+        TAIL_RANDOMIZED,
+        TAIL_TERMINAL_EXACT,
+        TAIL_VALUE_PREFIX,
+        elapsed_years,
+        return_tail_method,
+    )
+
+    if not 0.0 <= float(lam) <= 1.0:
+        raise ValueError("TD lambda must be in [0, 1]")
+    n = int(dataset["row_world"].shape[0])
+    values = values.reshape(-1).double()
+    if int(values.numel()) != n:
+        raise ValueError("TD(lambda) admissibility needs one value per dataset row")
+    head_max, weight, tol = float(head_max), float(weight), float(tolerance)
+    randomized = return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED
+    reward_t = dataset["reward_qol_years"].reshape(-1).double()
+    elapsed_t = elapsed_years(dataset).reshape(-1).double()
+    reward = reward_t.tolist()
+    elapsed = elapsed_t.tolist()
+    terminal = dataset["transition_terminal"].reshape(-1).tolist()
+    tail_t = torch.zeros(n, dtype=torch.float64)
+    has_tail = torch.zeros(n, dtype=torch.bool)
+    if randomized:
+        codes = dataset[TAIL_METHOD_FIELD].reshape(-1).tolist()
+        tails = dataset[TAIL_VALUE_PREFIX + "qol_years"].reshape(-1).double().tolist()
+    upper = torch.zeros(n, dtype=torch.float64)
+    for indices in _qol_trajectories(dataset):
+        last = indices[-1]
+        tail = 0.0
+        if randomized and codes[last] in (TAIL_TERMINAL_EXACT, TAIL_RANDOMIZED):
+            tail = tails[last]
+            for i in indices:
+                tail_t[i] = tail
+                has_tail[i] = True
+        tail_term = max(tail, head_max)
+        u_next, v_next = tail_term, tail_term
+        for i in reversed(indices):
+            gamma = math.exp(-float(elapsed[i]) / CRITIC_DISCOUNT_YEARS)
+            if terminal[i]:
+                u = reward[i]
+            else:
+                u = reward[i] + gamma * ((1.0 - float(lam)) * v_next + float(lam) * u_next)
+            upper[i] = u
+            u_next, v_next = u, head_max
+    select = torch.arange(n) if rows is None else rows.reshape(-1).long()
+    r, dt = reward_t[select], elapsed_t[select]
+    reward_bad = ~torch.isfinite(r) | (r < -tol * dt.abs()) | (r > dt * (1.0 + tol))
+    used = torch.exp(-dt / CRITIC_DISCOUNT_YEARS)
+    declared = torch.exp(-dt / float(discount_years))
+    discount_bad = (
+        ~torch.isfinite(dt) | (dt < 0) | ((used - declared).abs() > tol)
+    )
+    v = values[select]
+    head_bad = ~torch.isfinite(v) | (v < -tol * weight) | (v > head_max * (1.0 + tol))
+    tails_sel = tail_t[select][has_tail[select]]
+    count = int(select.numel())
+    above = int((tails_sel > weight).sum())
+    return {
+        "upper": upper[select],
+        "reward_violations": int(reward_bad.sum()),
+        "discount_violations": int(discount_bad.sum()),
+        "head_violations": int(head_bad.sum()),
+        "diagnostics": {
+            "gating": False,
+            "head_max_over_w": head_max / weight,
+            "tail_rows": int(tails_sel.numel()),
+            "tail_above_w_rows": above,
+            "tail_above_w_share": above / count if count else 0.0,
+            "max_tail_over_w": float(tails_sel.max()) / weight if tails_sel.numel() else None,
+        },
+    }
+
+
 def early_decision_mask(dataset: Mapping[str, Any], early_decisions: int) -> torch.Tensor:
     """Rows among the first ``early_decisions`` decisions of each trajectory.
 
@@ -1860,7 +2057,11 @@ def qol_saturation_report(
         from .labor_stability import saturation_components
 
         report["components"] = saturation_components(
-            z, target_fraction, early, thresholds=thresholds
+            z,
+            target_fraction,
+            early,
+            thresholds=thresholds,
+            head_scale=float(getattr(task_critic.qol_head, "scale", 1.0)),
         )
     return report
 

@@ -872,7 +872,26 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
         "primary_status": combine([c["status"] for c in primary]),
         "secondary_status": combine([c["status"] for c in secondary]),
         # Advisory only: never part of primary/secondary and never changes a verdict.
-        "advisory": [food_trade_advisory(evidence), *validation_advisories(evidence)],
+        "advisory": [
+            food_trade_advisory(evidence),
+            qol_tail_advisory(evidence),
+            *validation_advisories(evidence),
+        ],
+    }
+
+
+def qol_tail_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Advisory, never gating (user decision 27 Oct), reported next to the QoL gates: the
+    per-world roulette tail factor of the calibration targets, the share of rows whose
+    tail exceeds W, the tail's weight in the targets, and the QoL bias on all rows and on
+    rows whose tail weight is at most 0.5 (``labor_pretrain_eval.qol_tail_diagnostics``).
+    Its status is REPORT (never FLAG), or NOT-APPLICABLE without randomized-tail data."""
+    tail = _get(evidence, "calibration", "calibration", "qol_tail")
+    return {
+        "check": "advisory:qol-tail-factor",
+        "gating": False,
+        "status": "NOT-APPLICABLE" if tail is None else "REPORT",
+        **({} if tail is None else {"calibration": tail}),
     }
 
 

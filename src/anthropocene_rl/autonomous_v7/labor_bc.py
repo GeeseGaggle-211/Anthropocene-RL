@@ -2993,7 +2993,7 @@ def pretrain_critic_on_dataset(
 
     def refresh_td_targets(epoch: int) -> None:
         """``epoch`` is the optimizer step at which the refresh happens (0: start)."""
-        from .labor_advantage import qol_td_lambda_targets
+        from .labor_advantage import qol_td_admissibility, qol_td_lambda_targets
 
         refresh_started = time.time()
         previous = task_targets["qol_years"]
@@ -3008,6 +3008,21 @@ def pretrain_critic_on_dataset(
             error = float(
                 (values[kept].double() - task_targets["qol_years"].double()).abs().mean()
             )
+            # Per-row admissible bound and the reward / discount / head-range checks
+            # (user decision 27 Oct; replaces the flat [0, W] bound).
+            admissibility = qol_td_admissibility(
+                dataset,
+                values,
+                qol_head.td_lambda,
+                head_max=qol_head.head_max,
+                weight=qol_head.discount_weight,
+                discount_years=qol_head.discount_years,
+                rows=kept,
+                tolerance=monitor.t.td_bound_tolerance,
+            )
+            admissibility["diagnostics"]["clipped_targets"] = task_critic.qol_clip_count(
+                task_targets["qol_years"]
+            )
             monitor.td_refresh(
                 epoch,
                 previous,
@@ -3016,6 +3031,7 @@ def pretrain_critic_on_dataset(
                 growth_eligible=epoch > 0,
                 error=error,
                 seconds=time.time() - refresh_started,
+                admissibility=admissibility,
             )
 
     td_lambda = qol_head is not None and qol_head.target == "td-lambda"
@@ -3330,6 +3346,13 @@ def pretrain_critic_on_dataset(
             "qol_head": qol_head.state_dict(),
             "qol_saturation_initial": saturation_initial,
             "qol_saturation_final": saturation_summary(),
+            # Targets the loss's guard clamp at scale * W moves (expected zero at scale 2).
+            # Recorded for a widened head only, so historical summaries are unchanged.
+            **(
+                {"qol_clipped_targets": task_critic.qol_clip_count(task_targets["qol_years"])}
+                if qol_head.scale != 1.0
+                else {}
+            ),
         }
     )
     stability_record: dict[str, Any] = {}

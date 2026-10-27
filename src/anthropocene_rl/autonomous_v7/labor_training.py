@@ -57,6 +57,7 @@ from .labor_model import (
     labor_checkpoint_personality,
     labor_log_prob,
     labor_policy_tensors,
+    LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE,
     LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
     LaborValueSupport,
     LaborQoLHead,
@@ -1245,6 +1246,22 @@ def _initialize_value_support(args: argparse.Namespace) -> LaborValueSupport:
     return LABOR_CAMPAIGN_R5_VALUE_SUPPORT
 
 
+def _initialize_qol_head(args: argparse.Namespace) -> LaborQoLHead | None:
+    """Bounded QoL head for a new checkpoint.
+
+    ``--qol-head-scale`` sets the head range in units of W. Without it,
+    ``--campaign-r5`` declares :data:`LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE` (2.0, user
+    decision 27 Oct) for a bounded head, and every other initialization keeps the
+    historical 1.0 (no serialized field, bit-identical checkpoints).
+    """
+    text = getattr(args, "qol_head", None)
+    scale = getattr(args, "qol_head_scale", None)
+    head = LaborQoLHead.parse(text, None if scale is None else float(scale))
+    if head is not None and scale is None and getattr(args, "campaign_r5", False):
+        head = head.with_scale(LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE)
+    return head
+
+
 def _command_initialize(args: argparse.Namespace) -> None:
     source = torch.load(args.normalizer_checkpoint, map_location="cpu", weights_only=True)
     normalizer = load_checkpoint_normalizer(
@@ -1279,7 +1296,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
     task = LaborTaskCritic(
         layout,
         support=_initialize_value_support(args),
-        qol_head=LaborQoLHead.parse(getattr(args, "qol_head", None)),
+        qol_head=_initialize_qol_head(args),
     )
     costs = LaborCostCritics(layout)
     bind_privileged_normalizer(privileged_normalizer, task, costs)
@@ -2158,11 +2175,19 @@ def argument_parser() -> argparse.ArgumentParser:
         "keeps the historical symlog two-hot QoL head",
     )
     initialize.add_argument(
+        "--qol-head-scale",
+        type=float,
+        default=None,
+        help="bounded QoL head range in units of W (V = scale W sigmoid(z)); default 1.0, "
+        "or 2.0 under --campaign-r5; recorded in the contract as qolHeadScale when not 1",
+    )
+    initialize.add_argument(
         "--campaign-r5",
         action="store_true",
         default=False,
         help="declare the campaign-r5 task-critic value support -0.5,2.5,255 "
-        "(LABOR_CAMPAIGN_R5_VALUE_SUPPORT)",
+        "(LABOR_CAMPAIGN_R5_VALUE_SUPPORT) and, with a bounded --qol-head, the QoL head "
+        "scale 2.0 (LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE)",
     )
     initialize.add_argument(
         "--privileged-normalizer",

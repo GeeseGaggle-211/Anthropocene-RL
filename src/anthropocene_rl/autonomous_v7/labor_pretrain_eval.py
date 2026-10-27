@@ -732,6 +732,102 @@ def critic_head_metrics(
     return metrics
 
 
+# Advisory tail-weight cut of the QoL bias diagnostic (user decision 27 Oct, non-gating).
+QOL_TAIL_WEIGHT_CUT = 0.5
+
+
+def tail_schedule_factor(record: Mapping[str, Any] | None, weight: float) -> float | None:
+    """World-level roulette factor of a frozen stop schedule: what a unit-QoL continuation
+    would be estimated at, in units of W.
+
+    The tail estimate is the mean over the schedule's draws of
+    sum_{k <= stop} dt gamma^k r_k / rho^k, so a constant QoL of 1 gets
+    dt * mean_d sum_{k <= stop_d} (gamma / rho)^k. Divided by W it is 1 in expectation;
+    one schedule is shared by every camp of the world, so its realized value scales every
+    camp's tail alike. ``None`` without ``stop_indices``.
+    """
+    from . import contracts
+
+    if not isinstance(record, Mapping) or not record.get("stop_indices"):
+        return None
+    rho = float(record.get("rho", 0.95))
+    ratio = math.exp(-contracts.TURN_YEARS / contracts.HORIZON_YEARS) / rho
+    sums = [sum(ratio**k for k in range(int(stop) + 1)) for stop in record["stop_indices"]]
+    return contracts.TURN_YEARS * (sum(sums) / len(sums)) / float(weight)
+
+
+def qol_tail_diagnostics(
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    pred: np.ndarray,
+    target: np.ndarray,
+    scale: float,
+    weight: float,
+) -> dict[str, Any]:
+    """Per-world tail factor and tail exposure of the QoL calibration targets (advisory).
+
+    Per world: the stop schedule's factor (:func:`tail_schedule_factor`), the share of
+    rows whose tail exceeds W, the largest tail / W and the tail's weight in the
+    (Monte Carlo) targets, c_i tail_i / G_i (``labor_advantage.qol_tail_weight``). The QoL
+    bias (world-balanced, reference-scale units, as the gate) on all rows and on rows
+    whose tail weight is at most 0.5. Never gating.
+    """
+    from .labor_advantage import qol_tail_terms
+
+    rows = np.asarray(rows, dtype=np.int64)
+    terms = qol_tail_terms(dataset, 1.0)
+    coefficient = terms["coefficient"].numpy()[rows]
+    tail = terms["tail"].numpy()[rows]
+    has_tail = terms["has_tail"].numpy()[rows]
+    target = np.asarray(target, dtype=np.float64)
+    pred = np.asarray(pred, dtype=np.float64)
+    part = coefficient * tail
+    tail_weight = np.where(
+        has_tail & (target > 0), np.clip(part / np.where(target > 0, target, 1.0), 0.0, 1.0), 0.0
+    )
+    worlds = _np(dataset, "row_world").reshape(-1)[rows]
+    records = (dataset.get("collection") or {}).get("return_tail_by_world") or {}
+    per_world: dict[str, Any] = {}
+    for world in np.unique(worlds):
+        m = worlds == world
+        t = tail[m & has_tail]
+        per_world[str(int(world))] = {
+            "rows": int(m.sum()),
+            "schedule_factor": tail_schedule_factor(records.get(str(int(world))), weight),
+            "tail_rows": int((m & has_tail).sum()),
+            "tail_above_w_share": float((t > weight).sum() / m.sum()),
+            "max_tail_over_w": float(t.max() / weight) if t.size else None,
+            "tail_weight_mean": float(tail_weight[m].mean()),
+            "tail_weight_max": float(tail_weight[m].max()),
+            "tail_weight_above_cut_share": float((tail_weight[m] > QOL_TAIL_WEIGHT_CUT).mean()),
+        }
+    low = tail_weight <= QOL_TAIL_WEIGHT_CUT
+    everything = np.ones(len(rows), dtype=bool)
+    bias_all = normalized_bias(pred, target, scale, world_balanced(worlds, everything))
+    bias_low = (
+        normalized_bias(pred[low], target[low], scale, world_balanced(worlds[low], low[low]))
+        if low.any()
+        else None
+    )
+    factors = [w["schedule_factor"] for w in per_world.values() if w["schedule_factor"] is not None]
+    return {
+        "gating": False,
+        "weight": float(weight),
+        "tail_weight_cut": QOL_TAIL_WEIGHT_CUT,
+        "tail_weight_definition": "c_i tail_i / G_i of the Monte Carlo target (lambda = 1)",
+        "worlds": per_world,
+        "schedule_factor_range": [min(factors), max(factors)] if factors else None,
+        "tail_above_w_share": float(((tail > weight) & has_tail).mean()) if len(rows) else 0.0,
+        "bias": {
+            "units": "QoL reference scales (as the qol:b gate)",
+            "all": bias_all,
+            "tail_weight_le_cut": bias_low,
+            "rows_all": len(rows),
+            "rows_tail_weight_le_cut": int(low.sum()),
+        },
+    }
+
+
 def critic_dataset_report(
     task: Any,
     costs: Any,
@@ -739,7 +835,12 @@ def critic_dataset_report(
     batch_size: int = 256,
     normalizer: Any = None,
 ) -> dict[str, Any]:
-    from .labor_bc import critic_target_available, discounted_returns, return_tail_method
+    from .labor_bc import (
+        RETURN_TAIL_RANDOMIZED,
+        critic_target_available,
+        discounted_returns,
+        return_tail_method,
+    )
     from .labor_bridge import SPECIALTIES
     from .labor_model import LABOR_COST_REFERENCE_SCALES, LABOR_OBJECTIVE_REFERENCE_SCALES
 
@@ -802,7 +903,24 @@ def critic_dataset_report(
                 )
                 for name, scale in scales.items()
             }
+    tail_record: dict[str, Any] = {}
+    if return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED and len(rows):
+        from .labor_model import labor_qol_discount_weight
+
+        qol_head = getattr(task, "qol_head", None)
+        weight = (
+            labor_qol_discount_weight() if qol_head is None else qol_head.discount_weight
+        )
+        tail_record["qol_tail"] = qol_tail_diagnostics(
+            dataset,
+            rows,
+            preds["qol_years"],
+            returns["qol_years"][rows],
+            LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"],
+            weight,
+        )
     return {
+        **tail_record,
         "by_scenario_family": by_family,
         "rows": len(rows),
         "excluded_quarantined_rows": int(quarantined.sum()),
@@ -935,6 +1053,23 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                     f"mass>max={_fmt(h['upper_mass'], 4)} top-bin={_fmt(h['top_bin_mass'], 5)} "
                     f"decoded>max={_fmt(h['upper_contribution'])} excess={_fmt(h['upper_excess'])}"
                 )
+    for label in ("calibration", "fitting"):
+        tail = (report.get(label) or {}).get("qol_tail")
+        if not tail:
+            continue
+        b = tail["bias"]
+        lines.append(
+            f"  qol tail [{label}] (advisory) factor={tail['schedule_factor_range']} "
+            f"tail>W={_fmt(tail['tail_above_w_share'], 4)} bias all={_fmt(b['all'])} "
+            f"tail-weight<={tail['tail_weight_cut']}={_fmt(b['tail_weight_le_cut'])}"
+        )
+        for world, w in tail["worlds"].items():
+            lines.append(
+                f"    world {world} factor={_fmt(w['schedule_factor'])} "
+                f"tail>W={_fmt(w['tail_above_w_share'], 4)} "
+                f"max tail/W={_fmt(w['max_tail_over_w'])} "
+                f"tail weight mean={_fmt(w['tail_weight_mean'])}"
+            )
     for name, gap in (report.get("generalisation_gap") or {}).items():
         lines.append(
             f"  gap {name:<17} nMAE={_fmt(gap['nmae_cal_minus_fit'])} bias={_fmt(gap['bias_cal_minus_fit'])} "

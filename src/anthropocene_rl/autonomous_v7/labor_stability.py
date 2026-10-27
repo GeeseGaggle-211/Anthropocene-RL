@@ -67,7 +67,10 @@ STATUSES = ("PASS", "FAIL", "HOLD", "NOT_APPLICABLE")
 # Live early stop (``StabilityConfig.early_stop``): conditions that are already a mandatory
 # FAIL under the end-of-run judgement stop the fit the moment they trip, under the check id
 # ``checks()`` FAILs for them: a gradient_dominance alarm, a live td_divergence alarm
-# (growth after warm-up or a target outside [0, W]) and more than max_total_rollbacks
+# (growth after warm-up, a target outside its per-row admissible bound, a reward outside
+# [0, dt], a discount other than exp(-elapsed / tau) or a decoded head value outside its
+# range; receipts written before 27 Oct carry the flat ``targets-outside-[0,W]`` reason,
+# which still stops and FAILs) and more than max_total_rollbacks
 # rollbacks (finite_updates). QoL saturation and the population tail stay end-of-run
 # judgements; the population tail adds a live, non-gating alarm.
 EARLY_STOP_CHECKS = ("gradient_dominance", "td_divergence", "finite_updates")
@@ -114,7 +117,7 @@ class StabilityThresholds:
     td_warmup_refreshes: int = 2  # refreshes ignored while drift and error may be large
     td_final_ratio: float = 0.5  # final value at most this x the post-warm-up maximum
     td_drift_floor: float = 1e-3  # values (fraction of W) below this count as converged
-    td_bound_tolerance: float = 1e-6  # hard [0, W] bound slack, relative to W
+    td_bound_tolerance: float = 1e-6  # hard target-bound slack (relative), see TDDriftMonitor
     # 5. Population head decoded tail (reference-scale units; 10% of the 0.10 bias allowance).
     upper_excess_alarm: float = 0.01
     top_bin_mass_alarm: float = 1e-3
@@ -338,6 +341,22 @@ def trajectory_report(series: Sequence[float], *, ratio: float, floor: float) ->
     return report
 
 
+# Live td_divergence reasons of the hard checks, in the order they are reported (the
+# first violated one names the alarm; every count is in the record).
+TD_REASON_FLAT_BOUND = "targets-outside-[0,W]"  # historical; callers without a bound
+TD_REASON_REWARD = "rewards-outside-[0,dt]"
+TD_REASON_DISCOUNT = "discount-not-exp(-elapsed/tau)"
+TD_REASON_HEAD_RANGE = "head-outside-range"
+TD_REASON_ADMISSIBLE = "targets-outside-admissible-bound"
+TD_HARD_REASONS = (
+    TD_REASON_FLAT_BOUND,
+    TD_REASON_REWARD,
+    TD_REASON_DISCOUNT,
+    TD_REASON_HEAD_RANGE,
+    TD_REASON_ADMISSIBLE,
+)
+
+
 class TDDriftMonitor:
     """TD(lambda) target drift and error trajectory checks.
 
@@ -345,8 +364,21 @@ class TDDriftMonitor:
     the fit rows) are in units of the discount weight W. Rules (approved trajectory rule,
     user 26 Oct): the first ``warmup`` refreshes are ignored; afterwards each series must
     diminish (see :func:`trajectory_report`); a divergence alarm fires on ``growth``
-    consecutive increases each larger than ``increase``; any bootstrapped target outside
-    [0, W] by more than ``tolerance * W`` alarms at once (QoL cannot leave that range).
+    consecutive increases each larger than ``increase``.
+
+    Hard bound (user decision 27 Oct). With ``admissibility`` (from
+    ``labor_advantage.qol_td_admissibility``) every target must lie in [0, U_i], where
+    U_i is the same backward TD(lambda) recursion as the target with the head's maximum
+    for every bootstrapped V and max(tail, head maximum) for the tail after the last row;
+    a target below ``-tolerance * W`` or above ``U_i (1 + tolerance)`` alarms at once
+    (``targets-outside-admissible-bound``). The randomized-roulette tail is unbiased but
+    unbounded (weights gamma / rho > 1), so a flat [0, W] bound fired on correct
+    estimator noise; the per-row bound admits it, while the real bugs still alarm through
+    the same record: a reward outside [0, dt], a discount other than exp(-elapsed / tau)
+    and a decoded head value outside its range. The share of rows whose tail exceeds W
+    and the largest tail / W are recorded as diagnostics, never gating. Without
+    ``admissibility`` (historical callers) the flat [0, W] check runs unchanged under its
+    original reason ``targets-outside-[0,W]``.
     """
 
     def __init__(
@@ -387,15 +419,34 @@ class TDDriftMonitor:
         growth_eligible: bool = True,
         error: float | None = None,
         seconds: float | None = None,
+        admissibility: Mapping[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """``growth_eligible=False`` records a refresh (e.g. the first one against the
         Monte Carlo return) without counting it toward the trajectory. ``error`` is the
-        mean |prediction - TD target| on the fit rows, in the same units as the targets."""
+        mean |prediction - TD target| on the fit rows, in the same units as the targets.
+        ``admissibility`` selects the per-row admissible bound (see the class docstring):
+        ``upper`` (one U_i per target row), the violation counts ``reward_violations``,
+        ``discount_violations`` and ``head_violations``, and optional ``diagnostics``."""
         current = current.detach().double().reshape(-1)
         low = float(current.min()) if current.numel() else 0.0
         high = float(current.max()) if current.numel() else 0.0
         slack = self.tolerance * self.weight
-        out_of_bounds = int(((current < -slack) | (current > self.weight + slack)).sum())
+        violations: dict[str, int] = {}
+        if admissibility is None:
+            out_of_bounds = int(((current < -slack) | (current > self.weight + slack)).sum())
+        else:
+            upper = torch.as_tensor(admissibility["upper"]).detach().double().reshape(-1)
+            if upper.shape != current.shape:
+                raise ValueError("admissible bound needs one U_i per TD target row")
+            out_of_bounds = int(
+                ((current < -slack) | (current > upper * (1.0 + self.tolerance))).sum()
+            )
+            violations = {
+                TD_REASON_REWARD: int(admissibility.get("reward_violations", 0)),
+                TD_REASON_DISCOUNT: int(admissibility.get("discount_violations", 0)),
+                TD_REASON_HEAD_RANGE: int(admissibility.get("head_violations", 0)),
+                TD_REASON_ADMISSIBLE: out_of_bounds,
+            }
         record: dict[str, Any] = {
             "epoch": int(epoch),
             "target_min": low,
@@ -406,6 +457,14 @@ class TDDriftMonitor:
             "error": None if error is None else float(error) / self.weight,
             "growth_eligible": bool(growth_eligible),
         }
+        if admissibility is not None:
+            record["bound"] = "admissible"
+            record["upper_max"] = float(upper.max()) / self.weight if upper.numel() else 0.0
+            record["reward_violations"] = violations[TD_REASON_REWARD]
+            record["discount_violations"] = violations[TD_REASON_DISCOUNT]
+            record["head_violations"] = violations[TD_REASON_HEAD_RANGE]
+            if admissibility.get("diagnostics") is not None:
+                record["diagnostics"] = dict(admissibility["diagnostics"])
         if seconds is not None:
             record["refresh_seconds"] = float(seconds)
         if previous is not None:
@@ -414,8 +473,14 @@ class TDDriftMonitor:
             record["drift_max"] = float(change.max()) / self.weight if change.numel() else 0.0
         self.refreshes.append(record)
         alarm = None
-        if out_of_bounds:
-            alarm = {"check": "td_divergence", "reason": "targets-outside-[0,W]", **record}
+        if admissibility is None:
+            if out_of_bounds:
+                alarm = {"check": "td_divergence", "reason": TD_REASON_FLAT_BOUND, **record}
+        else:
+            for reason, count in violations.items():
+                if count:
+                    alarm = {"check": "td_divergence", "reason": reason, **record}
+                    break
         if alarm is None:
             for key in ("drift", "error"):
                 tail = self._series(key)[-(self.growth + 1) :]
@@ -476,14 +541,23 @@ def saturation_components(
     *,
     saz_threshold: float = 6.0,
     thresholds: StabilityThresholds | None = None,
+    head_scale: float = 1.0,
 ) -> dict[str, Any]:
     """Stratified saturation shares for the bounded QoL head.
 
-    ``z`` are pre-activations, ``target_fraction`` the bounded target G/W per row and
-    ``early`` a boolean early-stratum mask. A low-side row (z < -6) with target fraction
-    below the expected-low bound is expected and excluded from the unexpected share. The
-    alarm fires if either stratum's unexpected share exceeds its threshold. Stratum shares
-    are fractions of that stratum's rows; the others are fractions of all rows.
+    ``z`` are pre-activations, ``target_fraction`` the target G/W per row (always in
+    units of W, whatever the head range) and ``early`` a boolean early-stratum mask. A
+    low-side row (z < -6) with target fraction below the expected-low bound is expected
+    and excluded from the unexpected share. The alarm fires if either stratum's
+    unexpected share exceeds its threshold. Stratum shares are fractions of that
+    stratum's rows; the others are fractions of all rows.
+
+    Head scale (27 Oct). A head of range (0, s W) fits p* = G / (s W); the expected-low
+    rule is a statement about physical QoL (G < 0.05 W: no housing or clothing yet), so
+    it is applied to G/W unchanged, which is p* < 0.05 / s in head units. The |z| > 6
+    definition is frozen r5 text and is kept as is: at s = 2 a low-saturated row decodes
+    below 2 sigmoid(-6) W = 0.0049 W (0.0025 W at s = 1), still far inside the
+    expected-low stratum. ``head_scale`` other than 1 is recorded in the report.
     """
     import torch
 
@@ -524,6 +598,15 @@ def saturation_components(
         "threshold_rest": th.saturation_alarm,
         "expected_low_target_fraction": th.saturation_expected_low_target_fraction,
         "early_decisions": th.saturation_early_decisions,
+        **(
+            {
+                "head_scale": float(head_scale),
+                "expected_low_head_fraction": th.saturation_expected_low_target_fraction
+                / float(head_scale),
+            }
+            if float(head_scale) != 1.0
+            else {}
+        ),
         "alarm": bool(
             early_unexpected > th.saturation_alarm_early
             or rest_unexpected > th.saturation_alarm
@@ -1223,6 +1306,7 @@ class StabilityMonitor:
         growth_eligible: bool = True,
         error: float | None = None,
         seconds: float | None = None,
+        admissibility: Mapping[str, Any] | None = None,
     ) -> None:
         if self.td is None:
             self.td = self._new_td(weight)
@@ -1234,6 +1318,7 @@ class StabilityMonitor:
             growth_eligible=growth_eligible,
             error=error,
             seconds=seconds,
+            admissibility=admissibility,
         )
         self.write({"kind": "td_refresh", **self.td.refreshes[-1]})
         if alarm:

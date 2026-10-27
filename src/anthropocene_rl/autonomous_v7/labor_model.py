@@ -190,6 +190,15 @@ LABOR_QOL_HEAD_OUTPUTS = ("logistic", "silu-clamp")
 LABOR_QOL_HEAD_TARGETS = ("monte-carlo", "td-lambda")
 LABOR_QOL_DISCOUNT_WEIGHT = "infinite-horizon-geometric-unit-qol-stream"
 LABOR_QOL_SATURATION_THRESHOLD = 6.0
+# Head range in units of W (user decision 27 Oct): the head decodes V = scale * W *
+# sigmoid(z), so its range is (0, scale * W). Closed QoL-years returns lie in [0, W], but
+# the randomized-roulette tail is unbiased and unbounded (weights gamma / rho > 1), so
+# single targets exceed W; a range of 2W fits them without clamping. Serialized only when
+# it differs from 1.0: an absent field is the historical (0, W) head, so every existing
+# checkpoint loads, saves and behaves exactly as before. Calibration metrics, TD residual
+# reference scales and the gates stay in units of W whatever the scale.
+LABOR_QOL_HEAD_SCALE_FIELD = "qolHeadScale"
+LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE = 2.0
 
 
 def labor_qol_discount_weight(
@@ -213,13 +222,17 @@ def labor_qol_discount_weight(
 class LaborQoLHead:
     """Declared bounded QoL head: output map, fit target and discount weight.
 
-    ``output`` ``logistic`` (default) predicts m = sigmoid(z) and is fitted with
-    a Bernoulli cross entropy against m* = clamp(G / W, 0, 1). ``silu-clamp`` is
-    the selectable fallback: m = clamp(silu(z), 0, 1) at decode, fitted by the
-    squared error of the unclamped silu(z), so its gradient does not vanish
-    where a logistic would saturate. ``target`` ``monte-carlo`` (default) is the
-    existing randomized-tail return; ``td-lambda`` bootstraps through this head
-    with ``td_lambda`` (pending a user decision; never the default).
+    ``output`` ``logistic`` (default) predicts m = scale * sigmoid(z) and is fitted
+    with a Bernoulli cross entropy against p* = clamp(G / (scale W), 0, 1).
+    ``silu-clamp`` is the selectable fallback: m = scale * clamp(silu(z), 0, 1) at
+    decode, fitted by the squared error of the unclamped silu(z) against p*, so its
+    gradient does not vanish where a logistic would saturate. ``target``
+    ``monte-carlo`` (default) is the existing randomized-tail return; ``td-lambda``
+    bootstraps through this head with ``td_lambda``.
+
+    ``scale`` (default 1.0, the historical head) is the head range in units of W:
+    m is in (0, scale) and the decoded value m * W in (0, scale * W). It is
+    serialized as ``qolHeadScale`` only when it differs from 1.0.
     """
 
     output: str = "logistic"
@@ -227,8 +240,13 @@ class LaborQoLHead:
     td_lambda: float = 0.8
     turn_years: float = contracts.TURN_YEARS
     discount_years: float = contracts.HORIZON_YEARS
+    scale: float = 1.0
 
     def __post_init__(self) -> None:
+        scale = _finite_number(self.scale, "QoL head scale")
+        if scale < 1.0:
+            raise ValueError("QoL head scale must be at least 1 (the range must cover [0, W])")
+        object.__setattr__(self, "scale", scale)
         if self.output not in LABOR_QOL_HEAD_OUTPUTS:
             raise ValueError(f"QoL head output must be one of {LABOR_QOL_HEAD_OUTPUTS}")
         if self.target not in LABOR_QOL_HEAD_TARGETS:
@@ -247,8 +265,20 @@ class LaborQoLHead:
     def discount_weight(self) -> float:
         return labor_qol_discount_weight(self.turn_years, self.discount_years)
 
+    @property
+    def head_max(self) -> float:
+        """Upper end of the decoded range, scale * W (QoL-years)."""
+        weight = self.discount_weight
+        return weight if self.scale == 1.0 else self.scale * weight
+
+    def with_scale(self, scale: float) -> LaborQoLHead:
+        return LaborQoLHead(
+            self.output, self.target, self.td_lambda, self.turn_years, self.discount_years,
+            float(scale),
+        )
+
     def state_dict(self) -> dict[str, Any]:
-        return {
+        state = {
             "version": LABOR_QOL_HEAD_VERSION,
             "objective": "qol_years",
             "prediction": "discounted-mean-qol-in-unit-interval",
@@ -263,6 +293,9 @@ class LaborQoLHead:
             },
             "saturationThreshold": LABOR_QOL_SATURATION_THRESHOLD,
         }
+        if self.scale != 1.0:
+            state[LABOR_QOL_HEAD_SCALE_FIELD] = self.scale
+        return state
 
     @classmethod
     def from_state(cls, state: Mapping[str, Any] | None) -> LaborQoLHead | None:
@@ -279,15 +312,22 @@ class LaborQoLHead:
             float(state["tdLambda"]),
             float(weight["turnYears"]),
             float(weight["discountYears"]),
+            float(state.get(LABOR_QOL_HEAD_SCALE_FIELD, 1.0)),
         )
         if head.state_dict() != dict(state):
             raise ValueError("labor QoL head record is not canonical")
         return head
 
     @classmethod
-    def parse(cls, text: str | None) -> LaborQoLHead | None:
-        """``two-hot`` or ``None``: the historical head; else ``OUTPUT[,TARGET[,LAMBDA]]``."""
+    def parse(cls, text: str | None, scale: float | None = None) -> LaborQoLHead | None:
+        """``two-hot`` or ``None``: the historical head; else ``OUTPUT[,TARGET[,LAMBDA]]``.
+
+        ``scale`` (``--qol-head-scale``) sets the head range in units of W; ``None``
+        keeps the historical 1.0. A scale without a bounded head is rejected.
+        """
         if text is None or str(text).strip() in ("", "two-hot"):
+            if scale is not None:
+                raise ValueError("a QoL head scale needs a bounded QoL head (--qol-head)")
             return None
         parts = [part.strip() for part in str(text).split(",")]
         if len(parts) > 3:
@@ -295,7 +335,8 @@ class LaborQoLHead:
         output = parts[0]
         target = parts[1] if len(parts) > 1 else "monte-carlo"
         lam = float(parts[2]) if len(parts) > 2 else 0.8
-        return cls(output, target, lam)
+        head = cls(output, target, lam)
+        return head if scale is None else head.with_scale(scale)
 
 
 @dataclass(frozen=True)
@@ -1433,13 +1474,30 @@ class LaborTaskCritic(nn.Module):
             )
 
     def bounded_mean(self, logits: torch.Tensor) -> torch.Tensor:
-        """Decoded discounted-mean QoL m in [0, 1] from the bounded head's pre-activation."""
+        """Decoded discounted-mean QoL m in [0, scale] (units of W) from the pre-activation.
+
+        The historical head (scale 1.0) runs the original operations unchanged.
+        """
         if self.qol_head is None:
             raise ValueError("this task critic has no bounded QoL head")
         z = logits.squeeze(-1)
         if self.qol_head.output == "logistic":
-            return torch.sigmoid(z)
-        return torch.nn.functional.silu(z).clamp(0.0, 1.0)
+            unit = torch.sigmoid(z)
+        else:
+            unit = torch.nn.functional.silu(z).clamp(0.0, 1.0)
+        scale = self.qol_head.scale
+        return unit if scale == 1.0 else unit * scale
+
+    def qol_clip_count(
+        self, target: torch.Tensor, weight: torch.Tensor | float | None = None
+    ) -> int:
+        """Targets the loss's guard clamp would move: outside [0, scale * W]."""
+        if self.qol_head is None:
+            raise ValueError("this task critic has no bounded QoL head")
+        w = self.qol_head.discount_weight if weight is None else weight
+        top = w if self.qol_head.scale == 1.0 else w * self.qol_head.scale
+        target = target.detach()
+        return int(((target < 0.0) | (target > top)).sum())
 
     def qol_saturation(self, logits: torch.Tensor) -> float:
         """Share of bounded-head pre-activations with |z| > 6 (saturation monitor)."""
@@ -1462,7 +1520,9 @@ class LaborTaskCritic(nn.Module):
         Distributional heads: the historical two-hot cross entropy (identical
         operations, so identical values). Bounded QoL: Bernoulli cross entropy
         (logistic) or squared error of the unclamped SiLU (fallback) against
-        m* = clamp(G / W, 0, 1); ``weight`` overrides the declared W per row.
+        p* = clamp(G / (scale W), 0, 1); ``weight`` overrides the declared W per row.
+        The clamp is a guard only: with scale 2 no current target reaches it
+        (:meth:`qol_clip_count` reports any that would).
         """
         if not self.is_bounded(objective):
             return -(self.two_hot(objective, target) * torch.log_softmax(logits, dim=-1)).sum(
@@ -1473,6 +1533,8 @@ class LaborTaskCritic(nn.Module):
         if not torch.isfinite(target).all():
             raise ValueError("labor objective targets must be a finite vector")
         w = self.qol_head.discount_weight if weight is None else weight
+        if self.qol_head.scale != 1.0:
+            w = w * self.qol_head.scale
         mean = (target / w).clamp(0.0, 1.0).to(logits.dtype)
         z = logits.squeeze(-1)
         if z.shape != mean.shape:

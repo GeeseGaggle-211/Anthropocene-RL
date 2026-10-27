@@ -88,3 +88,31 @@ Targets: the existing randomized-tail Monte Carlo return (default) or TD(λ) thr
 (`logistic,td-lambda,0.8`; pending user decision). Every fit reports the saturation monitor (share of
 |z| > 6) at start and end. Select it with `labor_training initialize --qol-head logistic`. Checkpoints
 without the field load and save unchanged (tested against the base commit's module).
+
+**Head scale (user decision 27 Oct).** Closed returns lie in [0, W], but the randomized-roulette tail
+is unbiased and unbounded: its weights are γ/ρ = 1.0013 > 1, so single tail estimates exceed W (up to
+1.54 W in fit8-b04 world 90129), and a (0, W) head silently clamped them, biasing high-QoL worlds
+down. The head now carries a range in units of W, `scale` (contract key `qolHeadScale`, serialized
+only when it is not 1.0): `V = scale W sigmoid(z)` (SiLU fallback: `scale W clamp(silu(z), 0, 1)`),
+fitted against `p* = clamp(G / (scale W), 0, 1)`. The clamp remains as a guard; the fit summary
+(`qol_clipped_targets`) and every TD refresh (`diagnostics.clipped_targets`) count the targets it
+would move, zero on current data at scale 2. `initialize --campaign-r5` with a bounded `--qol-head`
+declares scale 2.0 (`LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE`); `--qol-head-scale S` overrides it. An absent
+field is scale 1.0, the historical head, bit for bit (checkpoint bytes, decode and loss), so every
+old checkpoint loads and behaves exactly as before; a scale mismatch is a different contract and is
+refused at load. Calibration metrics (nMAE, bias), the TD residual reference scales and the gates
+stay in their units (W and the QoL reference scale); only the head's internal range changes.
+
+Saturation keeps |z| > 6 (frozen r5 text). The expected-low stratum is a physical statement (G < 0.05 W:
+no housing or clothing yet), so it is still applied to G/W, which at scale 2 is `p* < 0.025` in head
+units; a low-saturated row decodes below `2 sigmoid(-6) W = 0.0049 W` (0.0025 W at scale 1), still far
+inside that stratum. Reports of a widened head record `head_scale` and `expected_low_head_fraction`.
+
+**Tail-factor diagnostic (advisory).** One frozen stop schedule per world is shared by all its camps,
+so a world's tails move together. `critic-calibration` reports (and the r5 acceptance receipt, as
+`advisory:qol-tail-factor` next to the QoL gates) give per world the schedule factor
+`20 mean_d sum_{k <= stop_d} (γ/ρ)^k / W` (from `stop_indices` in the meta's `return_tail_record`; 1 in
+expectation, 0.61-1.67 on the pilot data), the share of rows whose tail exceeds W, and the tail's weight
+in the Monte Carlo targets `c_i tail / G_i` (`c_i` the discount from the row to the cutoff). The QoL
+bias is given on all rows and on rows whose tail weight is at most 0.5. Never gating; its status is
+REPORT.
