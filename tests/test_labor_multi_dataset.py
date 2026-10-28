@@ -335,3 +335,28 @@ def test_acceptance_cli_takes_several_fit_and_calibration_datasets() -> None:
     script = (ra.REPOSITORY / "tools" / "r5_critic_acceptance.sh").read_text(encoding="utf-8")
     assert 'split_list "$FIT_DATA" fit_data' in script
     assert '--calibration-data "${cal_data[@]}"' in script
+
+
+def test_shard_arrays_load_memory_mapped_with_the_stored_values(tmp_path) -> None:
+    import numpy as np
+
+    from anthropocene_rl.autonomous_v7.labor_teacher_data import load_shard_array
+
+    stored = {
+        "f32.npy": np.arange(24, dtype=np.float32).reshape(4, 6) / 7.0,
+        "i64.npy": np.arange(5, dtype=np.int64) - 2,
+        "mask.npy": np.array([[True, False], [False, True]]),
+        "empty.npy": np.zeros((0, 3), dtype=np.float32),
+    }
+    for name, array in stored.items():
+        np.save(tmp_path / name, array, allow_pickle=False)
+    for name, array in stored.items():
+        loaded = load_shard_array(tmp_path / name)
+        assert loaded.dtype == array.dtype and loaded.shape == array.shape
+        assert np.array_equal(loaded, array)
+        if array.size:
+            assert isinstance(loaded, np.memmap) and loaded.flags.writeable
+            tensor = torch.cat([torch.from_numpy(loaded)])  # the loaders' copy
+            assert torch.equal(tensor, torch.from_numpy(array))
+            del tensor
+        del loaded

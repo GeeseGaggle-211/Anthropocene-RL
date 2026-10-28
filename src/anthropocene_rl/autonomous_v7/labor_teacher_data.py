@@ -156,6 +156,21 @@ def _payload(directory: Path) -> dict[str, Any]:
     return out
 
 
+def load_shard_array(path: Path) -> np.ndarray:
+    """One stored shard array for a loader that concatenates it into a new tensor.
+
+    Memory-mapped copy-on-write: the file's pages are read on demand as clean,
+    reclaimable page cache, so concatenating many shards holds about one copy of the
+    data in anonymous memory instead of two (the per-shard arrays plus the result).
+    The values are the stored values; the caller's ``torch.cat`` always copies, so no
+    returned tensor stays backed by the file. Empty arrays are read normally."""
+    try:
+        array = np.load(path, allow_pickle=False, mmap_mode="c")
+    except ValueError:  # zero-length data segment
+        return np.load(path, allow_pickle=False)
+    return array if array.size else np.load(path, allow_pickle=False)
+
+
 def write_shard(directory: Path, arrays: Mapping[str, np.ndarray], meta: Mapping[str, Any]) -> dict:
     """Arrays first, meta.json last; an existing directory is never reused."""
     scan(dict(meta))
@@ -515,7 +530,7 @@ def load_labor_dataset(
             key = name[: -len(".npy")]
             if is_privileged_key(key) and not keep_privileged:
                 continue  # actor-only load of a partly privileged dataset
-            array = np.load(shard / name, allow_pickle=False)
+            array = load_shard_array(shard / name)
             # Shards published before the rename store elapsed YEARS under the misnamed
             # legacy key; the values are already years and are kept unchanged.
             if key == LEGACY_ELAPSED_DAYS_FIELD:
@@ -680,7 +695,7 @@ def merge_labor_datasets(
             key = name[: -len(".npy")]
             if is_privileged_key(key) and not keep_privileged:
                 continue  # actor-only load of a partly privileged dataset
-            array = np.load(shard / name, allow_pickle=False)
+            array = load_shard_array(shard / name)
             if key == LEGACY_ELAPSED_DAYS_FIELD:
                 key = ELAPSED_YEARS_FIELD
             tensors[key].append(torch.from_numpy(array))
