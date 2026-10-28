@@ -427,9 +427,10 @@ class Scheduler:
             search = [t for t in self.tasks if t.kind == "search"]
             reserved = [t for t in search if t.key.startswith("search:reserved-h12/")]
             fit = [t for t in search if t.key.startswith("search:fit-h12/")]
-            # Phase 1: the reserved worlds plus two fitting passes (8 of 16 roots per world
-            # with the default splits): enough for a first A fit and gate (d).
-            first_pass = [t for t in fit if t.priority[1] in (0, 1)]
+            # Phase 1: the reserved worlds plus the first half of the fitting passes (8 of 16
+            # roots per world with the default splits): enough for a first A fit and gate (d).
+            half = max(1, len(splits(self.args.fit_splits)) // 2)
+            first_pass = [t for t in fit if t.priority[1] < half]
             self.milestone("RESERVED_H12_DONE", bool(reserved) and all(t.done() for t in reserved))
             self.milestone(
                 "PHASE1_DONE",
@@ -479,7 +480,7 @@ def main() -> int:
                                         "gs://anthropocene-rl-datasets-508912/model9/r5/scaleout"))
     p.add_argument("--fit-worlds", default=env("FIT_WORLDS", "90100-90153,90160-90165"))
     p.add_argument("--reserved-worlds", default=env("RESERVED_WORLDS", "90154-90159"))
-    p.add_argument("--fit-splits", default=env("FIT_SPLITS", "0:13:4 13:25:4 25:38:4 38:50:4"))
+    p.add_argument("--fit-splits", default=env("FIT_SPLITS", "0:25:8 25:50:8"))
     p.add_argument("--reserved-splits",
                    default=env("RESERVED_SPLITS", "0:13:8 13:25:8 25:38:8 38:50:8"))
     p.add_argument("--candidates", type=int, default=int(env("CANDIDATES", "14")))

@@ -79,13 +79,40 @@ require_file "$NORMALIZER" "r5 actor normalizer"
 [ "$(sha256_of "$NORMALIZER")" = "$ACTOR_NORMALIZER_SHA256" ] || die "actor normalizer sha256 mismatch"
 help_text=$("$PY" -m anthropocene_rl.autonomous_v7.labor_search --help < /dev/null 2>&1 || true)
 case "$help_text" in
-  *--plan-fraction*) ;;
-  *) die "learner checkout lacks labor_search --plan-fraction (needs ops/r5-scaleout eb93ff3 or later)" ;;
+  *--checkpoint-keep*) ;;
+  *) die "learner checkout lacks labor_search root-level resume (needs ops/r5-scaleout 71782ee or later)" ;;
 esac
 [ -z "$(git -C "$CODE" status --porcelain 2> /dev/null)" ] || die "learner checkout is dirty: search refuses non-production identities"
 free_gb=$(disk_free_gb "$WORK")
 [ "$free_gb" -ge "${MIN_DISK_GB:-40}" ] || die "only ${free_gb} GB free under $WORK"
-log "learner $(git -C "$CODE" rev-parse --short HEAD) disk ${free_gb} GB free MemAvailable $(mem_available_gb) GB nproc $(nproc)"
+HEAD_SHA=$(git -C "$CODE" rev-parse HEAD)
+log "learner ${HEAD_SHA:0:7} disk ${free_gb} GB free MemAvailable $(mem_available_gb) GB nproc $(nproc)"
+
+# Spot (user 28 Oct, Q4): search runs on Spot now that it resumes per decision. The switch
+# needs the VM stopped, so it is done from the operator's machine (cpu_spot.sh); here we only
+# refuse to start search on an on-demand VM (REQUIRE_SPOT=0 overrides, e.g. for the selftest).
+md() { curl -s -m 5 -H "Metadata-Flavor: Google" "http://metadata.google.internal/computeMetadata/v1/instance/scheduling/$1" 2> /dev/null || true; }
+provisioning="$(md provisioning-model)"; preemptible="$(md preemptible)"
+log "scheduling: provisioning-model=${provisioning:-?} preemptible=${preemptible:-?}"
+if [ "${REQUIRE_SPOT:-1}" = "1" ] && [ "$provisioning" != "SPOT" ] && [ "$preemptible" != "TRUE" ]; then
+  die "the VM is not Spot: stop it and run ops/r5/scaleout/cpu_spot.sh from the operator machine (README C1b), or set REQUIRE_SPOT=0"
+fi
+
+# Bitwise kill/resume gate of the search on this VM's bridge, once per learner commit
+# (tests/test_labor_search_resume_live.py; ~30-60 min at 4 players). RESUME_SELFTEST=0 skips.
+if [ "${RESUME_SELFTEST:-1}" = "1" ] && [ "$(cat "$WORK/RESUME_SELFTEST_PASSED" 2> /dev/null)" != "$HEAD_SHA" ]; then
+  log "search kill/resume selftest (live, bitwise)"
+  if (cd "$CODE" && timeout 7200 "$PY" -m pytest -q -rs -p no:cacheprovider tests/test_labor_search_resume_live.py \
+        > "$WORK/resume-selftest.log" 2>&1 < /dev/null) \
+     && ! grep -q "skipped" "$WORK/resume-selftest.log"; then
+    echo "$HEAD_SHA" > "$WORK/RESUME_SELFTEST_PASSED"
+    log "selftest passed: $(tail -n 1 "$WORK/resume-selftest.log")"
+    gcs_put "$WORK/resume-selftest.log" "$SCALEOUT_GCS/cpu-logs/resume-selftest.log"
+  else
+    gcs_put "$WORK/resume-selftest.log" "$SCALEOUT_GCS/cpu-logs/resume-selftest.log"
+    die "search kill/resume selftest failed or was skipped (see resume-selftest.log); search not started"
+  fi
+fi
 memwatch_pid=$(memwatch_start "$WORK/memwatch.csv" 120)
 
 # Scheduler -------------------------------------------------------------------------------

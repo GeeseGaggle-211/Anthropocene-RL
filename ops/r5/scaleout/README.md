@@ -23,6 +23,7 @@ VM up for debugging).
 | eb93ff3 | `pretrain-bc --lr-schedule warmup-cosine` (brief §5.1: `--lr` is the peak, 10% warm-up, cosine to 10%), `--lr-schedule-total-steps`, `--lr-schedule-start-step` (resumed fits and later rounds continue the program). `constant` (default) is the historical fit. | `tests/test_labor_bc_lr_schedule.py` (6) |
 | 839d197 | `run/receipt --population-tail {advisory,gate}`, default advisory (Q1, user 28 Oct) | 3 in `tests/test_labor_r5_critic_stage.py` |
 | 19832cb | Other-head regression against the run's own seed-matched control arm when no control report is given (Q2, user 28 Oct); `regression_reference` in the receipt | 2 in `tests/test_labor_r5_critic_stage.py` |
+| 71782ee | `labor_search` root-level resume (Q4, user 28 Oct): a checkpoint at every main-path decision boundary (snapshot of the previous boundary, transient state, executed payloads, successor digest, loop state, appended rows/tables/payload roots); `--resume` replays one decision, verifies the digest and continues, so a stop loses at most the in-flight decision and its root. Mismatch: the world is redone from its reset (`search_resume_fallback` in meta). `--checkpoint-keep` (2). | `tests/test_labor_search_resume.py` (9, fake world through the real loop), `tests/test_labor_search_resume_live.py` (bitwise SIGKILL gate on the bridge; skipped locally, run by `cpu_queue.sh` on the VM before search) |
 | bd800d0 | Dataset loaders read shard arrays copy-on-write memory-mapped before `torch.cat`, so loading N GB peaks at ~N GB of anonymous memory instead of ~2N. Values unchanged. | 1 new in `tests/test_labor_multi_dataset.py`; multi-dataset, acceptance, gate, early-stop, BC, scenario, tail, resume suites pass locally (bridge-dependent live tests skipped/erroring as before: no local bridge) |
 
 Not changed: thresholds, gates, the receipt's own verdict algebra, search semantics at default
@@ -55,7 +56,7 @@ t~2.5h   GPU: actor uploaded -> critic V: candidate seed 0 (+ critic determinism
 t~6.5h   GPU: seed gate (seed-gate.json). Passed -> seeds 1-4 x 2 arms; tripped -> receipt, shutdown
 t~22h    GPU: critic-receipt.json, upload, shutdown (one restart: the 20 h max-run, see 7)
 t~45h    CPU: PHASE1_DONE (reserved 32/world + 8 roots/fitting world): first A fit possible
-t~70-95h CPU: SEARCH_H12_DONE, upload, shutdown (more with guardrail stops; see 6 and 7)
+t~70-95h CPU: SEARCH_H12_DONE, upload, shutdown (+ restart gaps after guardrail stops/preemptions)
 ```
 
 The BC pilot runs on the GPU **before** the critic because the two cannot share 62 GB of host
@@ -133,6 +134,21 @@ C1, learner checkout with the bridge (same simulator as the teacher data, 8bd480
 ~/git/checkout.sh <full-sha-of-ops/r5-scaleout> 8bd480b r5s     # -> ~/code/r5s/rl, bridge built
 ```
 
+C1b, back to Spot (user 28 Oct; from the operator machine, the VM must be stopped):
+
+```bash
+DRY_RUN=1 bash ops/r5/scaleout/cpu_spot.sh      # prints: stop, set-scheduling, describe, start
+DRY_RUN=0 bash ops/r5/scaleout/cpu_spot.sh
+```
+It runs `gcloud compute instances set-scheduling anthropocene-trainer-60 --zone us-central1-c
+--provisioning-model=SPOT --instance-termination-action=STOP --no-restart-on-failure
+--maintenance-policy=TERMINATE --max-run-duration=40h` (Spot needs no automatic restart and
+TERMINATE maintenance; if the API still demands it, `EXTRA=--preemptible`). The 8-hour guardrail
+is unchanged. `cpu_queue.sh` refuses to start search on a non-Spot VM (`REQUIRE_SPOT=0`
+overrides) and, once per learner commit, runs the live kill/resume gate
+`tests/test_labor_search_resume_live.py` (~30-60 min) before any search (`RESUME_SELFTEST=0`
+skips; not recommended).
+
 C2, launch:
 
 ```bash
@@ -153,7 +169,7 @@ CPU environment (defaults in `cpu_queue.sh` / `cpu_sched.py`):
 | `MAX_SLOTS` | `16` | concurrent processes (search chunk = 1, panel world = `PANEL_JOBS`) |
 | `MIN_FREE_GB` | `20` | no launch below this MemAvailable |
 | `FIT_WORLDS` / `RESERVED_WORLDS` | `90100-90153,90160-90165` / `90154-90159` | |
-| `FIT_SPLITS` | `0:13:4 13:25:4 25:38:4 38:50:4` | first:turns:roots per chunk → 16 roots/world over 4 strata |
+| `FIT_SPLITS` | `0:25:8 25:50:8` | first:turns:roots per chunk → 16 roots/world over 2 strata (with root-level resume, small chunks no longer bound the loss) |
 | `RESERVED_SPLITS` | `0:13:8 13:25:8 25:38:8 38:50:8` | 32 roots/world |
 | `CANDIDATES` | `14` | M; 2 plans x 2 rows are reserved from M, so 10 single-step candidates as in G0 |
 | `HORIZONS` / `KEEP` / `REEVAL_STREAMS` | `1,3` / `all,3` / `2` | G0 settings; re-evaluation scope final-survivors (payload default) |
@@ -237,11 +253,11 @@ CPU search (from G0: 42 resolves/root, 20.8 s/resolve at 8 players, 20 jobs):
 | s/resolve at 16 players, 128×64 | 30-55, central ~35 (collection: 1.1-2.4 min per 2-resolve decision) |
 | Per root | ~50 min (35-80) |
 | Roots | 960 fitting + 192 reserved = 1,152 |
-| Main path per chunk (drive to the chunk's last decision, ~2 resolves/decision) | ~0.5 h avg × 264 chunks |
-| **Total** | **~1,100 process-hours (range ~700-1,800)** |
+| Main path per chunk (drive to the chunk's last decision, ~2 resolves/decision) | ~0.6 h avg × 144 chunks |
+| **Total** | **~1,050 process-hours (range ~650-1,700)** |
 | Wall at 16 slots | **~70 h (45-110)**; PHASE1 (reserved + 8 roots/world) ≈ 55% of it |
 | Panel (24 worlds × 4 runs × 50 decisions) | ~60 process-hours, ~4-5 h with priority |
-| Cost, on-demand c3d-highcpu-60 (~$2.6/h, estimate; verify) | **~$180-200** central; Spot ~$0.8-1.1/h but see 7 |
+| Cost on Spot (~$0.8-1.1/h, estimate; verify) | **~$60-90** central for ~70 h, plus preemption losses (7); on-demand would be ~$180 |
 
 Cheaper knobs (each is a deviation from the approved scale, so a user decision):
 `PLAN_FRACTION=0` (−~22%), `FIT_SPLITS="0:25:4 25:50:4"` (8 roots/world, −~40% of fitting),
@@ -257,7 +273,7 @@ Rerunning the same launch command is always the resume step: finished outputs ar
 | Event | What survives | Operator action |
 |---|---|---|
 | GPU max-run (20 h) stop, preemption, guardrail | finished fits; a running critic fit resumes bit-for-bit from `critic.resume.pt` (every 100 steps); evaluate reruns; BC resumes from `actor-bc-pilot.pt.partial` (every 500 steps; Adam, shuffle and family-weight decay restart: disclosed pilot approximation) | start the VM, rerun 4.1's last line (same `ATTEMPT_ID`) |
-| CPU 8-hour guardrail, preemption | finished chunks (`search_report.json`) and verified world shards; **an interrupted chunk restarts its world from the root draw** (labor_search resumes per world, not per root): up to one chunk (~2-5 h) per slot is lost per stop. Panel worlds rerun from reset | start the VM, rerun C2. With the guardrail on, expect ~20-30% lost work and a restart every 8 h (Q5) |
+| CPU 8-hour guardrail, Spot preemption | finished chunks and, inside a running chunk, every completed decision boundary: an interrupted chunk resumes from its newest checkpoint (`search_resumed_from_checkpoint` in its log), losing at most the in-flight decision and its root (~1 h per slot, ~0.5 h on average; ~8 process-hours per stop at 16 slots, ~6% of an 8-h window). Panel worlds rerun from reset (≤ ~1.5 h each) | start the VM, rerun C2. A refused checkpoint (`resume_refused` in the log) redoes that world from its reset and is recorded in its meta |
 | A stability abort / seed-gate trip | `seed-gate.json`, `evidence-aborted.json`, the receipt (FAIL) | escalate per the manifest (more than one seed of an arm, any population-tail trigger) |
 | A task fails twice (CPU) | `~/r5/scaleout/FAILED/<task>`; the rest continue | read `logs/<task>.log`; rerun C2 after the fix (failed markers are not retried automatically: delete the marker file to retry) |
 | Scheduler killed but children alive | `cpu_queue.sh` refuses to start | `pkill -f "labor_search .*--out $HOME/r5/scaleout/"` (and the panel pattern), then rerun C2 |
@@ -319,16 +335,16 @@ Indicative only (4 of 8 fit batches, 1 seed; manifest §5: an initializer, not a
 - **Q4: "16 roots per fitting world"** is read as 16 H12 roots; actor roots (if Q3) come on top
   (default 4/world, 8/reserved world). Scenario roots: the coverage audit found no gaps, so no
   scenario roots exist; nothing is scheduled for them.
-- **Q5: CPU guardrail and Spot.** labor_search resumes per world, so each 8-hour guardrail stop
-  or preemption loses the in-flight chunks (~20-30% of work, plus a manual restart every 8 h, for
-  ~3 days). Either pause the guardrail for this run (replace it with a max-run cap) or add
-  root-level resume to labor_search (~half a day of work, correctness-critical) before Spot.
+- **Q5, decided (user 28 Oct): root-level resume, Spot, guardrail kept.** Implemented in 71782ee;
+  the VM goes back to Spot via `cpu_spot.sh` (C1b). Each stop still needs a manual restart
+  (no autostart schedule is attached; adding one is persistence and needs the user's OK).
 - **Q6: the G0 `@reboot` line** (`g0loop.sh`) is still in the CPU crontab per the last snapshot;
   it shuts the VM down when `~/r5/ACTIVE` is absent. Removing it is in C0; confirm.
 - **Q7: budget.** Search at the approved scale is the dominant cost (~$180-200 on-demand central
   estimate, ~70 h). Cheaper knobs are in section 6.
 - **Q8: design choices made here, for review:** disjoint decision strata per chunk
-  (`0-13, 13-25, 25-38, 38-50`, 4 roots each, 8 for reserved) instead of one uniform draw (needed
+  (fitting `0-25, 25-50`, 8 roots each; reserved `0-13, 13-25, 25-38, 38-50`, 8 each, so its 6
+  worlds run as 24 parallel chunks) instead of one uniform draw (needed
   for unique root ids across chunks, and it stratifies roots over the window); `CANDIDATES=14`
   (keeps G0's 10 single-step candidates next to the 2 plans); personality key 4242 (the teacher
   collection's); BC 25 epochs (the initial half of a 50-epoch program, the S1 checkpoint) on
