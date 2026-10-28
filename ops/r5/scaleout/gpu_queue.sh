@@ -64,8 +64,8 @@ require_file "$ANTHROPOCENE_DOTNET" "portable dotnet (initialize probes the brid
 require_file "$ANTHROPOCENE_MODEL9_BRIDGE" "portable bridge"
 help_text=$("$PY" -m anthropocene_rl.autonomous_v7.labor_r5_acceptance run --help < /dev/null 2>&1 || true)
 case "$help_text" in
-  *--stage*) ;;
-  *) die "learner checkout lacks run --stage (needs ops/r5-scaleout eb93ff3 or later)" ;;
+  *--population-tail*) ;;
+  *) die "learner checkout lacks run --population-tail (needs ops/r5-scaleout 839d197 or later)" ;;
 esac
 "$PY" - <<'PY' >> "$LOG_FILE" 2>&1 || die "torch CUDA unavailable"
 import torch
@@ -134,6 +134,7 @@ if [ ! -f "$CRITIC_OUT/critic-receipt.json" ]; then
   SEEDS="${SEEDS:-0,1,2,3,4}" \
   ARMS="${ARMS:-privileged-e4:privileged:4:candidate,control-e4:plain:4:control}" \
   SEED_RULE=mean-with-floor SEED_GATE="${SEED_GATE:-1}" EARLY_STOP=1 CRITIC_VALIDATION=1 \
+  POPULATION_TAIL="${POPULATION_TAIL:-advisory}" \
   LR="${LR:-1e-4}" \
   FAMILY_WEIGHTS="${FAMILY_WEIGHTS:-default,under-clothed=2}" FAMILY_WEIGHT_DECAY=cosine \
   INIT_ARGS="${INIT_ARGS:---qol-encoder shared}" \

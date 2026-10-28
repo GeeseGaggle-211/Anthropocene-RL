@@ -35,6 +35,10 @@
 #                     with the same OUT continues at the A fit (critics are not refitted).
 #   GAP_FIT_DATA      fitting dirs (a subset of FIT_DATA) evaluate reads for the generalisation
 #                     gap; default all of FIT_DATA (bounds evaluate's host memory)
+#   POPULATION_TAIL=advisory  run --population-tail: advisory (r5 default, user 28 Oct) reports
+#                     the population-tail stability check without gating it; gate = 26 Oct rule
+#   CONTROL_REPORT absent: the other heads are compared with the run's own seed-matched plain
+#                     control arm (user 28 Oct)
 #   LR=3e-4  INIT_ARGS="..."  CRITIC_ARGS="..."  ADVANTAGE_ARGS="..."  (run --lr/--init-args/
 #                     --critic-args/--advantage-args, quoted as one argument each)
 #   SEEDS=0,1,2,3,4  ARMS=privileged-e4:privileged:4:candidate,control-e4:plain:4:control
@@ -119,6 +123,7 @@ if [ "${#fit_payloads[@]}" -gt 0 ]; then args+=(--fit-payloads "${fit_payloads[@
 if [ "${#reserved_payloads[@]}" -gt 0 ]; then args+=(--reserved-payloads "${reserved_payloads[@]}"); fi
 if [ "${#gap_fit_data[@]}" -gt 0 ]; then args+=(--gap-fit-data "${gap_fit_data[@]}"); fi
 if [ -n "${LR:-}" ]; then args+=(--lr "$LR"); fi
+if [ -n "${POPULATION_TAIL:-}" ]; then args+=(--population-tail "$POPULATION_TAIL"); fi
 if [ -n "${INIT_ARGS:-}" ]; then args+=(--init-args "$INIT_ARGS"); fi
 if [ -n "${CRITIC_ARGS:-}" ]; then args+=(--critic-args "$CRITIC_ARGS"); fi
 if [ -n "${ADVANTAGE_ARGS:-}" ]; then args+=(--advantage-args "$ADVANTAGE_ARGS"); fi

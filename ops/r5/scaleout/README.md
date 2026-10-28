@@ -21,6 +21,8 @@ VM up for debugging).
 | eb93ff3 | `labor_r5_acceptance run --stage critic` (shell: `STAGE=critic`): V fits with the seed gate, early stop and per-epoch validation, the **critic-only** determinism probe, and the V evaluation (relative ordering, TD(0), calibration) **without** search payloads. Writes `<arm>/seed-<s>/evidence-critic.json` and `critic-receipt.json` with a non-final `critic_stage` V-only verdict; A-dependent checks HOLD and are listed as deferred, never PASS. A later `--stage all` in the same `OUT` continues at the A fit (critics not refitted). `--gap-fit-data` (optional subset of fit data for the generalisation gap). Shell driver: `STAGE`, `GAP_FIT_DATA`, `LR`, `INIT_ARGS`, `CRITIC_ARGS`, `ADVANTAGE_ARGS`. `--stage all` (default) unchanged. | `tests/test_labor_r5_critic_stage.py` (9: input validation, run_fit command sequence and continuation, critic-only determinism, receipt and summary, seed gate on critic evidence, shell driver) |
 | eb93ff3 | `labor_search --plan-fraction` (T2 plans on a keyed share of roots; approved 25%). Default 1.0 = every root; the source record is unchanged at 1.0. | 3 new in `tests/test_labor_search_plans_resume.py` |
 | eb93ff3 | `pretrain-bc --lr-schedule warmup-cosine` (brief §5.1: `--lr` is the peak, 10% warm-up, cosine to 10%), `--lr-schedule-total-steps`, `--lr-schedule-start-step` (resumed fits and later rounds continue the program). `constant` (default) is the historical fit. | `tests/test_labor_bc_lr_schedule.py` (6) |
+| 839d197 | `run/receipt --population-tail {advisory,gate}`, default advisory (Q1, user 28 Oct) | 3 in `tests/test_labor_r5_critic_stage.py` |
+| 19832cb | Other-head regression against the run's own seed-matched control arm when no control report is given (Q2, user 28 Oct); `regression_reference` in the receipt | 2 in `tests/test_labor_r5_critic_stage.py` |
 | bd800d0 | Dataset loaders read shard arrays copy-on-write memory-mapped before `torch.cat`, so loading N GB peaks at ~N GB of anonymous memory instead of ~2N. Values unchanged. | 1 new in `tests/test_labor_multi_dataset.py`; multi-dataset, acceptance, gate, early-stop, BC, scenario, tail, resume suites pass locally (bridge-dependent live tests skipped/erroring as before: no local bridge) |
 
 Not changed: thresholds, gates, the receipt's own verdict algebra, search semantics at default
@@ -106,9 +108,10 @@ GPU environment (defaults in `gpu_queue.sh`; override by exporting):
 | `FAMILY_WEIGHTS` | `default,under-clothed=2` (cosine decay) | user 27 Oct |
 | `INIT_ARGS` | `--qol-encoder shared` | G1 shared encoder (also the campaign default) |
 | `CRITIC_ARGS` | `--qol-loss-weight 30 --qol-head-bias-init mean-target --td-step0-targets mc --tail-normalize world-factor --false-terminal-policy mask` | G1 |
-| `SEED_GATE` | `1` | see open question Q1 |
+| `SEED_GATE` | `1` | seed gate on stability FAIL (population tail excluded, Q1) |
+| `POPULATION_TAIL` | `advisory` | Q1: reported, never gating; `gate` restores the 26 Oct rule |
 | `GAP_FIT_DATA` | empty (all 8 fit batches) | subset for the gap if memory is short |
-| `CONTROL_REPORT` | empty | see open question Q2 |
+| `CONTROL_REPORT` | empty | Q2: empty = the run's own seed-matched control arm is the other-head reference |
 | `UPLOAD_EVERY` | `1800` s | background upload of `critic/` |
 
 Fixed by the script: `STAGE=critic DEVICE=cuda EARLY_STOP=1 CRITIC_VALIDATION=1 SEED_RULE=mean-with-floor RESUME_EVERY=100 DETERMINISM_STEPS=50 QOL_REFERENCE_SCALE=<r5-scale-fit8.json>`, 4 epochs, batch 256, grad cap 1, randomized tail required.
@@ -182,7 +185,7 @@ FIT_PAYLOADS="$(ls -d $S/fit-h12/*/w*/world-* | tr '\n' ' ')" RESERVED_PAYLOADS=
 STAGE=all ... (the same variables as gpu_queue.sh step 4) bash $CODE/tools/r5_critic_acceptance.sh
 ```
 This reuses every `critic.pt`, fits A per (arm, seed), writes `evidence.json` and
-`gate-receipt.json`. (Not scripted yet: it depends on Q1-Q3 and the search outcome.)
+`gate-receipt.json`. (Not scripted yet: it depends on Q3 and the search outcome.)
 
 ## 5. RAM and disk sizing
 
@@ -224,7 +227,7 @@ GPU (L4, from the G1 pilot: 1.04 s/step plus epoch work; 4 epochs = 3,944 steps 
 | **10 fits (seed gate passes)** | **~18-20 h** |
 | **Total GPU queue** | **~20-23 h**, ≈ $25-30 on-demand at ~$1.15/h (g2-standard-16, estimate) + ~$3-5 GCS egress (asia-northeast1 → us-central1) |
 
-If the seed gate trips (Q1), the queue ends after ~4 h of critic work (~$7).
+If the seed gate trips (a non-tail stability FAIL of the candidate's seed 0), the queue ends after ~4 h of critic work (~$7).
 
 CPU search (from G0: 42 resolves/root, 20.8 s/resolve at 8 players, 20 jobs):
 
@@ -294,16 +297,17 @@ Indicative only (4 of 8 fit batches, 1 seed; manifest §5: an initializer, not a
 
 ## 9. Open questions (decisions before launch)
 
-- **Q1 (blocking for the seed gate): population tail.** The G1 pilot's stability summary FAILED
-  the mandatory `population_tail` check (upper_excess 0.032 > 0.01 on b04; "admitted False").
-  The seed gate trips on any candidate stability FAIL, so the scale-out will very likely stop
-  after seed 0 of each arm, and any population-tail trigger is a user-escalation item. Options:
-  run as approved and escalate the trip; `SEED_GATE=0` to get all 10 fits for the receipt;
-  or a ruling on the check (the Fable audit attributed it to the softmax floor over empty bins).
-- **Q2: other-head control.** `CONTROL_REPORT` (critic3 on 90180-90199) has no r5-compatible
-  version: critic3 carries the G0 normalizer, so it cannot be evaluated on r5 data. Without it
-  `regression:control` HOLDs in every receipt, including the V-only `critic_stage` status. Use the
-  plain (control) arm as the reference, or waive?
+- **Q1, decided (user 28 Oct): population tail is advisory for r5.** `run --population-tail
+  advisory` (default; `POPULATION_TAIL` in the shell driver, `advisory` in `gpu_queue.sh`,
+  PREREGISTERED `population_tail_policy_r5`): the check is reported per fit as
+  `advisory:population-tail` (FLAG and `escalate` on a FAIL, still a user-escalation item) and
+  never fails stability, the receipt or the seed gate. Every other stability check still gates
+  and still trips the seed gate. (The G1 pilot FAILED it: upper_excess 0.032 > 0.01.)
+- **Q2, decided (user 28 Oct): the other-head reference is the run's own control arm.** With no
+  `CONTROL_REPORT` (critic3 carries the G0 normalizer, so it has no r5 version), each candidate
+  fit's other heads are compared with the seed-matched plain control arm's evaluation (same
+  calibration worlds, evaluator and units); control-arm fits are their own reference. The receipt
+  records `regression_reference` per fit. A supplied `CONTROL_REPORT` still wins.
 - **Q3: actor checkpoint for actor roots.** The G0 final actor
   (`datasets/labor-g0-20261024/final/final-actor.pt`) cannot be used: its normalizer (digest
   d49f9d35…) differs from the r5 actor normalizer (fcc769c3…, sha 3c8c5ca3…), the action-12
