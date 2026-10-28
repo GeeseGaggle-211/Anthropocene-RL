@@ -109,6 +109,22 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "proposed",
         "source": "every evaluator stratum",
     },
+    # QoL gate v2 (user 28 Oct): the calibration gate's target and unit. Thresholds
+    # (qol_nmae_max, qol_abs_bias_max) are unchanged; only the target and the unit moved.
+    "qol_calibration_target": {
+        "value": "nstep-k5-bootstrap-v1",
+        "status": "approved (user 28 Oct)",
+        "source": "labor_pretrain_eval.QOL_GATE_TARGET: k = td_nstep_k observed rewards + "
+        "gamma^k x the critic's own bootstrap; terminal windows exact; windows reaching the "
+        "collection window's living end are reported, not gated; the Monte Carlo metrics stay "
+        "as non-gating diagnostics; ranking unchanged (Monte Carlo)",
+    },
+    "qol_reference_scale": {
+        "value": "artifact (--qol-reference-scale); absent: frozen 43.152",
+        "status": "approved (user 28 Oct)",
+        "source": "std of the per-row Monte Carlo QoL return on the fitting batches "
+        "(qol-reference-scale subcommand); the unit of qol:b and of the qol:c TD residual",
+    },
     "td_residual_abs_bias_max": {"value": 0.05, "status": "approved (user 26 Oct)", "source": "reference scales (3.1)"},
     "td_residual_mae_max": {"value": 0.20, "status": "approved (user 26 Oct)", "source": "reference scales (3.1)"},
     # Rolling-window n-step residual (r5-b criterion c, replaced one-step TD residual).
@@ -237,6 +253,45 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "value": 1e-6,
         "status": "approved-trajectory-rule (user 26 Oct)",
         "source": "mandatory hard [0, W] target bound, relative to W (unchanged)",
+    },
+    # TD trajectory rule v2 (user 28 Oct; labor_stability TD_RULE_V2). New fits use it; the
+    # v1 entries above judge resume states and receipts written before it.
+    "td_rule": {
+        "value": "v2-floor-or-declining",
+        "status": "approved (user 28 Oct)",
+        "source": "warm-up by value; PASS declining or stationary-below-floor on the ERROR "
+        "series; drift reported with an advisory flag only; old states keep v1",
+    },
+    "td_warmup_median_factor": {
+        "value": 1.5,
+        "status": "approved (user 28 Oct)",
+        "source": "drop leading refreshes until the first within this x the running median",
+    },
+    "td_stationary_refreshes": {
+        "value": 6,
+        "status": "approved (user 28 Oct)",
+        "source": "K: stationary window; fewer usable post-warm-up refreshes HOLD",
+    },
+    "td_stationary_spread": {
+        "value": 0.5,
+        "status": "approved (user 28 Oct)",
+        "source": "stationary: max - min over the last K <= this x their median",
+    },
+    "td_stationary_error_floor": {
+        "value": 0.05,
+        "status": "approved (user 28 Oct); recalibrate from the first clean fit",
+        "source": "stationary branch: median of the last K error values <= this x W",
+    },
+    "td_stationary_drift_floor": {
+        "value": 0.05,
+        "status": "approved (user 28 Oct); recalibrate from the first clean fit",
+        "source": "advisory drift series: median of the last K drift values <= this x W",
+    },
+    "td_divergence_median_factor": {
+        "value": 1.5,
+        "status": "approved (user 28 Oct)",
+        "source": "live alarm: 3 consecutive > td_divergence_increase rises ending above this "
+        "x the stationary median (error series; drift advisory); admissible bounds unchanged",
     },
     # QoL saturation monitor (r5-b item 4), relaxed for the earliest game states.
     "saturation_alarm": {
@@ -491,12 +546,32 @@ def qol_checks(
                 detail="A must be judged on the reserved worlds 90154-90159 only",
             )
         )
-    # (b) bounded-head calibration per stratum.
+    # (b) bounded-head calibration per stratum. Gate v2 (user 28 Oct): evidence carrying the
+    # n-step section is judged against the tail-robust n-step target in its reference-scale
+    # unit; older evidence keeps the Monte Carlo metrics it was judged on.
+    nstep = _get(calibration, "calibration", "qol_nstep")
     for stratum in strata:
-        metrics = _head(calibration, "qol_years", stratum)
+        if nstep is not None:
+            metrics = _get(nstep, "strata", stratum)
+            detail = {
+                "target": _get(nstep, "target", "id"),
+                "scale": _get(nstep, "reference_scale", "value"),
+                "scale_source": _get(nstep, "reference_scale", "source"),
+                "scale_digest": _get(nstep, "reference_scale", "digest"),
+                "rows": None if metrics is None else metrics.get("rows"),
+                "monte_carlo_non_gating": None if metrics is None else metrics.get("monte_carlo"),
+            }
+        else:
+            metrics = _head(calibration, "qol_years", stratum)
+            detail = None
         nmae = None if metrics is None else metrics.get("nmae")
         bias = None if metrics is None else metrics.get("bias")
-        out.append(check(f"qol:b:nmae:{stratum}", "qol", nmae, threshold("qol_nmae_max"), "<="))
+        out.append(
+            check(
+                f"qol:b:nmae:{stratum}", "qol", nmae, threshold("qol_nmae_max"), "<=",
+                detail=detail,
+            )
+        )
         out.append(
             check(
                 f"qol:b:abs-bias:{stratum}",
@@ -504,6 +579,7 @@ def qol_checks(
                 None if bias is None else abs(float(bias)),
                 threshold("qol_abs_bias_max"),
                 "<=",
+                detail=detail,
             )
         )
     bounded = _get(calibration, "critic", "qol_head")
@@ -1347,10 +1423,12 @@ def build_receipt(
         ]
     )
     exclusions = _historical_exclusions(evidence)
+    qol_gate = qol_gate_section(evidence)
     smoke = bool(configuration.get("smoke"))
     verdict = combine(
         [gate_status, determinism_status, comparison_status, exclusions["status"]]
         + (["HOLD"] if smoke else [])
+        + ([] if qol_gate["status"] == "PASS" else [qol_gate["status"]])
     )
     unresolved = []
     if smoke:
@@ -1367,6 +1445,14 @@ def build_receipt(
                 "check": "partitions:historical-fitting-exclusions",
                 "status": "FAIL",
                 "violations": exclusions["violations"],
+            }
+        )
+    if qol_gate["status"] != "PASS":
+        unresolved.append(
+            {
+                "check": "qol:reference-scale-consistent",
+                "status": qol_gate["status"],
+                "scales": qol_gate["distinct"],
             }
         )
     for arm_name, report in arm_reports.items():
@@ -1408,6 +1494,9 @@ def build_receipt(
             "historical_fitting_exclusions": exclusions,
         },
         "preregistered": PREREGISTERED,
+        # QoL gate v2 (user 28 Oct): the target definition and the reference scale (value,
+        # source, digest) each fit's QoL calibration and TD residual were judged in.
+        "qol_gate": qol_gate,
         "proposed_for_review": sorted(
             k for k, v in PREREGISTERED.items() if v["status"] == "proposed"
         ),
@@ -1435,6 +1524,7 @@ def build_receipt(
             "arm_comparison": comparison_status,
             "determinism": determinism_status,
             "historical_fitting_exclusions": exclusions["status"],
+            "qol_reference_scale": qol_gate["status"],
             "smoke": smoke,
             SECONDARY_GATE_ID: arm_reports[primary_arm.name][SECONDARY_GATE_ID]["status"],
             "secondary_gate_note": "full G2C for every head is reported; the r5 acceptance gate "
@@ -1478,6 +1568,51 @@ def _trajectory_section(
         return receipt_section(evidence, arms=arms, seeds=seeds, baseline=baseline)
     except Exception as error:  # non-gating: a broken diagnostic never blocks the receipt
         return {"gating": False, "error": repr(error)}
+
+
+def qol_gate_section(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """The QoL gate's target and reference scale per fit (gate v2, user 28 Oct).
+
+    Evidence written before gate v2 carries neither: it is listed as ``monte-carlo`` /
+    ``frozen-g0`` (what it was judged on). Fits judged in different units cannot share a
+    seed rule or an arm comparison: distinct (value, digest) pairs HOLD the receipt.
+    """
+    fits: dict[str, Any] = {}
+    distinct: dict[str, dict[str, Any]] = {}
+    for record in evidence:
+        reference = record.get("qol_reference_scale")
+        target = record.get("qol_gate_target")
+        key = f"{record.get('arm')}/seed-{record.get('seed')}"
+        if record.get("aborted"):
+            fits[key] = {"aborted": True}
+            continue
+        scale = (
+            {"value": 43.152, "source": "frozen-g0", "digest": None}
+            if reference is None
+            else {k: reference.get(k) for k in ("value", "source", "digest", "path", "sha256")}
+        )
+        fits[key] = {
+            "target": "monte-carlo-randomized-tail (pre gate v2)"
+            if target is None
+            else target.get("id"),
+            "scale": scale,
+        }
+        distinct[json_digest([scale["value"], scale["digest"]])] = {
+            "value": scale["value"],
+            "digest": scale["digest"],
+            "source": scale["source"],
+        }
+    targets = {
+        json_digest(r.get("qol_gate_target")): r.get("qol_gate_target")
+        for r in evidence
+        if r.get("qol_gate_target") is not None
+    }
+    return {
+        "definitions": list(targets.values()),
+        "fits": fits,
+        "distinct": list(distinct.values()),
+        "status": "PASS" if len(distinct) <= 1 else "HOLD",
+    }
 
 
 def _historical_exclusions(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -1640,13 +1775,19 @@ def position_group_report(
 
 
 def td_residual_report(
-    task: Any, costs: Any, dataset: Mapping[str, Any], batch_size: int = 256
+    task: Any,
+    costs: Any,
+    dataset: Mapping[str, Any],
+    batch_size: int = 256,
+    qol_reference: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Rolling-window n-step consistency of the QoL head along each village's trajectory.
 
     k-decision windows (``td_nstep_k``) with physical-time discounting; see
     :func:`nstep_residuals`. Units are QoL reference scales. Aggregate bias/MAE are
     world-balanced over admitted rows; ``groups`` holds the per-position bias.
+    ``qol_reference`` (``labor_pretrain_eval.load_qol_reference_scale``) is the unit; absent,
+    the frozen 43.152 (``scale_source`` records which).
     """
     import numpy as np
 
@@ -1694,7 +1835,11 @@ def td_residual_report(
         k=k,
         zero_tail_declared=not randomized,
     )
-    scale = LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
+    scale = (
+        LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
+        if qol_reference is None
+        else float(qol_reference["value"])
+    )
     keep = ~_np(dataset, "row_quarantined").reshape(-1).astype(bool) & critic_target_available(
         dataset
     ).numpy().astype(bool)
@@ -1720,6 +1865,8 @@ def td_residual_report(
         "rows": int(len(rows)),
         "worlds": int(len(np.unique(worlds[rows]))) if len(rows) else 0,
         "scale": scale,
+        "scale_source": "frozen-g0" if qol_reference is None else qol_reference.get("source"),
+        "scale_digest": None if qol_reference is None else qol_reference.get("digest"),
         "units": "QoL reference scales",
         "window_decisions": k,
         "admitted_windows": admitted,
@@ -1771,8 +1918,13 @@ def evaluate_fit(
     trajectory_traces: Sequence[Path] = (),
     device: str = "cpu",
     scenario_calibration_data: Path | None = None,
+    qol_reference_scale: Path | None = None,
 ) -> dict[str, Any]:
     """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
+
+    ``qol_reference_scale`` (a ``qol-reference-scale`` artifact) is the unit of the QoL
+    calibration gate and of the TD residual; absent, the frozen 43.152. The evidence
+    records the record used (value, source, digest, file sha256) and the gate's target.
 
     ``calibration_data`` and ``fit_data`` are one dataset or several collection batches,
     read as one dataset (``labor_teacher_data.merge_labor_datasets``: world order, equal
@@ -1796,15 +1948,18 @@ def evaluate_fit(
     from .labor_advantage_eval import evaluate_advantage
     from .labor_device import setup
     from .labor_pretrain_eval import (
+        QOL_GATE_TARGET,
         _load_dataset,
         _load_models,
         dataset_label,
+        load_qol_reference_scale,
         run_critic_calibration,
     )
     from .labor_training import _normalization_digest
     from .labor_value_calibration import labor_critic_digest
 
     started = time.time()
+    qol_reference = load_qol_reference_scale(qol_reference_scale)
     target = setup(device)
     state, actor, task, costs, normalizer = _load_models(checkpoint)
     task.to(target)  # the actor stays on CPU (only its parameter digest is read)
@@ -1815,6 +1970,7 @@ def evaluate_fit(
         fit_data,
         batch_size,
         device=None if target.type == "cpu" else target,
+        qol_reference=qol_reference,
     )
     calibration["critic"] = {
         "qol_head": None if task.qol_head is None else task.qol_head.state_dict(),
@@ -1824,7 +1980,7 @@ def evaluate_fit(
     dataset = _load_dataset(
         calibration_data, normalizer, require_privileged=task.privileged_layout is not None
     )
-    td = td_residual_report(task, costs, dataset, batch_size)
+    td = td_residual_report(task, costs, dataset, batch_size, qol_reference=qol_reference)
     adv_state = torch.load(advantage, map_location="cpu", weights_only=True)
     for module in (task, costs):
         for parameter in module.parameters():
@@ -1858,6 +2014,7 @@ def evaluate_fit(
             None,
             batch_size,
             device=None if target.type == "cpu" else target,
+            qol_reference=qol_reference,
         )
         scenario_calibration = {
             "dataset": str(scenario_calibration_data),
@@ -1945,6 +2102,8 @@ def evaluate_fit(
             actor, dataset, normalizer, batch_size
         ),
         "td_residual": td,
+        "qol_gate_target": QOL_GATE_TARGET,
+        "qol_reference_scale": qol_reference,
         "advantage_fit": {
             k: v for k, v in adv_fit.items() if k not in ("stability", "loss_history")
         },
@@ -2300,6 +2459,8 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
         ]
         if getattr(args, "scenario_calibration_data", None):
             command += ["--scenario-calibration-data", args.scenario_calibration_data]
+        if getattr(args, "qol_reference_scale", None):
+            command += ["--qol-reference-scale", args.qol_reference_scale]
         if args.control_report:
             command += ["--control-report", args.control_report]
         if getattr(args, "trajectory_data", None):
@@ -2449,6 +2610,10 @@ def command_run(args: argparse.Namespace) -> int:
     if args.local and len(seeds) > threshold("local_seeds_max"):
         raise ValueError(f"local runs use at most {threshold('local_seeds_max')} seeds")
     require_calibration_not_trained(args)
+    if getattr(args, "qol_reference_scale", None) is not None:
+        from .labor_pretrain_eval import load_qol_reference_scale
+
+        load_qol_reference_scale(args.qol_reference_scale)  # verified before any compute
     Path(args.out).mkdir(parents=True, exist_ok=True)
     jobs = [(arm, seed) for seed in seeds for arm in arms]
     failures = {}
@@ -2553,6 +2718,13 @@ def command_run(args: argparse.Namespace) -> int:
             "reserved_payloads": [str(p) for p in args.reserved_payloads],
             "control_report": None if args.control_report is None else str(args.control_report),
             "control_report_sha256": file_sha256(args.control_report),
+            # QoL gate v2: the reference-scale artifact (absent: the frozen 43.152).
+            "qol_reference_scale": None
+            if getattr(args, "qol_reference_scale", None) is None
+            else {
+                "path": str(args.qol_reference_scale),
+                "sha256": file_sha256(args.qol_reference_scale),
+            },
             "jobs": args.jobs,
             "threads": args.threads,
             "device": getattr(args, "device", "cpu"),
@@ -2725,6 +2897,7 @@ def command_evaluate(args: argparse.Namespace) -> int:
         trajectory_traces=list(args.trajectory_trace or []),
         device=getattr(args, "device", "cpu"),
         scenario_calibration_data=args.scenario_calibration_data,
+        qol_reference_scale=getattr(args, "qol_reference_scale", None),
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -2738,6 +2911,93 @@ def command_evaluate(args: argparse.Namespace) -> int:
         f"{args.arm} seed {args.seed}: {checks['primary_status']} "
         f"(G2C all heads {checks['secondary_status']})"
     )
+    return 0
+
+
+def command_qol_reference_scale(args: argparse.Namespace) -> int:
+    """Remeasure the QoL reference scale on the FITTING batches (gate v2, user 28 Oct).
+
+    Every world of the data must be a fitting world (90100-90153, 90160-90165): the unit
+    of a held-out gate is never measured on held-out data. The artifact is versioned,
+    sealed with a content digest and carries the datasets and source provenance.
+    """
+    from .labor_pretrain_eval import (
+        qol_reference_scale_record,
+        write_qol_reference_scale,
+    )
+    from .labor_teacher_data import load_labor_data
+
+    paths = [Path(p) for p in args.fit_data]
+    dataset = load_labor_data(paths if len(paths) > 1 else paths[0], training=False)
+    worlds = sorted({int(w) for w in dataset["row_world"].reshape(-1).tolist()})
+    outside = [w for w in worlds if w not in FITTING_WORLDS]
+    if outside:
+        raise ValueError(
+            f"the QoL reference scale is measured on fitting worlds only; {outside[:5]} are not "
+            "fitting worlds (90100-90153, 90160-90165)"
+        )
+    collection = dataset.get("collection") or {}
+    record = qol_reference_scale_record(
+        dataset,
+        datasets=[
+            {
+                "paths": [str(p) for p in paths],
+                "dataset_digest": collection.get("dataset_digest"),
+            }
+        ],
+        version=int(args.version),
+    )
+    record["created_utc"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    record["source"] = source_record()
+    sealed = write_qol_reference_scale(record, args.out)
+    print(
+        f"qol reference scale v{sealed['version']}: {sealed['value']:.4f} QoL-years "
+        f"(mean {sealed['mean']:.3f}; rows {sealed['rows']}, worlds {len(sealed['worlds'])}; "
+        f"G0 {sealed['previous']['value']}) digest {sealed['digest']}"
+    )
+    return 0
+
+
+def command_td_rejudge(args: argparse.Namespace) -> int:
+    """Re-judge recorded critic fits' TD refreshes under a TD rule (diagnostic only).
+
+    Reads each stability JSONL's ``td_refresh`` records, replays them through the rule
+    (``labor_stability.rejudge_td_refreshes``) and reports the live alarms (the first is
+    where an early stop would have fired), the end-of-fit td_divergence status and the
+    status the log's own summary recorded. It never edits a receipt.
+    """
+    from .labor_stability import rejudge_td_refreshes
+
+    results = {}
+    for path in args.stability_log:
+        lines = [
+            json.loads(line)
+            for line in Path(path).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        refreshes = [r for r in lines if r.get("kind") == "td_refresh"]
+        recorded = None
+        for line in lines:
+            if line.get("kind") in ("summary", "abort"):
+                recorded = _get(line, "summary", "checks", "td_divergence", "status")
+        result = rejudge_td_refreshes(refreshes, rule=args.rule)
+        result["recorded_status"] = recorded
+        result["path"] = str(path)
+        result["sha256"] = file_sha256(path)
+        results[str(path)] = result
+        trajectory = (result["report"] or {}).get("trajectory") or {}
+        print(
+            f"{path}: {args.rule} {result['status']} (recorded {recorded}); live alarms "
+            f"{[a['reason'] for a in result['live_alarms']]}; "
+            + "; ".join(
+                f"{key} {value.get('status')} warm-up {value.get('warmup_dropped')}"
+                for key, value in trajectory.items()
+            )
+        )
+    if args.out is not None:
+        Path(args.out).write_text(
+            json.dumps(results, indent=1, sort_keys=True, default=str), encoding="utf-8"
+        )
     return 0
 
 
@@ -2829,6 +3089,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="labor_scenarios calibration scenario set (report-only per-family calibration)",
     )
+    evaluate.add_argument(
+        "--qol-reference-scale",
+        type=Path,
+        default=None,
+        help="QoL reference-scale artifact (qol-reference-scale): the unit of the QoL "
+        "calibration gate and the TD residual; absent, the frozen 43.152",
+    )
     evaluate.add_argument("--batch-size", type=int, default=256)
     add_device_argument(evaluate)
     _trajectory_arguments(evaluate)
@@ -2851,6 +3118,32 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     receipt.add_argument("--out", type=Path, required=True)
     receipt.set_defaults(handler=command_receipt)
+
+    scale = sub.add_parser(
+        "qol-reference-scale",
+        help="remeasure the QoL reference scale on the fitting batches (versioned artifact)",
+    )
+    scale.add_argument(
+        "--fit-data",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="the r5 fitting batches (fitting worlds only), read as one dataset",
+    )
+    scale.add_argument("--version", type=int, default=1)
+    scale.add_argument("--out", type=Path, required=True)
+    scale.set_defaults(handler=command_qol_reference_scale)
+
+    rejudge = sub.add_parser(
+        "td-rejudge", help="re-judge recorded TD refresh series under a TD rule (diagnostic)"
+    )
+    rejudge.add_argument("--stability-log", type=Path, nargs="+", required=True)
+    rejudge.add_argument(
+        "--rule", choices=("v1-diminishing", "v2-floor-or-declining"),
+        default="v2-floor-or-declining",
+    )
+    rejudge.add_argument("--out", type=Path, default=None)
+    rejudge.set_defaults(handler=command_td_rejudge)
 
     determinism = sub.add_parser("determinism", help="compare two checkpoints tensor by tensor")
     determinism.add_argument("--left", type=Path, required=True)
@@ -2915,6 +3208,13 @@ def argument_parser() -> argparse.ArgumentParser:
         help="held-out-test candidate payloads of reserved worlds 90154-90159",
     )
     run.add_argument("--control-report", type=Path, default=None)
+    run.add_argument(
+        "--qol-reference-scale",
+        type=Path,
+        default=None,
+        help="QoL reference-scale artifact (qol-reference-scale) passed to every evaluate; "
+        "absent, the frozen 43.152",
+    )
     run.add_argument(
         "--arms", default=None, help="name:privileged|plain:epochs:candidate|control,..."
     )

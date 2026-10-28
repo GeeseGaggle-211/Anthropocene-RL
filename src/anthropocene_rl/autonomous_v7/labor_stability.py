@@ -17,7 +17,8 @@ harness. One :class:`StabilityMonitor` wraps the optimizer step of a fit:
    task critic and both costs) with a preregistered window and progress
    criterion.
 3. **Bounded QoL saturation** (share of pre-activations with |z| > 6).
-4. **TD(lambda) target drift** per refresh, with the divergence alarm.
+4. **TD(lambda) target drift** per refresh, with the divergence alarm (trajectory rule v2,
+   ``TD_RULE_V2``, for new fits since 28 Oct; resume states without a rule keep v1).
 5. **Decoded tail and upper-bin mass** of the distributional population head.
 6. **Advantage overfit**: train versus held-out pair ranking per epoch.
 7. **Privileged-token attention mass** and dead-feature counts (probe batch).
@@ -37,6 +38,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -67,7 +69,8 @@ STATUSES = ("PASS", "FAIL", "HOLD", "NOT_APPLICABLE")
 # Live early stop (``StabilityConfig.early_stop``): conditions that are already a mandatory
 # FAIL under the end-of-run judgement stop the fit the moment they trip, under the check id
 # ``checks()`` FAILs for them: a gradient_dominance alarm, a live td_divergence alarm
-# (growth after warm-up, a target outside its per-row admissible bound, a reward outside
+# (rule v2: error growth ending above 1.5 x its stationary median; v1: growth after
+# warm-up; a target outside its per-row admissible bound, a reward outside
 # [0, dt], a discount other than exp(-elapsed / tau) or a decoded head value outside its
 # range; receipts written before 27 Oct carry the flat ``targets-outside-[0,W]`` reason,
 # which still stops and FAILs) and more than max_total_rollbacks
@@ -118,6 +121,20 @@ class StabilityThresholds:
     td_final_ratio: float = 0.5  # final value at most this x the post-warm-up maximum
     td_drift_floor: float = 1e-3  # values (fraction of W) below this count as converged
     td_bound_tolerance: float = 1e-6  # hard target-bound slack (relative), see TDDriftMonitor
+    #    Rule v2 (user 28 Oct, ``TD_RULE_V2``): the v1 trajectory rule failed fits whose drift
+    #    and error had reached a stationary noise floor. Warm-up by value; PASS on a declining
+    #    or a stationary-below-floor ERROR series (drift advisory); divergence relative to the
+    #    stationary median. ``td_rule`` selects the rule; the v1 fields above stay in force for
+    #    v1 (resume states written before 28 Oct, and their receipts, keep their verdicts).
+    td_rule: str = "v2-floor-or-declining"
+    td_warmup_median_factor: float = 1.5  # warm-up ends at the first value <= this x median
+    td_stationary_refreshes: int = 6  # K: the stationary window and the minimum usable series
+    td_stationary_spread: float = 0.5  # max - min over the window <= this x the window median
+    # Declared floors (fractions of W) of the stationary branch: approved 28 Oct, to be
+    # recalibrated from the first clean fit.
+    td_stationary_error_floor: float = 0.05
+    td_stationary_drift_floor: float = 0.05
+    td_divergence_median_factor: float = 1.5  # a rising run must end above this x median
     # 5. Population head decoded tail (reference-scale units; 10% of the 0.10 bias allowance).
     upper_excess_alarm: float = 0.01
     top_bin_mass_alarm: float = 1e-3
@@ -135,7 +152,7 @@ class StabilityThresholds:
 PROPOSED_THRESHOLDS = tuple(
     name
     for name in StabilityThresholds.__dataclass_fields__
-    if name not in ("td_growth_refreshes",)
+    if name not in ("td_growth_refreshes", "td_rule")
 )
 
 
@@ -347,6 +364,152 @@ def trajectory_report(series: Sequence[float], *, ratio: float, floor: float) ->
     return report
 
 
+# TD trajectory rules. v1 (user 26 Oct): count warm-up, diminishing-or-below-1e-3 on both
+# series, growth alarm on either. v2 (user 28 Oct): see :func:`trajectory_report_v2`.
+TD_RULE_V1 = "v1-diminishing"
+TD_RULE_V2 = "v2-floor-or-declining"
+TD_RULES = (TD_RULE_V1, TD_RULE_V2)
+# v2: the error series gates; the drift series is reported with an advisory flag only.
+TD_V2_GATED_SERIES = "error"
+TD_V2_ADVISORY_SERIES = "drift"
+
+
+def _median(values: Sequence[float]) -> float:
+    ordered = sorted(float(v) for v in values)
+    n = len(ordered)
+    if n == 0:
+        raise ValueError("median of an empty series")
+    middle = n // 2
+    return ordered[middle] if n % 2 else 0.5 * (ordered[middle - 1] + ordered[middle])
+
+
+def _log_slope(values: Sequence[float]) -> float | None:
+    """Least-squares slope of log(value) over the index (the v1 slope definition)."""
+    n = len(values)
+    if n < 2:
+        return None
+    logs = [math.log(max(float(v), 1e-12)) for v in values]
+    mean_x = (n - 1) / 2.0
+    mean_y = sum(logs) / n
+    return sum((i - mean_x) * (y - mean_y) for i, y in enumerate(logs)) / sum(
+        (i - mean_x) ** 2 for i in range(n)
+    )
+
+
+def td_warmup_by_value(series: Sequence[float], factor: float) -> tuple[int, float | None]:
+    """v2 warm-up: the number of leading refreshes dropped and the running median.
+
+    The running median is the median of every (growth-eligible) value observed so far, so
+    it is recomputed at each refresh while the fit runs and equals the whole-series median
+    at the end. Leading values are dropped until the first one within ``factor`` x that
+    median (value <= factor x median); later values are never dropped. A series that never
+    starts high has no warm-up.
+    """
+    values = [float(v) for v in series]
+    if not values:
+        return 0, None
+    median = _median(values)
+    for index, value in enumerate(values):
+        if value <= factor * median:
+            return index, median
+    return len(values), median  # unreachable: some value is <= the median
+
+
+def trajectory_report_v2(
+    series: Sequence[float],
+    *,
+    warmup_factor: float,
+    window: int,
+    spread: float,
+    floor: float,
+    ratio: float,
+) -> dict[str, Any]:
+    """Rule v2 on one growth-eligible series (fractions of W).
+
+    Warm-up by value (:func:`td_warmup_by_value`). Fewer than ``window`` (K) usable
+    refreshes after it: ``insufficient`` (HOLD, no alarm). Otherwise PASS when either
+    (a) **declining**: the least-squares slope of log(value) over the post-warm-up series
+    is <= 0 and the final value is <= ``ratio`` x the post-warm-up peak, or (b)
+    **stationary**: over the last K refreshes max - min <= ``spread`` x their median and
+    that median <= ``floor`` (the declared floor, in units of W). Else not passing.
+    """
+    values = [float(v) for v in series]
+    dropped, median = td_warmup_by_value(values, warmup_factor)
+    post = values[dropped:]
+    report: dict[str, Any] = {
+        "rule": TD_RULE_V2,
+        "series": values,
+        "warmup_dropped": dropped,
+        "warmup_median": median,
+        "post_warmup": post,
+        "slope": None,
+        "final_over_peak": None,
+        "declining": None,
+        "window": int(window),
+        "window_median": None,
+        "window_spread_over_median": None,
+        "floor": float(floor),
+        "stationary": None,
+        "status": "insufficient",
+        "pass": True,
+    }
+    if len(post) < int(window):
+        return report
+    peak = max(post)
+    slope = _log_slope(post)
+    final_over_peak = post[-1] / peak if peak > 0 else 0.0
+    declining = slope is not None and slope <= 0 and post[-1] <= ratio * peak
+    last = post[-int(window) :]
+    window_median = _median(last)
+    width = max(last) - min(last)
+    stationary = width <= spread * window_median and window_median <= floor
+    report.update(
+        slope=slope,
+        final_over_peak=final_over_peak,
+        declining=bool(declining),
+        window_median=window_median,
+        window_spread_over_median=(width / window_median) if window_median > 0 else 0.0,
+        stationary=bool(stationary),
+    )
+    if declining:
+        report.update(status="declining", **{"pass": True})
+    elif stationary:
+        report.update(status="stationary-below-floor", **{"pass": True})
+    else:
+        report.update(status="not-declining-or-stationary", **{"pass": False})
+    return report
+
+
+def td_divergence_v2(
+    series: Sequence[float],
+    *,
+    warmup_factor: float,
+    growth: int,
+    increase: float,
+    median_factor: float,
+) -> dict[str, Any] | None:
+    """Rule v2 divergence on one growth-eligible series, or None.
+
+    After the warm-up by value: the last ``growth`` refreshes each rose by more than
+    ``increase`` (relative) and the last one ends above ``median_factor`` x the stationary
+    median, the median of the post-warm-up values up to and including the base of the
+    rising run (the level the series held before it started to rise).
+    """
+    values = [float(v) for v in series]
+    dropped, _ = td_warmup_by_value(values, warmup_factor)
+    post = values[dropped:]
+    run = post[-(growth + 1) :]
+    if len(run) < growth + 1:
+        return None
+    if not all(b > a * (1.0 + increase) for a, b in itertools.pairwise(run)):
+        return None
+    base = post[: len(post) - growth]
+    reference = _median(base)
+    if not run[-1] > median_factor * reference:
+        return None
+    return {"series": run, "stationary_median": reference, "warmup_dropped": dropped}
+
+
 # Live td_divergence reasons of the hard checks, in the order they are reported (the
 # first violated one names the alarm; every count is in the record).
 TD_REASON_FLAT_BOUND = "targets-outside-[0,W]"  # historical; callers without a bound
@@ -367,10 +530,23 @@ class TDDriftMonitor:
     """TD(lambda) target drift and error trajectory checks.
 
     Drift (mean |target change| per refresh) and error (mean |prediction - TD target| on
-    the fit rows) are in units of the discount weight W. Rules (approved trajectory rule,
-    user 26 Oct): the first ``warmup`` refreshes are ignored; afterwards each series must
-    diminish (see :func:`trajectory_report`); a divergence alarm fires on ``growth``
-    consecutive increases each larger than ``increase``.
+    the fit rows) are in units of the discount weight W. ``rule`` selects the trajectory
+    rule; the hard bounds below are the same under both.
+
+    Rule v1 (``TD_RULE_V1``, user 26 Oct; the constructor default, so direct callers and
+    resume states without a recorded rule are unchanged): the first ``warmup`` refreshes
+    are ignored; afterwards each series must diminish (see :func:`trajectory_report`); a
+    divergence alarm fires on ``growth`` consecutive increases each larger than
+    ``increase`` on either series.
+
+    Rule v2 (``TD_RULE_V2``, user 28 Oct; what :class:`StabilityMonitor` uses by default):
+    warm-up by value (:func:`td_warmup_by_value`); the ERROR series is gated by
+    :func:`trajectory_report_v2` (declining, or stationary below ``error_floor``; fewer
+    than ``window`` usable refreshes is insufficient: HOLD); the live divergence alarm
+    (:func:`td_divergence_v2`) fires on ``growth`` consecutive rises of more than
+    ``increase`` that end above ``median_factor`` x the stationary median. The DRIFT series
+    gets the same report (floor ``drift_floor``) and the same divergence test, but only as
+    advisories (``advisories``), never alarms.
 
     Hard bound (user decision 27 Oct). With ``admissibility`` (from
     ``labor_advantage.qol_td_admissibility``) every target must lie in [0, U_i], where
@@ -397,7 +573,16 @@ class TDDriftMonitor:
         warmup: int = 2,
         ratio: float = 0.5,
         increase: float = 0.10,
+        rule: str = TD_RULE_V1,
+        warmup_factor: float = 1.5,
+        window: int = 6,
+        spread: float = 0.5,
+        error_floor: float = 0.05,
+        drift_floor: float = 0.05,
+        median_factor: float = 1.5,
     ) -> None:
+        if rule not in TD_RULES:
+            raise ValueError(f"unknown TD trajectory rule {rule!r}; expected one of {TD_RULES}")
         self.weight = float(weight)
         self.growth = int(growth)
         self.floor = float(floor)
@@ -405,16 +590,28 @@ class TDDriftMonitor:
         self.warmup = int(warmup)
         self.ratio = float(ratio)
         self.increase = float(increase)
+        self.rule = rule
+        self.warmup_factor = float(warmup_factor)
+        self.window = int(window)
+        self.spread = float(spread)
+        self.error_floor = float(error_floor)
+        self.drift_floor = float(drift_floor)
+        self.median_factor = float(median_factor)
         self.refreshes: list[dict[str, Any]] = []
         self.alarms: list[dict[str, Any]] = []
+        self.advisories: list[dict[str, Any]] = []
+
+    def _eligible(self, key: str) -> list[float]:
+        """Growth-eligible values; the epoch-0 refresh replaces the Monte Carlo return and
+        is not part of the trajectory (``growth_eligible`` false)."""
+        return [r[key] for r in self.refreshes if r.get(key) is not None and r["growth_eligible"]]
 
     def _series(self, key: str) -> list[float]:
-        """Post-warm-up values; the epoch-0 refresh replaces the Monte Carlo return and is
-        not part of the trajectory (``growth_eligible`` false)."""
-        values = [
-            r[key] for r in self.refreshes if r.get(key) is not None and r["growth_eligible"]
-        ]
-        return values[self.warmup :]
+        """v1: post-warm-up values (the first ``warmup`` eligible refreshes dropped)."""
+        return self._eligible(key)[self.warmup :]
+
+    def _v2_floor(self, key: str) -> float:
+        return self.error_floor if key == "error" else self.drift_floor
 
     def update(
         self,
@@ -487,7 +684,13 @@ class TDDriftMonitor:
                 if count:
                     alarm = {"check": "td_divergence", "reason": reason, **record}
                     break
-        if alarm is None:
+        return self._judge_latest(record, alarm)
+
+    def _judge_latest(
+        self, record: Mapping[str, Any], alarm: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """The trajectory part of a refresh's live judgement (after its hard-bound alarm)."""
+        if alarm is None and self.rule == TD_RULE_V1:
             for key in ("drift", "error"):
                 tail = self._series(key)[-(self.growth + 1) :]
                 if len(tail) == self.growth + 1:
@@ -501,11 +704,86 @@ class TDDriftMonitor:
                             **record,
                         }
                         break
+        if self.rule == TD_RULE_V2:
+            for key in (TD_V2_GATED_SERIES, TD_V2_ADVISORY_SERIES):
+                found = self._divergence_v2(key)
+                if found is None:
+                    continue
+                entry = {
+                    "check": "td_divergence",
+                    "rule": TD_RULE_V2,
+                    "reason": f"{key}-rose->{int(self.increase * 100)}%-for-"
+                    f"{self.growth}-consecutive-refreshes-above-"
+                    f"{self.median_factor:g}x-stationary-median",
+                    **found,
+                    **record,
+                }
+                if key == TD_V2_GATED_SERIES:
+                    if alarm is None:
+                        alarm = entry
+                else:
+                    self.advisories.append({**entry, "gating": False})
         if alarm is not None:
             self.alarms.append(alarm)
         return alarm
 
+    def replay(self, refreshes: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        """Re-judge recorded refreshes (``td_refresh`` log records or a resume state's
+        ``refreshes``) under this monitor's rule, in order, as the live fit would have.
+
+        Hard-bound alarms come from the recorded counts (the targets are not logged):
+        ``out_of_bounds`` without ``bound`` is the flat [0, W] check; with
+        ``bound == "admissible"`` the reward / discount / head / admissible counts. Returns
+        the live alarms in refresh order; ``report()`` then gives the end-of-fit verdict.
+        """
+        fired = []
+        for raw in refreshes:
+            record = {k: v for k, v in raw.items() if k not in ("fit", "t", "kind")}
+            self.refreshes.append(record)
+            alarm = None
+            if record.get("bound") == "admissible":
+                counts = {
+                    TD_REASON_REWARD: record.get("reward_violations", 0),
+                    TD_REASON_DISCOUNT: record.get("discount_violations", 0),
+                    TD_REASON_HEAD_RANGE: record.get("head_violations", 0),
+                    TD_REASON_ADMISSIBLE: record.get("out_of_bounds", 0),
+                }
+                for reason, count in counts.items():
+                    if count:
+                        alarm = {"check": "td_divergence", "reason": reason, **record}
+                        break
+            elif record.get("out_of_bounds"):
+                alarm = {"check": "td_divergence", "reason": TD_REASON_FLAT_BOUND, **record}
+            alarm = self._judge_latest(record, alarm)
+            if alarm is not None:
+                fired.append(alarm)
+        return fired
+
+    def _divergence_v2(self, key: str) -> dict[str, Any] | None:
+        return td_divergence_v2(
+            self._eligible(key),
+            warmup_factor=self.warmup_factor,
+            growth=self.growth,
+            increase=self.increase,
+            median_factor=self.median_factor,
+        )
+
     def trajectory(self) -> dict[str, Any]:
+        if self.rule == TD_RULE_V2:
+            return {
+                key: {
+                    **trajectory_report_v2(
+                        self._eligible(key),
+                        warmup_factor=self.warmup_factor,
+                        window=self.window,
+                        spread=self.spread,
+                        floor=self._v2_floor(key),
+                        ratio=self.ratio,
+                    ),
+                    "gating": key == TD_V2_GATED_SERIES,
+                }
+                for key in ("drift", "error")
+            }
         return {
             key: trajectory_report(self._series(key), ratio=self.ratio, floor=self.floor)
             for key in ("drift", "error")
@@ -514,6 +792,46 @@ class TDDriftMonitor:
     def report(self) -> dict[str, Any]:
         trajectory = self.trajectory()
         alarms = list(self.alarms)
+        advisories = list(self.advisories)
+        if self.rule == TD_RULE_V2:
+            for key, result in trajectory.items():
+                if result["pass"]:
+                    continue
+                entry = {
+                    "check": "td_divergence",
+                    "rule": TD_RULE_V2,
+                    "reason": f"{key}-trajectory-not-declining-or-stationary",
+                    **result,
+                }
+                if key == TD_V2_GATED_SERIES:
+                    alarms.append(entry)
+                else:
+                    advisories.append({**entry, "gating": False})
+            insufficient = (
+                [TD_V2_GATED_SERIES]
+                if trajectory[TD_V2_GATED_SERIES]["status"] == "insufficient"
+                else []
+            )
+            return {
+                "rule": TD_RULE_V2,
+                "refreshes": list(self.refreshes),
+                "alarms": alarms,
+                "advisories": advisories,
+                "insufficient": insufficient,
+                "trajectory": trajectory,
+                "gated_series": TD_V2_GATED_SERIES,
+                "warmup": {"by": "value", "median_factor": self.warmup_factor},
+                "warmup_refreshes": None,
+                "final_ratio": self.ratio,
+                "window": self.window,
+                "spread": self.spread,
+                "floors": {"error": self.error_floor, "drift": self.drift_floor},
+                "divergence": {
+                    "growth": self.growth,
+                    "increase": self.increase,
+                    "median_factor": self.median_factor,
+                },
+            }
         for key, result in trajectory.items():
             if not result["pass"]:
                 alarms.append(
@@ -534,6 +852,65 @@ class TDDriftMonitor:
             "final_ratio": self.ratio,
             "floor": self.floor,
         }
+
+
+def td_monitor_from_thresholds(
+    weight: float, thresholds: StabilityThresholds, rule: str | None = None
+) -> TDDriftMonitor:
+    """The TD monitor :class:`StabilityMonitor` builds from ``thresholds`` (rule override)."""
+    th = thresholds
+    return TDDriftMonitor(
+        weight,
+        growth=th.td_growth_refreshes,
+        floor=th.td_drift_floor,
+        tolerance=th.td_bound_tolerance,
+        warmup=th.td_warmup_refreshes,
+        ratio=th.td_final_ratio,
+        increase=th.td_divergence_increase,
+        rule=th.td_rule if rule is None else rule,
+        warmup_factor=th.td_warmup_median_factor,
+        window=th.td_stationary_refreshes,
+        spread=th.td_stationary_spread,
+        error_floor=th.td_stationary_error_floor,
+        drift_floor=th.td_stationary_drift_floor,
+        median_factor=th.td_divergence_median_factor,
+    )
+
+
+def td_status(report: Mapping[str, Any] | None) -> str:
+    """The td_divergence check's status from a TD report (as :meth:`StabilityMonitor.checks`)."""
+    if report is None:
+        return "HOLD"
+    if report["alarms"]:
+        return "FAIL"
+    return "HOLD" if report["insufficient"] else "PASS"
+
+
+def rejudge_td_refreshes(
+    refreshes: Sequence[Mapping[str, Any]],
+    *,
+    rule: str = TD_RULE_V2,
+    thresholds: StabilityThresholds | None = None,
+) -> dict[str, Any]:
+    """Re-judge a fit's recorded TD refreshes (a stability JSONL's ``td_refresh`` records)
+    under ``rule``: the live alarms (the first is where an early stop would have fired),
+    the end-of-fit report and the td_divergence status. Diagnostic: it never edits a
+    receipt; a recorded receipt keeps the verdict of the rule it was judged under."""
+    refreshes = [r for r in refreshes if r.get("kind", "td_refresh") == "td_refresh"]
+    if not refreshes:
+        return {"rule": rule, "status": "HOLD", "live_alarms": [], "report": None}
+    monitor = td_monitor_from_thresholds(
+        float(refreshes[0]["weight"]), thresholds or StabilityThresholds(), rule
+    )
+    live = monitor.replay(refreshes)
+    report = monitor.report()
+    return {
+        "rule": rule,
+        "status": td_status(report),
+        "live_alarms": live,
+        "early_stop_epoch": live[0]["epoch"] if live else None,
+        "report": report,
+    }
 
 
 def saturation_alarm(share: float | None, threshold: float) -> bool:
@@ -1326,16 +1703,10 @@ class StabilityMonitor:
                 self._tail_alarmed = exceeded
 
     # ---- fit-level records -------------------------------------------------
-    def _new_td(self, weight: float) -> TDDriftMonitor:
-        return TDDriftMonitor(
-            weight,
-            growth=self.t.td_growth_refreshes,
-            floor=self.t.td_drift_floor,
-            tolerance=self.t.td_bound_tolerance,
-            warmup=self.t.td_warmup_refreshes,
-            ratio=self.t.td_final_ratio,
-            increase=self.t.td_divergence_increase,
-        )
+    def _new_td(self, weight: float, rule: str | None = None) -> TDDriftMonitor:
+        """``rule`` defaults to the configured ``td_rule`` (a new fit); a resume state
+        passes its recorded rule (absent in states written before 28 Oct: v1)."""
+        return td_monitor_from_thresholds(weight, self.t, rule)
 
     def td_refresh(
         self,
@@ -1352,6 +1723,7 @@ class StabilityMonitor:
         if self.td is None:
             self.td = self._new_td(weight)
             self.applicable["td_divergence"] = True
+        advised = len(self.td.advisories)
         alarm = self.td.update(
             epoch,
             previous,
@@ -1362,6 +1734,9 @@ class StabilityMonitor:
             admissibility=admissibility,
         )
         self.write({"kind": "td_refresh", **self.td.refreshes[-1]})
+        # v2 drift-series divergence: a live advisory, never a stop or a FAIL.
+        for advisory in self.td.advisories[advised:]:
+            self._advisory(advisory)
         if alarm:
             self._alarm(alarm)
         self._maybe_stop()
@@ -1410,8 +1785,10 @@ class StabilityMonitor:
             if self.td is None
             else {
                 "weight": self.td.weight,
+                "rule": self.td.rule,
                 "refreshes": _jsonable(self.td.refreshes),
                 "alarms": _jsonable(self.td.alarms),
+                "advisories": _jsonable(self.td.advisories),
             },
             "detectors": {
                 name: {
@@ -1441,9 +1818,11 @@ class StabilityMonitor:
             setattr(self, key, list(state[key]))
         self.lr_initial = [float(v) for v in state["lr_initial"]]
         if state["td"] is not None:
-            self.td = self._new_td(state["td"]["weight"])
+            # States written before rule v2 (28 Oct) carry no rule: they keep v1.
+            self.td = self._new_td(state["td"]["weight"], state["td"].get("rule", TD_RULE_V1))
             self.td.refreshes = list(state["td"]["refreshes"])
             self.td.alarms = list(state["td"]["alarms"])
+            self.td.advisories = list(state["td"].get("advisories") or [])
             self.applicable["td_divergence"] = True
         for name, saved in state["detectors"].items():
             detector = self.detectors[name]
@@ -1539,6 +1918,18 @@ class StabilityMonitor:
                     "trajectory": td["trajectory"],
                     "insufficient": td["insufficient"],
                     "warmup_refreshes": td["warmup_refreshes"],
+                    # Rule v2 fields; a v1 record is unchanged.
+                    **(
+                        {
+                            "td_rule": td["rule"],
+                            "gated_series": td["gated_series"],
+                            "advisories": td["advisories"],
+                            "floors": td["floors"],
+                            "window": td["window"],
+                        }
+                        if td.get("rule") == TD_RULE_V2
+                        else {}
+                    ),
                 }
                 if td
                 else {}

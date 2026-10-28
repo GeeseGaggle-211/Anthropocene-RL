@@ -35,6 +35,8 @@
 #   TORCH_DISABLE_NATIVE_JIT=1 is exported below for every fit)
 #   SCENARIOS=0       1: FIT_DATA also lists curated scenario fitting sets (labor_scenarios)
 #   SCENARIO_CAL_DATA calibration scenario set (report-only per-family calibration)
+#   QOL_REFERENCE_SCALE  QoL reference-scale artifact (labor_r5_acceptance qol-reference-scale on
+#                     the fitting batches): the unit of the QoL gate; absent, the frozen 43.152
 #   FAMILY_WEIGHTS    pretrain-critic --family-weights (e.g. default; proposed values)
 #   EARLY_STOP=1      live stability early stop in every V and A fit (gradient_dominance or
 #                     td_divergence alarm, or >5 rollbacks: same thresholds as the end-of-run
@@ -109,6 +111,7 @@ if [ -n "${FAMILY_WEIGHTS:-}" ]; then args+=(--family-weights "$FAMILY_WEIGHTS")
 if [ -n "${FAMILY_WEIGHT_DECAY:-}" ]; then args+=(--family-weight-decay "$FAMILY_WEIGHT_DECAY"); fi
 if [ -n "${FAMILY_WEIGHT_DECAY_EPOCHS:-}" ]; then args+=(--family-weight-decay-epochs "$FAMILY_WEIGHT_DECAY_EPOCHS"); fi
 if [ -n "${SCENARIO_CAL_DATA:-}" ]; then args+=(--scenario-calibration-data "$SCENARIO_CAL_DATA"); fi
+if [ -n "${QOL_REFERENCE_SCALE:-}" ]; then args+=(--qol-reference-scale "$QOL_REFERENCE_SCALE"); fi
 # shellcheck disable=SC2206
 if [ -n "${EXTRA:-}" ]; then args+=($EXTRA); fi
 

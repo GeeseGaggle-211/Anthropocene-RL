@@ -33,6 +33,7 @@ from anthropocene_rl.autonomous_v7.labor_stability import (
     StabilityAbort,
     StabilityConfig,
     StabilityMonitor,
+    StabilityThresholds,
     ValidationMonitor,
     stability_config_from_args,
 )
@@ -145,10 +146,16 @@ def _td_feed(monitor, increments, weight=100.0):
         monitor.td_refresh(epoch, previous, current, weight, error=0.0)
 
 
+_V1 = StabilityThresholds(td_rule="v1-diminishing")
+
+
 def test_td_growth_alarm_stops_the_fit() -> None:
+    # Rule v1 (resume states and receipts before 28 Oct): growth on the drift series stops.
     growing = [1.0, 1.0, 1.0, 2.0, 4.0, 8.0, 8.0]  # rises > 10% on refreshes 4, 5, 6
     with pytest.raises(StabilityAbort, match="td_divergence") as caught:
-        _td_feed(_td_monitor(StabilityConfig(log_every=1, early_stop=True)), growing)
+        _td_feed(
+            _td_monitor(StabilityConfig(log_every=1, early_stop=True, thresholds=_V1)), growing
+        )
     summary = caught.value.summary
     assert summary["early_stop"]["check"] == "td_divergence"
     assert "drift-rose" in summary["early_stop"]["reason"]
@@ -156,7 +163,7 @@ def test_td_growth_alarm_stops_the_fit() -> None:
     refreshes = summary["checks"]["td_divergence"]["refreshes"]
     assert refreshes[-1]["epoch"] == 6  # stopped at the alarm, refresh 7 never ran
     # The library default judges the same alarm at the end of the run.
-    plain = _td_monitor(StabilityConfig(log_every=1))
+    plain = _td_monitor(StabilityConfig(log_every=1, thresholds=_V1))
     _td_feed(plain, growing)
     end = plain.finish()
     assert end["checks"]["td_divergence"]["status"] == "FAIL"

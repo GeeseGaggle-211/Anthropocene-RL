@@ -355,9 +355,23 @@ bitwise identical to an unmonitored one (tested). The receipt is stored in the f
   (`head-outside-range`). Each refresh record carries the counts, `upper_max` and non-gating
   `diagnostics` (share of rows whose tail exceeds W, max tail / W, clipped targets). Receipts from
   before the change carry the old reason `targets-outside-[0,W]`, which still FAILs and stops.
-  End of run: each post-warm-up series must diminish (negative
+  End of run (rule v1, `v1-diminishing`): each post-warm-up series must diminish (negative
   log slope and final value at most 0.5 x its maximum, or converged below the floor); too few
   refreshes HOLD.
+  **Rule v2 (`v2-floor-or-declining`, user decision 28 Oct; the default for new fits).** v1 failed
+  fits whose drift and error had settled on a stationary noise floor (pilot out-e5/out-e1). v2:
+  warm-up by value (drop leading refreshes until the first within 1.5 x the running median, the
+  median of every eligible refresh so far); the ERROR series is gated and PASSes when it is either
+  declining (log slope <= 0 and final <= 0.5 x the post-warm-up peak) or stationary (over the last
+  K = 6 refreshes max - min <= 0.5 x their median, and that median <= 0.05 W, a declared floor to be
+  recalibrated from the first clean fit); fewer than K usable refreshes HOLD. Live alarm (early-stop
+  eligible): 3 consecutive rises above 10% whose last value ends above 1.5 x the stationary median
+  (the median of the post-warm-up values up to the run's base); the hard admissible-bound checks are
+  unchanged. The drift series gets the same report (floor 0.05 W) and divergence test as non-gating
+  advisories only. The record carries `td_rule`; resume states and receipts written before 28 Oct
+  (no recorded rule) keep v1 and their verdicts. `labor_r5_acceptance td-rejudge --stability-log
+  LOG... [--rule v1-diminishing|v2-floor-or-declining]` replays a fit's recorded refreshes under a
+  rule (diagnostic; it never edits a receipt).
 * Live early stop (`--stability-early-stop`, on `pretrain-critic`, `labor_advantage fit` and
   `pretrain-bc`; off by default, on in `labor_r5_acceptance run`): a gradient_dominance alarm, a live
   td_divergence alarm or more than 5 total rollbacks raises `StabilityAbort` at once. The thresholds
@@ -437,7 +451,8 @@ unchanged.
 
 The primary gate `r5-critic-acceptance` (candidate arm) combines: admitted stability receipts for V and
 A; QoL per r5-b (a) A same-village ranking on reserved worlds, (b) bounded-head nMAE <= 0.20 and
-|bias| <= 0.10 per stratum, (c) TD residual |bias| <= 0.05 and mean |residual| <= 0.20 reference scales;
+|bias| <= 0.10 per stratum against the tail-robust n-step target (gate v2, below), (c) TD residual
+|bias| <= 0.05 and mean |residual| <= 0.20 reference scales;
 population-years cross-village ranking >= 0.70 per stratum (r5-b item 3); the other heads within
 0.02 of the critic3 control (`--control-report`, a missing control HOLDs); the
 A gates on reserved worlds; generalisation gaps; the declared seed rule (`all-seeds` default, or
@@ -449,6 +464,29 @@ the historical fitting exclusions. Full G2C for every head is reported as the se
 and `--smoke` (truncated-zero targets) forces HOLD. `--local` caps seeds at 3, so a local receipt HOLDs
 on seed coverage unless `--required-seeds` is lowered for a diagnostic. Values marked `proposed` in `PREREGISTERED` await
 the user's review.
+
+**QoL gate v2 (user decision 28 Oct).** One roulette stop schedule per world scales every camp's
+Monte Carlo tail by a world-level factor (0.61-1.67 in the pilot), so the old Monte Carlo target made
+0.20 nMAE unreachable. (b) is now judged against `labor_pretrain_eval.QOL_GATE_TARGET`
+(`nstep-k5-bootstrap-v1`): y_t = k = 5 observed rewards + D_5 V(s_t+5), the critic's own decoded
+bootstrap, with physical-time discounts exp(-elapsed / 400 y) (the same windows as the TD residual).
+A window that reaches a terminal row is exact (realized rewards, zero tail) and gated. A window that
+would pass the collection window's last living row is not gated, so no Monte Carlo tail enters the
+gate; those rows (`living_end`) are reported closed both by the bootstrap V(s_last) and by the
+declared tail. nMAE/bias stay world-balanced per stratum. The Monte Carlo metrics remain in every
+stratum as `monte_carlo` (non-gating), and the `heads` section (MC, frozen 43.152, ranking) is
+unchanged; ranking stays on the Monte Carlo return, because ~78% (D_5) of the n-step target is the
+critic's own value, which would make an ordering test self-referential. The QoL unit is remeasured on
+r5's own returns: `labor_r5_acceptance qol-reference-scale --fit-data FIT... --out scale.json` (fitting
+worlds only) writes `labor-r5-qol-reference-scale-v1`: the std (ddof 0, unweighted) of the per-row
+Monte Carlo QoL return on the admitted fitting rows, chosen over the n-step target because it needs no
+critic (fixed before any fit, the same for every arm and seed), with the world-balanced std, the
+tail-free part's std and the tail share as diagnostics, a content digest, the datasets and source
+provenance. `evaluate`/`run --qol-reference-scale FILE` (script: `QOL_REFERENCE_SCALE=`) use it for
+(b) and for the (c) TD residual; without it the frozen 43.152 is kept. Thresholds stay 0.20 / 0.10.
+Evidence records `qol_reference_scale` (value, source, digest, sha256) and `qol_gate_target`; the
+receipt's `qol_gate` lists both per fit, and fits judged in different units HOLD the receipt. Evidence
+from before gate v2 has no n-step section and keeps its Monte Carlo verdict.
 
 `labor_qol_diagnosis` (feature/qol-diagnosis, 770ca04) predates the privileged block and the bounded
 head (it calls the critic without a privileged batch and decodes a two-hot softmax), so it runs only on

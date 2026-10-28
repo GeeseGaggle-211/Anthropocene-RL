@@ -464,19 +464,35 @@ def test_td_refresh_cadence_is_configurable_in_steps_and_per_epoch() -> None:
     assert len(default["stability"]["checks"]["td_divergence"]["refreshes"]) == 6
 
 
+_V1 = StabilityConfig(thresholds=StabilityThresholds(td_rule="v1-diminishing"))
+
+
 def test_insufficient_td_trajectory_holds_instead_of_passing() -> None:
     # Two refreshes (start + one) leave no post-warm-up points: HOLD, never PASS.
-    summary = _td_fit(epochs=1, batch_size=3, td_refresh_steps=1)
+    summary = _td_fit(epochs=1, batch_size=3, td_refresh_steps=1, stability=_V1)
     td = summary["stability"]["checks"]["td_divergence"]
     assert td["status"] == "HOLD" and td["insufficient"] == ["drift", "error"]
     assert not summary["stability"]["admitted"] or td["status"] == "HOLD"
+    # Rule v2 (the default): fewer than K usable refreshes HOLD; only the gated error series.
+    summary = _td_fit(epochs=1, batch_size=3, td_refresh_steps=1)
+    td = summary["stability"]["checks"]["td_divergence"]
+    assert td["td_rule"] == "v2-floor-or-declining"
+    assert td["status"] == "HOLD" and td["insufficient"] == ["error"]
 
 
 def test_enough_refreshes_leave_the_hold() -> None:
-    summary = _td_fit(epochs=4, batch_size=2, td_refresh_steps=1)  # 12 steps -> 12 refreshes
+    summary = _td_fit(epochs=4, batch_size=2, td_refresh_steps=1, stability=_V1)  # 12 refreshes
     td = summary["stability"]["checks"]["td_divergence"]
     assert td["status"] in ("PASS", "FAIL") and td["insufficient"] == []
     assert len(td["trajectory"]["drift"]["series"]) == 12 - 1 - 2
+    # v2 reports every growth-eligible value; the warm-up is by value.
+    summary = _td_fit(epochs=4, batch_size=2, td_refresh_steps=1)
+    td = summary["stability"]["checks"]["td_divergence"]
+    assert td["td_rule"] == "v2-floor-or-declining"
+    error = td["trajectory"]["error"]
+    assert len(error["series"]) == 12 - 1 and error["gating"] is True
+    assert len(error["post_warmup"]) == len(error["series"]) - error["warmup_dropped"]
+    assert td["status"] in ("PASS", "FAIL", "HOLD")
 
 
 def test_td_lambda_fit_records_refreshes() -> None:

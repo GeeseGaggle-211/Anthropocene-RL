@@ -18,6 +18,9 @@ compact summary:
     calibration rows, optionally also on the fitting dataset to show
     the generalisation gap. Task heads use the frozen labor reference scales;
     cost heads use scale 1.
+    QoL gate v2 (28 Oct): ``qol_nstep`` judges the QoL head against the tail-robust
+    n-step target (``QOL_GATE_TARGET``) in ``--qol-reference-scale`` units; the Monte Carlo
+    metrics stay as non-gating diagnostics.
 
 ``autonomous``
     Closed-loop S1 check on development worlds: the actor controls every
@@ -828,13 +831,392 @@ def qol_tail_diagnostics(
     }
 
 
+# --- QoL calibration gate v2: the tail-robust n-step target (user decision 28 Oct) ----------
+
+# The window length of the gate's target; the same k as the acceptance harness's n-step TD
+# residual (``labor_r5_acceptance`` PREREGISTERED["td_nstep_k"], checked equal in tests).
+QOL_NSTEP_K = 5
+# Closure of each row's n-step window (``nstep_targets``).
+NSTEP_FULL = 0  # k observed rewards, then gamma^k V(s_{t+k}) (the critic's own bootstrap)
+NSTEP_TERMINAL = 1  # the trajectory terminated inside the window: realized rewards, zero tail
+NSTEP_LIVING_END_SHORT = 2  # the window reaches the collection window's living end (< k rewards)
+NSTEP_LIVING_END_SELF = 3  # the row is the living end itself: no reward precedes a bootstrap
+NSTEP_CLOSURES = {
+    NSTEP_FULL: "full-window-bootstrap",
+    NSTEP_TERMINAL: "terminal-inside-window",
+    NSTEP_LIVING_END_SHORT: "living-end-shortened",
+    NSTEP_LIVING_END_SELF: "living-end-row",
+}
+NSTEP_GATED_CLOSURES = (NSTEP_FULL, NSTEP_TERMINAL)
+QOL_GATE_TARGET_ID = "nstep-k5-bootstrap-v1"
+QOL_GATE_TARGET = {
+    "id": QOL_GATE_TARGET_ID,
+    "k": QOL_NSTEP_K,
+    "definition": "y_t = sum_{j<k} D_j r_{t+j} + D_k V(s_{t+k}), D_j = prod_{m<j} "
+    "exp(-elapsed_{t+m} / 400 y), V the evaluated critic's own decoded QoL value; "
+    "trajectories keyed (world, camp, row_trajectory), ordered by row_turn",
+    "terminal": "a window reaching a terminal row ends there with realized rewards and a zero "
+    "tail (exact; gated)",
+    "living_end": "a window that would pass the collection window's last row is NOT gated: "
+    "no Monte Carlo tail ever enters the gate. The k rows before the living end are "
+    "reported (non-gating) closed both by the critic's bootstrap at the last row (rewards "
+    "t..last-1 + D V(s_last), fewer than k rewards) and by the dataset's declared tail "
+    "(rewards t..last + D tail_last, as the TD residual)",
+    "rows": "admitted rows (not quarantined, target available), as the Monte Carlo metrics; "
+    "bootstrap values may come from any row of the trajectory",
+    "aggregation": "world-balanced per stratum, strata as the Monte Carlo metrics",
+    "units": "QoL reference scale of the gate (qol_reference_scale)",
+    "monte_carlo": "the randomized-tail Monte Carlo metrics stay in the report, non-gating",
+}
+FROZEN_QOL_REFERENCE_SCALE = 43.152  # contracts.OBJECTIVE_REFERENCE_SCALES["qol_years"]
+QOL_REFERENCE_SCALE_SCHEMA = "labor-r5-qol-reference-scale-v1"
+
+
+def nstep_targets(
+    values: Any,
+    reward: Any,
+    elapsed: Any,
+    terminal: Any,
+    turns: Any,
+    worlds: Any,
+    camps: Any,
+    trajectories: Any,
+    tails: Any = None,
+    tail_ok: Any = None,
+    *,
+    k: int = QOL_NSTEP_K,
+    discount_years: float = 400.0,
+) -> dict[str, np.ndarray]:
+    """Per-row n-step targets along each trajectory (pure; units of ``values``/``reward``).
+
+    ``target`` closes each window with the critic's own bootstrap: k observed rewards then
+    D_k V(s_{t+k}) (``NSTEP_FULL``); a terminal row inside the window ends it with a zero
+    tail (``NSTEP_TERMINAL``); a window reaching the living end (the trajectory's last,
+    non-terminal row) bootstraps from V(s_last) after the rewards before it
+    (``NSTEP_LIVING_END_SHORT``, fewer than k rewards); the last row itself has no target
+    (``NSTEP_LIVING_END_SELF``, NaN). ``tail_target`` closes the living-end windows instead
+    with the stored tail at the last row (rewards through the last row + D tail), where
+    ``tail_ok`` says the tail is declared (NaN elsewhere); for full and terminal windows it
+    equals ``target``. ``steps`` is the number of rewards in ``target``. Discounts per row
+    are exp(-elapsed / discount_years), applied after the row's reward, exactly as
+    ``labor_bc.discounted_returns`` and the acceptance TD residual.
+    """
+    values = np.asarray(values, dtype=np.float64).reshape(-1)
+    reward = np.asarray(reward, dtype=np.float64).reshape(-1)
+    elapsed = np.asarray(elapsed, dtype=np.float64).reshape(-1)
+    terminal = np.asarray(terminal).reshape(-1).astype(bool)
+    n = len(values)
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for i in range(n):
+        groups[(int(worlds[i]), int(camps[i]), int(trajectories[i]))].append(i)
+    target = np.full(n, np.nan)
+    tail_target = np.full(n, np.nan)
+    closure = np.zeros(n, dtype=np.int64)
+    steps = np.zeros(n, dtype=np.int64)
+    position = np.zeros(n, dtype=np.int64)
+    remaining = np.zeros(n, dtype=np.int64)
+    gamma = np.exp(-elapsed / float(discount_years))
+    for indices in groups.values():
+        indices.sort(key=lambda i: turns[i])
+        size = len(indices)
+        for pos, i in enumerate(indices):
+            position[i] = pos
+            remaining[i] = size - 1 - pos
+            total, discount = 0.0, 1.0
+            code = NSTEP_FULL
+            for j in range(k):
+                row = indices[pos + j]
+                if pos + j == size - 1 and not terminal[row]:
+                    # Living end: bootstrap from V(s_last) after the rewards before it.
+                    code = NSTEP_LIVING_END_SHORT if j > 0 else NSTEP_LIVING_END_SELF
+                    if j > 0:
+                        target[i] = total + discount * values[row]
+                        steps[i] = j
+                    if tails is not None and (tail_ok is None or bool(tail_ok[row])):
+                        tail_target[i] = (
+                            total
+                            + discount * reward[row]
+                            + discount * gamma[row] * float(tails[row])
+                        )
+                    break
+                total += discount * reward[row]
+                discount *= gamma[row]
+                if terminal[row]:
+                    code = NSTEP_TERMINAL
+                    target[i] = total
+                    tail_target[i] = total
+                    steps[i] = j + 1
+                    break
+            else:
+                target[i] = total + discount * values[indices[pos + k]]
+                tail_target[i] = target[i]
+                steps[i] = k
+            closure[i] = code
+    return {
+        "target": target,
+        "tail_target": tail_target,
+        "closure": closure,
+        "steps": steps,
+        "position": position,
+        "remaining": remaining,
+    }
+
+
+def frozen_qol_reference() -> dict[str, Any]:
+    """The G0-era QoL reference scale: old receipts and runs without ``--qol-reference-scale``."""
+    return {
+        "value": FROZEN_QOL_REFERENCE_SCALE,
+        "source": "frozen-g0",
+        "detail": "contracts.OBJECTIVE_REFERENCE_SCALES['qol_years']: std of 25-turn truncated "
+        "heuristic QoL returns on Small worlds (G0)",
+        "digest": None,
+        "path": None,
+        "sha256": None,
+    }
+
+
+def _scale_digest(record: Mapping[str, Any]) -> str:
+    import hashlib
+
+    body = {key: value for key, value in record.items() if key != "digest"}
+    return hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def load_qol_reference_scale(path: Path | str | None) -> dict[str, Any]:
+    """The gate's QoL reference scale record: a verified artifact, or the frozen 43.152."""
+    import hashlib
+
+    if path is None:
+        return frozen_qol_reference()
+    raw = Path(path).read_bytes()
+    record = json.loads(raw.decode("utf-8"))
+    if record.get("schema") != QOL_REFERENCE_SCALE_SCHEMA:
+        raise ValueError(f"{path}: not a QoL reference-scale artifact ({record.get('schema')!r})")
+    if record.get("digest") != _scale_digest(record):
+        raise ValueError(f"{path}: QoL reference-scale digest does not match its content")
+    value = float(record["value"])
+    if not (math.isfinite(value) and value > 0.0):
+        raise ValueError(f"{path}: QoL reference scale must be finite and positive, got {value}")
+    return {
+        "value": value,
+        "source": "artifact",
+        "detail": record.get("quantity"),
+        "digest": record["digest"],
+        "path": str(path),
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "version": record.get("version"),
+        "fit_worlds": len(record.get("worlds") or []),
+    }
+
+
+def qol_reference_scale_record(
+    dataset: Mapping[str, Any], *, datasets: Sequence[Mapping[str, Any]] = (), version: int = 1
+) -> dict[str, Any]:
+    """Remeasure the QoL reference scale on (fitting) data: the std of the per-row QoL return.
+
+    The quantity is the one the G0 scale measured, the per-row discounted QoL return, here
+    the r5 Monte Carlo return closed by the dataset's declared tail
+    (``labor_bc.discounted_returns``) on admitted rows (not quarantined, target available);
+    ``value`` is its unweighted population std (numpy ``std``, ddof 0), as
+    ``scale_reference``. The Monte Carlo return is chosen over the n-step target because
+    it needs no critic: the scale is fixed before any fit, identical for every arm and
+    seed, and cannot move with the model it judges. Its spread includes the world-level
+    roulette factor, so ``diagnostics`` also reports the world-balanced std, the std of
+    the observed (tail-free) part and the tail share; they never replace ``value``.
+    """
+    from .labor_bc import (
+        RETURN_TAIL_RANDOMIZED,
+        critic_target_available,
+        discounted_returns,
+        return_tail_method,
+    )
+
+    returns = discounted_returns(dataset)["qol_years"].double().numpy()
+    quarantined = _np(dataset, "row_quarantined").reshape(-1).astype(bool)
+    available = critic_target_available(dataset).numpy().astype(bool)
+    keep = ~quarantined & available
+    if not keep.any():
+        raise ValueError("no admitted rows to measure the QoL reference scale on")
+    g = returns[keep]
+    worlds = _np(dataset, "row_world").reshape(-1)
+    weights = world_balanced(worlds[keep], np.ones(int(keep.sum()), dtype=bool))
+    mean_w = float((g * weights).sum() / weights.sum())
+    diagnostics: dict[str, Any] = {
+        "world_balanced_std": float(np.sqrt((weights * (g - mean_w) ** 2).sum() / weights.sum())),
+        "world_balanced_mean": mean_w,
+    }
+    method = return_tail_method(dataset)
+    if method == RETURN_TAIL_RANDOMIZED:
+        from .labor_advantage import qol_tail_terms
+
+        terms = qol_tail_terms(dataset, 1.0)
+        part = (terms["coefficient"].numpy() * terms["tail"].numpy())[keep]
+        part = np.where(terms["has_tail"].numpy()[keep], part, 0.0)
+        observed = g - part
+        diagnostics.update(
+            observed_part_std=float(np.std(observed)),
+            tail_part_mean=float(np.mean(part)),
+            tail_share_of_mean=float(np.mean(part) / np.mean(g)) if np.mean(g) else None,
+        )
+    record: dict[str, Any] = {
+        "schema": QOL_REFERENCE_SCALE_SCHEMA,
+        "version": int(version),
+        "head": "qol_years",
+        "quantity": "std (ddof 0, unweighted rows) of the per-row discounted QoL return "
+        "(tau 400 y) closed by the dataset's declared tail, admitted fitting rows",
+        "value": float(np.std(g)),
+        "mean": float(np.mean(g)),
+        "rows": int(keep.sum()),
+        "worlds": sorted({int(w) for w in worlds[keep].tolist()}),
+        "return_tail": method,
+        "previous": {"value": FROZEN_QOL_REFERENCE_SCALE, "source": "frozen-g0"},
+        "diagnostics": diagnostics,
+        "datasets": list(datasets),
+    }
+    return record
+
+
+def write_qol_reference_scale(record: Mapping[str, Any], out: Path | str) -> dict[str, Any]:
+    """Seal (digest over the content without ``digest``) and write the artifact atomically."""
+    value = float(record["value"])
+    if not (math.isfinite(value) and value > 0.0):
+        raise ValueError(f"QoL reference scale must be finite and positive, got {value}")
+    sealed = dict(record)
+    sealed.pop("digest", None)
+    sealed["digest"] = _scale_digest(sealed)
+    out = Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    temporary = out.with_suffix(out.suffix + ".tmp")
+    temporary.write_text(json.dumps(sealed, indent=1, sort_keys=True), encoding="utf-8")
+    os.replace(temporary, out)
+    return sealed
+
+
+def _nstep_metrics(
+    pred: np.ndarray, target: np.ndarray, worlds: np.ndarray, scale: float
+) -> dict[str, Any]:
+    weights = world_balanced(worlds, np.ones(len(worlds), dtype=bool))
+    return {
+        "rows": len(pred),
+        "worlds": len(np.unique(worlds)),
+        "nmae": normalized_mae(pred, target, scale, weights) if len(pred) else None,
+        "bias": normalized_bias(pred, target, scale, weights) if len(pred) else None,
+        "target_mean": weighted_mean(target, weights) if len(pred) else None,
+        "pred_mean": weighted_mean(pred, weights) if len(pred) else None,
+    }
+
+
+def qol_nstep_calibration(
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    values: np.ndarray,
+    monte_carlo: np.ndarray,
+    strata: Mapping[str, np.ndarray],
+    reference: Mapping[str, Any],
+    *,
+    k: int = QOL_NSTEP_K,
+) -> dict[str, Any]:
+    """The QoL calibration gate's metrics against the n-step target (``QOL_GATE_TARGET``).
+
+    ``values``: the critic's decoded QoL value on EVERY dataset row (bootstraps may sit on
+    any row). ``rows``: the admitted rows; ``strata`` masks over ``rows``;
+    ``monte_carlo``: the Monte Carlo return on ``rows``. Per stratum: gated nMAE/bias
+    (world-balanced, in the gate's reference scale) on admitted rows whose window is full
+    or terminal, and the non-gating Monte Carlo metrics on all of the stratum's rows in
+    the same unit. ``living_end`` reports the excluded rows near the collection window end.
+    """
+    from .labor_bc import (
+        CRITIC_DISCOUNT_YEARS,
+        RETURN_TAIL_RANDOMIZED,
+        TAIL_METHOD_FIELD,
+        TAIL_RANDOMIZED,
+        TAIL_TERMINAL_EXACT,
+        TAIL_VALUE_PREFIX,
+        TRAJECTORY_FIELD,
+        elapsed_years,
+        return_tail_method,
+    )
+
+    rows = np.asarray(rows, dtype=np.int64)
+    n = int(dataset["row_world"].shape[0])
+    worlds_all = _np(dataset, "row_world").reshape(-1)
+    randomized = return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED
+    codes = _np(dataset, TAIL_METHOD_FIELD).reshape(-1) if randomized else None
+    result = nstep_targets(
+        values,
+        _np(dataset, "reward_qol_years").reshape(-1),
+        elapsed_years(dataset).reshape(-1).double().numpy(),
+        _np(dataset, "transition_terminal").reshape(-1),
+        _np(dataset, "row_turn").reshape(-1),
+        worlds_all,
+        _np(dataset, "row_camp").reshape(-1),
+        _np(dataset, TRAJECTORY_FIELD).reshape(-1)
+        if TRAJECTORY_FIELD in dataset
+        else np.full(n, -1),
+        _np(dataset, TAIL_VALUE_PREFIX + "qol_years").reshape(-1) if randomized else None,
+        None if codes is None else np.isin(codes, (TAIL_TERMINAL_EXACT, TAIL_RANDOMIZED)),
+        k=k,
+        discount_years=CRITIC_DISCOUNT_YEARS,
+    )
+    scale = float(reference["value"])
+    pred = np.asarray(values, dtype=np.float64)[rows]
+    target = result["target"][rows]
+    tail_target = result["tail_target"][rows]
+    closure = result["closure"][rows]
+    worlds = worlds_all[rows]
+    gated = np.isin(closure, NSTEP_GATED_CLOSURES)
+    out_strata: dict[str, Any] = {}
+    for name, mask in strata.items():
+        m = np.asarray(mask, dtype=bool)
+        if not m.any():
+            continue
+        g = m & gated
+        out_strata[name] = {
+            **_nstep_metrics(pred[g], target[g], worlds[g], scale),
+            "excluded_living_end_rows": int((m & ~gated).sum()),
+            "monte_carlo": {
+                "gating": False,
+                **_nstep_metrics(pred[m], np.asarray(monte_carlo)[m], worlds[m], scale),
+            },
+        }
+    short = closure == NSTEP_LIVING_END_SHORT
+    with_tail = (closure != NSTEP_FULL) & (closure != NSTEP_TERMINAL) & np.isfinite(tail_target)
+    living_end = {
+        "gating": False,
+        "rows": int((~gated).sum()),
+        "shortened_rows": int(short.sum()),
+        "living_end_rows": int((closure == NSTEP_LIVING_END_SELF).sum()),
+        "bootstrap_closure": _nstep_metrics(pred[short], target[short], worlds[short], scale),
+        "declared_tail_closure": _nstep_metrics(
+            pred[with_tail], tail_target[with_tail], worlds[with_tail], scale
+        ),
+    }
+    counts = {NSTEP_CLOSURES[c]: int((closure == c).sum()) for c in NSTEP_CLOSURES}
+    return {
+        "gating": True,
+        "target": QOL_GATE_TARGET,
+        "reference_scale": dict(reference),
+        "rows": len(rows),
+        "gated_rows": int(gated.sum()),
+        "closures": counts,
+        "strata": out_strata,
+        "living_end": living_end,
+    }
+
+
 def critic_dataset_report(
     task: Any,
     costs: Any,
     dataset: Mapping[str, Any],
     batch_size: int = 256,
     normalizer: Any = None,
+    qol_reference: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Every head against the Monte Carlo return (``heads``, frozen model reference scales,
+    unchanged) and the QoL gate's n-step section (``qol_nstep``, :data:`QOL_GATE_TARGET`)
+    in ``qol_reference`` units (default: the frozen 43.152)."""
     from .labor_bc import (
         RETURN_TAIL_RANDOMIZED,
         critic_target_available,
@@ -903,6 +1285,26 @@ def critic_dataset_report(
                 )
                 for name, scale in scales.items()
             }
+    # QoL gate v2 (user 28 Oct): the n-step target needs V on every row (bootstraps), so the
+    # rows outside the admitted set get their own forward pass; the admitted rows' values
+    # are the ones above, so the Monte Carlo metrics are unchanged.
+    qol_nstep = None
+    if len(rows):
+        values = np.zeros(int(dataset["row_world"].shape[0]), dtype=np.float64)
+        values[rows] = preds["qol_years"]
+        others = np.flatnonzero(~keep)
+        if len(others):
+            values[others] = critic_predictions(task, costs, dataset, others, batch_size)[
+                "qol_years"
+            ]
+        qol_nstep = qol_nstep_calibration(
+            dataset,
+            rows,
+            values,
+            returns["qol_years"][rows],
+            strata,
+            frozen_qol_reference() if qol_reference is None else qol_reference,
+        )
     tail_record: dict[str, Any] = {}
     if return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED and len(rows):
         from .labor_model import labor_qol_discount_weight
@@ -921,6 +1323,7 @@ def critic_dataset_report(
         )
     return {
         **tail_record,
+        **({} if qol_nstep is None else {"qol_nstep": qol_nstep}),
         "by_scenario_family": by_family,
         "rows": len(rows),
         "excluded_quarantined_rows": int(quarantined.sum()),
@@ -941,8 +1344,13 @@ def run_critic_calibration(
     fit_dataset_path: Path | Sequence[Path] | None,
     batch_size: int = 256,
     device: Any = None,
+    qol_reference: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """``qol_reference`` (:func:`load_qol_reference_scale`) is the QoL gate's unit; absent,
+    the frozen 43.152."""
     from .labor_bc import CRITIC_DISCOUNT_YEARS
+
+    qol_reference = frozen_qol_reference() if qol_reference is None else dict(qol_reference)
 
     _, _, task, costs, normalizer = _load_models(checkpoint)
     if device is not None:  # forward passes only; predictions come back to the host
@@ -958,7 +1366,8 @@ def run_critic_calibration(
                 f"calibration worlds {overlap[:5]} fitted the privileged normalizer; not held out"
             )
     calibration = critic_dataset_report(
-        task, costs, calibration_dataset, batch_size, normalizer=normalizer
+        task, costs, calibration_dataset, batch_size, normalizer=normalizer,
+        qol_reference=qol_reference,
     )
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
@@ -976,6 +1385,9 @@ def run_critic_calibration(
         "weighting": "nMAE/bias world-balanced; ranking pooled over informative pairs (world-balanced also shown)",
         "calibration": calibration,
         "verdict": {name: strata["all"]["gate"] for name, strata in calibration["heads"].items()},
+        # QoL gate v2 (user 28 Oct): target definition and unit of the qol_nstep sections.
+        "qol_gate_target": QOL_GATE_TARGET,
+        "qol_reference_scale": qol_reference,
     }
     if privileged:
         report["privileged_critic"] = {
@@ -997,6 +1409,7 @@ def run_critic_calibration(
             fit_dataset,
             batch_size,
             normalizer=normalizer,
+            qol_reference=qol_reference,
         )
         report["fit_dataset"] = dataset_label(fit_dataset_path)
         report["fitting"] = fitting
@@ -1053,6 +1466,22 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                     f"mass>max={_fmt(h['upper_mass'], 4)} top-bin={_fmt(h['top_bin_mass'], 5)} "
                     f"decoded>max={_fmt(h['upper_contribution'])} excess={_fmt(h['upper_excess'])}"
                 )
+    for label in ("calibration", "fitting"):
+        nstep = (report.get(label) or {}).get("qol_nstep")
+        if not nstep:
+            continue
+        ref = nstep["reference_scale"]
+        lines.append(
+            f"  qol gate [{label}] target={nstep['target']['id']} scale={_fmt(ref['value'])} "
+            f"({ref['source']}) gated rows={nstep['gated_rows']}/{nstep['rows']} "
+            f"closures={nstep['closures']}"
+        )
+        for stratum, m in nstep["strata"].items():
+            mc = m["monte_carlo"]
+            lines.append(
+                f"    {stratum:<16} n-step nMAE={_fmt(m['nmae'])} bias={_fmt(m['bias'])} "
+                f"(MC, non-gating: nMAE={_fmt(mc['nmae'])} bias={_fmt(mc['bias'])})"
+            )
     for label in ("calibration", "fitting"):
         tail = (report.get(label) or {}).get("qol_tail")
         if not tail:
@@ -1816,6 +2245,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="fitting dataset(s) for the generalisation gap; several batches are read as one",
     )
+    critic.add_argument(
+        "--qol-reference-scale",
+        type=Path,
+        default=None,
+        help="QoL reference-scale artifact (labor_r5_acceptance qol-reference-scale): the unit "
+        "of the QoL n-step gate metrics; absent, the frozen G0 scale 43.152",
+    )
     critic.add_argument("--batch-size", type=int, default=256)
     critic.add_argument("--out", type=Path, required=True)
     auto = commands.add_parser("autonomous")
@@ -1850,7 +2286,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = summarize_actor(report)
     elif args.command == "critic-calibration":
         report = run_critic_calibration(
-            args.checkpoint, args.dataset, args.fit_dataset, args.batch_size
+            args.checkpoint,
+            args.dataset,
+            args.fit_dataset,
+            args.batch_size,
+            qol_reference=load_qol_reference_scale(args.qol_reference_scale),
         )
         summary = summarize_critic(report)
     else:
