@@ -603,3 +603,37 @@ def test_initialize_flags() -> None:
     with pytest.raises(SystemExit):
         parse([*base, "--qol-encoder", "twin"])
     assert lt._initialize_qol_encoder(argparse.Namespace()) == "shared"
+
+
+# --- 8. gate v2 coexistence (TD rule v2, early stop, n-step report) ----------------------------
+
+
+def test_td_rule_v2_and_early_stop_with_a_separate_encoder() -> None:
+    plain, plain_costs, _ = _fit(stability=StabilityConfig(log_every=1))
+    early, early_costs, early_summary = _fit(
+        stability=StabilityConfig(log_every=1, early_stop=True)
+    )
+    # Without a trip, early stop changes nothing (the separate encoder included).
+    assert _equal(plain.state_dict(), early.state_dict())
+    assert _equal(plain_costs.state_dict(), early_costs.state_dict())
+    assert "early_stop" not in early_summary["stability"]
+    td = early_summary["stability"]["checks"]["td_divergence"]
+    assert td["td_rule"] == "v2-floor-or-declining" and td["refreshes"]
+    # Nine steps are too short for a v2 PASS on this toy fixture (also for the shared
+    # critic): the end-of-run trajectory judges it, never a live stop.
+    assert all(a["rule"] == "v2-floor-or-declining" for a in td["alarms"])
+    assert all(a["reason"].endswith("not-declining-or-stationary") for a in td["alarms"])
+
+
+def test_nstep_critic_report_on_a_separate_critic() -> None:
+    from anthropocene_rl.autonomous_v7 import labor_pretrain_eval as pe
+
+    task, costs = _pair("separate", privileged=False, seed=0)
+    dataset = _dataset(privileged=False)
+    pretrain_critic_on_dataset(
+        task_critic=task, cost_critics=costs, dataset=dataset, epochs=1, batch_size=2
+    )
+    reference = {"value": 10.0, "source": "artifact", "digest": "a" * 64}
+    report = pe.critic_dataset_report(task, costs, dataset, batch_size=3, qol_reference=reference)
+    assert report["qol_nstep"]["rows"] == report["rows"]
+    assert report["population_nstep"]["gating"] is False
