@@ -91,6 +91,9 @@ GATE_V2 = "gate-v2"
 GATE_RELATIVE_V1 = "relative-v1"
 GATE_VERSIONS = (GATE_V2, GATE_RELATIVE_V1)
 RELATIVE_VARIANTS = ("qol_years", "population_years", "combined")
+# User 28 Oct (follow-up): the combined elder reward is the only gating variant of (a) and (b);
+# the per-head variants are diagnostics.
+RELATIVE_GATED_VARIANTS = ("combined",)
 
 # Every number used by a gate. "frozen" values are r5 text (manifest sections 8-10,
 # intervention brief, r5-b); "proposed" values are this harness's proposals for the
@@ -341,10 +344,11 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "(labor_pretrain_eval.relative_margins)",
     },
     "rel_variants": {
-        "value": list(RELATIVE_VARIANTS),
-        "status": "approved (user 28 Oct)",
-        "source": "per-head (QoL, population-years) and the combined elder reward PPO "
-        "consumes (labor_ppo.combine_labor_advantages, balanced, unit cost multipliers)",
+        "value": list(RELATIVE_GATED_VARIANTS),
+        "status": "approved (user 28 Oct, follow-up)",
+        "source": "gating variant: the combined elder reward PPO consumes "
+        "(labor_ppo.combine_labor_advantages, balanced, unit cost multipliers); QoL and "
+        "population-years are reported as non-gating diagnostics",
     },
     "rel_lag_ordering_min": {
         "value": 0.70,
@@ -353,7 +357,7 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     },
     "rel_all_pairs_ordering_min": {
         "value": 0.65,
-        "status": "proposed",
+        "status": "approved (user 28 Oct, combined variant)",
         "source": "gate (b): world-balanced all-pairs within-trajectory ordering, margin 0.02 W; "
         "measured E5 0.70 in-sample and held out, F1 0.64 held out, untrained init 0.41",
     },
@@ -378,6 +382,24 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "proposed",
         "source": "gate (c): world-balanced MAE of the one-step residual in QoL reference "
         "scales; measured E5 0.085 in-sample / 0.093 held out, untrained init 0.35",
+    },
+    # Advantage magnitude on the combined reward (user 28 Oct; NON-GATING for now).
+    "adv_sign_agreement_min": {
+        "value": {"1": 0.60, "5": 0.65},
+        "status": "proposed",
+        "source": "headline: world-balanced sign agreement of the critic's k-step combined "
+        "advantage with A_MC = G - V (labor_pretrain_eval.ADVANTAGE_MAGNITUDE_DEFINITION), "
+        "calibration worlds, all stratum; advisory flag only",
+    },
+    "adv_slope_range": {
+        "value": [0.5, 2.0],
+        "status": "proposed",
+        "source": "slope of A_MC on A_hat_k (1 for an exact critic); advisory flag only",
+    },
+    "adv_std_ratio_range": {
+        "value": [0.25, 2.0],
+        "status": "proposed",
+        "source": "std(A_hat_k) / std(A_MC) (below 1 for an exact critic); advisory flag only",
     },
     # QoL saturation monitor (r5-b item 4), relaxed for the earliest game states.
     "saturation_alarm": {
@@ -1040,7 +1062,7 @@ def relative_checks(
     """
     relative = _get(calibration, "calibration", "relative")
     out = []
-    for variant in RELATIVE_VARIANTS:
+    for variant in RELATIVE_GATED_VARIANTS:
         record = _get(relative, "variants", variant)
         for gate_id, section, limit in (
             ("a:lag-ordering", "lag_ge_min", "rel_lag_ordering_min"),
@@ -1100,6 +1122,80 @@ def _demoted(row: Mapping[str, Any]) -> bool:
     return any(row["id"].startswith(prefix) for prefix in RELATIVE_DEMOTED_PREFIXES)
 
 
+def relative_head_diagnostics(calibration: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    """The per-head (QoL, population-years) ordering variants, never gating."""
+    relative = _get(calibration, "calibration", "relative")
+    rows = []
+    for variant in RELATIVE_VARIANTS:
+        if variant in RELATIVE_GATED_VARIANTS:
+            continue
+        for gate_id, section, limit in (
+            ("a:lag-ordering", "lag_ge_min", "rel_lag_ordering_min"),
+            ("b:all-pairs-ordering", "all_pairs", "rel_all_pairs_ordering_min"),
+        ):
+            everything = _get(relative, "variants", variant, section, "all")
+            row = check(
+                f"rel:{gate_id}:{variant}",
+                "relative-diagnostic",
+                None if everything is None else everything.get("accuracy"),
+                threshold(limit),
+                ">=",
+                status=_coverage_status(everything),
+                detail=_get(relative, "variants", variant, section),
+            )
+            rows.append(
+                {
+                    "id": row["id"],
+                    "value": row["value"],
+                    "reference_threshold": row["threshold"],
+                    "would_have_been": row["status"],
+                    "strata": row["detail"],
+                    "gating": False,
+                }
+            )
+    return rows
+
+
+def advantage_magnitude_advisory(calibration: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Non-gating: sign agreement (headline), slope and std ratio of the combined k-step
+    advantage against the proposed bounds, plus the per-head PopArt statistics."""
+    report = _get(calibration, "calibration", "advantage_magnitude")
+    if report is None:
+        return {"check": "advisory:advantage-magnitude", "gating": False, "status": "NO-EVIDENCE"}
+    sign_min = threshold("adv_sign_agreement_min")
+    slope_lo, slope_hi = threshold("adv_slope_range")
+    ratio_lo, ratio_hi = threshold("adv_std_ratio_range")
+    rows = []
+    for k, strata in (report.get("ks") or {}).items():
+        m = strata.get("all") or {}
+        sign, slope, ratio = m.get("sign_agreement"), m.get("slope"), m.get("std_ratio")
+        rows.append(
+            {
+                "k": int(k),
+                "sign_agreement": sign,
+                "sign_agreement_min": sign_min.get(str(k)),
+                "slope": slope,
+                "std_ratio": ratio,
+                "sign_agreement_by_stratum": {
+                    name: s.get("sign_agreement") for name, s in strata.items()
+                },
+                "flag": bool(
+                    (sign is not None and sign_min.get(str(k)) is not None
+                     and sign < sign_min[str(k)])
+                    or (slope is not None and not slope_lo <= slope <= slope_hi)
+                    or (ratio is not None and not ratio_lo <= ratio <= ratio_hi)
+                ),
+            }
+        )
+    return {
+        "check": "advisory:advantage-magnitude",
+        "gating": False,
+        "status": "FLAG" if any(r["flag"] for r in rows) else "OK",
+        "headline": "sign_agreement",
+        "rows": rows,
+    }
+
+
 def relative_diagnostics(
     evidence: Mapping[str, Any], demoted: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:
@@ -1124,6 +1220,10 @@ def relative_diagnostics(
         }
     return {
         "gating": False,
+        "relative_heads": relative_head_diagnostics(evidence.get("calibration")),
+        "advantage_magnitude": _get(
+            evidence, "calibration", "calibration", "advantage_magnitude"
+        ),
         "constant_reference": {k: constant.get(k) for k in ("value", "source", "definition")},
         "units": "QoL reference scales",
         "qol": table,
@@ -1191,6 +1291,11 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
             food_trade_advisory(evidence),
             qol_tail_advisory(evidence),
             qol_bias_tail_attribution_advisory(evidence),
+            *(
+                [advantage_magnitude_advisory(evidence.get("calibration"))]
+                if gate_version(evidence) == GATE_RELATIVE_V1
+                else []
+            ),
             population_diagnostics_advisory(evidence),
             *validation_advisories(evidence),
         ],

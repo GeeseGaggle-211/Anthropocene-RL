@@ -1757,6 +1757,204 @@ def relative_ordering_report(
     }
 
 
+# --- Advantage magnitude on the combined elder reward (non-gating, user 28 Oct) ---------------
+
+ADVANTAGE_MAGNITUDE_KS = (1, 5)
+ADVANTAGE_MAGNITUDE_DEFINITION = {
+    "gating": False,
+    "predicted": "A_hat_k(t) = sum_{i<k} D_i r_{t+i} + D_k V(s_{t+k}) - V(s_t) on the combined "
+    "elder reward (rewards, values and returns of every head through "
+    "labor_ppo.combine_labor_advantages), the critic's own k-step advantage; windows reaching "
+    "a terminal row close exactly; windows reaching the collection window's living end are "
+    "excluded (no Monte Carlo tail in A_hat)",
+    "realised": "A_MC(t) = G_t - V(s_t), G the combined Monte Carlo return (lambda = 1 GAE). "
+    "Given the window's information, E[A_MC | s_t..s_{t+k}, r_t..r_{t+k-1}] = A_hat_k exactly "
+    "when V(s_{t+k}) is the true value, so the regression slope of A_MC on A_hat_k is 1 for an "
+    "exact critic whatever the return noise; > 1 means A_hat is too small, < 1 too large. "
+    "The return-difference form sum D r + D_k G_{t+k} - G_t is identically 0 (the Monte Carlo "
+    "recursion) and cannot serve. std(A_hat)/std(A_MC) is below 1 even for an exact critic "
+    "(A_MC carries the post-window noise D_k (G_{t+k} - V(s_{t+k})))",
+    "aggregation": "world-balanced weights (every world equal mass), per stratum",
+    "ppo_scale": "labor PPO uses the combined advantage raw in the clipped surrogate "
+    "(labor_ppo.attempt_policy_terms: -mean(min(rho A, clip(rho) A)) - entropy_weight H); no "
+    "per-batch standardisation, so the absolute scale sets the policy step against the "
+    "entropy bonus and the gradient clip",
+}
+
+
+def _weighted_moments(x: np.ndarray, y: np.ndarray, w: np.ndarray) -> dict[str, float | None]:
+    total = float(w.sum())
+    if not total > 0 or len(x) < 2:
+        return {"slope": None, "std_ratio": None, "corr": None}
+    mx, my = float((w * x).sum() / total), float((w * y).sum() / total)
+    vx = float((w * (x - mx) ** 2).sum() / total)
+    vy = float((w * (y - my) ** 2).sum() / total)
+    cxy = float((w * (x - mx) * (y - my)).sum() / total)
+    return {
+        "slope": None if vx <= 0 else cxy / vx,
+        "std_ratio": None if vy <= 0 else math.sqrt(vx / vy),
+        "corr": None if vx <= 0 or vy <= 0 else cxy / math.sqrt(vx * vy),
+    }
+
+
+def advantage_magnitude_report(
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    values: Mapping[str, np.ndarray],
+    returns: Mapping[str, np.ndarray],
+    strata: Mapping[str, np.ndarray],
+    *,
+    ks: Sequence[int] = ADVANTAGE_MAGNITUDE_KS,
+    personality: Any = None,
+    cost_multipliers: Mapping[str, float] | None = None,
+) -> dict[str, Any]:
+    """Direction and order of magnitude of the critic's k-step combined advantage (NON-GATING).
+
+    ``values`` / ``returns``: per head on EVERY dataset row (bootstraps may sit anywhere);
+    ``rows``: admitted rows; ``strata``: masks over ``rows``. See
+    :data:`ADVANTAGE_MAGNITUDE_DEFINITION`. Per k and stratum: rows, sign agreement of A_hat
+    with A_MC (ties 1/2), slope of A_MC on A_hat, std(A_hat) / std(A_MC), their correlation
+    (world-balanced) and the pooled slope; the scale block reports A_hat's mean |.| and std in
+    combined units (what the raw PPO surrogate sees).
+    """
+    from .labor_bc import CRITIC_DISCOUNT_YEARS, TRAJECTORY_FIELD, elapsed_years
+    from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES
+
+    rows = np.asarray(rows, dtype=np.int64)
+    n = int(dataset["row_world"].shape[0])
+    heads = (*LABOR_OBJECTIVES, *LABOR_COSTS)
+    v = combined_elder_values(
+        {h: values[h] for h in heads}, personality=personality, cost_multipliers=cost_multipliers
+    )
+    g = combined_elder_values(
+        {h: returns[h] for h in heads}, personality=personality, cost_multipliers=cost_multipliers
+    )
+    r = combined_elder_values(
+        {h: _np(dataset, f"reward_{h}").reshape(-1).astype(np.float64) for h in heads},
+        personality=personality,
+        cost_multipliers=cost_multipliers,
+    )
+    worlds_all = _np(dataset, "row_world").reshape(-1)
+    common = (
+        _np(dataset, "row_turn").reshape(-1),
+        worlds_all,
+        _np(dataset, "row_camp").reshape(-1),
+        _np(dataset, TRAJECTORY_FIELD).reshape(-1)
+        if TRAJECTORY_FIELD in dataset
+        else np.full(n, -1),
+    )
+    elapsed = elapsed_years(dataset).reshape(-1).double().numpy()
+    terminal = _np(dataset, "transition_terminal").reshape(-1)
+    a_mc_all = g - v
+    # Each head's coefficient in the combination (linear: combine a unit vector).
+    coefficient = {
+        h: float(
+            combined_elder_values(
+                {x: np.array([1.0 if x == h else 0.0]) for x in heads},
+                personality=personality,
+                cost_multipliers=cost_multipliers,
+            )[0]
+        )
+        for h in heads
+    }
+    head_reward = {h: _np(dataset, f"reward_{h}").reshape(-1).astype(np.float64) for h in heads}
+    head_value = {h: np.asarray(values[h], dtype=np.float64).reshape(-1) for h in heads}
+    head_return = {h: np.asarray(returns[h], dtype=np.float64).reshape(-1) for h in heads}
+
+    def moments(x: np.ndarray, w: np.ndarray) -> dict[str, float | None]:
+        mean = weighted_mean(x, w)
+        if mean is None:
+            return {"mean": None, "std": None}
+        return {"mean": mean, "std": float(np.sqrt(weighted_mean((x - mean) ** 2, w)))}
+
+    out: dict[str, Any] = {
+        "definition": ADVANTAGE_MAGNITUDE_DEFINITION,
+        "headline": "sign_agreement",
+        "coefficients": coefficient,
+        "ks": {},
+    }
+    for k in ks:
+        result = nstep_targets(
+            v, r, elapsed, terminal, *common, k=int(k), discount_years=CRITIC_DISCOUNT_YEARS
+        )
+        a_hat_all = result["target"] - v
+        gated = np.isin(result["closure"][rows], NSTEP_GATED_CLOSURES)
+        head_a_hat = {
+            h: nstep_targets(
+                head_value[h], head_reward[h], elapsed, terminal, *common, k=int(k),
+                discount_years=CRITIC_DISCOUNT_YEARS,
+            )["target"]
+            - head_value[h]
+            for h in heads
+        }
+        per_stratum: dict[str, Any] = {}
+        for name, mask in strata.items():
+            m = np.asarray(mask, dtype=bool) & gated
+            if not m.any():
+                continue
+            sel = rows[m]
+            a_hat, a_mc = a_hat_all[sel], a_mc_all[sel]
+            w = world_balanced(worlds_all[sel], np.ones(len(sel), dtype=bool))
+            agree = np.where(
+                a_hat == 0.0, 0.5, (np.sign(a_hat) == np.sign(a_mc)).astype(np.float64)
+            )
+            pooled = _weighted_moments(a_hat, a_mc, np.ones(len(sel)))
+            per_head: dict[str, Any] = {}
+            predicted_spread, realised_spread = {}, {}
+            for h in heads:
+                ah = head_a_hat[h][sel]
+                amc = head_return[h][sel] - head_value[h][sel]
+                stats = {
+                    "target": moments(head_return[h][sel], w),
+                    "value": moments(head_value[h][sel], w),
+                    "a_hat": moments(ah, w),
+                    "a_mc": moments(amc, w),
+                }
+                predicted_spread[h] = abs(coefficient[h]) * (stats["a_hat"]["std"] or 0.0)
+                realised_spread[h] = abs(coefficient[h]) * (stats["a_mc"]["std"] or 0.0)
+                v_std, g_std = stats["value"]["std"], stats["target"]["std"]
+                per_head[h] = {
+                    "popart": stats,
+                    "advantage_to_value_spread": None
+                    if not v_std
+                    else stats["a_hat"]["std"] / v_std,
+                    "realised_advantage_to_return_spread": None
+                    if not g_std
+                    else stats["a_mc"]["std"] / g_std,
+                    "sign_agreement": weighted_mean(
+                        np.where(ah == 0.0, 0.5, (np.sign(ah) == np.sign(amc)).astype(np.float64)),
+                        w,
+                    ),
+                }
+            total_p = sum(predicted_spread.values())
+            total_r = sum(realised_spread.values())
+            for h in heads:
+                per_head[h]["combined_contribution_std"] = predicted_spread[h]
+                per_head[h]["combined_contribution_share"] = (
+                    None if not total_p else predicted_spread[h] / total_p
+                )
+                per_head[h]["realised_contribution_std"] = realised_spread[h]
+                per_head[h]["realised_contribution_share"] = (
+                    None if not total_r else realised_spread[h] / total_r
+                )
+            per_stratum[name] = {
+                "rows": len(sel),
+                "worlds": len(np.unique(worlds_all[sel])),
+                "sign_agreement": weighted_mean(agree, w),
+                **_weighted_moments(a_hat, a_mc, w),
+                "slope_pooled": pooled["slope"],
+                "scale": {
+                    "a_hat": moments(a_hat, w),
+                    "a_mc": moments(a_mc, w),
+                    "a_hat_mean_abs": weighted_mean(np.abs(a_hat), w),
+                    "units": "combined elder reward (sum_k w_k X_k / s_k - sum_c m_c X_c)",
+                },
+                "heads": per_head,
+            }
+        out["ks"][str(int(k))] = per_stratum
+    return out
+
+
 def _head_logits(
     task: Any, dataset: Mapping[str, Any], rows: np.ndarray, head: str, batch_size: int
 ) -> torch.Tensor:
@@ -1970,7 +2168,7 @@ def critic_dataset_report(
     # are the ones above, so the Monte Carlo metrics are unchanged.
     qol_nstep = None
     population_nstep = population_tail = None
-    relative = None
+    relative = advantage_magnitude = None
     if len(rows):
         from .labor_bc import tail_normalization_mode
         from .labor_model import labor_qol_discount_weight
@@ -1999,10 +2197,20 @@ def critic_dataset_report(
         population = np.zeros(size, dtype=np.float64)
         population[rows] = preds["population_years"]
         others = np.flatnonzero(~keep)
+        extra = critic_predictions(task, costs, dataset, others, batch_size) if len(others) else {}
         if len(others):
-            extra = critic_predictions(task, costs, dataset, others, batch_size)
             values[others] = extra["qol_years"]
             population[others] = extra["population_years"]
+        every_head = {}
+        for name in (*LABOR_OBJECTIVE_REFERENCE_SCALES, *LABOR_COST_REFERENCE_SCALES):
+            full = np.zeros(size, dtype=np.float64)
+            full[rows] = preds[name]
+            if len(others):
+                full[others] = extra[name]
+            every_head[name] = full
+        advantage_magnitude = advantage_magnitude_report(
+            dataset, rows, every_head, returns, strata
+        )
         qol_nstep = qol_nstep_calibration(
             dataset,
             rows,
@@ -2062,6 +2270,11 @@ def critic_dataset_report(
     return {
         **tail_record,
         **({} if relative is None else {"relative": relative}),
+        **(
+            {}
+            if advantage_magnitude is None
+            else {"advantage_magnitude": advantage_magnitude}
+        ),
         **({"loader_corrections": corrections} if corrections else {}),
         **({} if qol_nstep is None else {"qol_nstep": qol_nstep}),
         **({} if population_nstep is None else {"population_nstep": population_nstep}),

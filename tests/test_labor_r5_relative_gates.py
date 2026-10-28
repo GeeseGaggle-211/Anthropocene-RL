@@ -320,8 +320,16 @@ def test_relative_v1_demotes_absolute_qol_checks_and_gates_relative_ones() -> No
     assert good["gate_version"] == ra.GATE_RELATIVE_V1
     assert good["primary_status"] == "PASS", [c for c in good["primary"] if c["status"] != "PASS"]
     ids = {c["id"] for c in good["primary"]}
-    for v in ra.RELATIVE_VARIANTS:
-        assert {f"rel:a:lag-ordering:{v}", f"rel:b:all-pairs-ordering:{v}"} <= ids
+    # Only the combined elder reward gates (a)/(b); the per-head variants are diagnostics.
+    assert {"rel:a:lag-ordering:combined", "rel:b:all-pairs-ordering:combined"} <= ids
+    assert not any(i.endswith((":qol_years", ":population_years")) for i in ids if
+                   i.startswith("rel:"))
+    heads = {d["id"]: d for d in good["diagnostics"]["relative_heads"]}
+    assert set(heads) == {
+        f"rel:{g}:{v}" for g in ("a:lag-ordering", "b:all-pairs-ordering")
+        for v in ("qol_years", "population_years")
+    }
+    assert all(d["gating"] is False for d in heads.values())
     assert {"rel:c:td0-abs-bias", "rel:c:td0-mae", "qol:a:same-village-ranking",
             "stability:critic:td_divergence", "a:false_improvement"} <= ids
     assert not any(i.startswith(("qol:b:nmae", "qol:b:abs-bias", "qol:c:")) for i in ids)
@@ -338,6 +346,14 @@ def test_relative_v1_demotes_absolute_qol_checks_and_gates_relative_ones() -> No
     assert row["would_have_been"] == "FAIL"
     # Relative failures fail; thin coverage holds; missing relative evidence holds.
     assert ra.fit_checks(_relative_evidence(acc_a=0.69))["primary_status"] == "FAIL"
+    # A failing per-head variant alone does not fail the fit.
+    head_only = _relative_evidence()
+    head_only["calibration"]["calibration"]["relative"]["variants"]["qol_years"][
+        "lag_ge_min"]["all"]["accuracy"] = 0.5
+    checks = ra.fit_checks(head_only)
+    assert checks["primary_status"] == "PASS"
+    assert {d["id"]: d for d in checks["diagnostics"]["relative_heads"]}[
+        "rel:a:lag-ordering:qol_years"]["would_have_been"] == "FAIL"
     assert ra.fit_checks(_relative_evidence(td0=(0.005, 0.5)))["primary_status"] == "FAIL"
     thin = _relative_evidence()
     thin["calibration"]["calibration"]["relative"] = _relative(pairs=50)
@@ -353,8 +369,12 @@ def test_relative_thresholds_are_preregistered_and_marked() -> None:
     assert p["rel_lag_ordering_min"]["status"].startswith("approved")
     assert p["rel_lag_min"]["value"] == pe.RELATIVE_MIN_LAG == 5
     assert p["rel_margin_w"]["value"] == pe.RELATIVE_MARGIN_W == 0.02
-    assert tuple(p["rel_variants"]["value"]) == pe.RELATIVE_VARIANTS == ra.RELATIVE_VARIANTS
-    for name in ("rel_all_pairs_ordering_min", "rel_td0_abs_bias_max", "rel_td0_mae_max"):
+    assert pe.RELATIVE_VARIANTS == ra.RELATIVE_VARIANTS
+    assert tuple(p["rel_variants"]["value"]) == ra.RELATIVE_GATED_VARIANTS == ("combined",)
+    assert p["rel_all_pairs_ordering_min"]["value"] == 0.65
+    assert p["rel_all_pairs_ordering_min"]["status"].startswith("approved")
+    for name in ("rel_td0_abs_bias_max", "rel_td0_mae_max", "adv_sign_agreement_min",
+                 "adv_slope_range", "adv_std_ratio_range"):
         assert p[name]["status"] == "proposed"
     assert p["a_ranking_min"]["value"] == 0.70  # (d) unchanged
 
@@ -376,6 +396,81 @@ def test_receipt_holds_on_mixed_gate_versions() -> None:
     receipt = _receipt(mixed)
     assert receipt["machine_verdict"] == "HOLD"
     assert any(f.get("check") == "gate-version-consistent" for f in receipt["unresolved_findings"])
+
+
+# --- 1c. advantage magnitude on the combined reward (non-gating) ---------------------------------
+
+
+def _level_world(trajectories=300, length=20, seed=0):
+    """Camps with a hidden QoL level m plus i.i.d. noise, ending terminal (exact returns).
+    V*(t) = m sum_{j < remaining} gamma^j; population and cost rewards are zero."""
+    rng = np.random.default_rng(seed)
+    levels = rng.uniform(2.0, 18.0, trajectories)
+    spec, rewards, truth = [], [], []
+    for index, m in enumerate(levels):
+        spec.append((90100 + index % 6, index, list(range(length)), (length - 1,),
+                     TAIL_NONE_TERMINAL, 0.0))
+        rewards.extend(m + rng.normal(0.0, 1.0, length))
+        truth.extend(m * sum(GAMMA**j for j in range(length - p)) for p in range(length))
+    data = _trajectories(spec, rewards=torch.tensor(rewards, dtype=torch.float64))
+    data["reward_population_years"] = torch.zeros_like(data["reward_qol_years"])
+    for head in TAIL_HEADS:
+        data["tail_value__" + head] = torch.zeros_like(data["tail_value__" + head])
+    return data, np.asarray(truth)
+
+
+def _magnitude(data, qol_values):
+    n = len(qol_values)
+    returns = {k: v.double().numpy() for k, v in discounted_returns(data).items()}
+    values = {"qol_years": qol_values, "population_years": np.zeros(n),
+              "feasibility": np.zeros(n), "settlement_guard": np.zeros(n)}
+    turns = data["row_turn"].numpy()
+    strata = {"all": np.ones(n, bool), "early_turns": turns < 10, "late_turns": turns >= 10}
+    return pe.advantage_magnitude_report(data, np.arange(n), values, returns, strata)
+
+
+def test_advantage_magnitude_perfect_scaled_and_constant_critics() -> None:
+    data, truth = _level_world()
+    perfect = _magnitude(data, truth)
+    scaled = _magnitude(data, 10.0 * truth)
+    constant = _magnitude(data, np.full(len(truth), truth.mean()))
+    lo, hi = ra.threshold("adv_slope_range")
+    for k in ("1", "5"):
+        p, x, c = (r["ks"][k]["all"] for r in (perfect, scaled, constant))
+        assert p["slope"] == pytest.approx(1.0, abs=0.1)  # E[A_MC | window] = A_hat exactly
+        assert lo <= p["slope"] <= hi
+        # x10 values: the window's value terms dominate A_hat; A_MC shares -V(s_t), so the
+        # slope leaves the bound while the sign agreement is trivially high (both sides are
+        # about -9 V): sign agreement alone cannot see a scale error.
+        assert x["slope"] > hi
+        assert x["sign_agreement"] > 0.95
+        # Constant: A_hat misses the level signal: lower sign agreement, slope off 1.
+        assert c["sign_agreement"] < p["sign_agreement"]
+        assert abs(c["slope"] - 1.0) > abs(p["slope"] - 1.0)
+        assert set(perfect["ks"][k]) == {"all", "early_turns", "late_turns"}
+    # Only QoL moves: it carries the whole combined spread, predicted and realised.
+    heads = perfect["ks"]["5"]["all"]["heads"]
+    assert heads["qol_years"]["combined_contribution_share"] == pytest.approx(1.0)
+    assert heads["qol_years"]["realised_contribution_share"] == pytest.approx(1.0)
+    s_q = LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
+    assert perfect["coefficients"]["qol_years"] == pytest.approx(0.5 / s_q)
+    assert perfect["coefficients"]["feasibility"] == pytest.approx(-1.0)
+    popart = heads["qol_years"]["popart"]
+    assert popart["target"]["std"] > 0 and popart["a_hat"]["std"] > 0
+    assert heads["qol_years"]["advantage_to_value_spread"] == pytest.approx(
+        popart["a_hat"]["std"] / popart["value"]["std"]
+    )
+    # The advisory reads the combined k-step numbers; the scaled critic is flagged.
+    def advisory(report):
+        return ra.advantage_magnitude_advisory(
+            {"calibration": {"advantage_magnitude": report}}
+        )
+
+    assert advisory(scaled)["status"] == "FLAG"
+    assert advisory(perfect)["rows"][0]["slope"] == pytest.approx(
+        perfect["ks"]["1"]["all"]["slope"]
+    )
+    assert advisory(perfect)["gating"] is False
 
 
 # --- 2. QoL head bias init and step-0 targets ---------------------------------------------------
