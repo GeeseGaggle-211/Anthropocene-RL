@@ -2314,6 +2314,24 @@ def critic_dataset_report(
     }
 
 
+def resolve_loader_corrections(
+    state: Mapping[str, Any], override: Mapping[str, str | None] | None = None
+) -> tuple[dict[str, str], str]:
+    """Active loader corrections of an evaluation: the checkpoint's record, each key replaced
+    by a non-None ``override`` value; returns (active corrections, "checkpoint" or
+    "explicit-override")."""
+    from .labor_bc import loader_corrections
+
+    corrections = dict(loader_corrections(state.get("heuristic_critic_pretraining")))
+    explicit = {k: v for k, v in (override or {}).items() if v is not None}
+    unknown = sorted(set(explicit) - set(corrections))
+    if unknown:
+        raise ValueError(f"unknown loader corrections {unknown}")
+    corrections.update(explicit)
+    active = {k: v for k, v in corrections.items() if v != "none"}
+    return active, "explicit-override" if explicit else "checkpoint"
+
+
 def run_critic_calibration(
     checkpoint: Path,
     dataset_path: Path | Sequence[Path],
@@ -2321,9 +2339,16 @@ def run_critic_calibration(
     batch_size: int = 256,
     device: Any = None,
     qol_reference: Mapping[str, Any] | None = None,
+    corrections_override: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """``qol_reference`` (:func:`load_qol_reference_scale`) is the QoL gate's unit; absent,
-    the frozen 43.152."""
+    the frozen 43.152.
+
+    Loader corrections: by default those the checkpoint's critic fit recorded
+    (``labor_bc.loader_corrections``). ``corrections_override`` ({"tail_normalize": ...,
+    "false_terminal_policy": ...}; a None value keeps the recorded one) applies the given
+    corrections to the calibration and fitting datasets whatever the checkpoint recorded,
+    for scoring a critic against another fit's targets (apples-to-apples)."""
     from .labor_bc import CRITIC_DISCOUNT_YEARS
 
     qol_reference = frozen_qol_reference() if qol_reference is None else dict(qol_reference)
@@ -2336,8 +2361,7 @@ def run_critic_calibration(
         costs.to(device)
     privileged = task.privileged_layout is not None
     # The loader corrections the fit trained on (absent: none, the historical evaluation).
-    corrections = loader_corrections(state.get("heuristic_critic_pretraining"))
-    corrections = {k: v for k, v in corrections.items() if v != "none"}
+    corrections, source = resolve_loader_corrections(state, corrections_override)
     calibration_dataset = _load_dataset(
         dataset_path, normalizer, require_privileged=privileged, corrections=corrections
     )
@@ -2393,8 +2417,9 @@ def run_critic_calibration(
             "normalizer_digest": task.privileged_normalizer.digest(),
             "normalizer_fit_worlds": list(task.privileged_normalizer.fit_record.get("worlds", [])),
         }
-    if corrections:
+    if corrections or source != "checkpoint":
         report["loader_corrections"] = corrections
+        report["loader_corrections_source"] = source
     if fit_dataset_path is not None:
         shared = sorted(
             {int(w) for w in fit_dataset["row_world"].reshape(-1).tolist()}
@@ -3259,6 +3284,20 @@ def argument_parser() -> argparse.ArgumentParser:
     critic = commands.add_parser("critic-calibration")
     critic.add_argument("--checkpoint", type=Path, required=True)
     critic.add_argument(
+        "--tail-normalize",
+        choices=("none", "world-factor"),
+        default=None,
+        help="apply this tail normalisation to --dataset and --fit-dataset whatever the "
+        "checkpoint recorded (default: the checkpoint's recorded correction)",
+    )
+    critic.add_argument(
+        "--false-terminal-policy",
+        choices=("none", "mask"),
+        default=None,
+        help="apply this false-terminal policy to --dataset and --fit-dataset whatever the "
+        "checkpoint recorded (default: the checkpoint's recorded correction)",
+    )
+    critic.add_argument(
         "--dataset",
         type=Path,
         nargs="+",
@@ -3318,6 +3357,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.fit_dataset,
             args.batch_size,
             qol_reference=load_qol_reference_scale(args.qol_reference_scale),
+            corrections_override={
+                "tail_normalize": args.tail_normalize,
+                "false_terminal_policy": args.false_terminal_policy,
+            },
         )
         summary = summarize_critic(report)
     else:

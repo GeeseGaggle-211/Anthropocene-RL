@@ -755,3 +755,31 @@ def test_b01_false_terminal_row_is_masked() -> None:
     later = ~expected
     for head in LABOR_OBJECTIVES:
         assert torch.equal(after[head][later], before[head][later])
+
+
+def test_explicit_loader_corrections_override_the_checkpoint_record() -> None:
+    trained = {"heuristic_critic_pretraining": {}}
+    assert pe.resolve_loader_corrections(trained) == ({}, "checkpoint")
+    active, source = pe.resolve_loader_corrections(
+        trained, {"tail_normalize": "world-factor", "false_terminal_policy": "mask"}
+    )
+    assert active == {"tail_normalize": "world-factor", "false_terminal_policy": "mask"}
+    assert source == "explicit-override"
+    recorded = {"heuristic_critic_pretraining": {"tail_normalization": {"mode": "world-factor"}}}
+    assert pe.resolve_loader_corrections(recorded, {"tail_normalize": None})[0] == {
+        "tail_normalize": "world-factor"
+    }
+    assert pe.resolve_loader_corrections(recorded, {"tail_normalize": "none"}) == (
+        {}, "explicit-override"
+    )
+    args = pe.argument_parser().parse_args(
+        ["critic-calibration", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o",
+         "--tail-normalize", "world-factor", "--false-terminal-policy", "mask"]
+    )
+    assert (args.tail_normalize, args.false_terminal_policy) == ("world-factor", "mask")
+    evaluate = ra.argument_parser().parse_args(
+        ["evaluate", "--arm", "a", "--seed", "0", "--checkpoint", "c", "--advantage", "a",
+         "--calibration-data", "x", "--reserved-payloads", "p", "--out", "o",
+         "--tail-normalize", "world-factor"]
+    )
+    assert evaluate.tail_normalize == "world-factor" and evaluate.false_terminal_policy is None

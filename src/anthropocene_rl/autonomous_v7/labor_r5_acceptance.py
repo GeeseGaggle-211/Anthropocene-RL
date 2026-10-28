@@ -2474,6 +2474,7 @@ def evaluate_fit(
     device: str = "cpu",
     scenario_calibration_data: Path | None = None,
     qol_reference_scale: Path | None = None,
+    corrections_override: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
 
@@ -2526,19 +2527,16 @@ def evaluate_fit(
         batch_size,
         device=None if target.type == "cpu" else target,
         qol_reference=qol_reference,
+        corrections_override=corrections_override,
     )
     calibration["critic"] = {
         "qol_head": None if task.qol_head is None else task.qol_head.state_dict(),
         "value_support": task.support.state_dict(),
         "privileged": task.privileged_layout is not None,
     }
-    from .labor_bc import loader_corrections
+    from .labor_pretrain_eval import resolve_loader_corrections
 
-    corrections = {
-        k: v
-        for k, v in loader_corrections(state.get("heuristic_critic_pretraining")).items()
-        if v != "none"
-    }
+    corrections, _ = resolve_loader_corrections(state, corrections_override)
     dataset = _load_dataset(
         calibration_data,
         normalizer,
@@ -3477,6 +3475,10 @@ def command_evaluate(args: argparse.Namespace) -> int:
         device=getattr(args, "device", "cpu"),
         scenario_calibration_data=args.scenario_calibration_data,
         qol_reference_scale=getattr(args, "qol_reference_scale", None),
+        corrections_override={
+            "tail_normalize": getattr(args, "tail_normalize", None),
+            "false_terminal_policy": getattr(args, "false_terminal_policy", None),
+        },
     )
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -3652,6 +3654,20 @@ def argument_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     evaluate = sub.add_parser("evaluate", help="one fit's evidence JSON")
+    evaluate.add_argument(
+        "--tail-normalize",
+        choices=("none", "world-factor"),
+        default=None,
+        help="apply this tail normalisation to the calibration and fit data whatever the "
+        "checkpoint recorded (default: the recorded correction)",
+    )
+    evaluate.add_argument(
+        "--false-terminal-policy",
+        choices=("none", "mask"),
+        default=None,
+        help="apply this false-terminal policy to the calibration and fit data whatever the "
+        "checkpoint recorded (default: the recorded correction)",
+    )
     evaluate.add_argument("--arm", required=True)
     evaluate.add_argument("--seed", type=int, required=True)
     evaluate.add_argument("--checkpoint", type=Path, required=True)
