@@ -244,6 +244,15 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "approved (user 26 Oct)",
         "source": "2.5: ESCALATE any trigger to the user",
     },
+    # User decision 28 Oct (scale-out Q1): for r5 the population-tail check is reported, not
+    # gated. It never fails stability and never trips the seed gate; every other stability
+    # check still gates. run/receipt --population-tail gate restores the 26 Oct rule.
+    "population_tail_policy_r5": {
+        "value": "advisory",
+        "status": "approved (user 28 Oct)",
+        "source": "scale-out Q1: the G1 pilot's FAIL is the softmax floor over empty bins above "
+        "the observed maximum (Fable audit); triggers are still reported and escalated",
+    },
     "stability_advantage_overfit": {
         "value": {"overfit_gap": 0.10, "overfit_heldout_drop": 0.03},
         "status": "approved (user 26 Oct)",
@@ -564,8 +573,23 @@ def _get(mapping: Any, *path: Any) -> Any:
 # --- stability ---------------------------------------------------------------------------
 
 
-def stability_checks(label: str, summary: Mapping[str, Any] | None) -> list[dict[str, Any]]:
-    """Mandatory: an admitted stability receipt; a mandatory FAIL fails the fit."""
+POPULATION_TAIL_POLICIES = ("gate", "advisory")
+POPULATION_TAIL_CHECK = "population_tail"
+
+
+def _advisory_checks(population_tail: str) -> tuple[str, ...]:
+    if population_tail not in POPULATION_TAIL_POLICIES:
+        raise ValueError(f"population-tail policy must be one of {POPULATION_TAIL_POLICIES}")
+    return (POPULATION_TAIL_CHECK,) if population_tail == "advisory" else ()
+
+
+def stability_checks(
+    label: str, summary: Mapping[str, Any] | None, *, advisory: Sequence[str] = ()
+) -> list[dict[str, Any]]:
+    """Mandatory: an admitted stability receipt; a mandatory FAIL fails the fit.
+
+    ``advisory`` names stability checks that are reported (``population_tail_advisory``)
+    instead of gated (r5: ``population_tail``, user 28 Oct)."""
     if summary is None:
         return [
             check(
@@ -584,6 +608,8 @@ def stability_checks(label: str, summary: Mapping[str, Any] | None) -> list[dict
     early = summary.get("early_stop") or {}
     for name, record in sorted((summary.get("checks") or {}).items()):
         if not record.get("mandatory") or record.get("status") == "NOT_APPLICABLE":
+            continue
+        if name in advisory:
             continue
         row = check(
             f"stability:{label}:{name}",
@@ -1246,16 +1272,46 @@ def relative_diagnostics(
     }
 
 
-def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -> dict[str, Any]:
+def population_tail_advisory(evidence: Mapping[str, Any], policy: str) -> dict[str, Any]:
+    """The population-tail stability check of every fit, reported (never gating when the
+    policy is advisory). FLAG on any FAIL: still an escalation item for the user."""
+    rows = {}
+    for label in ("critic", "advantage"):
+        record = _get(evidence, "stability", label, "checks", POPULATION_TAIL_CHECK)
+        if record is not None:
+            rows[label] = dict(record)
+    failed = sorted(k for k, v in rows.items() if v.get("status") == "FAIL")
+    return {
+        "check": "advisory:population-tail",
+        "gating": policy == "gate",
+        "policy": policy,
+        "status": "NOT-APPLICABLE" if not rows else ("FLAG" if failed else "OK"),
+        "failed": failed,
+        "fits": rows,
+        "escalate": bool(failed),
+    }
+
+
+def fit_checks(
+    evidence: Mapping[str, Any],
+    *,
+    strata: Sequence[str] = STRATA,
+    population_tail: str = "gate",
+) -> dict[str, Any]:
     """Every check of one (arm, seed) fit, grouped into the primary and secondary gates.
 
     Gate relative-v1 evidence: the QoL absolute calibration and n-step residual checks and the
     QoL nMAE generalisation gap move to ``diagnostics``; the relative checks join the primary
     gate. Every other check is unchanged. Gate v2 evidence is judged exactly as before."""
     version = gate_version(evidence)
+    advisory_stability = _advisory_checks(population_tail)
     primary = []
-    primary += stability_checks("critic", _get(evidence, "stability", "critic"))
-    primary += stability_checks("advantage", _get(evidence, "stability", "advantage"))
+    primary += stability_checks(
+        "critic", _get(evidence, "stability", "critic"), advisory=advisory_stability
+    )
+    primary += stability_checks(
+        "advantage", _get(evidence, "stability", "advantage"), advisory=advisory_stability
+    )
     primary += qol_checks(
         evidence.get("calibration"),
         evidence.get("advantage_eval"),
@@ -1304,6 +1360,7 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
                 else []
             ),
             population_diagnostics_advisory(evidence),
+            population_tail_advisory(evidence, population_tail),
             *validation_advisories(evidence),
         ],
     }
@@ -1790,8 +1847,12 @@ def build_receipt(
     strata: Sequence[str] = STRATA,
     floor_tolerance: float | None = None,
     trajectory_baseline: Mapping[str, Any] | None = None,
+    population_tail: str = "gate",
 ) -> dict[str, Any]:
     """The gate receipt (brief section 4 fields) with the machine verdict.
+
+    ``population_tail`` ``advisory`` (r5, user 28 Oct) reports the population-tail stability
+    check under each fit's advisories instead of gating it.
 
     ``trajectory_diagnostics`` (section 4a) is reported beside the verdict and never
     enters it; ``trajectory_baseline`` (an earlier receipt) adds the flagged comparison.
@@ -1808,7 +1869,7 @@ def build_receipt(
         per_seed_families: dict[int, Any] = {}
         for seed in seeds:
             if seed in fits:
-                checks = fit_checks(fits[seed], strata=strata)
+                checks = fit_checks(fits[seed], strata=strata, population_tail=population_tail)
                 per_seed_primary[seed] = checks["primary"]
                 per_seed_secondary[seed] = checks["secondary"]
                 per_seed_advisory[seed] = checks["advisory"]
@@ -1968,6 +2029,7 @@ def build_receipt(
         "trajectory_diagnostics": _trajectory_section(
             evidence, [a.name for a in arms], seeds, trajectory_baseline
         ),
+        "population_tail_policy": population_tail,
         "machine_state": verdict,
         "machine_verdict": verdict,
         "verdict_basis": {
@@ -2893,6 +2955,12 @@ def _stage(args: argparse.Namespace) -> str:
     return str(getattr(args, "stage", "all") or "all")
 
 
+def _population_tail(args: argparse.Namespace) -> str:
+    """run/receipt --population-tail (default advisory for r5, user 28 Oct); a namespace
+    without the option (library callers) keeps the gating rule."""
+    return str(getattr(args, "population_tail", None) or "gate")
+
+
 def evidence_name(stage: str) -> str:
     """Per-fit evidence file of a stage: the critic stage never shadows the full evidence,
     so a later ``--stage all`` run in the same OUT resumes at the A fit."""
@@ -3311,6 +3379,7 @@ def command_run(args: argparse.Namespace) -> int:
             candidate,
             seeds[0],
             evidence_name(stage),
+            population_tail=_population_tail(args),
         )
         rest = [(arm, seed) for seed in seeds[1:] for arm in arms]
         if gate["tripped"]:
@@ -3345,10 +3414,12 @@ def command_run(args: argparse.Namespace) -> int:
         determinism=determinism_path,
         attempt_id=args.attempt_id,
         trajectory_baseline=getattr(args, "trajectory_baseline", None),
+        population_tail=_population_tail(args),
         out=Path(args.out) / ("critic-receipt.json" if stage == "critic" else "gate-receipt.json"),
         configuration={
             # "critic": V fits and their evaluation only; the A fit and gate (d) deferred.
             "stage": stage,
+            "population_tail": _population_tail(args),
             "arms": [a.state_dict() for a in arms],
             "seeds": seeds,
             "batch_size": args.batch_size,
@@ -3407,7 +3478,11 @@ def command_run(args: argparse.Namespace) -> int:
 
 
 def seed_gate_report(
-    work: Path, arm: ArmSpec, seed: int, evidence_file: str = "evidence.json"
+    work: Path,
+    arm: ArmSpec,
+    seed: int,
+    evidence_file: str = "evidence.json",
+    population_tail: str = "gate",
 ) -> dict[str, Any]:
     """Seed gate: does the candidate's first seed end in StabilityAbort or a stability FAIL?
 
@@ -3443,9 +3518,10 @@ def seed_gate_report(
         report["reason"] = "no-evidence (fit failed for a non-stability reason or is missing)"
         return report
     evidence = json.loads(path.read_text(encoding="utf-8"))
-    rows = stability_checks("critic", _get(evidence, "stability", "critic")) + stability_checks(
-        "advantage", _get(evidence, "stability", "advantage")
-    )
+    advisory = _advisory_checks(population_tail)
+    rows = stability_checks(
+        "critic", _get(evidence, "stability", "critic"), advisory=advisory
+    ) + stability_checks("advantage", _get(evidence, "stability", "advantage"), advisory=advisory)
     failed = [r for r in rows if r["status"] == "FAIL"]
     if failed:
         report.update(
@@ -3487,6 +3563,7 @@ def command_receipt(args: argparse.Namespace) -> int:
         configuration=configuration,
         attempt_id=args.attempt_id,
         trajectory_baseline=trajectory_baseline,
+        population_tail=_population_tail(args),
     )
     if configuration.get("stage") == "critic":
         receipt["critic_stage"] = critic_stage_summary(receipt)
@@ -3916,6 +3993,7 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="earlier receipt: flag T-metrics worse than their seed spread (non-gating)",
     )
+    _population_tail_argument(receipt)
     receipt.add_argument("--out", type=Path, required=True)
     receipt.set_defaults(handler=command_receipt)
 
@@ -4094,6 +4172,7 @@ def argument_parser() -> argparse.ArgumentParser:
         help="local mechanics smoke: admit truncated-zero targets; the receipt is forced to HOLD",
     )
     run.add_argument("--attempt-id", required=True)
+    _population_tail_argument(run)
     _trajectory_arguments(run)
     run.add_argument("--trajectory-baseline", type=Path, default=None)
     run.add_argument(
@@ -4107,6 +4186,17 @@ def argument_parser() -> argparse.ArgumentParser:
     run.add_argument("--out", type=Path, required=True)
     run.set_defaults(handler=command_run)
     return parser
+
+
+def _population_tail_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--population-tail",
+        choices=POPULATION_TAIL_POLICIES,
+        default=threshold("population_tail_policy_r5"),
+        help="advisory (r5 default, user 28 Oct): the population-tail stability check is "
+        "reported under the fit's advisories and escalated, but never fails stability or "
+        "trips the seed gate; gate: the 26 Oct mandatory rule",
+    )
 
 
 def _trajectory_arguments(parser: argparse.ArgumentParser) -> None:

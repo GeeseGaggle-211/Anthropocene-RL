@@ -326,3 +326,79 @@ def test_driver_script_runs_the_critic_stage_without_payloads(tmp_path) -> None:
         ["bash", script.as_posix()], env=env, capture_output=True, text=True, timeout=60
     )
     assert result.returncode != 0 and "FIT_PAYLOADS" in result.stderr
+
+
+# --- population tail: advisory for r5 (user 28 Oct) ---------------------------------------------
+
+
+def _with_tail_fail(record: dict) -> dict:
+    for label in ("critic", "advantage"):
+        summary = record["stability"].get(label)
+        if summary is not None:
+            summary["checks"]["population_tail"] = {
+                "mandatory": True, "status": "FAIL", "upper_excess": 0.032,
+            }
+    return record
+
+
+def test_population_tail_is_advisory_by_default_and_gates_on_request() -> None:
+    assert ra.PREREGISTERED["population_tail_policy_r5"] == {
+        **ra.PREREGISTERED["population_tail_policy_r5"],
+        "value": "advisory",
+        "status": "approved (user 28 Oct)",
+    }
+    record = _with_tail_fail(_critic_evidence("privileged-e4", 0, True))
+    gated = ra.fit_checks(record)  # library default: the 26 Oct gating rule
+    assert "stability:critic:population_tail" in {r["id"] for r in gated["primary"]}
+    assert gated["primary_status"] == "FAIL"
+    advisory = ra.fit_checks(record, population_tail="advisory")
+    ids = {r["id"] for r in advisory["primary"]}
+    assert not any("population_tail" in i for i in ids)
+    row = next(a for a in advisory["advisory"] if a["check"] == "advisory:population-tail")
+    assert row["status"] == "FLAG" and row["escalate"] and row["failed"] == ["critic"]
+    assert row["gating"] is False and row["fits"]["critic"]["upper_excess"] == 0.032
+    # Every other stability check still gates.
+    record["stability"]["critic"]["checks"]["td_divergence"]["status"] = "FAIL"
+    still = ra.fit_checks(record, population_tail="advisory")
+    assert "stability:critic:td_divergence" in {
+        r["id"] for r in still["primary"] if r["status"] == "FAIL"
+    }
+    with pytest.raises(ValueError, match="population-tail policy"):
+        ra.fit_checks(record, population_tail="ignore")
+
+
+def test_run_defaults_to_the_advisory_tail(tmp_path) -> None:
+    args = _args(tmp_path, "--stage", "critic")
+    assert args.population_tail == "advisory"
+    assert _args(tmp_path, "--population-tail", "gate").population_tail == "gate"
+
+
+@pytest.mark.parametrize("policy", ["advisory", "gate"])
+def test_population_tail_trips_the_seed_gate_only_when_gated(tmp_path, monkeypatch, policy):
+    calls = []
+
+    def run_fit(args, arm, seed):
+        calls.append((arm.name, seed))
+        work = Path(args.out) / arm.name / f"seed-{seed}"
+        work.mkdir(parents=True, exist_ok=True)
+        path = work / "evidence-critic.json"
+        path.write_text(json.dumps(_with_tail_fail(_critic_evidence(arm.name, seed, arm.privileged))))
+        return path
+
+    monkeypatch.setattr(ra, "run_fit", run_fit)
+    monkeypatch.setattr(ra, "source_record", lambda *a, **k: {"commit": "test"})
+    args = _args(tmp_path, "--stage", "critic", "--determinism-steps", "0", "--jobs", "1",
+                 "--population-tail", policy)
+    ra.command_run(args)
+    gate = json.loads((tmp_path / "out" / "seed-gate.json").read_text())
+    receipt = json.loads((tmp_path / "out" / "critic-receipt.json").read_text())
+    assert receipt["population_tail_policy"] == policy
+    assert receipt["configuration"]["population_tail"] == policy
+    if policy == "advisory":
+        assert not gate["tripped"] and len(calls) == 10
+        assert receipt["critic_stage"]["arms"]["privileged-e4"]["status"] == "PASS"
+        flags = receipt["arms"]["privileged-e4"]["advisory"]["0"]
+        assert any(a["check"] == "advisory:population-tail" and a["status"] == "FLAG" for a in flags)
+    else:
+        assert gate["tripped"] and gate["reason"] == "stability-fail" and len(calls) == 2
+        assert receipt["machine_verdict"] == "FAIL"
