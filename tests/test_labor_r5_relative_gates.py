@@ -375,7 +375,7 @@ def test_relative_thresholds_are_preregistered_and_marked() -> None:
     assert p["rel_all_pairs_ordering_min"]["status"].startswith("approved")
     for name in ("rel_td0_abs_bias_max", "rel_td0_mae_max", "adv_sign_agreement_min",
                  "adv_slope_range", "adv_std_ratio_range"):
-        assert p[name]["status"] == "proposed"
+        assert p[name]["status"].startswith("proposed")
     assert p["a_ranking_min"]["value"] == 0.70  # (d) unchanged
 
 

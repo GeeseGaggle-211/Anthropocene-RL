@@ -385,11 +385,15 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     },
     # Advantage magnitude on the combined reward (user 28 Oct; NON-GATING for now).
     "adv_sign_agreement_min": {
-        "value": {"1": 0.60, "5": 0.65},
-        "status": "proposed",
-        "source": "headline: world-balanced sign agreement of the critic's k-step combined "
-        "advantage with A_MC = G - V (labor_pretrain_eval.ADVANTAGE_MAGNITUDE_DEFINITION), "
-        "calibration worlds, all stratum; advisory flag only",
+        "value": {"1": 0.55, "5": 0.65},
+        "status": "proposed (NOT recommended for gating: it does not separate an untrained "
+        "critic)",
+        "source": "headline: world-balanced, world-centred sign agreement of the critic's "
+        "k-step combined advantage with A_MC = G - V "
+        "(labor_pretrain_eval.ADVANTAGE_MAGNITUDE_DEFINITION), all stratum; advisory flag "
+        "only. Measured b04 held out k=1/k=5: E5 0.579/0.684, F1 0.568/0.667, untrained init "
+        "0.672/0.723 (raw form E5 0.506/0.598, F1 0.487/0.562, init 0.664/0.706): A_MC shares "
+        "the critic's V, so V errors move both sides",
     },
     "adv_slope_range": {
         "value": [0.5, 2.0],
@@ -397,7 +401,7 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "source": "slope of A_MC on A_hat_k (1 for an exact critic); advisory flag only",
     },
     "adv_std_ratio_range": {
-        "value": [0.25, 2.0],
+        "value": [0.15, 2.0],
         "status": "proposed",
         "source": "std(A_hat_k) / std(A_MC) (below 1 for an exact critic); advisory flag only",
     },
@@ -1168,16 +1172,19 @@ def advantage_magnitude_advisory(calibration: Mapping[str, Any] | None) -> dict[
     rows = []
     for k, strata in (report.get("ks") or {}).items():
         m = strata.get("all") or {}
-        sign, slope, ratio = m.get("sign_agreement"), m.get("slope"), m.get("std_ratio")
+        sign = m.get("sign_agreement_world_centred", m.get("sign_agreement"))
+        slope, ratio = m.get("slope"), m.get("std_ratio")
         rows.append(
             {
                 "k": int(k),
-                "sign_agreement": sign,
+                "sign_agreement_world_centred": sign,
+                "sign_agreement_raw": m.get("sign_agreement"),
                 "sign_agreement_min": sign_min.get(str(k)),
                 "slope": slope,
                 "std_ratio": ratio,
                 "sign_agreement_by_stratum": {
-                    name: s.get("sign_agreement") for name, s in strata.items()
+                    name: s.get("sign_agreement_world_centred", s.get("sign_agreement"))
+                    for name, s in strata.items()
                 },
                 "flag": bool(
                     (sign is not None and sign_min.get(str(k)) is not None

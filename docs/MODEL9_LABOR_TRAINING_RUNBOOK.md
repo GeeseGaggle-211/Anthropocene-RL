@@ -554,6 +554,16 @@ constant-predictor reference (a predictor outputting the fitting-set mean QoL re
 `qol_nstep.constant_reference`, `td_residual.td0.constant_reference`). Implementation:
 `labor_pretrain_eval.relative_ordering_report`, `labor_r5_acceptance.relative_checks`.
 
+**Follow-up (user, 28 Oct).** Only the combined elder reward gates (a) and (b) (all-pairs >= 0.65
+approved); the QoL and population-years variants are reported under `diagnostics.relative_heads`.
+`advantage_magnitude` (non-gating, `labor_pretrain_eval.advantage_magnitude_report`) compares the
+critic's k-step combined advantage (k = 1, 5) with A_MC = G - V: headline world-centred sign agreement,
+slope of A_MC on A_hat (1 for an exact critic), std ratio, per-head contribution shares inside the
+combined advantage (predicted and realised), advantage-to-value spreads and PopArt-style per-head
+moments, per stratum. Limitation: A_MC shares the critic's V, so it is not a ground-truth advantage
+(an untrained critic scores at least as high on sign agreement); labor PPO uses the combined advantage
+raw, without per-batch standardisation.
+
 **Critic level and loader fixes (28 Oct).** `pretrain-critic --campaign-r5` (passed by the acceptance
 harness) turns on, unless given explicitly: `--qol-head-bias-init mean-target` (logistic QoL head bias
 = logit of the sampling-weighted mean of p* = G / (scale W), fresh fits only, recorded as
