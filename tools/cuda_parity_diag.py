@@ -412,7 +412,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--problems",
         default="critic,critic_monte_carlo,advantage,bc",
-        help="comma list from critic, critic_monte_carlo, advantage, bc",
+        help="comma list from critic, critic_monte_carlo, critic_separate_qol, advantage, bc",
     )
     parser.add_argument("--backends", default="default,math", help="SDPA: default and/or math")
     parser.add_argument(

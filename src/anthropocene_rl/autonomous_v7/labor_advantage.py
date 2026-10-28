@@ -535,7 +535,10 @@ class LaborAdvantageHead(nn.Module):
     the contextual village token) concatenated with its privileged readout.
     Each objective has its own 2-layer MLP; the action encoder is shared. The
     last layer is zero-initialised, so an untrained head predicts A = 0 and
-    Q = V exactly.
+    Q = V exactly. With a separate QoL encoder each task objective reads the
+    encoder that feeds its own value head (``LaborTaskCritic.objective_encoder``):
+    the QoL component the QoL encoder's context, population-years the population
+    encoder's. The widths are unchanged (both encoders share one architecture).
     """
 
     def __init__(self, widths: AdvantageWidths) -> None:
@@ -562,8 +565,10 @@ class LaborAdvantageHead(nn.Module):
         embedding: int = EMBEDDING_WIDTH,
         hidden: int = 256,
     ) -> LaborAdvantageHead:
-        task = int(task_critic.encoder.width + task_critic.encoder.token_width)
-        context = {name: task for name in LABOR_OBJECTIVES}
+        context = {}
+        for name in LABOR_OBJECTIVES:
+            encoder = task_critic.objective_encoder(name)
+            context[name] = int(encoder.width + encoder.token_width)
         for name in LABOR_COSTS:
             encoder = cost_critics.encoders[name]
             context[name] = int(encoder.width + encoder.token_width)
@@ -649,7 +654,11 @@ def critic_contexts(
                 task = task_critic.encoder.context(batch, task_priv)
                 task_context = torch.cat([task["hidden"], task["privileged_readout"]], dim=-1)
                 for name in LABOR_OBJECTIVES:
-                    parts[name].append(task_context)
+                    if task_critic.objective_encoder(name) is task_critic.encoder:
+                        parts[name].append(task_context)
+                        continue
+                    own = task_critic.objective_encoder(name).context(batch, task_priv)
+                    parts[name].append(torch.cat([own["hidden"], own["privileged_readout"]], -1))
                 for name in LABOR_COSTS:
                     cost = cost_critics.encoders[name].context(batch, cost_priv)
                     parts[name].append(torch.cat([cost["hidden"], cost["privileged_readout"]], -1))
@@ -715,14 +724,27 @@ def _json_digest(value: Any) -> str:
     ).hexdigest()
 
 
+TASK_CONTEXT_PER_OBJECTIVE = "per-objective-value-head-encoder"
+
+
+def task_context_record(task_critic: LaborTaskCritic) -> str | None:
+    """The payload's ``task_context`` for ``task_critic`` (None: historical shared context)."""
+    return TASK_CONTEXT_PER_OBJECTIVE if task_critic.separate_qol_encoder else None
+
+
 def advantage_checkpoint_payload(
     head: LaborAdvantageHead,
     *,
     critic_digest: str,
     config: AdvantageFitConfig,
     fit: Mapping[str, Any],
+    task_context: str | None = None,
 ) -> dict[str, Any]:
-    """Separate artifact bound to the frozen critic it reads (its labor_critic_digest)."""
+    """Separate artifact bound to the frozen critic it reads (its labor_critic_digest).
+
+    ``task_context`` (:func:`task_context_record`) is recorded only for a critic
+    with a separate QoL encoder; every other payload keeps its historical keys.
+    """
     return {
         "artifact_kind": ADVANTAGE_ARTIFACT_KIND,
         "architecture": ADVANTAGE_ARCHITECTURE,
@@ -738,6 +760,8 @@ def advantage_checkpoint_payload(
         "config": config.state_dict(),
         "fit": json.loads(json.dumps(fit)),
         "state_dict": head.state_dict(),
+        # Only for a separate-QoL-encoder critic: old payloads keep their bytes.
+        **({} if task_context is None else {"task_context": str(task_context)}),
     }
 
 
@@ -760,6 +784,8 @@ def load_advantage_head(
     digest = labor_critic_digest(task_critic, cost_critics)
     if state.get("critic_digest") != digest:
         raise ValueError("advantage head was fitted on a different critic (labor_critic_digest)")
+    if state.get("task_context") != task_context_record(task_critic):
+        raise ValueError("advantage head task context differs from the critic's QoL encoder")
     head = LaborAdvantageHead(AdvantageWidths.from_state(state["widths"]))
     expected = LaborAdvantageHead.for_critics(task_critic, cost_critics).widths.context
     if dict(head.widths.context) != dict(expected):
@@ -2354,7 +2380,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary["device"] = device_record(device)
     head.to("cpu")  # device-agnostic artifact
     payload = advantage_checkpoint_payload(
-        head, critic_digest=labor_critic_digest(task, costs), config=config, fit=summary
+        head,
+        critic_digest=labor_critic_digest(task, costs),
+        config=config,
+        fit=summary,
+        task_context=task_context_record(task),
     )
     payload["state_dict"] = cpu_copy(payload["state_dict"])
     args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -29,6 +29,16 @@ change declared in the checkpoint's labor model contract (see
     privileged normalizer is bound, the critic optimizer is reset and the
     migration is recorded.
 
+``convert-qol-encoder``
+    Give a shared-encoder checkpoint's task critic a separate QoL encoder
+    (contract ``qolEncoder: "separate"``). Every existing tensor is kept; the
+    new encoder is either a copy of the trained task encoder (``--init copy``:
+    a warm start whose outputs equal the source critic's exactly) or a fresh
+    initialization seeded with ``labor_qol_encoder_seed(seed)`` (``--init
+    fresh``: for an untrained ``initialize`` checkpoint and the default seed it
+    is the same tensors ``initialize --qol-encoder separate`` builds). The
+    critic optimizer is reset and the conversion is recorded.
+
 Example::
 
     python -m anthropocene_rl.autonomous_v7.labor_critic_support audit \\
@@ -64,11 +74,14 @@ from .labor_model import (
     bind_privileged_normalizer,
     labor_checkpoint_contract,
     labor_checkpoint_personality,
+    labor_qol_encoder_seed,
     set_labor_film_bound,
 )
 
 CONVERSION_CONTRACT = "labor-critic-value-support-conversion-v1"
 PRIVILEGED_CONVERSION_CONTRACT = "labor-critic-privileged-migration-v1"
+QOL_ENCODER_CONVERSION_CONTRACT = "labor-critic-separate-qol-encoder-conversion-v1"
+QOL_ENCODER_INITS = ("copy", "fresh")
 AUDIT_SCHEMA = "labor-critic-target-audit-v1"
 QUANTILES = (0.0, 0.001, 0.01, 0.05, 0.5, 0.95, 0.99, 0.999, 1.0)
 DEFAULT_CANDIDATES = ((-2.0, 9.0), (-2.0, 6.0), (-2.0, 5.0), (-1.0, 4.0), (-1.0, 3.0), (-0.5, 2.5))
@@ -215,8 +228,10 @@ def convert_task_critic_support(
     # Same (default) widths as _models_from_checkpoint, which just loaded old_task strictly.
     width = old_task.heads[LABOR_OBJECTIVES[0]].in_features
     head_seed = int(state["optimizer_seed"] if seed is None else seed)
-    task = LaborTaskCritic(layout, support=support)
+    task = LaborTaskCritic(layout, support=support, qol_encoder=old_task.qol_encoder_mode)
     task.encoder.load_state_dict(old_task.encoder.state_dict(), strict=True)
+    if old_task.qol_encoder is not None:
+        task.qol_encoder.load_state_dict(old_task.qol_encoder.state_dict(), strict=True)
     bind_privileged_normalizer(getattr(old_task, "privileged_normalizer", None), task)
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(head_seed)
@@ -264,7 +279,14 @@ def convert_task_critic_support(
             "source_sha256": source_sha256,
             "reinitialized": [f"task_critic.heads.{name}" for name in LABOR_OBJECTIVES]
             + ["task_critic.bins"],
-            "kept": ["task_critic.encoder", "cost_critics", "actor", "normalizer", "trainer_rng"],
+            "kept": [
+                "task_critic.encoder",
+                *(["task_critic.qol_encoder"] if old_task.qol_encoder is not None else []),
+                "cost_critics",
+                "actor",
+                "normalizer",
+                "trainer_rng",
+            ],
             "critic_optimizer": "reset-fresh-adam-same-lr",
         }
     )
@@ -318,7 +340,12 @@ def convert_privileged_critics(
     init_seed = int(state["optimizer_seed"] if seed is None else seed)
     with torch.random.fork_rng(devices=[]):
         torch.manual_seed(init_seed)
-        task = LaborTaskCritic(new_layout, support=old_task.support, qol_head=old_task.qol_head)
+        task = LaborTaskCritic(
+            new_layout,
+            support=old_task.support,
+            qol_head=old_task.qol_head,
+            qol_encoder=old_task.qol_encoder_mode,
+        )
         costs = LaborCostCritics(new_layout)
     _set_migration(True, task, costs)
     try:
@@ -381,6 +408,95 @@ def convert_privileged_critics(
     return converted
 
 
+def convert_qol_encoder(
+    state: Mapping[str, Any],
+    init: str,
+    *,
+    seed: int | None = None,
+    source_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Return a trainer checkpoint whose task critic has a separate QoL encoder.
+
+    ``init="copy"`` copies the source task encoder (privileged block included);
+    ``init="fresh"`` builds it from ``labor_qol_encoder_seed(seed)`` (default:
+    the checkpoint's optimizer seed). Every source tensor is kept and loaded
+    strictly; the critic optimizer is reset (the new parameters have no moments).
+    """
+    from .labor_training import (
+        _models_from_checkpoint,
+        _require_trainer_checkpoint,
+        _trainer_checkpoint,
+    )
+
+    if init not in QOL_ENCODER_INITS:
+        raise ValueError(f"QoL encoder init must be one of {QOL_ENCODER_INITS}")
+    _require_trainer_checkpoint(state)
+    layout, actor, old_task, costs, normalizer = _models_from_checkpoint(state)
+    if old_task.separate_qol_encoder:
+        raise ValueError("checkpoint already declares a separate QoL encoder")
+    contract = labor_checkpoint_contract(state, expected_layout=layout)
+    init_seed = int(state["optimizer_seed"] if seed is None else seed)
+    task = LaborTaskCritic(
+        layout,
+        int(old_task.encoder.width),
+        int(old_task.encoder.token_width),
+        support=old_task.support,
+        qol_head=old_task.qol_head,
+        qol_encoder="separate",
+        qol_encoder_seed=labor_qol_encoder_seed(init_seed),
+    )
+    source = dict(old_task.state_dict())
+    new_encoder = old_task.encoder if init == "copy" else task.qol_encoder
+    source.update({f"qol_encoder.{k}": v for k, v in new_encoder.state_dict().items()})
+    task.load_state_dict(source, strict=True)
+    task.check_support()
+    bind_privileged_normalizer(getattr(old_task, "privileged_normalizer", None), task)
+    set_labor_film_bound(contract.conditioning.film_bound, task)
+
+    actor_optimizer = torch.optim.Adam(actor.parameters())
+    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    critic_lr = float(state["critic_optimizer"]["param_groups"][0]["lr"])
+    critic_optimizer = torch.optim.Adam(
+        list(task.parameters()) + list(costs.parameters()), lr=critic_lr
+    )
+    sampling = torch.Generator()
+    sampling.set_state(state["sampling_generator_state"])
+    shuffle = np.random.default_rng(int(state["optimizer_seed"]))
+    shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+    converted = _trainer_checkpoint(
+        actor,
+        task,
+        costs,
+        normalizer,
+        layout,
+        actor_optimizer,
+        critic_optimizer,
+        personality=labor_checkpoint_personality(state),
+        optimizer_seed=int(state["optimizer_seed"]),
+        iteration=int(state["iteration"]),
+        sampling_generator=sampling,
+        shuffle_rng=shuffle,
+        critic_training_world_seeds=state["critic_training_world_seeds"],
+        critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
+    )
+    for key, value in state.items():
+        converted.setdefault(key, value)
+    history = list(state.get("critic_qol_encoder_conversions", []))
+    history.append(
+        {
+            "contract": QOL_ENCODER_CONVERSION_CONTRACT,
+            "init": init,
+            "init_seed": None if init == "copy" else init_seed,
+            "source_sha256": source_sha256,
+            "initialized": ["task_critic.qol_encoder"],
+            "kept": ["actor", "task_critic", "cost_critics", "normalizer", "trainer_rng"],
+            "critic_optimizer": "reset-fresh-adam-same-lr",
+        }
+    )
+    converted["critic_qol_encoder_conversions"] = history
+    return converted
+
+
 def argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -411,6 +527,21 @@ def argument_parser() -> argparse.ArgumentParser:
         "--seed", type=int, default=None, help="privileged init seed (default: optimizer seed)"
     )
     privileged.add_argument("--out", type=Path, required=True)
+    qol = commands.add_parser(
+        "convert-qol-encoder",
+        help="give a shared-encoder checkpoint's task critic a separate QoL encoder",
+    )
+    qol.add_argument("--checkpoint", type=Path, required=True)
+    qol.add_argument(
+        "--init",
+        choices=QOL_ENCODER_INITS,
+        required=True,
+        help="copy: warm start from the task encoder (outputs unchanged); fresh: seeded init",
+    )
+    qol.add_argument(
+        "--seed", type=int, default=None, help="fresh init seed (default: optimizer seed)"
+    )
+    qol.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -431,6 +562,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.out.exists():
         raise ValueError("output checkpoint exists; choose a new path")
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+    if args.command == "convert-qol-encoder":
+        converted = convert_qol_encoder(
+            state, args.init, seed=args.seed, source_sha256=_sha256(args.checkpoint)
+        )
+        _save_checkpoint(args.out, converted)
+        record = converted["critic_qol_encoder_conversions"][-1]
+        print(json.dumps(record, indent=2, sort_keys=True))
+        return 0
     if args.command == "convert-privileged":
         from .labor_training import _load_privileged_normalizer
 

@@ -103,6 +103,28 @@ old checkpoint loads and behaves exactly as before; a scale mismatch is a differ
 refused at load. Calibration metrics (nMAE, bias), the TD residual reference scales and the gates
 stay in their units (W and the QoL reference scale); only the head's internal range changes.
 
+**Separate QoL encoder (user decision 28 Oct).** On the shared task encoder the QoL head starved:
+population-years took about 98% of the raw encoder gradient even at a x30-100 QoL loss weight, and QoL
+underfit in-sample (nMAE about 0.5). Contract key `qolEncoder: "separate"` gives `LaborTaskCritic` a
+second encoder, `qol_encoder`: a full copy of the task encoder architecture (privileged token path
+included) with its own parameters. The QoL head reads only it; population-years keeps `encoder`. The key
+is serialized only for "separate"; an absent key is the historical shared critic, bit for bit (state
+keys, initial values, forward, a monitored weighted privileged fit and the contract bytes were compared
+against a17abc5). `initialize --campaign-r5` declares it; `--qol-encoder shared|separate` overrides.
+Initialization: an independent fresh encoder, built last under a forked CPU RNG seeded by
+`labor_qol_encoder_seed(optimizer_seed)`, so no historical parameter or the global RNG stream moves and
+`labor_critic_support convert-qol-encoder --init fresh` reproduces the same tensors from a shared
+initialize checkpoint; `--init copy` instead copies a trained task encoder (warm start, outputs
+unchanged). Fitting: the optimizer, resume state and stability blocks include `qol_encoder`; there is
+no shared-trunk dominance detector (each encoder serves one head; the task critic stays a global-clip
+contender, and both encoder norms are logged as `grad_norm_preclip`); `--qol-loss-weight auto` is
+refused (no shared encoder share to balance); `--dominance-excess-loss` is accepted but has no
+detector to act on (warning; summary `qol_encoder.dominance_excess_loss_effective: false`);
+privileged attention and dead features probe `task` and `task_qol`. The advantage head reads, per
+task objective, the context of the encoder feeding that objective's value head (QoL: `qol_encoder`;
+population-years: `encoder`); widths are unchanged and the A artifact records
+`task_context: per-objective-value-head-encoder`, checked at load.
+
 Saturation keeps |z| > 6 (frozen r5 text). The expected-low stratum is a physical statement (G < 0.05 W:
 no housing or clothing yet), so it is still applied to G/W, which at scale 2 is `p* < 0.025` in head
 units; a low-saturated row decodes below `2 sigmoid(-6) W = 0.0049 W` (0.0025 W at scale 1), still far

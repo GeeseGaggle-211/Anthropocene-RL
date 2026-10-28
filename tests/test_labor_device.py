@@ -306,9 +306,10 @@ def _report_and_check_drift(label, problem, cpu_state, gpu_state) -> None:
 
 
 @needs_cuda
-def test_critic_step_parity_cpu_vs_cuda() -> None:
+@pytest.mark.parametrize("qol_encoder", ["shared", "separate"])
+def test_critic_step_parity_cpu_vs_cuda(qol_encoder: str) -> None:
     cuda = ld.setup("cuda")
-    task, costs = _critic_pair()
+    task, costs = _critic_pair(qol_encoder=qol_encoder)
     task_g, costs_g = copy.deepcopy(task).to(cuda), copy.deepcopy(costs).to(cuda)
     data = _training_dataset()
     from anthropocene_rl.autonomous_v7.labor_bc import discounted_returns
@@ -340,7 +341,7 @@ def test_critic_step_parity_cpu_vs_cuda() -> None:
 
 
 @needs_cuda
-@pytest.mark.parametrize("name", ["critic", "advantage", "bc"])
+@pytest.mark.parametrize("name", ["critic", "critic_separate_qol", "advantage", "bc"])
 def test_teleported_mid_trajectory_step_parity(name: str) -> None:
     """One step from the CPU trajectory's mid-fit state (parameters, Adam moments, TD
     targets) on both devices: loss and global-L2 gradient within the one-step tolerance.

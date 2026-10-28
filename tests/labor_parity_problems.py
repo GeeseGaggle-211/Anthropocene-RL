@@ -39,12 +39,16 @@ from anthropocene_rl.autonomous_v7.labor_model import (
 MAX_GRAD_NORM = 1.0
 
 
-def _critic_pair(seed: int = 0, target: str = "td-lambda"):
+def _critic_pair(seed: int = 0, target: str = "td-lambda", qol_encoder: str = "shared"):
     from test_labor_privileged_model import _layout
 
     torch.manual_seed(seed)
     task = LaborTaskCritic(
-        _layout(False), width=16, token_width=16, qol_head=LaborQoLHead(target=target)
+        _layout(False),
+        width=16,
+        token_width=16,
+        qol_head=LaborQoLHead(target=target),
+        qol_encoder=qol_encoder,
     )
     costs = LaborCostCritics(_layout(False), width=16, token_width=16)
     return task, costs
@@ -183,7 +187,7 @@ class CriticProblem(Problem):
     adam = torch.optim.Adam
     lr = 1e-3
 
-    def __init__(self, target: str = "td-lambda") -> None:
+    def __init__(self, target: str = "td-lambda", qol_encoder: str = "shared") -> None:
         from test_labor_qol_head import _training_dataset
 
         from anthropocene_rl.autonomous_v7.labor_bc import (
@@ -195,8 +199,10 @@ class CriticProblem(Problem):
         from anthropocene_rl.autonomous_v7.labor_privileged import actor_inputs
 
         self.name = "critic" if target == "td-lambda" else "critic_monte_carlo"
+        if qol_encoder != "shared":
+            self.name += "_separate_qol"
         self.target = target
-        self._pair = lambda: _critic_pair(0, target)
+        self._pair = lambda: _critic_pair(0, target, qol_encoder)
         task, costs = self._pair()
         self._init = {"task": task, "cost": costs}
         data = _training_dataset()
@@ -537,6 +543,7 @@ class BCProblem(Problem):
 PROBLEMS = {
     "critic": lambda: CriticProblem("td-lambda"),
     "critic_monte_carlo": lambda: CriticProblem("monte-carlo"),
+    "critic_separate_qol": lambda: CriticProblem("td-lambda", "separate"),
     "advantage": AdvantageProblem,
     "bc": BCProblem,
 }

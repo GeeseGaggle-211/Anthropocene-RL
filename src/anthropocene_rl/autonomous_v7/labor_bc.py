@@ -2627,7 +2627,7 @@ def _critic_stability_finish(
     batch = to_device({k: dataset[k][probe] for k in tensor_keys}, device)
     task_priv = critic_privileged_batch(task_critic, dataset, probe, device=device)
     cost_priv = critic_privileged_batch(cost_critics, dataset, probe, device=device)
-    encoders = {"task": (task_critic.encoder, task_priv)}
+    encoders = {name: (encoder, task_priv) for name, encoder in task_critic.task_encoders().items()}
     for name in LABOR_COSTS:
         encoders[f"cost:{name}"] = (cost_critics.encoders[name], cost_priv)
     monitor.record_probe(
@@ -2647,7 +2647,7 @@ def _critic_stability_finish(
             name: dead_feature_counts(
                 encoder,
                 dead_batch,
-                dead_task if name == "task" else dead_cost,
+                dead_cost if name.startswith("cost:") else dead_task,
                 std=monitor.t.dead_unit_std,
             )
             for name, (encoder, _) in encoders.items()
@@ -2871,6 +2871,14 @@ def pretrain_critic_on_dataset(
             if not math.isfinite(value) or value <= 0.0:
                 raise ValueError(f"task loss weight {name} must be finite and positive")
             weight_values[name] = value
+    separate_qol = bool(getattr(task_critic, "separate_qol_encoder", False))
+    if qol_loss_weight_auto is not None and separate_qol:
+        # The controller targets QoL's share of the *shared* task-encoder gradient; with a
+        # separate QoL encoder no parameter is shared between the task heads.
+        raise ValueError(
+            "--qol-loss-weight auto balances QoL's share of a shared task encoder; this "
+            "critic has a separate QoL encoder (use a fixed --qol-loss-weight or none)"
+        )
     if qol_loss_weight_auto is not None:
         if task_loss_weights is not None and "qol_years" in task_loss_weights:
             raise ValueError("give the QoL weight either explicitly or as auto, not both")
@@ -3044,12 +3052,28 @@ def pretrain_critic_on_dataset(
     monitor = None
     if config is not None:
         blocks = {"task_encoder": list(task_critic.encoder.parameters())}
+        if separate_qol:
+            blocks["qol_encoder"] = list(task_critic.qol_encoder.parameters())
         for name in LABOR_OBJECTIVES:
             blocks[f"task_head:{name}"] = list(task_critic.heads[name].parameters())
         for name in LABOR_COSTS:
             blocks[f"cost_encoder:{name}"] = list(cost_critics.encoders[name].parameters())
             blocks[f"cost_head:{name}"] = list(cost_critics.heads[name].parameters())
-        task_blocks = ["task_encoder", *(f"task_head:{n}" for n in LABOR_OBJECTIVES)]
+        task_blocks = [
+            "task_encoder",
+            *(["qol_encoder"] if separate_qol else []),
+            *(f"task_head:{n}" for n in LABOR_OBJECTIVES),
+        ]
+        # Shared-head dominance needs two heads on one block. With a separate QoL encoder
+        # the population encoder serves population-years alone (and the QoL encoder QoL
+        # alone), so no shared-trunk detector exists; each encoder's gradient norm is still
+        # logged per step (grad_norm_preclip task_encoder / qol_encoder) and the task
+        # critic as a whole stays a contender of the global-clip detector.
+        shared = (
+            {}
+            if separate_qol
+            else {"task_encoder": (blocks["task_encoder"], tuple(LABOR_OBJECTIVES))}
+        )
         monitor = StabilityMonitor(
             config,
             fit="pretrain-critic",
@@ -3057,9 +3081,7 @@ def pretrain_critic_on_dataset(
             parameters=critic_params,
             blocks=blocks,
             frozen={} if frozen_actor is None else {"actor": frozen_actor},
-            shared_heads={
-                "task_encoder": (blocks["task_encoder"], tuple(LABOR_OBJECTIVES)),
-            },
+            shared_heads=shared,
             contender_blocks={
                 "global_clip": {
                     "task": task_blocks,
@@ -3081,6 +3103,14 @@ def pretrain_critic_on_dataset(
     excess_progress = monitor is not None and monitor.config.dominance_excess_loss
     if excess_progress and (qol_head is None or qol_head.output != "logistic"):
         raise ValueError("--dominance-excess-loss needs a logistic bounded QoL head")
+    if excess_progress and separate_qol:
+        import warnings
+
+        warnings.warn(
+            "--dominance-excess-loss has no effect with a separate QoL encoder: no shared-"
+            "trunk dominance detector judges QoL progress (qol_excess_bce is still logged)",
+            stacklevel=2,
+        )
     observed_pop_max = float(
         (
             task_targets["population_years"]
@@ -3656,6 +3686,19 @@ def pretrain_critic_on_dataset(
         **validation_record,
         **weight_record,
         **excess_record,
+        # Recorded for a separate QoL encoder only (historical summaries unchanged).
+        **(
+            {
+                "qol_encoder": {
+                    "mode": "separate",
+                    "dominance": "no shared task-encoder detector (one head per encoder); "
+                    "task critic remains a global-clip contender",
+                    "dominance_excess_loss_effective": False,
+                }
+            }
+            if separate_qol
+            else {}
+        ),
         "contract": LABOR_CRITIC_CONTRACT,
         "epochs": int(epochs),
         "rows": int(N),

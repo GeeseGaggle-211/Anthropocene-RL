@@ -57,12 +57,15 @@ from .labor_model import (
     labor_checkpoint_personality,
     labor_log_prob,
     labor_policy_tensors,
+    LABOR_CAMPAIGN_R5_QOL_ENCODER,
     LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE,
     LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
     LaborValueSupport,
     LaborQoLHead,
+    labor_checkpoint_qol_encoder,
     labor_checkpoint_qol_head,
     labor_checkpoint_value_support,
+    labor_qol_encoder_seed,
     load_labor_checkpoint_models,
     nonlabor_entropy,
     nonlabor_log_prob,
@@ -908,6 +911,7 @@ def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
         layout,
         support=labor_checkpoint_value_support(state),
         qol_head=labor_checkpoint_qol_head(state),
+        qol_encoder=labor_checkpoint_qol_encoder(state),
     )
     costs = LaborCostCritics(layout)
     # Also applies the contract's optional FiLM bound to all four encoders.
@@ -1262,6 +1266,20 @@ def _initialize_qol_head(args: argparse.Namespace) -> LaborQoLHead | None:
     return head
 
 
+def _initialize_qol_encoder(args: argparse.Namespace) -> str:
+    """Task-critic QoL encoder for a new checkpoint.
+
+    An explicit ``--qol-encoder shared|separate`` wins; otherwise ``--campaign-r5``
+    declares :data:`LABOR_CAMPAIGN_R5_QOL_ENCODER` ("separate", user decision
+    28 Oct) and every other initialization keeps the historical shared encoder
+    (no serialized field, bit-identical checkpoints).
+    """
+    explicit = getattr(args, "qol_encoder", None)
+    if explicit is not None:
+        return str(explicit)
+    return LABOR_CAMPAIGN_R5_QOL_ENCODER if getattr(args, "campaign_r5", False) else "shared"
+
+
 def _command_initialize(args: argparse.Namespace) -> None:
     source = torch.load(args.normalizer_checkpoint, map_location="cpu", weights_only=True)
     normalizer = load_checkpoint_normalizer(
@@ -1297,6 +1315,8 @@ def _command_initialize(args: argparse.Namespace) -> None:
         layout,
         support=_initialize_value_support(args),
         qol_head=_initialize_qol_head(args),
+        qol_encoder=_initialize_qol_encoder(args),
+        qol_encoder_seed=labor_qol_encoder_seed(args.optimizer_seed),
     )
     costs = LaborCostCritics(layout)
     bind_privileged_normalizer(privileged_normalizer, task, costs)
@@ -2315,7 +2335,17 @@ def argument_parser() -> argparse.ArgumentParser:
         default=False,
         help="declare the campaign-r5 task-critic value support -0.5,2.5,255 "
         "(LABOR_CAMPAIGN_R5_VALUE_SUPPORT) and, with a bounded --qol-head, the QoL head "
-        "scale 2.0 (LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE)",
+        "scale 2.0 (LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE) and the separate QoL encoder "
+        "(LABOR_CAMPAIGN_R5_QOL_ENCODER; --qol-encoder shared overrides)",
+    )
+    initialize.add_argument(
+        "--qol-encoder",
+        choices=("shared", "separate"),
+        default=None,
+        help="task-critic QoL encoder: 'shared' (historical: QoL and population-years read one "
+        "encoder) or 'separate' (QoL head reads its own full copy of the task encoder, "
+        "privileged path included; contract field qolEncoder). Default shared, or separate "
+        "under --campaign-r5",
     )
     initialize.add_argument(
         "--privileged-normalizer",

@@ -97,6 +97,12 @@ only comparable at the same support.
   QoL head scale 2.0 (`LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE`, contract key `qolHeadScale`; head range
   (0, 2W), user decision 27 Oct); `--qol-head-scale S` overrides it. Checkpoints without the key
   are the historical (0, W) head and load unchanged. See `docs/LABOR_ADVANTAGE.md`.
+* `--campaign-r5` also declares the separate QoL encoder (contract key `qolEncoder`, user decision
+  28 Oct; `--qol-encoder shared` keeps the historical shared encoder). An existing shared checkpoint
+  converts with `labor_critic_support convert-qol-encoder --checkpoint in.pt --init copy|fresh
+  --out out.pt` (copy: warm start from the trained task encoder; fresh: the seeded init
+  `initialize` would build). `--qol-loss-weight auto` is refused for a separate encoder. See
+  `docs/LABOR_ADVANTAGE.md`.
 * Existing checkpoint: `labor_critic_support convert --checkpoint in.pt
   --critic-value-support=LOW,HIGH,BINS --out converted.pt` re-initialises only the two task-head
   output layers (seeded, default the optimizer seed) and keeps the task encoder, cost critics,

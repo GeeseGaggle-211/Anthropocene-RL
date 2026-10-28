@@ -339,6 +339,38 @@ class LaborQoLHead:
         return head if scale is None else head.with_scale(scale)
 
 
+# Separate QoL encoder (r5 critic, user decision 28 Oct). The pilots showed the
+# QoL head starved on the task critic's shared encoder: population-years took
+# about 98% of the raw encoder gradient even at a x30-100 QoL loss weight. With
+# ``qolEncoder: "separate"`` the task critic owns a second, full copy of the task
+# encoder architecture (privileged token path included) with its own
+# parameters; the QoL head reads only it and the population-years head keeps the
+# original encoder. The field is serialized only for "separate": an absent field
+# is the historical shared encoder, so every existing checkpoint loads, saves and
+# behaves bit for bit as before.
+LABOR_QOL_ENCODER_FIELD = "qolEncoder"
+LABOR_QOL_ENCODER_MODES = ("shared", "separate")
+# ``--campaign-r5`` initialization declares the separate encoder.
+LABOR_CAMPAIGN_R5_QOL_ENCODER = "separate"
+_QOL_ENCODER_SEED_SALT = 0x514F4C454E43  # "QOLENC"
+
+
+def labor_qol_encoder_seed(optimizer_seed: int) -> int:
+    """Init seed of the separate QoL encoder for a run's optimizer seed.
+
+    A pure function of the seed (no global RNG draw), so ``initialize`` and the
+    ``convert-qol-encoder`` migration of the same run's shared checkpoint build
+    the same QoL encoder tensors.
+    """
+    return (int(optimizer_seed) * 0x9E3779B97F4A7C15 + _QOL_ENCODER_SEED_SALT) % (2**63)
+
+
+def _check_qol_encoder_mode(mode: str) -> str:
+    if mode not in LABOR_QOL_ENCODER_MODES:
+        raise ValueError(f"QoL encoder must be one of {LABOR_QOL_ENCODER_MODES}, not {mode!r}")
+    return mode
+
+
 @dataclass(frozen=True)
 class LaborPersonality:
     """Declared fixed weighting over the two terminal task objectives.
@@ -427,6 +459,12 @@ class LaborModelContract:
     # Bounded QoL head (amendment r5-b item 4). Absent (None) keeps the
     # historical two-hot QoL head and every existing checkpoint's bytes.
     qol_head: LaborQoLHead | None = None
+    # Separate QoL encoder ("separate"); "shared" (the default) is not
+    # serialized and keeps every existing checkpoint's bytes.
+    qol_encoder: str = "shared"
+
+    def __post_init__(self) -> None:
+        _check_qol_encoder_mode(self.qol_encoder)
 
     def state_dict(self) -> dict[str, Any]:
         state = self._base_state()
@@ -438,6 +476,8 @@ class LaborModelContract:
             state["privilegedCritic"] = self.privileged_critic.state_dict()
         if self.qol_head is not None:
             state["criticQoLHead"] = self.qol_head.state_dict()
+        if self.qol_encoder != "shared":
+            state[LABOR_QOL_ENCODER_FIELD] = self.qol_encoder
         return state
 
     def _base_state(self) -> dict[str, Any]:
@@ -484,6 +524,7 @@ class LaborModelContract:
             "criticValueSupport",
             "privilegedCritic",
             "criticQoLHead",
+            LABOR_QOL_ENCODER_FIELD,
         } != set(template):
             raise ValueError(f"labor model contract fields must be exactly {sorted(template)}")
         for key in (
@@ -508,6 +549,9 @@ class LaborModelContract:
         ):
             if state[key] != template[key]:
                 raise ValueError(f"labor model contract {key} is unsupported")
+        if LABOR_QOL_ENCODER_FIELD in state and state[LABOR_QOL_ENCODER_FIELD] != "separate":
+            # Canonical: the shared default is never serialized.
+            raise ValueError("labor model contract qolEncoder must be 'separate' when present")
         return cls(
             LaborPersonality.from_mapping(state["personality"]),
             LaborPersonalityConditioning.from_state(state.get("personalityConditioning")),
@@ -516,6 +560,7 @@ class LaborModelContract:
             if state.get("privilegedCritic") is None
             else LaborPrivilegedCriticContract.from_state(state["privilegedCritic"]),
             LaborQoLHead.from_state(state.get("criticQoLHead")),
+            str(state.get(LABOR_QOL_ENCODER_FIELD, "shared")),
         )
 
 
@@ -655,6 +700,13 @@ def labor_checkpoint_qol_head(state: Mapping[str, Any]) -> LaborQoLHead | None:
     if not isinstance(state, Mapping) or "labor_model_contract" not in state:
         raise ValueError("checkpoint is not an explicit labor/retry artifact")
     return LaborModelContract.from_state(state["labor_model_contract"]).qol_head
+
+
+def labor_checkpoint_qol_encoder(state: Mapping[str, Any]) -> str:
+    """The task critic's QoL encoder mode a labor checkpoint declares ("shared" when absent)."""
+    if not isinstance(state, Mapping) or "labor_model_contract" not in state:
+        raise ValueError("checkpoint is not an explicit labor/retry artifact")
+    return LaborModelContract.from_state(state["labor_model_contract"]).qol_encoder
 
 
 @dataclass(frozen=True)
@@ -1426,6 +1478,15 @@ class LaborTaskCritic(nn.Module):
 
     ``support`` is the declared, versioned value representation (clamp and bin
     count); the default reproduces the historical [-2, 9] x 255 critic exactly.
+
+    ``qol_encoder="separate"`` adds ``self.qol_encoder``, a full copy of the
+    task encoder architecture (privileged token path included) with its own
+    parameters; the QoL head reads only it and the population-years head keeps
+    ``self.encoder``. It is built last, under a forked CPU RNG seeded with
+    ``qol_encoder_seed`` (default: derived from, but not advancing, the global
+    stream), so every other parameter keeps its historical initial value and the
+    global RNG stream after construction is unchanged. ``"shared"`` (default)
+    is the historical critic, parameter for parameter.
     """
 
     def __init__(
@@ -1436,8 +1497,11 @@ class LaborTaskCritic(nn.Module):
         *,
         support: LaborValueSupport | None = None,
         qol_head: LaborQoLHead | None = None,
+        qol_encoder: str = "shared",
+        qol_encoder_seed: int | None = None,
     ) -> None:
         super().__init__()
+        self.qol_encoder_mode = _check_qol_encoder_mode(qol_encoder)
         self.support = LaborValueSupport() if support is None else support
         if not isinstance(self.support, LaborValueSupport):
             raise ValueError("task critic support must be a LaborValueSupport")
@@ -1460,6 +1524,39 @@ class LaborTaskCritic(nn.Module):
                 torch.manual_seed(int(torch.randint(0, 2**62, (1,)).item()) ^ 0x514F4C)
                 self.heads["qol_years"] = nn.Linear(width, 1)
         self.register_buffer("bins", self.support.bin_values())
+        # Registered after every historical tensor: the shared critic's state_dict
+        # keys, order and values are unchanged, and the separate one only appends.
+        self.qol_encoder: LaborCriticEncoder | None = None
+        if self.qol_encoder_mode == "separate":
+            with torch.random.fork_rng(devices=[]):
+                seed = (
+                    # Peeked inside the fork: seed-dependent, consumes nothing.
+                    int(torch.randint(0, 2**62, (1,)).item()) ^ _QOL_ENCODER_SEED_SALT
+                    if qol_encoder_seed is None
+                    else int(qol_encoder_seed)
+                )
+                # CPU generator only (module init is on CPU); CUDA RNG untouched.
+                torch.random.default_generator.manual_seed(seed)
+                self.qol_encoder = LaborCriticEncoder(layout, width, token_width)
+
+    @property
+    def separate_qol_encoder(self) -> bool:
+        return self.qol_encoder is not None
+
+    def objective_encoder(self, objective: str) -> LaborCriticEncoder:
+        """The encoder whose trunk feeds ``objective``'s value head."""
+        if objective not in LABOR_OBJECTIVES:
+            raise ValueError(f"unknown labor objective {objective!r}")
+        if objective == "qol_years" and self.qol_encoder is not None:
+            return self.qol_encoder
+        return self.encoder
+
+    def task_encoders(self) -> dict[str, LaborCriticEncoder]:
+        """Distinct task encoders by monitor name: ``task`` and, if separate, ``task_qol``."""
+        encoders = {"task": self.encoder}
+        if self.qol_encoder is not None:
+            encoders["task_qol"] = self.qol_encoder
+        return encoders
 
     def is_bounded(self, objective: str) -> bool:
         """Whether ``objective`` uses the bounded discounted-mean head (QoL only)."""
@@ -1607,7 +1704,11 @@ class LaborTaskCritic(nn.Module):
         privileged: Mapping[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
         hidden, _, _, _, _ = _encode(self.encoder, tensors, privileged)
-        return {name: self.heads[name](hidden) for name in LABOR_OBJECTIVES}
+        if self.qol_encoder is None:
+            return {name: self.heads[name](hidden) for name in LABOR_OBJECTIVES}
+        qol_hidden = _encode(self.qol_encoder, tensors, privileged)[0]
+        trunks = {"qol_years": qol_hidden, "population_years": hidden}
+        return {name: self.heads[name](trunks[name]) for name in LABOR_OBJECTIVES}
 
     def expectation_normalized(self, logits: torch.Tensor) -> torch.Tensor:
         return (torch.softmax(logits, dim=-1) * symexp(self.bins)).sum(dim=-1)
@@ -1712,6 +1813,7 @@ def labor_checkpoint_payload(
         value_support=task_critic.support,
         privileged_critic=privileged_record,
         qol_head=getattr(task_critic, "qol_head", None),
+        qol_encoder=getattr(task_critic, "qol_encoder_mode", "shared"),
     )
     payload = {
         "artifact_kind": LABOR_ARTIFACT_KIND,
@@ -1757,6 +1859,11 @@ def load_labor_checkpoint_models(
         raise ValueError(
             "labor checkpoint declares a different QoL head; construct the critic with "
             "labor_checkpoint_qol_head(state)"
+        )
+    if contract.qol_encoder != getattr(task_critic, "qol_encoder_mode", "shared"):
+        raise ValueError(
+            "labor checkpoint declares a different QoL encoder; construct the critic with "
+            "labor_checkpoint_qol_encoder(state)"
         )
     privileged_normalizer = labor_checkpoint_privileged_normalizer(
         state, contract, expected_layout
