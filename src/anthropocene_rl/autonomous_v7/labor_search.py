@@ -2528,13 +2528,69 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
     restore_checks: list[dict[str, Any]] = []
     payload_roots: list[dict[str, Any]] = []
     started = time.perf_counter()
+    # Decision-boundary checkpoints (labor_search_resume): a resumed world continues from
+    # its newest checkpoint and loses at most the in-flight decision and its root.
+    from . import labor_search_resume as lsr
+
+    work_dir = job.get("checkpoint_dir")
+    checkpoint_identity = {
+        "schema": lsr.SEARCH_CHECKPOINT_SCHEMA,
+        "source_run": job.get("source_run"),
+        "world": world,
+    }
+    resume_point = None
+    if work_dir is not None:
+        if job.get("resume"):
+            resume_point = lsr.load_search_resume_point(
+                Path(work_dir), checkpoint_identity, log=_log_json
+            )
+        elif Path(work_dir).exists():
+            import shutil
+
+            shutil.rmtree(work_dir)
     with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heuristic:
         native = NativeSearch(bridge, heuristic, world=world, options=options, config=config)
-        step = bridge.reset(world, **options.reset_kwargs())
-        identity = bridge.last_reset_identity
-        founded = {int(v["camp"]): int(step["turn"]) for v in step["villages"]}
-        main_resolves = 0
-        for index in range(max(chosen) + 1 if chosen else 0):
+        first_index = 0
+        if resume_point is not None:
+            step = resume_point.restore(bridge, world, options.reset_kwargs())
+            state = resume_point.loop_state()
+            first_index = resume_point.boundary
+            identity = state["reset_identity"]
+            continuation = state["continuation"]
+            founded = state["founded"]
+            skipped = state["skipped"]
+            searched = state["searched"]
+            restore_checks = state["restore_checks"]
+            main_resolves = state["main_resolves"]
+            native.work = Work(
+                **{k: int(v) for k, v in state["work"].items() if k != "native_resolves"}
+            )
+            rows = list(resume_point.rows)
+            tables = list(resume_point.tables)
+            payload_roots = list(resume_point.payload_roots)
+            _log_json({"world": world, "search_resumed_from_checkpoint": first_index,
+                       "roots_kept": len(payload_roots)})
+        else:
+            step = bridge.reset(world, **options.reset_kwargs())
+            identity = bridge.last_reset_identity
+            founded = {int(v["camp"]): int(step["turn"]) for v in step["villages"]}
+            main_resolves = 0
+            continuation = {
+                "startTurn": int(step["turn"]),
+                "trajectoryId": str(identity.get("fingerprint")),
+            }
+        checkpointer = (
+            None
+            if work_dir is None
+            else lsr.SearchCheckpointer(
+                Path(work_dir),
+                checkpoint_identity,
+                keep=int(job.get("checkpoint_keep", 2)),
+                resume=resume_point,
+                log=_log_json,
+            )
+        )
+        for index in range(first_index, max(chosen) + 1 if chosen else 0):
             live = _live(step)
             if not live:
                 break
@@ -2637,6 +2693,10 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
                 native.drop(root_fork)
             from .labor_training import _transition_rewards
 
+            if checkpointer is not None:
+                # The boundary this decision starts from (the root fork was restored above).
+                boundary_snapshot = bridge._bridge.capture()
+                boundary_transient = bridge.capture_transient()
             execution = native.execute(native.catalogs(), main_payloads)
             _transition_rewards(
                 execution.step,
@@ -2648,6 +2708,28 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
             # The root shadow step is shared with the search; the restore check is not counted.
             main_resolves += (1 if root_h12 else 0) + 1
             step = execution.step
+            if checkpointer is not None:
+                checkpointer.write(
+                    boundary=index + 1,
+                    snapshot=boundary_snapshot,
+                    transient=boundary_transient,
+                    execution=execution,
+                    next_step=step,
+                    rows=rows,
+                    tables=tables,
+                    payload_roots=payload_roots,
+                    founded=founded,
+                    skipped=skipped,
+                    searched=searched,
+                    restore_checks=restore_checks,
+                    main_resolves=main_resolves,
+                    work=native.work.state_dict(),
+                    reset_identity=identity,
+                    continuation=continuation,
+                )
+    wall = (
+        checkpointer.wall_seconds() if checkpointer is not None else time.perf_counter() - started
+    )
     return {
         "world": world,
         "rows": rows,
@@ -2658,9 +2740,14 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
         "restore_checks": restore_checks,
         "work": native.work.state_dict(),
         "main_path_resolves": main_resolves,
-        "wall_seconds": time.perf_counter() - started,
+        "wall_seconds": wall,
         "payload_roots": payload_roots,
+        "checkpoints": None if checkpointer is None else checkpointer.summary(),
     }
+
+
+def _log_json(record: Mapping[str, Any]) -> None:
+    print(json.dumps(dict(record), sort_keys=True, default=str), file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -2669,10 +2756,24 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
+    from .labor_search_resume import ContinuationMismatch
     from .labor_teacher_data import write_shard
     from .provenance import ProvenanceError, checkpoint_hash
 
-    result = search_world(job)
+    fallback = None
+    try:
+        result = search_world(job)
+    except ContinuationMismatch as error:
+        # The checkpoint cannot reproduce its boundary: redo the world from its reset (the
+        # uninterrupted run by definition), logged and recorded in the shard meta.
+        import shutil
+
+        fallback = str(error)
+        _log_json({"world": int(job["world"]), "resume_refused": fallback,
+                   "action": "searching the world from its reset"})
+        if job.get("checkpoint_dir"):
+            shutil.rmtree(job["checkpoint_dir"], ignore_errors=True)
+        result = search_world(dict(job, resume=False))
     world = result["world"]
     directory = Path(job["out"]) / f"world-{world}"
     summary = {
@@ -2684,6 +2785,8 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "main_path_resolves": result["main_path_resolves"],
         "wall_seconds": result["wall_seconds"],
         "restore_checks": result["restore_checks"],
+        "search_checkpoints": result.get("checkpoints"),
+        "search_resume_fallback": fallback,
     }
     if not result["rows"]:
         # No label rows (every root skipped): a completion marker lets --resume skip
@@ -2696,6 +2799,7 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
             encoding="utf-8",
         )
         os.replace(temporary, marker)
+        _drop_checkpoints(job)
         return summary
     tensors = _concat(result["rows"], f"labor search world {world}")
     keep = ~tensors["row_quarantined"].reshape(-1)
@@ -2731,6 +2835,8 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "main_path_resolves": result["main_path_resolves"],
         "wall_seconds": float(result["wall_seconds"]),
         "restore_checks": result["restore_checks"],
+        "search_checkpoints": result.get("checkpoints"),
+        "search_resume_fallback": fallback,
         "candidates_sha256": hashlib.sha256(table_text.encode("utf-8")).hexdigest(),
         "return_tail": (
             "search rows are labels, not V targets; reward_* is the label's first transition"
@@ -2771,6 +2877,7 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
     os.replace(payload_staging / payload_module.PAYLOAD_FILE, staging / payload_module.PAYLOAD_FILE)
     payload_staging.rmdir()
     os.replace(staging, directory)
+    _drop_checkpoints(job)  # the published shard supersedes its checkpoints
     summary.update(
         {
             "path": directory.name,
@@ -2795,6 +2902,17 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
 
 SOURCE_FILE = "source.json"
 _PARTIAL_SUFFIXES = (".staging", ".payload-staging")
+
+
+def _drop_checkpoints(job: Mapping[str, Any]) -> None:
+    import shutil
+
+    directory = job.get("checkpoint_dir")
+    if directory:
+        shutil.rmtree(directory, ignore_errors=True)
+        parent = Path(directory).parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
 
 
 def empty_marker(out: Path, world: int) -> Path:
@@ -2846,10 +2964,14 @@ def existing_search_world(out: Path, world: int, source_run: str) -> dict[str, A
     temporary = marker.with_name(marker.name + ".tmp")
     if temporary.exists():
         temporary.unlink()
+    from .labor_search_resume import search_work_dir
+
     if directory.exists():
         summary = _shard_summary(directory, world, source_run)
         if summary is None:
             shutil.rmtree(directory)  # unverifiable or another run's shard
+        else:
+            shutil.rmtree(search_work_dir(out, world), ignore_errors=True)
         if marker.exists():
             marker.unlink()
         return summary
@@ -2858,6 +2980,7 @@ def existing_search_world(out: Path, world: int, source_run: str) -> dict[str, A
             data = json.loads(marker.read_text(encoding="utf-8"))
             summary = data["summary"]
             if data.get("source_run") == source_run and int(summary["world_seed"]) == int(world):
+                shutil.rmtree(search_work_dir(out, world), ignore_errors=True)
                 return summary
         except (OSError, ValueError, KeyError, TypeError):
             pass
@@ -2891,7 +3014,10 @@ def prepare_search_output(
         temporary = out / (SOURCE_FILE + ".tmp")
         temporary.write_text(json.dumps(dict(source), sort_keys=True, allow_nan=False))
         os.replace(temporary, source_path)
+    from .labor_search_resume import WORK_DIR
+
     declared = {f"world-{int(w)}{suffix}" for w in worlds for suffix in ("", *_PARTIAL_SUFFIXES)}
+    declared.add(WORK_DIR)  # decision-boundary checkpoints of unfinished worlds
     undeclared = sorted(p.name for p in out.iterdir() if p.is_dir() and p.name not in declared)
     if undeclared:
         raise ProvenanceError(f"labor search output holds undeclared directories: {undeclared}")
@@ -2950,6 +3076,11 @@ def run_search_jobs(
     temporary = out / "search_report.json.tmp"
     temporary.write_text(json.dumps(report, sort_keys=True, indent=1))
     os.replace(temporary, out / "search_report.json")
+    from .labor_search_resume import WORK_DIR
+
+    work_root = out / WORK_DIR
+    if work_root.is_dir() and not any(work_root.iterdir()):
+        work_root.rmdir()
     shards = [s for s in summaries if s.get("path")]
     if shards:
         publish_dataset(
@@ -3234,6 +3365,12 @@ def argument_parser() -> argparse.ArgumentParser:
         help="continue an interrupted output with the same source record: verified world "
         "shards are kept, partial worlds are redone into fresh shards",
     )
+    parser.add_argument(
+        "--checkpoint-keep",
+        type=int,
+        default=2,
+        help="decision-boundary checkpoints kept per unfinished world (labor_search_resume)",
+    )
     parser.add_argument("--no-verify-restore", action="store_true")
     parser.add_argument(
         "--held-out-test",
@@ -3418,6 +3555,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 str(args.ranker_critic_checkpoint) if args.ranker_critic_checkpoint else None
             ),
             "ranker_checkpoint_sha256": options["advantage_ranker_sha256"],
+            # Execution only (not in the source record): where this world checkpoints and
+            # whether an existing checkpoint is resumed.
+            "checkpoint_dir": str(
+                Path(args.out) / "_work" / f"world-{int(world)}"
+            ),
+            "resume": bool(args.resume),
+            "checkpoint_keep": int(args.checkpoint_keep),
         }
         for world in worlds
     ]
