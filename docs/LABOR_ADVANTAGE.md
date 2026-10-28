@@ -110,7 +110,10 @@ second encoder, `qol_encoder`: a full copy of the task encoder architecture (pri
 included) with its own parameters. The QoL head reads only it; population-years keeps `encoder`. The key
 is serialized only for "separate"; an absent key is the historical shared critic, bit for bit (state
 keys, initial values, forward, a monitored weighted privileged fit and the contract bytes were compared
-against a17abc5). `initialize --campaign-r5` declares it; `--qol-encoder shared|separate` overrides.
+against a17abc5). `initialize --campaign-r5` declared it until 28 Oct; it now declares the shared
+encoder again (Fable audit: no nMAE gain, lower held-out within-trajectory ordering, a negative level
+offset, +34% parameters). The r5 baseline is shared + `--qol-loss-weight 30`; `--qol-encoder separate`
+selects this encoder explicitly.
 Initialization: an independent fresh encoder, built last under a forked CPU RNG seeded by
 `labor_qol_encoder_seed(optimizer_seed)`, so no historical parameter or the global RNG stream moves and
 `labor_critic_support convert-qol-encoder --init fresh` reproduces the same tensors from a shared

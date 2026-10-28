@@ -39,6 +39,7 @@ coverage (worlds, informative groups) is insufficient to decide.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import math
 import os
@@ -292,9 +293,17 @@ def _load_models(path: Path) -> tuple[Any, ...]:
 
 
 def _load_dataset(
-    path: Path | Sequence[Path], normalizer: Any, *, require_privileged: bool = False
+    path: Path | Sequence[Path],
+    normalizer: Any,
+    *,
+    require_privileged: bool = False,
+    corrections: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    """One evaluation dataset, or several batches read as one (``merge_labor_datasets``)."""
+    """One evaluation dataset, or several batches read as one (``merge_labor_datasets``).
+
+    ``corrections`` (``labor_bc.loader_corrections`` of the evaluated fit) applies the same
+    loader corrections the fit trained on; absent or all "none": the data as stored."""
+    from .labor_bc import apply_loader_corrections
     from .labor_teacher_data import load_labor_data
     from .labor_training import _normalization_digest
 
@@ -305,6 +314,8 @@ def _load_dataset(
         training=False,  # evaluation reader: development/calibration/held-out-test data
     )
     _check_world_policy(dataset["row_world"].tolist(), f"dataset {dataset_label(path)}")
+    if corrections:
+        dataset = apply_loader_corrections(dataset, **corrections)
     return dataset
 
 
@@ -1166,8 +1177,13 @@ def qol_nstep_calibration(
     world_factors: Mapping[int, float | None] | None = None,
     weight: float | None = None,
     head: str = "qol_years",
+    constant: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The QoL calibration gate's metrics against the n-step target (``QOL_GATE_TARGET``).
+
+    ``constant`` ({"value", "source"}): adds ``constant_reference``, the same per-stratum
+    n-step nMAE/bias and Monte Carlo nMAE/bias of a predictor that outputs that constant on
+    every row (bootstraps included), for reading the critic's numbers against a floor.
 
     ``head`` selects the reward and tail arrays (``reward_<head>``, ``tail_value__<head>``);
     other heads use it through :func:`population_nstep_diagnostic` (non-gating).
@@ -1331,7 +1347,53 @@ def qol_nstep_calibration(
         ),
     }
     counts = {NSTEP_CLOSURES[c]: int((closure == c).sum()) for c in NSTEP_CLOSURES}
+    constant_reference = None
+    if constant is not None:
+        c_value = float(constant["value"])
+        c_result = nstep_targets(
+            np.full(n, c_value),
+            _np(dataset, f"reward_{head}").reshape(-1),
+            elapsed_years(dataset).reshape(-1).double().numpy(),
+            _np(dataset, "transition_terminal").reshape(-1),
+            _np(dataset, "row_turn").reshape(-1),
+            worlds_all,
+            _np(dataset, "row_camp").reshape(-1),
+            _np(dataset, TRAJECTORY_FIELD).reshape(-1)
+            if TRAJECTORY_FIELD in dataset
+            else np.full(n, -1),
+            k=k,
+            discount_years=CRITIC_DISCOUNT_YEARS,
+        )
+        c_target = c_result["target"][rows]
+        c_gated = np.isin(c_result["closure"][rows], NSTEP_GATED_CLOSURES)
+        c_pred = np.full(len(rows), c_value)
+        constant_reference = {
+            "gating": False,
+            "value": c_value,
+            "source": constant.get("source"),
+            "definition": "a predictor outputting this constant on every row; n-step targets "
+            "bootstrap through it",
+            "strata": {
+                name: {
+                    "nstep": _nstep_metrics(
+                        c_pred[np.asarray(mask, bool) & c_gated],
+                        c_target[np.asarray(mask, bool) & c_gated],
+                        worlds[np.asarray(mask, bool) & c_gated],
+                        scale,
+                    ),
+                    "monte_carlo": _nstep_metrics(
+                        c_pred[np.asarray(mask, bool)],
+                        mc_rows[np.asarray(mask, bool)],
+                        worlds[np.asarray(mask, bool)],
+                        scale,
+                    ),
+                }
+                for name, mask in strata.items()
+                if np.asarray(mask, bool).any()
+            },
+        }
     return {
+        **({} if constant_reference is None else {"constant_reference": constant_reference}),
         "gating": True,
         "target": QOL_GATE_TARGET,
         "targets": {"nmae": QOL_GATE_TARGET_ID, "bias": QOL_BIAS_TARGET_ID},
@@ -1407,6 +1469,292 @@ def population_nstep_diagnostic(
         reference_scale_provenance=POPULATION_REFERENCE_SCALE_PROVENANCE,
     )
     return report
+
+
+# --- Relative-first critic gates (gate version relative-v1, user decision 28 Oct) -------------
+
+RELATIVE_GATE_VERSION = "relative-v1"
+RELATIVE_MIN_LAG = 5  # decisions between the two rows of a gate (a) pair
+RELATIVE_MARGIN_W = 0.02  # informative pairs: |G_j - G_i| > 0.02 W (QoL-equivalent)
+RELATIVE_VARIANTS = ("qol_years", "population_years", "combined")
+RELATIVE_DEFINITION = {
+    "id": RELATIVE_GATE_VERSION,
+    "pairs": "two admitted rows i, j of one trajectory (world, camp, row_trajectory; decision "
+    "position = index among the trajectory's rows ordered by row_turn), position_j > "
+    "position_i; gate (a) needs position_j - position_i >= 5, gate (b) takes all pairs",
+    "target": "realised discounted return G (Monte Carlo, closed by the dataset's declared "
+    "tail, as labor_bc.discounted_returns; both rows of a pair share their trajectory's tail)",
+    "informative": "|G_j - G_i| > margin; margin 0.02 W for QoL (W the unit-QoL discount "
+    "weight); population and combined use the same 0.02 W of QoL expressed in their units "
+    "through the PPO combination (population: 0.02 W s_pop / s_qol; combined: w_qol 0.02 W / "
+    "s_qol)",
+    "score": "1 when sign(V_j - V_i) = sign(G_j - G_i), 0.5 for a tie V_j = V_i, else 0",
+    "aggregation": "world-balanced: mean over worlds of each world's mean score over its "
+    "informative pairs (pooled mean also reported)",
+    "strata": "a pair belongs to the stratum of its earlier row",
+    "combined": "V and G of every head combined with labor_ppo.combine_labor_advantages (the "
+    "PPO objective: sum_k w_k X_k / s_k - sum_c m_c X_c), balanced personality and unit cost "
+    "multipliers unless declared otherwise",
+}
+
+
+def trajectory_positions(
+    worlds: Any, camps: Any, trajectories: Any, turns: Any
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-row trajectory index (0..T-1, sorted keys) and decision position within it."""
+    worlds = np.asarray(worlds).reshape(-1)
+    camps = np.asarray(camps).reshape(-1)
+    trajectories = np.asarray(trajectories).reshape(-1)
+    turns = np.asarray(turns).reshape(-1)
+    order = np.lexsort((np.arange(len(worlds)), turns, trajectories, camps, worlds))
+    key = np.stack([worlds[order], camps[order], trajectories[order]], axis=1)
+    new = np.ones(len(order), dtype=bool)
+    if len(order) > 1:
+        new[1:] = np.any(key[1:] != key[:-1], axis=1)
+    group = np.cumsum(new) - 1
+    starts = np.flatnonzero(new)
+    position_sorted = np.arange(len(order)) - starts[group]
+    traj = np.empty(len(order), dtype=np.int64)
+    position = np.empty(len(order), dtype=np.int64)
+    traj[order] = group
+    position[order] = position_sorted
+    return traj, position
+
+
+_TRIU: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+
+
+def _pairs(size: int) -> tuple[np.ndarray, np.ndarray]:
+    if size not in _TRIU:
+        _TRIU[size] = np.triu_indices(size, 1)
+    return _TRIU[size]
+
+
+def within_trajectory_ordering(
+    values: Any,
+    targets: Any,
+    traj: Any,
+    position: Any,
+    worlds: Any,
+    *,
+    margin: float,
+    min_lag: int = 1,
+    strata: Mapping[str, np.ndarray] | None = None,
+) -> dict[str, Any]:
+    """Within-trajectory ordering agreement of V with the realised return (pure, numpy).
+
+    All arrays are per evaluated row (admitted rows only). ``min_lag`` 1 is every pair;
+    ``strata`` masks over the rows (a pair takes its earlier row's stratum). Returns per
+    stratum the world-balanced accuracy over informative pairs, the pooled accuracy, the
+    informative share and the counts; ``all`` also carries the median per-trajectory Spearman
+    rank correlation of V with G (trajectories of >= 10 rows, report-only).
+    """
+    values = np.asarray(values, dtype=np.float64).reshape(-1)
+    targets = np.asarray(targets, dtype=np.float64).reshape(-1)
+    traj = np.asarray(traj).reshape(-1)
+    position = np.asarray(position).reshape(-1)
+    worlds = np.asarray(worlds).reshape(-1)
+    strata = {"all": np.ones(len(values), dtype=bool)} if strata is None else dict(strata)
+    names = list(strata)
+    masks = np.stack([np.asarray(strata[s], dtype=bool).reshape(-1) for s in names])
+    world_ids = {int(w): k for k, w in enumerate(np.unique(worlds))}
+    score = np.zeros((len(names), len(world_ids)))
+    count = np.zeros((len(names), len(world_ids)))
+    pairs_total = np.zeros(len(names))
+    rho: list[float] = []
+    order = np.lexsort((position, traj))
+    bounds = np.flatnonzero(np.r_[True, traj[order][1:] != traj[order][:-1], True])
+    for a, b in itertools.pairwise(bounds):
+        rows = order[a:b]
+        size = len(rows)
+        if size >= 10:
+            rv = np.argsort(np.argsort(values[rows]))
+            rt = np.argsort(np.argsort(targets[rows]))
+            if rv.std() > 0 and rt.std() > 0:
+                rho.append(float(np.corrcoef(rv, rt)[0, 1]))
+        if size < 2:
+            continue
+        i, j = _pairs(size)
+        lag = position[rows][j] - position[rows][i]
+        keep = lag >= int(min_lag)
+        i, j = rows[i[keep]], rows[j[keep]]
+        if not len(i):
+            continue
+        d_target = targets[j] - targets[i]
+        d_value = values[j] - values[i]
+        informative = np.abs(d_target) > float(margin)
+        s = np.where(
+            d_value == 0.0, 0.5, (np.sign(d_value) == np.sign(d_target)).astype(np.float64)
+        )
+        w = world_ids[int(worlds[rows[0]])]
+        anchor = masks[:, i]  # (strata, pairs)
+        pairs_total += anchor.sum(axis=1)
+        sel = anchor & informative[None, :]
+        count[:, w] += sel.sum(axis=1)
+        score[:, w] += (sel * s[None, :]).sum(axis=1)
+    out: dict[str, Any] = {}
+    for k, name in enumerate(names):
+        present = count[k] > 0
+        informative_pairs = int(count[k].sum())
+        out[name] = {
+            "pairs": int(pairs_total[k]),
+            "informative_pairs": informative_pairs,
+            "informative_share": None
+            if not pairs_total[k]
+            else informative_pairs / float(pairs_total[k]),
+            "worlds": int(present.sum()),
+            "accuracy": None
+            if not present.any()
+            else float(np.mean(score[k][present] / count[k][present])),
+            "accuracy_pooled": None
+            if not informative_pairs
+            else float(score[k].sum() / informative_pairs),
+        }
+    if "all" in out:
+        out["all"]["median_trajectory_spearman"] = float(np.median(rho)) if rho else None
+        out["all"]["trajectories_spearman"] = len(rho)
+    return out
+
+
+def combined_elder_values(
+    heads: Mapping[str, Any],
+    *,
+    personality: Any = None,
+    cost_multipliers: Mapping[str, float] | None = None,
+) -> np.ndarray:
+    """The PPO combination (``labor_ppo.combine_labor_advantages``) of per-head values.
+
+    Linear, so it maps values and returns exactly as PPO maps their advantages. ``heads``
+    holds every task objective and cost head (numpy arrays of equal length, float64).
+    """
+    from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES, LaborPersonality
+    from .labor_ppo import combine_labor_advantages
+
+    task = {n: torch.as_tensor(np.asarray(heads[n], dtype=np.float64)) for n in LABOR_OBJECTIVES}
+    costs = {n: torch.as_tensor(np.asarray(heads[n], dtype=np.float64)) for n in LABOR_COSTS}
+    return (
+        combine_labor_advantages(
+            task,
+            costs,
+            personality=LaborPersonality() if personality is None else personality,
+            cost_multipliers=dict.fromkeys(LABOR_COSTS, 1.0)
+            if cost_multipliers is None
+            else dict(cost_multipliers),
+        )
+        .double()
+        .numpy()
+    )
+
+
+def relative_margins(weight: float, personality: Any = None) -> dict[str, float]:
+    """0.02 W of QoL in each variant's units (see :data:`RELATIVE_DEFINITION`)."""
+    from .labor_model import LABOR_OBJECTIVE_REFERENCE_SCALES, LaborPersonality
+
+    personality = LaborPersonality() if personality is None else personality
+    qol = RELATIVE_MARGIN_W * float(weight)
+    s_q = LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"]
+    s_p = LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
+    return {
+        "qol_years": qol,
+        "population_years": qol * s_p / s_q,
+        "combined": float(personality.qol_years) * qol / s_q,
+    }
+
+
+def relative_ordering_report(
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    preds: Mapping[str, np.ndarray],
+    returns: Mapping[str, np.ndarray],
+    strata: Mapping[str, np.ndarray],
+    *,
+    weight: float,
+    personality: Any = None,
+    cost_multipliers: Mapping[str, float] | None = None,
+    min_lag: int = RELATIVE_MIN_LAG,
+) -> dict[str, Any]:
+    """Gates (a) lag >= 5 and (b) all-pairs within-trajectory ordering, every variant.
+
+    ``rows``: admitted rows; ``preds`` / ``returns``: per head on ``rows`` (``returns`` may
+    also be full-length arrays indexed by ``rows``); ``strata`` masks over ``rows``.
+    """
+    from .labor_bc import TRAJECTORY_FIELD
+    from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES, LaborPersonality
+
+    personality = LaborPersonality() if personality is None else personality
+    multipliers = (
+        dict.fromkeys(LABOR_COSTS, 1.0) if cost_multipliers is None else dict(cost_multipliers)
+    )
+    rows = np.asarray(rows, dtype=np.int64)
+    n = int(dataset["row_world"].shape[0])
+    trajectories = (
+        _np(dataset, TRAJECTORY_FIELD).reshape(-1)
+        if TRAJECTORY_FIELD in dataset
+        else np.full(n, -1)
+    )
+    traj, position = trajectory_positions(
+        _np(dataset, "row_world").reshape(-1),
+        _np(dataset, "row_camp").reshape(-1),
+        trajectories,
+        _np(dataset, "row_turn").reshape(-1),
+    )
+    worlds = _np(dataset, "row_world").reshape(-1)[rows]
+
+    def on_rows(array: Any) -> np.ndarray:
+        array = np.asarray(array, dtype=np.float64).reshape(-1)
+        return array[rows] if len(array) == n and len(rows) != n else array
+
+    heads = tuple(LABOR_OBJECTIVES) + tuple(LABOR_COSTS)
+    value = {h: np.asarray(preds[h], dtype=np.float64).reshape(-1) for h in heads}
+    target = {h: on_rows(returns[h]) for h in heads}
+    value["combined"] = combined_elder_values(
+        value, personality=personality, cost_multipliers=multipliers
+    )
+    target["combined"] = combined_elder_values(
+        target, personality=personality, cost_multipliers=multipliers
+    )
+    margins = relative_margins(weight, personality)
+    variants: dict[str, Any] = {}
+    for name in RELATIVE_VARIANTS:
+        common = {
+            "traj": traj[rows],
+            "position": position[rows],
+            "worlds": worlds,
+            "strata": strata,
+        }
+        variants[name] = {
+            "margin": margins[name],
+            "lag_ge_min": within_trajectory_ordering(
+                value[name], target[name], margin=margins[name], min_lag=min_lag, **common
+            ),
+            "all_pairs": within_trajectory_ordering(
+                value[name], target[name], margin=margins[name], min_lag=1, **common
+            ),
+            "all_pairs_no_margin": {
+                "all": within_trajectory_ordering(
+                    value[name],
+                    target[name],
+                    margin=0.0,
+                    min_lag=1,
+                    **{**common, "strata": {"all": np.ones(len(rows), dtype=bool)}},
+                )["all"],
+                "gating": False,
+            },
+        }
+    return {
+        "gate_version": RELATIVE_GATE_VERSION,
+        "definition": RELATIVE_DEFINITION,
+        "min_lag": int(min_lag),
+        "margin_w": RELATIVE_MARGIN_W,
+        "weight": float(weight),
+        "combination": {
+            "personality": personality.state_dict(),
+            "cost_multipliers": multipliers,
+            "function": "labor_ppo.combine_labor_advantages",
+        },
+        "rows": len(rows),
+        "variants": variants,
+    }
 
 
 def _head_logits(
@@ -1538,10 +1886,17 @@ def critic_dataset_report(
     batch_size: int = 256,
     normalizer: Any = None,
     qol_reference: Mapping[str, Any] | None = None,
+    constant: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Every head against the Monte Carlo return (``heads``, frozen model reference scales,
     unchanged) and the QoL gate's n-step section (``qol_nstep``, :data:`QOL_GATE_TARGET`)
-    in ``qol_reference`` units (default: the frozen 43.152)."""
+    in ``qol_reference`` units (default: the frozen 43.152).
+
+    Gate relative-v1 (28 Oct): ``relative`` holds the within-trajectory ordering gates of
+    every variant (:func:`relative_ordering_report`); ``constant`` (the fitting-set mean QoL
+    return, {"value", "source"}) adds the constant-predictor reference to ``qol_nstep``
+    (default: this dataset's own mean, labelled so). A dataset whose tails were normalised
+    on load attributes no residual tail bias (factor 1 per world)."""
     from .labor_bc import (
         RETURN_TAIL_RANDOMIZED,
         critic_target_available,
@@ -1615,7 +1970,29 @@ def critic_dataset_report(
     # are the ones above, so the Monte Carlo metrics are unchanged.
     qol_nstep = None
     population_nstep = population_tail = None
+    relative = None
     if len(rows):
+        from .labor_bc import tail_normalization_mode
+        from .labor_model import labor_qol_discount_weight
+
+        qol_head_ = getattr(task, "qol_head", None)
+        relative = relative_ordering_report(
+            dataset,
+            rows,
+            preds,
+            {
+                name: returns[name][rows]
+                for name in (*LABOR_OBJECTIVE_REFERENCE_SCALES, *LABOR_COST_REFERENCE_SCALES)
+            },
+            strata,
+            weight=labor_qol_discount_weight() if qol_head_ is None else qol_head_.discount_weight,
+        )
+        normalized_tails = tail_normalization_mode(dataset) != "none"
+        if constant is None:
+            constant = {
+                "value": float(np.mean(returns["qol_years"][rows])),
+                "source": "evaluated dataset's own mean Monte Carlo QoL return (no fitting set)",
+            }
         size = int(dataset["row_world"].shape[0])
         values = np.zeros(size, dtype=np.float64)
         values[rows] = preds["qol_years"]
@@ -1636,6 +2013,12 @@ def critic_dataset_report(
             weight=None
             if getattr(task, "qol_head", None) is None
             else task.qol_head.discount_weight,
+            constant=constant,
+            **(
+                {"world_factors": {int(w): 1.0 for w in np.unique(worlds)}}
+                if normalized_tails
+                else {}
+            ),
         )
         # Population diagnostics (28 Oct, non-gating): n-step target, tail-cut bias with
         # tail attribution, and where the head's upper-tail excess sits.
@@ -1669,8 +2052,17 @@ def critic_dataset_report(
             LABOR_OBJECTIVE_REFERENCE_SCALES["qol_years"],
             weight,
         )
+    from .labor_bc import FALSE_TERMINAL_FIELD, TAIL_NORMALIZATION_FIELD
+
+    corrections = {
+        key: (dataset.get("collection") or {}).get(key)
+        for key in (TAIL_NORMALIZATION_FIELD, FALSE_TERMINAL_FIELD)
+        if (dataset.get("collection") or {}).get(key) is not None
+    }
     return {
         **tail_record,
+        **({} if relative is None else {"relative": relative}),
+        **({"loader_corrections": corrections} if corrections else {}),
         **({} if qol_nstep is None else {"qol_nstep": qol_nstep}),
         **({} if population_nstep is None else {"population_nstep": population_nstep}),
         **({} if population_tail is None else {"population_tail_explanation": population_tail}),
@@ -1702,12 +2094,34 @@ def run_critic_calibration(
 
     qol_reference = frozen_qol_reference() if qol_reference is None else dict(qol_reference)
 
-    _, _, task, costs, normalizer = _load_models(checkpoint)
+    from .labor_bc import critic_target_available, discounted_returns, loader_corrections
+
+    state, _, task, costs, normalizer = _load_models(checkpoint)
     if device is not None:  # forward passes only; predictions come back to the host
         task.to(device)
         costs.to(device)
     privileged = task.privileged_layout is not None
-    calibration_dataset = _load_dataset(dataset_path, normalizer, require_privileged=privileged)
+    # The loader corrections the fit trained on (absent: none, the historical evaluation).
+    corrections = loader_corrections(state.get("heuristic_critic_pretraining"))
+    corrections = {k: v for k, v in corrections.items() if v != "none"}
+    calibration_dataset = _load_dataset(
+        dataset_path, normalizer, require_privileged=privileged, corrections=corrections
+    )
+    fit_dataset = None
+    constant = None
+    if fit_dataset_path is not None:
+        fit_dataset = _load_dataset(
+            fit_dataset_path, normalizer, require_privileged=privileged, corrections=corrections
+        )
+        admitted = ~_np(fit_dataset, "row_quarantined").reshape(-1).astype(bool) & (
+            critic_target_available(fit_dataset).numpy().astype(bool)
+        )
+        constant = {
+            "value": float(
+                discounted_returns(fit_dataset)["qol_years"].double().numpy()[admitted].mean()
+            ),
+            "source": "fitting-set mean Monte Carlo QoL return (admitted rows, unweighted)",
+        }
     if privileged:
         fitted = set(task.privileged_normalizer.fit_record.get("worlds", []))
         overlap = sorted(fitted & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()})
@@ -1717,7 +2131,7 @@ def run_critic_calibration(
             )
     calibration = critic_dataset_report(
         task, costs, calibration_dataset, batch_size, normalizer=normalizer,
-        qol_reference=qol_reference,
+        qol_reference=qol_reference, constant=constant,
     )
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
@@ -1745,8 +2159,9 @@ def run_critic_calibration(
             "normalizer_digest": task.privileged_normalizer.digest(),
             "normalizer_fit_worlds": list(task.privileged_normalizer.fit_record.get("worlds", [])),
         }
+    if corrections:
+        report["loader_corrections"] = corrections
     if fit_dataset_path is not None:
-        fit_dataset = _load_dataset(fit_dataset_path, normalizer, require_privileged=privileged)
         shared = sorted(
             {int(w) for w in fit_dataset["row_world"].reshape(-1).tolist()}
             & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()}
@@ -1760,6 +2175,7 @@ def run_critic_calibration(
             batch_size,
             normalizer=normalizer,
             qol_reference=qol_reference,
+            constant=constant,
         )
         report["fit_dataset"] = dataset_label(fit_dataset_path)
         report["fitting"] = fitting

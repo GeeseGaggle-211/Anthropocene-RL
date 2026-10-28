@@ -84,6 +84,13 @@ SEALED_WORLDS = tuple(range(3000, 3060))
 STRATA = ("all", "early_turns", "late_turns", "farmer_unlocked", "farmer_locked")
 OTHER_HEADS = ("population_years", "feasibility", "settlement_guard")
 SEED_RULES = ("all-seeds", "mean-with-floor")
+# Gate versions (user 28 Oct). Evidence without ``gate_version`` is judged by gate v2 (the QoL
+# absolute calibration and n-step residual gates), so old evidence and receipts keep their
+# verdicts; ``evaluate`` now writes relative-v1 evidence.
+GATE_V2 = "gate-v2"
+GATE_RELATIVE_V1 = "relative-v1"
+GATE_VERSIONS = (GATE_V2, GATE_RELATIVE_V1)
+RELATIVE_VARIANTS = ("qol_years", "population_years", "combined")
 
 # Every number used by a gate. "frozen" values are r5 text (manifest sections 8-10,
 # intervention brief, r5-b); "proposed" values are this harness's proposals for the
@@ -309,6 +316,68 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "approved (user 28 Oct)",
         "source": "live alarm: 3 consecutive > td_divergence_increase rises ending above this "
         "x the stationary median (error series; drift advisory); admissible bounds unchanged",
+    },
+    # Gate relative-v1 (user decision 28 Oct ~16:30Z; labor_pretrain_eval.RELATIVE_DEFINITION).
+    "gate_version": {
+        "value": GATE_RELATIVE_V1,
+        "status": "approved (user 28 Oct)",
+        "source": "relative accuracy primary, absolute calibration diagnostic; evidence without "
+        "gate_version keeps gate v2",
+    },
+    "rel_lag_min": {
+        "value": 5,
+        "status": "approved (user 28 Oct)",
+        "source": "gate (a): pairs of one camp trajectory at least 5 decisions apart",
+    },
+    "rel_margin_w": {
+        "value": 0.02,
+        "status": "approved (user 28 Oct)",
+        "source": "informative pairs: realised discounted-return difference > 0.02 W (QoL)",
+    },
+    "rel_variant_margins": {
+        "value": "population 0.02 W s_pop / s_qol; combined w_qol 0.02 W / s_qol",
+        "status": "proposed",
+        "source": "the same 0.02 W of QoL expressed through the PPO combination "
+        "(labor_pretrain_eval.relative_margins)",
+    },
+    "rel_variants": {
+        "value": list(RELATIVE_VARIANTS),
+        "status": "approved (user 28 Oct)",
+        "source": "per-head (QoL, population-years) and the combined elder reward PPO "
+        "consumes (labor_ppo.combine_labor_advantages, balanced, unit cost multipliers)",
+    },
+    "rel_lag_ordering_min": {
+        "value": 0.70,
+        "status": "approved (user 28 Oct)",
+        "source": "gate (a): world-balanced within-trajectory ordering, lag >= 5, margin 0.02 W",
+    },
+    "rel_all_pairs_ordering_min": {
+        "value": 0.65,
+        "status": "proposed",
+        "source": "gate (b): world-balanced all-pairs within-trajectory ordering, margin 0.02 W; "
+        "measured E5 0.70 in-sample and held out, F1 0.64 held out, untrained init 0.41",
+    },
+    "rel_min_informative_pairs": {
+        "value": 200,
+        "status": "proposed",
+        "source": "an ordering check with fewer informative pairs HOLDs",
+    },
+    "rel_min_worlds": {
+        "value": 3,
+        "status": "proposed",
+        "source": "an ordering check with informative pairs from fewer worlds HOLDs",
+    },
+    "rel_td0_abs_bias_max": {
+        "value": 0.02,
+        "status": "proposed",
+        "source": "gate (c): |world-balanced mean| of V(s_t) - [r_t + gamma_t V(s_t+1)] in QoL "
+        "reference scales; measured pilots |bias| <= 0.007",
+    },
+    "rel_td0_mae_max": {
+        "value": 0.12,
+        "status": "proposed",
+        "source": "gate (c): world-balanced MAE of the one-step residual in QoL reference "
+        "scales; measured E5 0.085 in-sample / 0.093 held out, untrained init 0.35",
     },
     # QoL saturation monitor (r5-b item 4), relaxed for the earliest game states.
     "saturation_alarm": {
@@ -943,8 +1012,140 @@ def food_trade_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def gate_version(evidence: Mapping[str, Any]) -> str:
+    """The gate version an evidence record is judged by (absent: gate v2)."""
+    version = evidence.get("gate_version") or GATE_V2
+    if version not in GATE_VERSIONS:
+        raise ValueError(f"unknown gate version {version!r}")
+    return version
+
+
+def _coverage_status(record: Mapping[str, Any] | None) -> str | None:
+    if record is None or record.get("accuracy") is None:
+        return None
+    enough = int(record.get("informative_pairs") or 0) >= int(
+        threshold("rel_min_informative_pairs")
+    ) and int(record.get("worlds") or 0) >= int(threshold("rel_min_worlds"))
+    return None if enough else "HOLD"
+
+
+def relative_checks(
+    calibration: Mapping[str, Any] | None, td: Mapping[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Gate relative-v1 (a) lag >= 5 ordering, (b) all-pairs ordering, (c) TD(0) residual.
+
+    (a)/(b) judge the ``all`` stratum of every variant on the calibration worlds (the other
+    strata are in the detail); thin coverage HOLDs. (c) is the QoL head's one-step residual
+    on the calibration worlds in QoL reference scales.
+    """
+    relative = _get(calibration, "calibration", "relative")
+    out = []
+    for variant in RELATIVE_VARIANTS:
+        record = _get(relative, "variants", variant)
+        for gate_id, section, limit in (
+            ("a:lag-ordering", "lag_ge_min", "rel_lag_ordering_min"),
+            ("b:all-pairs-ordering", "all_pairs", "rel_all_pairs_ordering_min"),
+        ):
+            strata = None if record is None else record.get(section)
+            everything = None if strata is None else strata.get("all")
+            out.append(
+                check(
+                    f"rel:{gate_id}:{variant}",
+                    "relative",
+                    None if everything is None else everything.get("accuracy"),
+                    threshold(limit),
+                    ">=",
+                    status=_coverage_status(everything),
+                    detail=None
+                    if record is None
+                    else {
+                        "margin": record.get("margin"),
+                        "min_lag": relative.get("min_lag") if section == "lag_ge_min" else 1,
+                        "strata": strata,
+                        "no_margin_non_gating": _get(record, "all_pairs_no_margin", "all"),
+                    },
+                )
+            )
+    td0 = None if td is None else td.get("td0")
+    out.append(
+        check(
+            "rel:c:td0-abs-bias",
+            "relative",
+            None if td0 is None or td0.get("bias") is None else abs(float(td0["bias"])),
+            threshold("rel_td0_abs_bias_max"),
+            "<=",
+            detail=None if td0 is None else {"bias": td0.get("bias"), "rows": td0.get("rows")},
+        )
+    )
+    out.append(
+        check(
+            "rel:c:td0-mae",
+            "relative",
+            None if td0 is None else td0.get("mae"),
+            threshold("rel_td0_mae_max"),
+            "<=",
+            detail=None
+            if td0 is None
+            else {"strata": td0.get("strata"), "constant_reference": td0.get("constant_reference")},
+        )
+    )
+    return out
+
+
+# Gate-v2 checks that relative-v1 reports as diagnostics (never gating).
+RELATIVE_DEMOTED_PREFIXES = ("qol:b:nmae:", "qol:b:abs-bias:", "qol:c:", "gap:qol_years:nmae")
+
+
+def _demoted(row: Mapping[str, Any]) -> bool:
+    return any(row["id"].startswith(prefix) for prefix in RELATIVE_DEMOTED_PREFIXES)
+
+
+def relative_diagnostics(
+    evidence: Mapping[str, Any], demoted: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Never gating: n-step and Monte Carlo QoL nMAE/bias next to the constant-predictor
+    reference (a predictor outputting the fitting-set mean QoL return), and the demoted
+    gate-v2 rows with the verdict they would have had."""
+    nstep = _get(evidence, "calibration", "calibration", "qol_nstep") or {}
+    constant = nstep.get("constant_reference") or {}
+    table = {}
+    for stratum, metrics in (nstep.get("strata") or {}).items():
+        reference = (constant.get("strata") or {}).get(stratum) or {}
+        table[stratum] = {
+            "nstep_nmae": metrics.get("nmae"),
+            "nstep_nmae_constant": _get(reference, "nstep", "nmae"),
+            "nstep_bias": metrics.get("bias"),
+            "nstep_bias_constant": _get(reference, "nstep", "bias"),
+            "mc_nmae": _get(metrics, "monte_carlo", "nmae"),
+            "mc_nmae_constant": _get(reference, "monte_carlo", "nmae"),
+            "mc_bias": _get(metrics, "monte_carlo", "bias"),
+            "mc_bias_constant": _get(reference, "monte_carlo", "bias"),
+            "tailcut_bias": _get(metrics, "bias_tailcut", "bias"),
+        }
+    return {
+        "gating": False,
+        "constant_reference": {k: constant.get(k) for k in ("value", "source", "definition")},
+        "units": "QoL reference scales",
+        "qol": table,
+        "demoted_gate_v2_checks": [
+            {
+                "id": row["id"],
+                "value": row["value"],
+                "former_threshold": row["threshold"],
+                "would_have_been": row["status"],
+            }
+            for row in demoted
+        ],
+    }
+
+
 def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -> dict[str, Any]:
-    """Every check of one (arm, seed) fit, grouped into the primary and secondary gates."""
+    """Every check of one (arm, seed) fit, grouped into the primary and secondary gates.
+
+    Gate relative-v1 evidence: the QoL absolute calibration and n-step residual checks and the
+    QoL nMAE generalisation gap move to ``diagnostics``; the relative checks join the primary
+    gate. Every other check is unchanged. Gate v2 evidence is judged exactly as before."""
+    version = gate_version(evidence)
     primary = []
     primary += stability_checks("critic", _get(evidence, "stability", "critic"))
     primary += stability_checks("advantage", _get(evidence, "stability", "advantage"))
@@ -972,7 +1173,15 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
         evidence.get("calibration"), evidence.get("advantage_fit"), evidence.get("advantage_eval")
     )
     secondary = g2c_checks(evidence.get("calibration"), strata)
+    diagnostics = None
+    if version == GATE_RELATIVE_V1:
+        demoted = [row for row in primary if _demoted(row)]
+        primary = [row for row in primary if not _demoted(row)]
+        primary += relative_checks(evidence.get("calibration"), evidence.get("td_residual"))
+        diagnostics = relative_diagnostics(evidence, demoted)
     return {
+        "gate_version": version,
+        **({} if diagnostics is None else {"diagnostics": diagnostics}),
         "primary": primary,
         "secondary": secondary,
         "primary_status": combine([c["status"] for c in primary]),
@@ -1297,6 +1506,15 @@ def arm_comparison(
         "qol:a:ranking": ("advantage_eval", "gates", "ranking:qol_years", "value"),
         "a:false_improvement": ("advantage_eval", "gates", "false_improvement", "value"),
         "qol:c:td-residual-mae": ("td_residual", "mae"),
+        "rel:a:lag-ordering:qol_years": (
+            "calibration", "calibration", "relative", "variants", "qol_years", "lag_ge_min",
+            "all", "accuracy",
+        ),
+        "rel:a:lag-ordering:combined": (
+            "calibration", "calibration", "relative", "variants", "combined", "lag_ge_min",
+            "all", "accuracy",
+        ),
+        "rel:c:td0-mae": ("td_residual", "td0", "mae"),
     }
     effects = {}
     for name, path in metrics.items():
@@ -1474,6 +1692,7 @@ def build_receipt(
         fits = by_arm.get(arm.name, {})
         per_seed_primary, per_seed_secondary = {}, {}
         per_seed_advisory: dict[int, Any] = {}
+        per_seed_diagnostics: dict[int, Any] = {}
         per_seed_families: dict[int, Any] = {}
         for seed in seeds:
             if seed in fits:
@@ -1481,6 +1700,8 @@ def build_receipt(
                 per_seed_primary[seed] = checks["primary"]
                 per_seed_secondary[seed] = checks["secondary"]
                 per_seed_advisory[seed] = checks["advisory"]
+                if "diagnostics" in checks:
+                    per_seed_diagnostics[seed] = checks["diagnostics"]
                 per_seed_families[seed] = scenario_family_summary(fits[seed])
             else:
                 missing = [check("fit:missing", "fit", None, "present", "==", every_seed=True)]
@@ -1493,6 +1714,11 @@ def build_receipt(
                 a["status"] == "FLAG" for v in per_seed_advisory.values() for a in v
             ),
             "by_scenario_family": {str(s): v for s, v in per_seed_families.items()},
+            **(
+                {"diagnostics": {str(s): v for s, v in per_seed_diagnostics.items()}}
+                if per_seed_diagnostics
+                else {}
+            ),
             GATE_ID: seed_verdict(
                 per_seed_primary,
                 rule=seed_rule,
@@ -1529,11 +1755,14 @@ def build_receipt(
     )
     exclusions = _historical_exclusions(evidence)
     qol_gate = qol_gate_section(evidence)
+    versions = sorted({gate_version(r) for r in evidence if not r.get("aborted")})
+    versions_status = "PASS" if len(versions) <= 1 else "HOLD"
     smoke = bool(configuration.get("smoke"))
     verdict = combine(
         [gate_status, determinism_status, comparison_status, exclusions["status"]]
         + (["HOLD"] if smoke else [])
         + ([] if qol_gate["status"] == "PASS" else [qol_gate["status"]])
+        + ([] if versions_status == "PASS" else [versions_status])
     )
     unresolved = []
     if smoke:
@@ -1551,6 +1780,10 @@ def build_receipt(
                 "status": "FAIL",
                 "violations": exclusions["violations"],
             }
+        )
+    if versions_status != "PASS":
+        unresolved.append(
+            {"check": "gate-version-consistent", "status": versions_status, "versions": versions}
         )
     if qol_gate["status"] != "PASS":
         unresolved.append(
@@ -1599,6 +1832,8 @@ def build_receipt(
             "historical_fitting_exclusions": exclusions,
         },
         "preregistered": PREREGISTERED,
+        # Gate version(s) the fits were judged by (evidence without one: gate v2).
+        "gate_versions": versions,
         # QoL gate v2 (user 28 Oct): the target definition and the reference scale (value,
         # source, digest) each fit's QoL calibration and TD residual were judged in.
         "qol_gate": qol_gate,
@@ -1630,6 +1865,7 @@ def build_receipt(
             "determinism": determinism_status,
             "historical_fitting_exclusions": exclusions["status"],
             "qol_reference_scale": qol_gate["status"],
+            "gate_versions": versions,
             "smoke": smoke,
             SECONDARY_GATE_ID: arm_reports[primary_arm.name][SECONDARY_GATE_ID]["status"],
             "secondary_gate_note": "full G2C for every head is reported; the r5 acceptance gate "
@@ -1888,12 +2124,103 @@ def position_group_report(
     return groups
 
 
+def td0_residual_report(
+    values: Any,
+    dataset: Mapping[str, Any],
+    keep: Any,
+    scale: float,
+    *,
+    constant: float | None = None,
+) -> dict[str, Any]:
+    """Gate relative-v1 (c): the QoL head's one-step (TD(0)) residual along each trajectory.
+
+    residual_t = V(s_t) - [r_t + gamma_t V(s_t+1)] (``labor_pretrain_eval.nstep_targets``
+    with k = 1: own bootstrap; a terminal row closes exactly with r_t); the trajectory's
+    living-end row (no successor) is excluded, so no Monte Carlo tail enters. World-balanced
+    bias and MAE over admitted rows in QoL reference scales, with early/late strata and, with
+    ``constant``, the same numbers for a constant predictor (reference, non-gating).
+    """
+    import numpy as np
+
+    from .labor_bc import CRITIC_DISCOUNT_YEARS, TRAJECTORY_FIELD, elapsed_years
+    from .labor_pretrain_eval import (
+        NSTEP_GATED_CLOSURES,
+        _np,
+        decision_index,
+        nstep_targets,
+        world_balanced,
+    )
+
+    n = int(dataset["row_world"].shape[0])
+    worlds = _np(dataset, "row_world").reshape(-1)
+    turns = _np(dataset, "row_turn").reshape(-1)
+
+    def residuals(v: Any) -> tuple[Any, Any]:
+        result = nstep_targets(
+            v,
+            _np(dataset, "reward_qol_years").reshape(-1),
+            elapsed_years(dataset).reshape(-1).double().numpy(),
+            _np(dataset, "transition_terminal").reshape(-1),
+            turns,
+            worlds,
+            _np(dataset, "row_camp").reshape(-1),
+            _np(dataset, TRAJECTORY_FIELD).reshape(-1)
+            if TRAJECTORY_FIELD in dataset
+            else np.full(n, -1),
+            k=1,
+            discount_years=CRITIC_DISCOUNT_YEARS,
+        )
+        return np.asarray(v, dtype=np.float64) - result["target"], result["closure"]
+
+    delta, closure = residuals(np.asarray(values, dtype=np.float64))
+    keep = np.asarray(keep, dtype=bool)
+    rows = np.flatnonzero(keep & np.isin(closure, NSTEP_GATED_CLOSURES))
+    weights = world_balanced(worlds[rows], np.ones(len(rows), dtype=bool))
+
+    def mean(x: Any, mask: Any = None) -> float | None:
+        w = weights if mask is None else weights * mask
+        total = float(w.sum())
+        return None if total <= 0 else float((x * w).sum() / total)
+
+    normalized = delta[rows] / float(scale)
+    early = None
+    if len(rows):
+        index, count = decision_index(worlds[rows], turns[rows])
+        early = index < (count + 1) // 2
+    report: dict[str, Any] = {
+        "definition": "V(s_t) - [r_t + gamma_t V(s_t+1)], own bootstrap, living-end rows "
+        "excluded, terminal rows exact",
+        "rows": len(rows),
+        "excluded_living_end_rows": int((keep & ~np.isin(closure, NSTEP_GATED_CLOSURES)).sum()),
+        "worlds": len(np.unique(worlds[rows])),
+        "bias": mean(normalized),
+        "mae": mean(np.abs(normalized)),
+        "strata": None
+        if early is None
+        else {
+            name: {"bias": mean(normalized, mask), "mae": mean(np.abs(normalized), mask)}
+            for name, mask in (("early_turns", early), ("late_turns", ~early))
+        },
+    }
+    if constant is not None:
+        c_delta, _ = residuals(np.full(n, float(constant)))
+        c_norm = c_delta[rows] / float(scale)
+        report["constant_reference"] = {
+            "value": float(constant),
+            "bias": mean(c_norm),
+            "mae": mean(np.abs(c_norm)),
+            "gating": False,
+        }
+    return report
+
+
 def td_residual_report(
     task: Any,
     costs: Any,
     dataset: Mapping[str, Any],
     batch_size: int = 256,
     qol_reference: Mapping[str, Any] | None = None,
+    constant: float | None = None,
 ) -> dict[str, Any]:
     """Rolling-window n-step consistency of the QoL head along each village's trajectory.
 
@@ -2007,6 +2334,8 @@ def td_residual_report(
             else None,
         },
         "trajectory_keys": "world, camp, row_trajectory (as labor_bc.discounted_returns)",
+        # Gate relative-v1 (c): the one-step residual on the same values and rows.
+        "td0": td0_residual_report(values, dataset, keep, scale, constant=constant),
     }
 
 
@@ -2091,10 +2420,29 @@ def evaluate_fit(
         "value_support": task.support.state_dict(),
         "privileged": task.privileged_layout is not None,
     }
+    from .labor_bc import loader_corrections
+
+    corrections = {
+        k: v
+        for k, v in loader_corrections(state.get("heuristic_critic_pretraining")).items()
+        if v != "none"
+    }
     dataset = _load_dataset(
-        calibration_data, normalizer, require_privileged=task.privileged_layout is not None
+        calibration_data,
+        normalizer,
+        require_privileged=task.privileged_layout is not None,
+        corrections=corrections,
     )
-    td = td_residual_report(task, costs, dataset, batch_size, qol_reference=qol_reference)
+    td = td_residual_report(
+        task,
+        costs,
+        dataset,
+        batch_size,
+        qol_reference=qol_reference,
+        constant=_get(
+            calibration, "calibration", "qol_nstep", "constant_reference", "value"
+        ),
+    )
     adv_state = torch.load(advantage, map_location="cpu", weights_only=True)
     for module in (task, costs):
         for parameter in module.parameters():
@@ -2176,6 +2524,9 @@ def evaluate_fit(
         timings["evaluate_device"] = str(target)
     evidence = {
         "schema": EVIDENCE_SCHEMA,
+        # Gate relative-v1 (user 28 Oct); evidence written before it carries no field (v2).
+        "gate_version": GATE_RELATIVE_V1,
+        "loader_corrections": corrections,
         "arm": arm,
         "seed": int(seed),
         "privileged": task.privileged_layout is not None
@@ -2441,6 +2792,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             "pretrain-critic",
             "--checkpoint",
             init,
+            "--campaign-r5",
             "--epochs",
             str(arm.epochs),
             "--batch-size",
@@ -2610,6 +2962,7 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
                 "pretrain-critic",
                 "--checkpoint",
                 init,
+                "--campaign-r5",
                 "--epochs",
                 str(arm.epochs),
                 "--batch-size",
@@ -3142,6 +3495,10 @@ def command_determinism(args: argparse.Namespace) -> int:
     return 0
 
 
+def _fmt(value: Any, digits: int = 3) -> str:
+    return "n/a" if value is None else f"{float(value):.{digits}f}"
+
+
 def summarize(receipt: Mapping[str, Any]) -> str:
     lines = [f"{receipt['gate_id']} attempt {receipt['attempt_id']}: {receipt['machine_verdict']}"]
     for key, value in receipt["verdict_basis"].items():
@@ -3153,6 +3510,18 @@ def summarize(receipt: Mapping[str, Any]) -> str:
             f"  arm {name}: {gate['status']} rule={gate['rule']} seeds={gate['seeds']} "
             f"every-seed={gate['passes_in_every_seed']} per-seed={gate['per_seed_status']}"
         )
+        for seed, diagnostics in (report.get("diagnostics") or {}).items():
+            for stratum, m in (diagnostics.get("qol") or {}).items():
+                if stratum != "all":
+                    continue
+                lines.append(
+                    f"    seed {seed} diagnostics (non-gating, QoL ref scales; constant "
+                    f"reference in brackets): n-step nMAE={_fmt(m['nstep_nmae'])} "
+                    f"[{_fmt(m['nstep_nmae_constant'])}] bias={_fmt(m['nstep_bias'])} "
+                    f"[{_fmt(m['nstep_bias_constant'])}] | MC nMAE={_fmt(m['mc_nmae'])} "
+                    f"[{_fmt(m['mc_nmae_constant'])}] bias={_fmt(m['mc_bias'])} "
+                    f"[{_fmt(m['mc_bias_constant'])}]"
+                )
     comparison = (receipt.get("trajectory_diagnostics") or {}).get("comparison")
     if comparison is not None:
         lines.append(

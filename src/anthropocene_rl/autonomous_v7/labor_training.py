@@ -1270,9 +1270,10 @@ def _initialize_qol_encoder(args: argparse.Namespace) -> str:
     """Task-critic QoL encoder for a new checkpoint.
 
     An explicit ``--qol-encoder shared|separate`` wins; otherwise ``--campaign-r5``
-    declares :data:`LABOR_CAMPAIGN_R5_QOL_ENCODER` ("separate", user decision
-    28 Oct) and every other initialization keeps the historical shared encoder
-    (no serialized field, bit-identical checkpoints).
+    declares :data:`LABOR_CAMPAIGN_R5_QOL_ENCODER` ("shared" again since 28 Oct, after
+    the Fable audit; the r5 baseline is the shared encoder with ``pretrain-critic
+    --qol-loss-weight 30``) and every other initialization keeps the historical shared
+    encoder (no serialized field, bit-identical checkpoints).
     """
     explicit = getattr(args, "qol_encoder", None)
     if explicit is not None:
@@ -1555,8 +1556,13 @@ def _load_validation_dataset(args: argparse.Namespace, normalizer: Any, task: An
         raise ValueError(f"--validation-dataset repeats training --dataset directories {shared}")
     from .labor_pretrain_eval import _load_dataset
 
-    return _load_dataset(
-        [Path(p) for p in paths], normalizer, require_privileged=task.privileged_layout is not None
+    return _tail_normalize(
+        args,
+        _load_dataset(
+            [Path(p) for p in paths],
+            normalizer,
+            require_privileged=task.privileged_layout is not None,
+        ),
     )
 
 
@@ -1615,6 +1621,66 @@ def _task_weight_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return kwargs
 
 
+def _critic_level_kwargs(args: argparse.Namespace, state: Mapping[str, Any]) -> dict[str, Any]:
+    """``--qol-head-bias-init`` / ``--td-step0-targets`` (Fable audit section 2, 28 Oct).
+
+    An explicit value wins ("none" / "head" turn a fix off). Unset, ``--campaign-r5`` turns
+    both on when they apply (a logistic bounded QoL head for the bias, TD(lambda) targets for
+    the step-0 rule) and the head is untrained (no earlier critic pretraining in the input
+    checkpoint); without ``--campaign-r5`` both stay off. Only active fixes are passed, so
+    every default run keeps its historical arguments and bytes.
+    """
+    campaign = bool(getattr(args, "campaign_r5", False))
+    head = labor_checkpoint_qol_head(state)
+    trained = state.get("heuristic_critic_pretraining") is not None
+    kwargs: dict[str, Any] = {}
+    bias = getattr(args, "qol_head_bias_init", None)
+    if bias is None:
+        bias = (
+            "mean-target"
+            if campaign and head is not None and head.output == "logistic" and not trained
+            else "none"
+        )
+    elif bias == "mean-target" and trained:
+        raise ValueError(
+            "--qol-head-bias-init mean-target initialises an untrained QoL head; this "
+            "checkpoint already carries critic pretraining"
+        )
+    if bias == "mean-target":
+        kwargs["qol_head_bias_init"] = "mean-target"
+    step0 = getattr(args, "td_step0_targets", None)
+    if step0 is None:
+        step0 = (
+            "mc"
+            if campaign and head is not None and head.target == "td-lambda" and not trained
+            else "head"
+        )
+    if step0 == "mc":
+        kwargs["td_step0_targets"] = "mc"
+    return kwargs
+
+
+def _false_terminal_policy(args: argparse.Namespace) -> str:
+    """``--false-terminal-policy``: explicit value, else mask under ``--campaign-r5``."""
+    policy = getattr(args, "false_terminal_policy", None)
+    if policy is None:
+        policy = "mask" if getattr(args, "campaign_r5", False) else "none"
+    return str(policy)
+
+
+def _tail_normalize(args: argparse.Namespace, dataset: Any) -> Any:
+    """Loader corrections of critic data: ``--false-terminal-policy`` (labor_bc
+    ``correct_false_terminals``), then ``--tail-normalize world-factor`` (divide stored
+    randomized tails by f_w). Both off returns the loaded dataset itself."""
+    from .labor_bc import apply_loader_corrections
+
+    return apply_loader_corrections(
+        dataset,
+        false_terminal_policy=_false_terminal_policy(args),
+        tail_normalize=getattr(args, "tail_normalize", None) or "none",
+    )
+
+
 def _pretrain_critic_tail(args: argparse.Namespace) -> Any:
     """Randomized-tail settings for in-process (--worlds) critic collection, or None."""
     from .labor_bc import RandomizedTailSettings
@@ -1651,8 +1717,11 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
     if dataset_dir is not None:
         from .labor_bc import pretrain_critic_on_dataset, require_critic_teacher_dataset
 
-        teacher = _load_labor_teacher_dataset(
-            args, normalizer, require_privileged=task.privileged_layout is not None
+        teacher = _tail_normalize(
+            args,
+            _load_labor_teacher_dataset(
+                args, normalizer, require_privileged=task.privileged_layout is not None
+            ),
         )
         continuations = bool(getattr(args, "learner_state_continuations", False))
         scenarios = bool(getattr(args, "curated_scenarios", False))
@@ -1693,6 +1762,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
                 ),
                 **_critic_stability_kwargs(args, actor),
                 **_task_weight_kwargs(args),
+                **_critic_level_kwargs(args, state),
                 **({} if validation is None else {"validation_dataset": validation}),
                 **({} if best_sink is None else {"best_validation_sink": best_sink}),
             )
@@ -1726,6 +1796,16 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             raise ValueError("--select-best-validation needs --validation-dataset")
         if getattr(args, "validation_dataset", None):
             raise ValueError("--validation-dataset is supported only with --dataset")
+        if (
+            _critic_level_kwargs(args, state)
+            or (getattr(args, "tail_normalize", None) or "none") != "none"
+            or _false_terminal_policy(args) != "none"
+        ):
+            raise ValueError(
+                "--qol-head-bias-init / --td-step0-targets / --tail-normalize / "
+                "--false-terminal-policy (and their --campaign-r5 defaults) are supported only "
+                "with --dataset"
+            )
         worlds = require_training_worlds(
             _parse_worlds(args.worlds, allow_vm_scale=getattr(args, "allow_vm_scale", False)),
             "labor pretrain-critic",
@@ -2335,8 +2415,9 @@ def argument_parser() -> argparse.ArgumentParser:
         default=False,
         help="declare the campaign-r5 task-critic value support -0.5,2.5,255 "
         "(LABOR_CAMPAIGN_R5_VALUE_SUPPORT) and, with a bounded --qol-head, the QoL head "
-        "scale 2.0 (LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE) and the separate QoL encoder "
-        "(LABOR_CAMPAIGN_R5_QOL_ENCODER; --qol-encoder shared overrides)",
+        "scale 2.0 (LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE) and the shared QoL encoder "
+        "(LABOR_CAMPAIGN_R5_QOL_ENCODER; --qol-encoder separate overrides). r5 baseline: "
+        "shared encoder + pretrain-critic --qol-loss-weight 30",
     )
     initialize.add_argument(
         "--qol-encoder",
@@ -2344,8 +2425,8 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="task-critic QoL encoder: 'shared' (historical: QoL and population-years read one "
         "encoder) or 'separate' (QoL head reads its own full copy of the task encoder, "
-        "privileged path included; contract field qolEncoder). Default shared, or separate "
-        "under --campaign-r5",
+        "privileged path included; contract field qolEncoder). Default shared, also under "
+        "--campaign-r5 (r5 baseline: shared + --qol-loss-weight 30)",
     )
     initialize.add_argument(
         "--privileged-normalizer",
@@ -2533,6 +2614,49 @@ def argument_parser() -> argparse.ArgumentParser:
         help="the task-encoder dominance detector judges QoL progress on its excess BCE "
         "(BCE - H(p*)) instead of the raw BCE (off by default: changes an approved check's "
         "measurement; recorded in the stability config)",
+    )
+    pretrain_critic.add_argument(
+        "--campaign-r5",
+        action="store_true",
+        default=False,
+        help="r5 campaign fit: turns on --qol-head-bias-init mean-target and --td-step0-targets "
+        "mc (each only when it applies and the QoL head is untrained) and "
+        "--false-terminal-policy mask, unless given explicitly",
+    )
+    pretrain_critic.add_argument(
+        "--false-terminal-policy",
+        choices=("none", "mask"),
+        default=None,
+        help="mask: a terminal row whose (world, camp, trajectory) has later rows (the old "
+        "simulator's Population <= 0 while hunters are away) is non-terminal; with the next "
+        "turn present its return is rebuilt through it, otherwise it and the earlier rows of its "
+        "trajectory are dropped from value targets; counts recorded in the summary. Applies to "
+        "--dataset and --validation-dataset. Default none, mask under --campaign-r5",
+    )
+    pretrain_critic.add_argument(
+        "--qol-head-bias-init",
+        choices=("none", "mean-target"),
+        default=None,
+        help="mean-target: set the logistic QoL head's output bias to logit(mean p*), p* = "
+        "Monte Carlo target / (scale W), mean under the fit's sampling probabilities, before "
+        "the first step (fresh fits; recorded). Default none, mean-target under --campaign-r5",
+    )
+    pretrain_critic.add_argument(
+        "--td-step0-targets",
+        choices=("head", "mc"),
+        default=None,
+        help="TD(lambda) QoL targets before the first scheduled refresh: head (historical "
+        "step-0 bootstrap through the untrained head) or mc (the Monte Carlo returns). "
+        "Default head, mc under --campaign-r5",
+    )
+    pretrain_critic.add_argument(
+        "--tail-normalize",
+        choices=("none", "world-factor"),
+        default="none",
+        help="world-factor: on load, divide each stored randomized tail (both task heads, "
+        "values and standard errors) by its world's roulette schedule factor "
+        "(labor_pretrain_eval.tail_schedule_factor); applies to --dataset and "
+        "--validation-dataset; the factors are recorded in the summary. Default none",
     )
     pretrain_critic.add_argument(
         "--select-best-validation",

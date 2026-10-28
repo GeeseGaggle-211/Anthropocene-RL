@@ -1754,8 +1754,206 @@ def critic_target_available(dataset: Mapping[str, Any]) -> torch.Tensor:
     """Rows whose critic target is identified (a living cutoff without a tail is not)."""
     n = int(dataset["row_world"].shape[0])
     if return_tail_method(dataset) != RETURN_TAIL_RANDOMIZED:
-        return torch.ones(n, dtype=torch.bool)
-    return dataset[TAIL_METHOD_FIELD].reshape(n) != TAIL_UNAVAILABLE
+        available = torch.ones(n, dtype=torch.bool)
+    else:
+        available = dataset[TAIL_METHOD_FIELD].reshape(n) != TAIL_UNAVAILABLE
+    if VALUE_MASK_FIELD in dataset:  # only present after a loader correction masked rows
+        available = available & ~dataset[VALUE_MASK_FIELD].reshape(n).bool()
+    return available
+
+
+# False-terminal correction (user-approved item 6, 28 Oct). The collecting simulator set
+# Terminated = Population <= 0 while hunters were away (ElderModel9.cs:1075), so a camp can be
+# marked terminal and reappear later (fit8-b01 row 17948: world 90104, camp 24, turn 9, back at
+# turn 11). Policy "mask": a terminal row with later rows in its own (world, camp,
+# row_trajectory) trajectory is NOT terminal. If its next row is the next turn, the return is
+# rebuilt exactly through the continuing rows (rechained). If a turn is missing (the camp had no
+# row while empty), the missing turn's rewards and the true discount are not in the data, so the
+# return through it is not constructible: the false-terminal row and every earlier row of its
+# trajectory (whose returns pass through it) are dropped from value targets (``row_value_masked``;
+# BC labels and the rows themselves are kept). Later rows' returns never cross it and are
+# unchanged. "none" (default) returns the dataset object itself (bitwise unchanged).
+FALSE_TERMINAL_FIELD = "false_terminal_correction"
+FALSE_TERMINAL_POLICIES = ("none", "mask")
+VALUE_MASK_FIELD = "row_value_masked"
+
+
+def false_terminal_policy_of(dataset: Mapping[str, Any]) -> str:
+    """The false-terminal correction already applied to a loaded dataset ("none" if absent)."""
+    collection = dataset.get("collection") if isinstance(dataset, Mapping) else None
+    record = collection.get(FALSE_TERMINAL_FIELD) if isinstance(collection, Mapping) else None
+    return "none" if record is None else str(record["policy"])
+
+
+def correct_false_terminals(dataset: Mapping[str, Any], policy: str | None) -> Mapping[str, Any]:
+    """Apply ``--false-terminal-policy`` (see :data:`FALSE_TERMINAL_FIELD`); counts recorded."""
+    if policy is None or policy == "none":
+        return dataset
+    if policy not in FALSE_TERMINAL_POLICIES:
+        raise ValueError(f"false-terminal policy must be one of {FALSE_TERMINAL_POLICIES}")
+    if false_terminal_policy_of(dataset) != "none":
+        raise ValueError("dataset false terminals are already corrected")
+    n = int(dataset["row_world"].shape[0])
+    original = dataset["transition_terminal"]
+    terminal = original.reshape(n).clone()
+    worlds = dataset["row_world"].reshape(n).tolist()
+    camps = dataset["row_camp"].reshape(n).tolist()
+    turns = dataset["row_turn"].reshape(n).tolist()
+    trajectories = (
+        dataset[TRAJECTORY_FIELD].reshape(n).tolist() if TRAJECTORY_FIELD in dataset else [-1] * n
+    )
+    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    for i in range(n):
+        groups[(int(worlds[i]), int(camps[i]), int(trajectories[i]))].append(i)
+    masked = torch.zeros(n, dtype=torch.bool)
+    events: list[dict[str, Any]] = []
+    for key in sorted(groups):
+        indices = sorted(groups[key], key=lambda i: turns[i])
+        for pos, i in enumerate(indices[:-1]):
+            if not bool(terminal[i]):
+                continue
+            terminal[i] = False
+            following = indices[pos + 1]
+            rechained = int(turns[following]) - int(turns[i]) == 1
+            if not rechained:
+                masked[indices[: pos + 1]] = True
+            events.append(
+                {
+                    "row": int(i),
+                    "world": key[0],
+                    "camp": key[1],
+                    "trajectory": key[2],
+                    "turn": int(turns[i]),
+                    "next_turn": int(turns[following]),
+                    "later_rows": len(indices) - pos - 1,
+                    "action": "rechained" if rechained else "masked-through-row",
+                    "masked_rows": 0 if rechained else pos + 1,
+                }
+            )
+    out = dict(dataset)
+    out["transition_terminal"] = terminal.to(original.dtype).reshape(original.shape)
+    if bool(masked.any()):
+        out[VALUE_MASK_FIELD] = masked
+    collection = dict(dataset.get("collection") or {})
+    collection[FALSE_TERMINAL_FIELD] = {
+        "policy": policy,
+        "false_terminal_rows": len(events),
+        "rechained_rows": sum(1 for e in events if e["action"] == "rechained"),
+        "value_masked_rows": int(masked.sum()),
+        "events": events,
+        "rule": "a terminal row with later rows in its (world, camp, row_trajectory) trajectory "
+        "is non-terminal; next row at turn + 1: return rebuilt through it; otherwise that row "
+        "and every earlier row of the trajectory are dropped from value targets",
+    }
+    out["collection"] = collection
+    return out
+
+
+def loader_corrections(summary: Mapping[str, Any] | None) -> dict[str, str]:
+    """The loader corrections a critic fit recorded (absent: none), for evaluation loads."""
+    summary = summary or {}
+    return {
+        "false_terminal_policy": str(
+            (summary.get(FALSE_TERMINAL_FIELD) or {}).get("policy", "none")
+        ),
+        "tail_normalize": str((summary.get(TAIL_NORMALIZATION_FIELD) or {}).get("mode", "none")),
+    }
+
+
+def apply_loader_corrections(
+    dataset: Mapping[str, Any],
+    *,
+    false_terminal_policy: str | None = None,
+    tail_normalize: str | None = None,
+) -> Mapping[str, Any]:
+    """False-terminal correction, then tail normalisation; both off returns ``dataset``."""
+    return normalize_world_tails(
+        correct_false_terminals(dataset, false_terminal_policy), tail_normalize
+    )
+
+
+# Per-world tail normalisation (reviewer tweak 28 Oct, Fable audit section 3). Every camp of a
+# world shares one frozen roulette stop schedule, so a constant-QoL continuation is estimated at
+# f_w x its value (``labor_pretrain_eval.tail_schedule_factor``, E f = 1; b01 factors 0.6-1.7 and
+# corr(f_w, world-mean target) 0.979). ``--tail-normalize world-factor`` divides every stored
+# randomized tail (and its standard error) of the two task heads by f_w on load: exact for a
+# constant continuation, approximate otherwise. Terminal-exact tails carry no roulette and are
+# left alone. ``none`` (the default) returns the dataset object itself (bitwise unchanged).
+TAIL_NORMALIZATION_FIELD = "tail_normalization"
+TAIL_NORMALIZATION_MODES = ("none", "world-factor")
+TAIL_NORMALIZED_HEADS = ("qol_years", "population_years")
+
+
+def tail_normalization_mode(dataset: Mapping[str, Any]) -> str:
+    """The normalisation already applied to a loaded dataset's tails ("none" if absent)."""
+    collection = dataset.get("collection") if isinstance(dataset, Mapping) else None
+    record = collection.get(TAIL_NORMALIZATION_FIELD) if isinstance(collection, Mapping) else None
+    return "none" if record is None else str(record["mode"])
+
+
+def normalize_world_tails(
+    dataset: Mapping[str, Any], mode: str | None, *, weight: float | None = None
+) -> Mapping[str, Any]:
+    """Divide each stored randomized tail by its world's deterministic schedule factor.
+
+    ``mode`` None or "none": ``dataset`` itself. "world-factor": a shallow copy whose
+    ``tail_value__<head>`` and ``tail_standard_error__<head>`` arrays of
+    :data:`TAIL_NORMALIZED_HEADS` are divided by f_w on rows with ``TAIL_RANDOMIZED`` (the
+    convention of ``labor_pretrain_eval.qol_tail_diagnostics``: f_w =
+    ``tail_schedule_factor(return_tail_by_world[w], W)``, W the unit-QoL discount weight).
+    The factors are recorded in ``collection["tail_normalization"]``; the dataset digest is
+    the raw data's and is unchanged. A randomized world without a schedule record, an
+    already-normalised dataset and a dataset without randomized tails are refused.
+    """
+    if mode is None or mode == "none":
+        return dataset
+    if mode not in TAIL_NORMALIZATION_MODES:
+        raise ValueError(f"tail normalisation must be one of {TAIL_NORMALIZATION_MODES}")
+    if return_tail_method(dataset) != RETURN_TAIL_RANDOMIZED:
+        raise ValueError("--tail-normalize world-factor needs randomized-tail targets")
+    if tail_normalization_mode(dataset) != "none":
+        raise ValueError("dataset tails are already normalised")
+    from .labor_model import labor_qol_discount_weight
+    from .labor_pretrain_eval import tail_schedule_factor
+
+    w = labor_qol_discount_weight() if weight is None else float(weight)
+    collection = dict(dataset.get("collection") or {})
+    records = collection.get("return_tail_by_world") or {}
+    n = int(dataset["row_world"].shape[0])
+    worlds = dataset["row_world"].reshape(n)
+    randomized = dataset[TAIL_METHOD_FIELD].reshape(n) == TAIL_RANDOMIZED
+    factors: dict[int, float] = {}
+    for world in sorted({int(x) for x in worlds[randomized].tolist()}):
+        factor = tail_schedule_factor(records.get(str(world)), w)
+        if factor is None or not math.isfinite(factor) or factor <= 0.0:
+            raise ValueError(f"world {world}: no usable roulette schedule record to normalise by")
+        factors[world] = float(factor)
+    row_factor = torch.ones(n, dtype=torch.float64)
+    for world, factor in factors.items():
+        row_factor[randomized & (worlds == world)] = factor
+    out = dict(dataset)
+    for head in TAIL_NORMALIZED_HEADS:
+        for prefix in (TAIL_VALUE_PREFIX, TAIL_STANDARD_ERROR_PREFIX):
+            key = prefix + head
+            if key not in dataset:
+                continue
+            original = dataset[key]
+            out[key] = (original.reshape(n).double() / row_factor).to(original.dtype).reshape(
+                original.shape
+            )
+    collection[TAIL_NORMALIZATION_FIELD] = {
+        "mode": "world-factor",
+        "heads": list(TAIL_NORMALIZED_HEADS),
+        "factors": {str(world): factor for world, factor in factors.items()},
+        "mean_factor": float(sum(factors.values()) / len(factors)) if factors else None,
+        "rows_normalized": int(randomized.sum()),
+        "weight": w,
+        "convention": "tail / f_w with f_w = labor_pretrain_eval.tail_schedule_factor("
+        "return_tail_by_world[w], W), randomized-tail rows only (terminal-exact unchanged); "
+        "values and standard errors of the task heads",
+    }
+    out["collection"] = collection
+    return out
 
 
 def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.Tensor]:
@@ -2814,8 +3012,23 @@ def pretrain_critic_on_dataset(
     task_loss_weights: Mapping[str, float] | None = None,
     qol_loss_weight_auto: AutoQoLLossWeight | None = None,
     best_validation_sink: dict[str, Any] | None = None,
+    qol_head_bias_init: str | None = None,
+    td_step0_targets: str | None = None,
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
+
+    QoL level fixes (reviewer tweak 28 Oct, Fable audit section 2; both default off, which is
+    the historical fit bitwise): ``qol_head_bias_init="mean-target"`` sets the logistic QoL
+    head's output bias to logit(mean p*) before the first step, p* = clamp(G / (scale W), 0,
+    1) the Monte Carlo target fraction and the mean taken under the fit's own minibatch
+    sampling probabilities (deterministic; recorded with the unweighted mean). It applies at
+    the start of a fresh fit only (a resume restores the parameters).
+    ``td_step0_targets="mc"`` keeps the Monte Carlo returns as the TD(lambda) QoL targets
+    until the first scheduled refresh instead of bootstrapping them through the untrained
+    head at step 0; later refreshes are unchanged, and the refresh that first replaces the
+    Monte Carlo targets is, like the historical step-0 refresh, not growth-eligible.
+    A dataset normalised by :func:`normalize_world_tails` is fitted as given; its record is
+    copied into the summary (``tail_normalization``) and the resume fingerprint.
 
     Task-head balance (r5 critic balance; every default keeps the historical fit bitwise):
     ``task_loss_weights`` multiplies each task head's row loss in the training objective
@@ -2861,6 +3074,10 @@ def pretrain_critic_on_dataset(
     """
     if not math.isfinite(cost_loss_weight) or cost_loss_weight < 0.0:
         raise ValueError("cost_loss_weight must be finite and non-negative")
+    if qol_head_bias_init not in (None, "mean-target"):
+        raise ValueError("qol_head_bias_init must be None or 'mean-target'")
+    if td_step0_targets not in (None, "mc"):
+        raise ValueError("td_step0_targets must be None or 'mc'")
     weight_values = {name: 1.0 for name in LABOR_OBJECTIVES}
     if task_loss_weights is not None:
         unknown = sorted(set(task_loss_weights) - set(LABOR_OBJECTIVES))
@@ -3146,6 +3363,10 @@ def pretrain_critic_on_dataset(
     if td_interval < 1:
         raise ValueError("TD refresh cadence must be at least one optimizer step")
 
+    # True while the QoL targets are still the Monte Carlo returns (td_step0_targets="mc"
+    # before the first refresh); the refresh that replaces them is not growth-eligible.
+    mc_pending = [False]
+
     def refresh_td_targets(epoch: int) -> None:
         """``epoch`` is the optimizer step at which the refresh happens (0: start)."""
         from .labor_advantage import qol_td_admissibility, qol_td_lambda_targets
@@ -3157,6 +3378,8 @@ def pretrain_critic_on_dataset(
         task_targets["qol_years"] = qol_td_lambda_targets(dataset, values, qol_head.td_lambda)[
             kept
         ]
+        replaced_mc = mc_pending[0]
+        mc_pending[0] = False
         if monitor is not None:
             # The first refresh replaces the Monte Carlo return; its change is
             # recorded but does not count toward the growth alarm.
@@ -3183,7 +3406,7 @@ def pretrain_critic_on_dataset(
                 previous,
                 task_targets["qol_years"],
                 qol_head.discount_weight,
-                growth_eligible=epoch > 0,
+                growth_eligible=epoch > 0 and not replaced_mc,
                 error=error,
                 seconds=time.time() - refresh_started,
                 admissibility=admissibility,
@@ -3200,6 +3423,14 @@ def pretrain_critic_on_dataset(
         if stochastic:
             raise ValueError(
                 f"validation needs a deterministic critic forward; stochastic modules {stochastic}"
+            )
+        if false_terminal_policy_of(validation_dataset) != false_terminal_policy_of(dataset):
+            raise ValueError("validation and training datasets differ in false-terminal policy")
+        if tail_normalization_mode(validation_dataset) != tail_normalization_mode(dataset):
+            raise ValueError(
+                "validation and training datasets differ in tail normalisation "
+                f"({tail_normalization_mode(validation_dataset)!r} vs "
+                f"{tail_normalization_mode(dataset)!r})"
             )
         validation = _critic_validation_set(
             validation_dataset,
@@ -3359,6 +3590,36 @@ def pretrain_critic_on_dataset(
             ).encode("utf-8")
         ).hexdigest()
 
+    tail_normalization = (dataset.get("collection") or {}).get(TAIL_NORMALIZATION_FIELD)
+    false_terminals = (dataset.get("collection") or {}).get(FALSE_TERMINAL_FIELD)
+    level_fix = {
+        key: value
+        for key, value in (
+            ("qol_head_bias_init", qol_head_bias_init),
+            ("td_step0_targets", td_step0_targets),
+            ("tail_normalization", tail_normalization),
+            ("false_terminal_correction", false_terminals),
+        )
+        if value is not None
+    }
+    if level_fix:
+        import hashlib
+        import json
+
+        # Only a fit using a level fix or normalised tails extends the fingerprint.
+        fingerprint = hashlib.sha256(
+            json.dumps({"base": fingerprint, **level_fix}, sort_keys=True, default=str).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+    bias_init_record: dict[str, Any] | None = None
+    if qol_head_bias_init is not None and (qol_head is None or qol_head.output != "logistic"):
+        raise ValueError("--qol-head-bias-init mean-target needs a logistic bounded QoL head")
+    if td_step0_targets is not None and not (
+        qol_head is not None and qol_head.target == "td-lambda"
+    ):
+        raise ValueError("--td-step0-targets mc needs a bounded QoL head with TD(lambda) targets")
+
     def schedule_progress() -> float:
         return steps / steps_per_epoch
     resume = None
@@ -3367,7 +3628,32 @@ def pretrain_critic_on_dataset(
         if resume.get("fingerprint") != fingerprint:
             raise ValueError(f"resume state {resume_path} belongs to a different critic fit")
     if resume is None:
-        if td_lambda:
+        if qol_head_bias_init == "mean-target":
+            fraction = task_critic.qol_target_fraction(task_targets["qol_years"].reshape(-1))
+            weighted_mean = float(
+                (torch.as_tensor(probabilities, dtype=torch.float64) * fraction.cpu()).sum()
+            )
+            plain_mean = float(fraction.mean())
+            p_bar = min(max(weighted_mean, 1e-6), 1.0 - 1e-6)
+            logit = math.log(p_bar / (1.0 - p_bar))
+            bias = task_critic.heads["qol_years"].bias
+            previous_bias = float(bias.detach().reshape(-1)[0])
+            with torch.no_grad():
+                bias.fill_(logit)
+            bias_init_record = {
+                "mode": "mean-target",
+                "mean_target_fraction": weighted_mean,
+                "mean_target_fraction_unweighted": plain_mean,
+                "weighting": "the fit's minibatch sampling probabilities (world-balanced, "
+                "family/source weights included)",
+                "target": "Monte Carlo return / (head scale x W), clamped to [0, 1]",
+                "bias": float(bias.detach().reshape(-1)[0]),
+                "logit": logit,
+                "previous_bias": previous_bias,
+            }
+        if td_lambda and td_step0_targets == "mc":
+            mc_pending[0] = True  # Monte Carlo targets until the first scheduled refresh
+        elif td_lambda:
             refresh_td_targets(0)
         saturation_initial = (
             None
@@ -3383,6 +3669,10 @@ def pretrain_critic_on_dataset(
         optimizer.load_state_dict(resume["optimizer"])
         if td_lambda:
             task_targets["qol_years"] = resume["td_targets"]
+        if td_step0_targets is not None:
+            mc_pending[0] = bool(resume["td_step0_mc_pending"])
+        if qol_head_bias_init is not None:
+            bias_init_record = resume["qol_head_bias_init"]
         saturation_initial = resume["saturation_initial"]
         init_task, init_cost = float(resume["init_task"]), float(resume["init_cost"])
         init_excess = resume.get("init_qol_excess_bce")
@@ -3432,6 +3722,10 @@ def pretrain_critic_on_dataset(
                 "values": dict(weight_values),
                 "history": copy.deepcopy(weight_history),
             }
+        if td_step0_targets is not None:
+            payload["td_step0_mc_pending"] = bool(mc_pending[0])
+        if qol_head_bias_init is not None:
+            payload["qol_head_bias_init"] = bias_init_record
         if validation is not None:
             payload["best_validation"] = best_validation
             # The partial epoch's training-loss accumulator and (monitor off) the history.
@@ -3674,6 +3968,20 @@ def pretrain_critic_on_dataset(
             ),
             "note": "weights act on the optimizer objective; reported losses are unweighted",
         }
+    level_record: dict[str, Any] = {}
+    if bias_init_record is not None:
+        level_record["qol_head_bias_init"] = bias_init_record
+    if td_step0_targets is not None:
+        level_record["td_step0_targets"] = {
+            "mode": td_step0_targets,
+            "definition": "Monte Carlo returns are the QoL targets until the first scheduled "
+            "TD(lambda) refresh (no step-0 bootstrap through the untrained head)",
+            "first_refresh_step": int(td_interval),
+        }
+    if tail_normalization is not None:
+        level_record["tail_normalization"] = copy.deepcopy(tail_normalization)
+    if false_terminals is not None:
+        level_record[FALSE_TERMINAL_FIELD] = copy.deepcopy(false_terminals)
     excess_record: dict[str, Any] = {}
     if final_excess is not None:
         excess_record = {
@@ -3686,6 +3994,7 @@ def pretrain_critic_on_dataset(
         **validation_record,
         **weight_record,
         **excess_record,
+        **level_record,
         # Recorded for a separate QoL encoder only (historical summaries unchanged).
         **(
             {

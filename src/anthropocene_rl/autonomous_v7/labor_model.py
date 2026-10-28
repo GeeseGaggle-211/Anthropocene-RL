@@ -177,6 +177,9 @@ class LaborValueSupport:
 # any non-default support; old checkpoints, which omit the field, keep the
 # implicit historical [-2, 9] default and their exact bytes.
 LABOR_CAMPAIGN_R5_VALUE_SUPPORT = LaborValueSupport(-0.5, 2.5, 255)
+# ``LaborTaskCritic.check_support`` tolerance (absolute, decoded bin values): CPU loads of
+# GPU-written checkpoints differ by float32 roundoff only.
+LABOR_SUPPORT_BINS_ATOL = 1e-6
 
 
 # Bounded QoL value head (G0 manifest amendment r5-b, item 4). QoL is bounded
@@ -350,8 +353,12 @@ class LaborQoLHead:
 # behaves bit for bit as before.
 LABOR_QOL_ENCODER_FIELD = "qolEncoder"
 LABOR_QOL_ENCODER_MODES = ("shared", "separate")
-# ``--campaign-r5`` initialization declares the separate encoder.
-LABOR_CAMPAIGN_R5_QOL_ENCODER = "separate"
+# ``--campaign-r5`` initialization declares the SHARED encoder again (reviewer, 28 Oct,
+# after the Fable audit: the separate encoder brought no nMAE gain, lost within-trajectory
+# ordering held out and carried a negative level offset). The r5 baseline is the shared
+# encoder with ``pretrain-critic --qol-loss-weight 30``; ``--qol-encoder separate`` stays
+# available as an explicit arm.
+LABOR_CAMPAIGN_R5_QOL_ENCODER = "shared"
 _QOL_ENCODER_SEED_SALT = 0x514F4C454E43  # "QOLENC"
 
 
@@ -1669,8 +1676,14 @@ class LaborTaskCritic(nn.Module):
 
     def check_support(self) -> None:
         """Reject a bins buffer (e.g. a loaded one) that differs from the declared support."""
-        if self.bins.shape != (self.support.bins,) or not torch.equal(
-            self.bins.detach().cpu(), self.support.bin_values()
+        # allclose, not equal: a GPU-written checkpoint's bins differ from the CPU-built
+        # support by float32 roundoff (2.4e-7 measured), and a CPU load must accept them; a
+        # genuinely different support differs by far more than SUPPORT_BINS_ATOL.
+        if self.bins.shape != (self.support.bins,) or not torch.allclose(
+            self.bins.detach().cpu(),
+            self.support.bin_values(),
+            rtol=0.0,
+            atol=LABOR_SUPPORT_BINS_ATOL,
         ):
             raise ValueError("task critic bins differ from its declared value support")
 

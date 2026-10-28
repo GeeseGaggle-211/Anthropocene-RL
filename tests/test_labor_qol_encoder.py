@@ -595,7 +595,13 @@ def test_initialize_flags() -> None:
             "--optimizer-seed", "1", "--out", "o.pt"]
     parse = lt.argument_parser().parse_args
     assert lt._initialize_qol_encoder(parse(base)) == "shared"
-    assert lt._initialize_qol_encoder(parse([*base, "--campaign-r5"])) == "separate"
+    # --campaign-r5 declares the shared encoder again (28 Oct, after the Fable audit); the
+    # separate encoder stays available explicitly.
+    assert lt._initialize_qol_encoder(parse([*base, "--campaign-r5"])) == "shared"
+    assert lt.LABOR_CAMPAIGN_R5_QOL_ENCODER == "shared"
+    assert lt._initialize_qol_encoder(
+        parse([*base, "--campaign-r5", "--qol-encoder", "separate"])
+    ) == "separate"
     assert lt._initialize_qol_encoder(
         parse([*base, "--campaign-r5", "--qol-encoder", "shared"])
     ) == "shared"

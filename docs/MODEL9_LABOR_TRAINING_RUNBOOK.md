@@ -97,8 +97,12 @@ only comparable at the same support.
   QoL head scale 2.0 (`LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE`, contract key `qolHeadScale`; head range
   (0, 2W), user decision 27 Oct); `--qol-head-scale S` overrides it. Checkpoints without the key
   are the historical (0, W) head and load unchanged. See `docs/LABOR_ADVANTAGE.md`.
-* `--campaign-r5` also declares the separate QoL encoder (contract key `qolEncoder`, user decision
-  28 Oct; `--qol-encoder shared` keeps the historical shared encoder). An existing shared checkpoint
+* `--campaign-r5` declares the **shared** QoL encoder (reverted 28 Oct after the Fable audit; it
+  declared the separate encoder between 37e8297 and the relative-gates branch). **r5 baseline:
+  shared encoder + `pretrain-critic --qol-loss-weight 30`** (the E1 configuration), with
+  `--qol-head-bias-init mean-target --td-step0-targets mc` (defaults under
+  `pretrain-critic --campaign-r5`). `--qol-encoder separate` remains an explicit arm (contract key
+  `qolEncoder`). An existing shared checkpoint
   converts with `labor_critic_support convert-qol-encoder --checkpoint in.pt --init copy|fresh
   --out out.pt` (copy: warm start from the trained task encoder; fresh: the seeded init
   `initialize` would build). `--qol-loss-weight auto` is refused for a separate encoder. See
@@ -531,6 +535,35 @@ Evidence records `qol_reference_scale` (value, source, digest, sha256) and `qol_
 (`{nmae: nstep-k5-bootstrap-v1, bias: mc-tailcut-0.5-v1}`); the
 receipt's `qol_gate` lists both per fit, and fits judged in different units HOLD the receipt. Evidence
 from before gate v2 has no n-step section and keeps its Monte Carlo verdict.
+
+**Gate relative-v1 (user decision 28 Oct ~16:30Z).** `evaluate` writes `gate_version: relative-v1`;
+evidence without the field is judged by gate v2 exactly as before, and a receipt mixing versions HOLDs.
+Primary (QoL relative accuracy first): (a) within-trajectory ordering `rel:a:lag-ordering:<variant>`:
+pairs of one (world, camp, row_trajectory) trajectory at least 5 decisions apart whose realised
+discounted return differs by more than 0.02 W, share ordered correctly by V (ties score 1/2),
+world-balanced, >= 0.70; (b) the same over all pairs `rel:b:all-pairs-ordering:<variant>` (proposed
+0.65); variants `qol_years`, `population_years` and `combined` (V and G of every head through
+`labor_ppo.combine_labor_advantages`, balanced, unit cost multipliers; the 0.02 W QoL margin is carried
+into population and combined units through that combination, proposed); fewer than 200 informative
+pairs or 3 worlds HOLD (proposed); (c) TD(0) residual `rel:c:td0-*`: V(s_t) - [r_t + gamma V(s_t+1)],
+own bootstrap, living-end rows excluded, |bias| <= 0.02 and MAE <= 0.12 QoL reference scales (both
+proposed); (d) the same-state A ranking >= 0.70 on reserved worlds and (e) stability, unchanged. Every
+other gate-v2 check is unchanged except that the QoL n-step/MC nMAE and bias checks, the n-step residual
+checks and the QoL nMAE generalisation gap move to `diagnostics` (never gating), printed next to the
+constant-predictor reference (a predictor outputting the fitting-set mean QoL return;
+`qol_nstep.constant_reference`, `td_residual.td0.constant_reference`). Implementation:
+`labor_pretrain_eval.relative_ordering_report`, `labor_r5_acceptance.relative_checks`.
+
+**Critic level and loader fixes (28 Oct).** `pretrain-critic --campaign-r5` (passed by the acceptance
+harness) turns on, unless given explicitly: `--qol-head-bias-init mean-target` (logistic QoL head bias
+= logit of the sampling-weighted mean of p* = G / (scale W), fresh fits only, recorded as
+`qol_head_bias_init`), `--td-step0-targets mc` (Monte Carlo targets until the first scheduled TD(lambda)
+refresh) and `--false-terminal-policy mask` (a terminal row with later rows in its trajectory is
+non-terminal: rechained when the next row is the next turn, otherwise it and the earlier rows of its
+trajectory leave the value targets; counts in `false_terminal_correction`). `--tail-normalize
+world-factor` (off by default) divides stored randomized tails of both task heads by the world's
+roulette schedule factor on load (factors in `tail_normalization`). Evaluation applies the loader
+corrections the evaluated fit recorded. All off: bitwise the historical fit.
 
 `labor_qol_diagnosis` (feature/qol-diagnosis, 770ca04) predates the privileged block and the bounded
 head (it calls the critic without a privileged batch and decodes a two-hot softmax), so it runs only on
