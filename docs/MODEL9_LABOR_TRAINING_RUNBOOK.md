@@ -450,8 +450,8 @@ beside the merged teacher set. Actor BC (`pretrain-bc`) keeps its per-directory 
 unchanged.
 
 The primary gate `r5-critic-acceptance` (candidate arm) combines: admitted stability receipts for V and
-A; QoL per r5-b (a) A same-village ranking on reserved worlds, (b) bounded-head nMAE <= 0.20 and
-|bias| <= 0.10 per stratum against the tail-robust n-step target (gate v2, below), (c) TD residual
+A; QoL per r5-b (a) A same-village ranking on reserved worlds, (b) bounded-head nMAE <= 0.20 (n-step
+target) and |bias| <= 0.10 (tail-cut Monte Carlo) per stratum (gate v2, below), (c) TD residual
 |bias| <= 0.05 and mean |residual| <= 0.20 reference scales;
 population-years cross-village ranking >= 0.70 per stratum (r5-b item 3); the other heads within
 0.02 of the critic3 control (`--control-report`, a missing control HOLDs); the
@@ -467,7 +467,7 @@ the user's review.
 
 **QoL gate v2 (user decision 28 Oct).** One roulette stop schedule per world scales every camp's
 Monte Carlo tail by a world-level factor (0.61-1.67 in the pilot), so the old Monte Carlo target made
-0.20 nMAE unreachable. (b) is now judged against `labor_pretrain_eval.QOL_GATE_TARGET`
+0.20 nMAE unreachable. (b) nMAE is now judged against `labor_pretrain_eval.QOL_GATE_TARGET`
 (`nstep-k5-bootstrap-v1`): y_t = k = 5 observed rewards + D_5 V(s_t+5), the critic's own decoded
 bootstrap, with physical-time discounts exp(-elapsed / 400 y) (the same windows as the TD residual).
 A window that reaches a terminal row is exact (realized rewards, zero tail) and gated. A window that
@@ -476,7 +476,16 @@ gate; those rows (`living_end`) are reported closed both by the bootstrap V(s_la
 declared tail. nMAE/bias stay world-balanced per stratum. The Monte Carlo metrics remain in every
 stratum as `monte_carlo` (non-gating), and the `heads` section (MC, frozen 43.152, ranking) is
 unchanged; ranking stays on the Monte Carlo return, because ~78% (D_5) of the n-step target is the
-critic's own value, which would make an ordering test self-referential. The QoL unit is remeasured on
+critic's own value, which would make an ordering test self-referential. For the same reason a
+uniform critic offset c shows against the n-step target only as (1 - D_5) c ~ 0.22 c, so (b) |bias|
+is judged separately (coordinator amendment, 28 Oct; `QOL_BIAS_TARGET`, `mc-tailcut-0.5-v1`): the
+world-balanced bias against the Monte Carlo return on the stratum's rows whose tail weight
+c_i tail_i / G_i (as `labor_advantage.qol_tail_weight`, lambda = 1) is at most 0.5. A stratum with
+fewer than 200 such rows or fewer than 3 worlds HOLDs (`qol_bias_min_rows`, `qol_bias_min_worlds`).
+The n-step bias stays per stratum as a non-gating diagnostic. The cut cancels balanced world factors
+(0.61/1.67/1.0: |shift| ~0.05 at 45-row trajectories), but a factor common to the calibration worlds
+still moves it (all 1.67: about -0.67 frozen scales on the same fixture), so the bias gate keeps some
+sensitivity to the realised mean tail factor of the 20 calibration worlds. The QoL unit is remeasured on
 r5's own returns: `labor_r5_acceptance qol-reference-scale --fit-data FIT... --out scale.json` (fitting
 worlds only) writes `labor-r5-qol-reference-scale-v1`: the std (ddof 0, unweighted) of the per-row
 Monte Carlo QoL return on the admitted fitting rows, chosen over the n-step target because it needs no
@@ -484,7 +493,8 @@ critic (fixed before any fit, the same for every arm and seed), with the world-b
 tail-free part's std and the tail share as diagnostics, a content digest, the datasets and source
 provenance. `evaluate`/`run --qol-reference-scale FILE` (script: `QOL_REFERENCE_SCALE=`) use it for
 (b) and for the (c) TD residual; without it the frozen 43.152 is kept. Thresholds stay 0.20 / 0.10.
-Evidence records `qol_reference_scale` (value, source, digest, sha256) and `qol_gate_target`; the
+Evidence records `qol_reference_scale` (value, source, digest, sha256) and `qol_gate_target`
+(`{nmae: nstep-k5-bootstrap-v1, bias: mc-tailcut-0.5-v1}`); the
 receipt's `qol_gate` lists both per fit, and fits judged in different units HOLD the receipt. Evidence
 from before gate v2 has no n-step section and keeps its Monte Carlo verdict.
 

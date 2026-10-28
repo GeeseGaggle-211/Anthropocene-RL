@@ -208,7 +208,69 @@ def test_ranking_and_mc_heads_stay_unchanged_in_the_qol_checks() -> None:
     assert check["detail"]["target"] == pe.QOL_GATE_TARGET_ID
     assert check["detail"]["scale_source"] == "frozen-g0"
     assert check["detail"]["monte_carlo_non_gating"]["gating"] is False
-    assert new["qol:b:abs-bias:all"]["value"] == pytest.approx(abs(nstep["strata"]["all"]["bias"]))
+    # The bias check reads the tail-cut Monte Carlo bias; the n-step bias is a diagnostic.
+    bias = new["qol:b:abs-bias:all"]
+    cut = nstep["strata"]["all"]["bias_tailcut"]
+    assert bias["value"] == pytest.approx(abs(cut["bias"]))
+    assert bias["detail"]["bias_target"] == pe.QOL_BIAS_TARGET_ID
+    assert bias["detail"]["nstep_bias_non_gating"] == nstep["strata"]["all"]["bias"]
+    assert cut["rows"] < pe.QOL_BIAS_MIN_ROWS and bias["status"] == "HOLD"  # 36-row fixture
+
+
+def _three_worlds(factors, length=45, camps=4):
+    """Three living worlds x ``camps`` camps; each world's tail is scaled by its factor."""
+    return _dataset(
+        [
+            (90100 + w, camp, length, False, f * V_TRUE)
+            for w, f in enumerate(factors)
+            for camp in range(camps)
+        ]
+    )
+
+
+def _bias_check(data, values):
+    nstep = _gate(data, values)
+    calibration = _calibration()
+    nstep["strata"] = {s: nstep["strata"]["all"] for s in ra.STRATA}
+    calibration["calibration"]["qol_nstep"] = nstep
+    rows = {c["id"]: c for c in ra.qol_checks(calibration, None, None)}
+    return rows["qol:b:abs-bias:all"], rows["qol:b:nmae:all"], nstep["strata"]["all"]
+
+
+@pytest.mark.parametrize("offset, status", [(0.11, "FAIL"), (-0.11, "FAIL"), (0.09, "PASS")])
+def test_a_uniform_offset_fails_the_bias_gate_beyond_its_threshold(offset, status) -> None:
+    data = _three_worlds((1.0, 1.0, 1.0))
+    n = int(data["row_world"].shape[0])
+    values = np.full(n, V_TRUE + offset * 43.152)
+    bias, nmae, stratum = _bias_check(data, values)
+    assert stratum["bias_tailcut"]["coverage"] == "PASS"  # >= 200 rows, >= 3 worlds
+    assert (
+        bias["value"] == pytest.approx(abs(offset), abs=1e-5) and bias["status"] == status
+    )  # MC returns are float32
+    # The n-step bias sees only (1 - D_5) of the offset: why it no longer gates.
+    assert stratum["bias"] == pytest.approx((1 - GAMMA**5) * offset, rel=1e-9)
+    assert nmae["status"] == "PASS"
+
+
+def test_balanced_world_tail_factors_barely_move_the_tail_cut_bias() -> None:
+    fair = _bias_check(_three_worlds((1.0, 1.0, 1.0)), None)[2]
+    skewed = _bias_check(_three_worlds((1.67, 0.61, 1.0)), None)[2]
+    assert fair["bias_tailcut"]["bias"] == pytest.approx(0.0, abs=1e-5)
+    shift = abs(skewed["bias_tailcut"]["bias"])
+    all_rows = abs(skewed["monte_carlo"]["bias"])
+    assert shift < 0.05 and shift < 0.3 * all_rows  # vs the Monte Carlo bias on every row
+    # The cut does not remove a factor common to every world (reported, not hidden).
+    common = _bias_check(_three_worlds((1.67, 1.67, 1.67)), None)[2]
+    assert abs(common["bias_tailcut"]["bias"]) < abs(common["monte_carlo"]["bias"])
+
+
+def test_too_few_tail_cut_rows_or_worlds_hold_the_bias_check() -> None:
+    few_worlds = _dataset([(90100, camp, 60, False, V_TRUE) for camp in range(6)])
+    bias, _, stratum = _bias_check(few_worlds, None)
+    assert stratum["bias_tailcut"]["rows"] >= 200 and stratum["bias_tailcut"]["worlds"] == 1
+    assert bias["status"] == "HOLD"
+    assert ra.threshold("qol_bias_min_rows") == pe.QOL_BIAS_MIN_ROWS
+    assert ra.threshold("qol_bias_min_worlds") == pe.QOL_BIAS_MIN_WORLDS
 
 
 # --- 2. the reference-scale artifact --------------------------------------------------------------
@@ -286,11 +348,11 @@ def test_td_residual_and_receipt_use_the_artifact_scale(tmp_path, monkeypatch) -
         "sha256": "f" * 64,
     }
     evidence = [
-        _evidence(seed=s, qol_reference_scale=stamped, qol_gate_target=pe.QOL_GATE_TARGET)
+        _evidence(seed=s, qol_reference_scale=stamped, qol_gate_target=pe.QOL_GATE_TARGETS)
         for s in range(5)
     ] + [
         _evidence(
-            "control-e4", s, False, qol_reference_scale=stamped, qol_gate_target=pe.QOL_GATE_TARGET
+            "control-e4", s, False, qol_reference_scale=stamped, qol_gate_target=pe.QOL_GATE_TARGETS
         )
         for s in range(5)
     ]
@@ -299,8 +361,11 @@ def test_td_residual_and_receipt_use_the_artifact_scale(tmp_path, monkeypatch) -
     assert gate["status"] == "PASS" and gate["distinct"] == [
         {"value": 61.0, "digest": "e" * 64, "source": "artifact"}
     ]
-    assert gate["fits"]["privileged-e4/seed-0"]["target"] == pe.QOL_GATE_TARGET_ID
-    assert gate["definitions"] == [pe.QOL_GATE_TARGET]
+    assert gate["fits"]["privileged-e4/seed-0"]["target"] == {
+        "nmae": "nstep-k5-bootstrap-v1",
+        "bias": "mc-tailcut-0.5-v1",
+    }
+    assert gate["definitions"] == [pe.QOL_GATE_TARGETS]
     assert receipt["verdict_basis"]["qol_reference_scale"] == "PASS"
     # Mixed units cannot share a seed rule: the receipt HOLDs.
     evidence[0] = _evidence(seed=0)
@@ -316,6 +381,14 @@ def test_old_receipt_evidence_keeps_its_verdict() -> None:
     assert receipt["qol_gate"]["status"] == "PASS"
     assert receipt["qol_gate"]["fits"]["privileged-e4/seed-0"]["scale"]["source"] == "frozen-g0"
     assert receipt["machine_verdict"] == "PASS"  # as test_labor_r5_acceptance's passing set
+    assert receipt["qol_gate"]["fits"]["privileged-e4/seed-0"]["target"]["bias"].startswith(
+        "monte-carlo"
+    )
+    # Old evidence: the bias check is the Monte Carlo head bias it was judged on.
+    rows = {c["id"]: c for c in ra.fit_checks(evidence[0])["primary"]}
+    assert (
+        rows["qol:b:abs-bias:all"]["value"] == 0.02 and rows["qol:b:abs-bias:all"]["detail"] is None
+    )
 
 
 # --- 3. TD trajectory rule v2 -------------------------------------------------------------------

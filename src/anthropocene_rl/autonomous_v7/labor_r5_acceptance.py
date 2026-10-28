@@ -114,10 +114,27 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     "qol_calibration_target": {
         "value": "nstep-k5-bootstrap-v1",
         "status": "approved (user 28 Oct)",
-        "source": "labor_pretrain_eval.QOL_GATE_TARGET: k = td_nstep_k observed rewards + "
-        "gamma^k x the critic's own bootstrap; terminal windows exact; windows reaching the "
+        "source": "nMAE: labor_pretrain_eval.QOL_GATE_TARGET: k = td_nstep_k observed rewards "
+        "+ gamma^k x the critic's own bootstrap; terminal windows exact; windows reaching the "
         "collection window's living end are reported, not gated; the Monte Carlo metrics stay "
         "as non-gating diagnostics; ranking unchanged (Monte Carlo)",
+    },
+    "qol_bias_target": {
+        "value": "mc-tailcut-0.5-v1",
+        "status": "approved (coordinator amendment of the user's 28 Oct tail-robust target)",
+        "source": "|bias|: labor_pretrain_eval.QOL_BIAS_TARGET: Monte Carlo bias on rows whose "
+        "tail weight c_i tail_i / G_i <= 0.5 (the n-step target sees a uniform offset c only "
+        "as ~0.22 c); the n-step bias is a non-gating diagnostic",
+    },
+    "qol_bias_min_rows": {
+        "value": 200,
+        "status": "approved (coordinator, 28 Oct)",
+        "source": "a stratum with fewer tail-cut rows HOLDs its bias check",
+    },
+    "qol_bias_min_worlds": {
+        "value": 3,
+        "status": "approved (coordinator, 28 Oct)",
+        "source": "a stratum with tail-cut rows from fewer worlds HOLDs its bias check",
     },
     "qol_reference_scale": {
         "value": "artifact (--qol-reference-scale); absent: frozen 43.152",
@@ -553,8 +570,12 @@ def qol_checks(
     for stratum in strata:
         if nstep is not None:
             metrics = _get(nstep, "strata", stratum)
+            cut = None if metrics is None else metrics.get("bias_tailcut")
             detail = {
                 "target": _get(nstep, "target", "id"),
+                "bias_target": None if cut is None else cut.get("target"),
+                "bias_tailcut": cut,
+                "nstep_bias_non_gating": None if metrics is None else metrics.get("bias"),
                 "scale": _get(nstep, "reference_scale", "value"),
                 "scale_source": _get(nstep, "reference_scale", "source"),
                 "scale_digest": _get(nstep, "reference_scale", "digest"),
@@ -565,7 +586,15 @@ def qol_checks(
             metrics = _head(calibration, "qol_years", stratum)
             detail = None
         nmae = None if metrics is None else metrics.get("nmae")
-        bias = None if metrics is None else metrics.get("bias")
+        bias_status = None
+        if nstep is not None:
+            # Gate v2: |bias| on the tail-cut Monte Carlo rows; too little coverage HOLDs.
+            cut = detail["bias_tailcut"]
+            bias = None if cut is None else cut.get("bias")
+            if cut is not None and bias is not None and cut.get("coverage") != "PASS":
+                bias_status = "HOLD"
+        else:
+            bias = None if metrics is None else metrics.get("bias")
         out.append(
             check(
                 f"qol:b:nmae:{stratum}", "qol", nmae, threshold("qol_nmae_max"), "<=",
@@ -579,6 +608,7 @@ def qol_checks(
                 None if bias is None else abs(float(bias)),
                 threshold("qol_abs_bias_max"),
                 "<=",
+                status=bias_status,
                 detail=detail,
             )
         )
@@ -1591,12 +1621,13 @@ def qol_gate_section(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             if reference is None
             else {k: reference.get(k) for k in ("value", "source", "digest", "path", "sha256")}
         )
-        fits[key] = {
-            "target": "monte-carlo-randomized-tail (pre gate v2)"
-            if target is None
-            else target.get("id"),
-            "scale": scale,
-        }
+        if target is None:
+            named: Any = {"nmae": "monte-carlo (pre gate v2)", "bias": "monte-carlo (pre gate v2)"}
+        elif "nmae" in target:
+            named = {metric: (target.get(metric) or {}).get("id") for metric in ("nmae", "bias")}
+        else:
+            named = {"nmae": target.get("id"), "bias": target.get("id")}
+        fits[key] = {"target": named, "scale": scale}
         distinct[json_digest([scale["value"], scale["digest"]])] = {
             "value": scale["value"],
             "digest": scale["digest"],
@@ -1948,7 +1979,7 @@ def evaluate_fit(
     from .labor_advantage_eval import evaluate_advantage
     from .labor_device import setup
     from .labor_pretrain_eval import (
-        QOL_GATE_TARGET,
+        QOL_GATE_TARGETS,
         _load_dataset,
         _load_models,
         dataset_label,
@@ -2102,7 +2133,7 @@ def evaluate_fit(
             actor, dataset, normalizer, batch_size
         ),
         "td_residual": td,
-        "qol_gate_target": QOL_GATE_TARGET,
+        "qol_gate_target": QOL_GATE_TARGETS,
         "qol_reference_scale": qol_reference,
         "advantage_fit": {
             k: v for k, v in adv_fit.items() if k not in ("stability", "loss_history")

@@ -868,6 +868,26 @@ QOL_GATE_TARGET = {
     "units": "QoL reference scale of the gate (qol_reference_scale)",
     "monte_carlo": "the randomized-tail Monte Carlo metrics stay in the report, non-gating",
 }
+# The bias half of the QoL gate (coordinator amendment, 28 Oct): against the n-step target a
+# uniform critic offset c shows only as (1 - D_k) c ~ 0.22 c, so |bias| is judged instead
+# against the Monte Carlo return on rows whose tail weight in that target is at most the cut.
+QOL_BIAS_TAIL_CUT = 0.5
+QOL_BIAS_MIN_ROWS = 200  # a stratum with fewer cut rows, or fewer worlds, HOLDs
+QOL_BIAS_MIN_WORLDS = 3
+QOL_BIAS_TARGET_ID = "mc-tailcut-0.5-v1"
+QOL_BIAS_TARGET = {
+    "id": QOL_BIAS_TARGET_ID,
+    "definition": "world-balanced mean of (V - G) / scale over admitted rows whose tail weight "
+    "c_i tail_i / G_i in the Monte Carlo target G (labor_advantage.qol_tail_weight, "
+    "lambda = 1) is <= 0.5; rows without a declared tail have weight 0",
+    "tail_weight_cut": QOL_BIAS_TAIL_CUT,
+    "coverage": f"a stratum with fewer than {QOL_BIAS_MIN_ROWS} such rows or fewer than "
+    f"{QOL_BIAS_MIN_WORLDS} worlds HOLDs",
+    "units": "QoL reference scale of the gate (qol_reference_scale)",
+    "nstep_bias": "the n-step bias stays in each stratum as a non-gating diagnostic",
+}
+# Evidence field ``qol_gate_target``: one definition per gated metric.
+QOL_GATE_TARGETS = {"nmae": QOL_GATE_TARGET, "bias": QOL_BIAS_TARGET}
 FROZEN_QOL_REFERENCE_SCALE = 43.152  # contracts.OBJECTIVE_REFERENCE_SCALES["qol_years"]
 QOL_REFERENCE_SCALE_SCHEMA = "labor-r5-qol-reference-scale-v1"
 
@@ -1126,6 +1146,9 @@ def qol_nstep_calibration(
     (world-balanced, in the gate's reference scale) on admitted rows whose window is full
     or terminal, and the non-gating Monte Carlo metrics on all of the stratum's rows in
     the same unit. ``living_end`` reports the excluded rows near the collection window end.
+    ``bias_tailcut`` per stratum is the gated bias (``QOL_BIAS_TARGET``): Monte Carlo bias
+    on rows whose tail weight is <= ``QOL_BIAS_TAIL_CUT``, with its coverage status; the
+    stratum's n-step ``bias`` is then a non-gating diagnostic.
     """
     from .labor_bc import (
         CRITIC_DISCOUNT_YEARS,
@@ -1167,14 +1190,40 @@ def qol_nstep_calibration(
     closure = result["closure"][rows]
     worlds = worlds_all[rows]
     gated = np.isin(closure, NSTEP_GATED_CLOSURES)
+    # Tail weight of each admitted row in its Monte Carlo target (as qol_tail_weight).
+    from .labor_advantage import qol_tail_terms
+
+    terms = qol_tail_terms(dataset, 1.0)
+    part = (terms["coefficient"].numpy() * terms["tail"].numpy())[rows]
+    has_tail = terms["has_tail"].numpy()[rows]
+    mc_rows = np.asarray(monte_carlo, dtype=np.float64)
+    tail_weight = np.where(
+        has_tail & (mc_rows > 0),
+        np.clip(part / np.where(mc_rows > 0, mc_rows, 1.0), 0.0, 1.0),
+        0.0,
+    )
+    low = tail_weight <= QOL_BIAS_TAIL_CUT
     out_strata: dict[str, Any] = {}
     for name, mask in strata.items():
         m = np.asarray(mask, dtype=bool)
         if not m.any():
             continue
         g = m & gated
+        c = m & low
+        cut = _nstep_metrics(pred[c], mc_rows[c], worlds[c], scale)
+        covered = cut["rows"] >= QOL_BIAS_MIN_ROWS and cut["worlds"] >= QOL_BIAS_MIN_WORLDS
         out_strata[name] = {
             **_nstep_metrics(pred[g], target[g], worlds[g], scale),
+            "bias_role": "non-gating diagnostic (the gated bias is bias_tailcut)",
+            "bias_tailcut": {
+                "gating": True,
+                "target": QOL_BIAS_TARGET_ID,
+                "bias": cut["bias"],
+                "rows": cut["rows"],
+                "worlds": cut["worlds"],
+                "excluded_tail_weight_rows": int((m & ~low).sum()),
+                "coverage": "PASS" if covered else "HOLD",
+            },
             "excluded_living_end_rows": int((m & ~gated).sum()),
             "monte_carlo": {
                 "gating": False,
@@ -1197,6 +1246,8 @@ def qol_nstep_calibration(
     return {
         "gating": True,
         "target": QOL_GATE_TARGET,
+        "targets": {"nmae": QOL_GATE_TARGET_ID, "bias": QOL_BIAS_TARGET_ID},
+        "bias_target": QOL_BIAS_TARGET,
         "reference_scale": dict(reference),
         "rows": len(rows),
         "gated_rows": int(gated.sum()),
@@ -1386,7 +1437,7 @@ def run_critic_calibration(
         "calibration": calibration,
         "verdict": {name: strata["all"]["gate"] for name, strata in calibration["heads"].items()},
         # QoL gate v2 (user 28 Oct): target definition and unit of the qol_nstep sections.
-        "qol_gate_target": QOL_GATE_TARGET,
+        "qol_gate_target": QOL_GATE_TARGETS,
         "qol_reference_scale": qol_reference,
     }
     if privileged:
@@ -1478,9 +1529,12 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
         )
         for stratum, m in nstep["strata"].items():
             mc = m["monte_carlo"]
+            cut = m.get("bias_tailcut") or {}
             lines.append(
-                f"    {stratum:<16} n-step nMAE={_fmt(m['nmae'])} bias={_fmt(m['bias'])} "
-                f"(MC, non-gating: nMAE={_fmt(mc['nmae'])} bias={_fmt(mc['bias'])})"
+                f"    {stratum:<16} gate: n-step nMAE={_fmt(m['nmae'])} tail-cut MC "
+                f"bias={_fmt(cut.get('bias'))} ({cut.get('rows')} rows, {cut.get('coverage')}) "
+                f"| non-gating: n-step bias={_fmt(m['bias'])} MC nMAE={_fmt(mc['nmae'])} "
+                f"bias={_fmt(mc['bias'])}"
             )
     for label in ("calibration", "fitting"):
         tail = (report.get(label) or {}).get("qol_tail")
