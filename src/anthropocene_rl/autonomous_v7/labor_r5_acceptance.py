@@ -2460,10 +2460,10 @@ def evaluate_fit(
     arm: str,
     seed: int,
     checkpoint: Path,
-    advantage: Path,
+    advantage: Path | None,
     calibration_data: Path | Sequence[Path],
     fit_data: Path | Sequence[Path] | None,
-    reserved_payloads: Sequence[Path],
+    reserved_payloads: Sequence[Path] | None,
     control_report: Mapping[str, Any] | None = None,
     privileged: bool | None = None,
     timings: Mapping[str, float] | None = None,
@@ -2477,6 +2477,11 @@ def evaluate_fit(
     corrections_override: Mapping[str, str | None] | None = None,
 ) -> dict[str, Any]:
     """One (arm, seed) fit's evidence: calibration, TD residual, A on reserved worlds, stability.
+
+    ``advantage`` and ``reserved_payloads`` both None is the critic stage (``run --stage
+    critic``): the V evidence only (calibration, relative ordering, TD residual, V
+    stability), ``stage: critic``; every A-dependent field is None and the checks that read
+    them HOLD (``CRITIC_STAGE_DEFERRED_PREFIXES``). Giving exactly one of the two is refused.
 
     ``qol_reference_scale`` (a ``qol-reference-scale`` artifact) is the unit of the QoL
     calibration gate and of the TD residual; absent, the frozen 43.152. The evidence
@@ -2514,6 +2519,13 @@ def evaluate_fit(
     from .labor_training import _normalization_digest
     from .labor_value_calibration import labor_critic_digest
 
+    critic_stage = advantage is None
+    if critic_stage != (not reserved_payloads):
+        raise ValueError(
+            "the A head and the reserved payloads go together: give both (full evidence) or "
+            "neither (critic stage)"
+        )
+    reserved_payloads = list(reserved_payloads or [])
     started = time.time()
     qol_reference = load_qol_reference_scale(qol_reference_scale)
     target = setup(device)
@@ -2553,31 +2565,35 @@ def evaluate_fit(
             calibration, "calibration", "qol_nstep", "constant_reference", "value"
         ),
     )
-    adv_state = torch.load(advantage, map_location="cpu", weights_only=True)
-    for module in (task, costs):
-        for parameter in module.parameters():
-            parameter.requires_grad_(False)
-    head, adv_config = load_advantage_head(adv_state, task, costs)
-    head.to(target)
-    reserved = load_candidate_shards(list(reserved_payloads))
-    # Report-only per-family A ranking: state families (food-trade guard included) of
-    # every reserved root, added to any curated scenario families it already carries.
-    from .labor_scenarios import root_state_families
+    adv_state: dict[str, Any] = {}
+    head = adv_config = reserved = adv_eval = None
+    adv_fit: dict[str, Any] = {}
+    if not critic_stage:
+        adv_state = torch.load(advantage, map_location="cpu", weights_only=True)
+        for module in (task, costs):
+            for parameter in module.parameters():
+                parameter.requires_grad_(False)
+        head, adv_config = load_advantage_head(adv_state, task, costs)
+        head.to(target)
+        reserved = load_candidate_shards(list(reserved_payloads))
+        # Report-only per-family A ranking: state families (food-trade guard included) of
+        # every reserved root, added to any curated scenario families it already carries.
+        from .labor_scenarios import root_state_families
 
-    for root, families in zip(
-        reserved.roots, root_state_families(reserved, normalizer), strict=True
-    ):
-        root.families = tuple(sorted(set(root.families) | set(families)))
-    adv_fit = adv_state.get("fit", {})
-    adv_eval = evaluate_advantage(
-        task,
-        costs,
-        head,
-        reserved,
-        horizons=adv_config.horizons,
-        fit_worlds=adv_fit.get("fit_worlds", []),
-        se_multiplier=adv_config.se_multiplier,
-    )
+        for root, families in zip(
+            reserved.roots, root_state_families(reserved, normalizer), strict=True
+        ):
+            root.families = tuple(sorted(set(root.families) | set(families)))
+        adv_fit = adv_state.get("fit", {})
+        adv_eval = evaluate_advantage(
+            task,
+            costs,
+            head,
+            reserved,
+            horizons=adv_config.horizons,
+            fit_worlds=adv_fit.get("fit_worlds", []),
+            se_multiplier=adv_config.se_multiplier,
+        )
     scenario_calibration = None
     if scenario_calibration_data is not None:
         report = run_critic_calibration(
@@ -2612,21 +2628,27 @@ def evaluate_fit(
         "lr": fit_settings.get("lr"),
         "max_grad_norm": fit_settings.get("max_grad_norm"),
         "qol_head": None if task.qol_head is None else task.qol_head.state_dict(),
-        "advantage_config": adv_config.state_dict() | {"seed": None},
+        "advantage_config": None
+        if adv_config is None
+        else adv_config.state_dict() | {"seed": None},
         "payload_digests": sorted(adv_fit.get("payload_digests", []) or []),
     }
-    trajectory = _trajectory_diagnostics(
-        task=task,
-        costs=costs,
-        head=head,
-        normalizer=normalizer,
-        dataset=dataset,
-        reserved=reserved,
-        reserved_payloads=reserved_payloads,
-        datasets=trajectory_datasets,
-        payloads=trajectory_payloads,
-        traces=trajectory_traces,
-        batch_size=batch_size,
+    trajectory = (
+        {"gating": False, "skipped": "critic stage: T1-T4 need the A head and payloads"}
+        if critic_stage
+        else _trajectory_diagnostics(
+            task=task,
+            costs=costs,
+            head=head,
+            normalizer=normalizer,
+            dataset=dataset,
+            reserved=reserved,
+            reserved_payloads=reserved_payloads,
+            datasets=trajectory_datasets,
+            payloads=trajectory_payloads,
+            traces=trajectory_traces,
+            batch_size=batch_size,
+        )
     )
     timings = dict(timings or {})
     timings["evaluate"] = time.time() - started
@@ -2636,6 +2658,8 @@ def evaluate_fit(
         "schema": EVIDENCE_SCHEMA,
         # Gate relative-v1 (user 28 Oct); evidence written before it carries no field (v2).
         "gate_version": GATE_RELATIVE_V1,
+        # "critic": V evidence only (run --stage critic); "all": V plus the A head.
+        "stage": "critic" if critic_stage else "all",
         "loader_corrections": corrections,
         "arm": arm,
         "seed": int(seed),
@@ -2644,7 +2668,9 @@ def evaluate_fit(
         else bool(privileged),
         "artifacts": {
             "checkpoint": {"path": str(checkpoint), "sha256": file_sha256(checkpoint)},
-            "advantage": {"path": str(advantage), "sha256": file_sha256(advantage)},
+            "advantage": None
+            if critic_stage
+            else {"path": str(advantage), "sha256": file_sha256(advantage)},
             "calibration_dataset": {
                 "path": dataset_label(calibration_data),
                 "digest": dataset["collection"]["dataset_digest"],
@@ -2679,9 +2705,9 @@ def evaluate_fit(
         "td_residual": td,
         "qol_gate_target": QOL_GATE_TARGETS,
         "qol_reference_scale": qol_reference,
-        "advantage_fit": {
-            k: v for k, v in adv_fit.items() if k not in ("stability", "loss_history")
-        },
+        "advantage_fit": None
+        if critic_stage
+        else {k: v for k, v in adv_fit.items() if k not in ("stability", "loss_history")},
         "advantage_eval": adv_eval,
         "control": control_report,
         "stability": {
@@ -2851,14 +2877,52 @@ def _evaluation_fit_data(args: argparse.Namespace) -> list[Path]:
     """The fitting data of the generalisation gap: every --fit-data directory when they are
     all teacher batches; with continuation or curated scenario sources, the first one (the
     teacher dataset, as before)."""
+    gap = getattr(args, "gap_fit_data", None)
+    if gap:
+        return list(gap)
     mixed = bool(args.learner_state_continuations) or bool(
         getattr(args, "curated_scenarios", False)
     )
     return [args.fit_data[0]] if mixed else list(args.fit_data)
 
 
+STAGES = ("all", "critic")
+
+
+def _stage(args: argparse.Namespace) -> str:
+    return str(getattr(args, "stage", "all") or "all")
+
+
+def evidence_name(stage: str) -> str:
+    """Per-fit evidence file of a stage: the critic stage never shadows the full evidence,
+    so a later ``--stage all`` run in the same OUT resumes at the A fit."""
+    return "evidence-critic.json" if stage == "critic" else "evidence.json"
+
+
+def require_run_inputs(args: argparse.Namespace) -> None:
+    """``--stage all`` needs both payload sets; ``--gap-fit-data`` must be fitting data."""
+    stage = _stage(args)
+    if stage not in STAGES:
+        raise ValueError(f"--stage must be one of {STAGES}")
+    if stage == "all" and (not args.fit_payloads or not args.reserved_payloads):
+        raise ValueError(
+            "--stage all needs --fit-payloads and --reserved-payloads (use --stage critic "
+            "for the V fits and their evaluation without search payloads)"
+        )
+    gap = getattr(args, "gap_fit_data", None) or []
+    fit = {Path(p).resolve() for p in args.fit_data}
+    outside = sorted(str(p) for p in gap if Path(p).resolve() not in fit)
+    if outside:
+        raise ValueError(f"--gap-fit-data must list --fit-data directories only: {outside}")
+
+
 def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
-    """initialize -> pretrain-critic (exact resume) -> A fit -> evaluate; done steps are skipped."""
+    """initialize -> pretrain-critic (exact resume) -> A fit -> evaluate; done steps are skipped.
+
+    ``--stage critic`` stops before the A fit and writes ``evidence-critic.json`` (V
+    evidence only); a later ``--stage all`` run reuses the critic and continues at the A fit.
+    """
+    stage = _stage(args)
     work = Path(args.out) / arm.name / f"seed-{seed}"
     work.mkdir(parents=True, exist_ok=True)
     log = work / "fit.log"
@@ -2957,7 +3021,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
 
         timed("pretrain_critic", fit_critic)
     advantage = work / "advantage.pt"
-    if not advantage.exists():
+    if stage == "all" and not advantage.exists():
         command = [
             *_python(),
             "anthropocene_rl.autonomous_v7.labor_advantage",
@@ -2982,7 +3046,7 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
         command += shlex.split(args.advantage_args or "")
         timed("advantage_fit", lambda: _run(command, log, threads))
     traces = [Path(p) for p in (getattr(args, "trajectory_trace", None) or [])]
-    panel = getattr(args, "trajectory_panel", None)
+    panel = getattr(args, "trajectory_panel", None) if stage == "all" else None
     if panel:
         trace_path = work / "critic-trace.json"
         if not trace_path.exists():
@@ -3007,8 +3071,13 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             trace_command += shlex.split(args.trajectory_autonomous_args or "")
             timed("trajectory_trace", lambda: _run(trace_command, log, threads))
         traces.append(trace_path)
-    evidence_path = work / "evidence.json"
+    evidence_path = work / evidence_name(stage)
     if not evidence_path.exists():
+        a_inputs = (
+            ["--stage", "critic"]
+            if stage == "critic"
+            else ["--advantage", advantage, "--reserved-payloads", *args.reserved_payloads]
+        )
         command = [
             *_python(),
             "anthropocene_rl.autonomous_v7.labor_r5_acceptance",
@@ -3019,14 +3088,11 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             str(seed),
             "--checkpoint",
             critic,
-            "--advantage",
-            advantage,
+            *a_inputs,
             "--calibration-data",
             *args.calibration_data,
             "--fit-data",
             *_evaluation_fit_data(args),
-            "--reserved-payloads",
-            *args.reserved_payloads,
             "--timings",
             timings_path,
             *_device_flag(args),
@@ -3039,23 +3105,28 @@ def run_fit(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             command += ["--qol-reference-scale", args.qol_reference_scale]
         if args.control_report:
             command += ["--control-report", args.control_report]
-        if getattr(args, "trajectory_data", None):
-            command += ["--trajectory-data", *args.trajectory_data]
-        for item in getattr(args, "trajectory_payload", None) or []:
-            command += ["--trajectory-payload", item]
-        if traces:
-            command += ["--trajectory-trace", *traces]
+        if stage == "all":
+            if getattr(args, "trajectory_data", None):
+                command += ["--trajectory-data", *args.trajectory_data]
+            for item in getattr(args, "trajectory_payload", None) or []:
+                command += ["--trajectory-payload", item]
+            if traces:
+                command += ["--trajectory-trace", *traces]
         timed("evaluate", lambda: _run(command, log, threads))
     return evidence_path
 
 
 def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
-    """Two identical short critic fits and two identical A fits from the same inputs."""
+    """Two identical short critic fits and two identical A fits from the same inputs.
+
+    ``--stage critic``: the critic probes only, in ``determinism-critic.json``; the probe
+    checkpoints are reused by a later ``--stage all`` run, which adds the A probes."""
     import torch
 
+    critic_only = _stage(args) == "critic"
     work = Path(args.out) / "determinism"
     work.mkdir(parents=True, exist_ok=True)
-    out = work / "determinism.json"
+    out = work / ("determinism-critic.json" if critic_only else "determinism.json")
     if out.exists():
         return out
     init = Path(args.out) / arm.name / f"seed-{seed}" / "checkpoint-000.pt"
@@ -3110,7 +3181,7 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             critic_outputs[0][key], critic_outputs[1][key]
         )
     adv_outputs = []
-    for repeat in (0, 1):
+    for repeat in () if critic_only else (0, 1):
         target = work / f"advantage-probe-{repeat}.pt"
         if not target.exists():
             command = [
@@ -3134,14 +3205,16 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             command += shlex.split(args.advantage_args or "")
             _run(command, log, int(args.threads))
         adv_outputs.append(torch.load(target, map_location="cpu", weights_only=True))
-    comparisons["advantage:head"] = compare_state_dicts(
-        adv_outputs[0]["state_dict"], adv_outputs[1]["state_dict"]
-    )
+    if not critic_only:
+        comparisons["advantage:head"] = compare_state_dicts(
+            adv_outputs[0]["state_dict"], adv_outputs[1]["state_dict"]
+        )
     report = {
+        "stage": "critic" if critic_only else "all",
         "arm": arm.name,
         "seed": seed,
         "critic_steps": int(args.determinism_steps),
-        "advantage_epochs": int(args.determinism_advantage_epochs),
+        "advantage_epochs": None if critic_only else int(args.determinism_advantage_epochs),
         "threads": int(args.threads),
         "device": str(getattr(args, "device", "cpu")),
         "comparisons": comparisons,
@@ -3187,6 +3260,8 @@ def command_run(args: argparse.Namespace) -> int:
     if args.local and len(seeds) > threshold("local_seeds_max"):
         raise ValueError(f"local runs use at most {threshold('local_seeds_max')} seeds")
     require_calibration_not_trained(args)
+    require_run_inputs(args)
+    stage = _stage(args)
     if getattr(args, "qol_reference_scale", None) is not None:
         from .labor_pretrain_eval import load_qol_reference_scale
 
@@ -3232,7 +3307,10 @@ def command_run(args: argparse.Namespace) -> int:
         # the remaining seeds spend their compute.
         launch([(arm, seeds[0]) for arm in arms])
         gate = seed_gate_report(
-            Path(args.out) / candidate.name / f"seed-{seeds[0]}", candidate, seeds[0]
+            Path(args.out) / candidate.name / f"seed-{seeds[0]}",
+            candidate,
+            seeds[0],
+            evidence_name(stage),
         )
         rest = [(arm, seed) for seed in seeds[1:] for arm in arms]
         if gate["tripped"]:
@@ -3251,7 +3329,7 @@ def command_run(args: argparse.Namespace) -> int:
     evidence_paths = []
     for arm, seed in jobs:
         work = Path(args.out) / arm.name / f"seed-{seed}"
-        path = work / "evidence.json"
+        path = work / evidence_name(stage)
         if not path.exists():
             stub = abort_evidence(work, arm, seed)
             if stub is not None:
@@ -3267,8 +3345,10 @@ def command_run(args: argparse.Namespace) -> int:
         determinism=determinism_path,
         attempt_id=args.attempt_id,
         trajectory_baseline=getattr(args, "trajectory_baseline", None),
-        out=Path(args.out) / "gate-receipt.json",
+        out=Path(args.out) / ("critic-receipt.json" if stage == "critic" else "gate-receipt.json"),
         configuration={
+            # "critic": V fits and their evaluation only; the A fit and gate (d) deferred.
+            "stage": stage,
             "arms": [a.state_dict() for a in arms],
             "seeds": seeds,
             "batch_size": args.batch_size,
@@ -3291,8 +3371,11 @@ def command_run(args: argparse.Namespace) -> int:
                 if len(args.calibration_data) == 1
                 else [str(p) for p in args.calibration_data]
             ),
-            "fit_payloads": [str(p) for p in args.fit_payloads],
-            "reserved_payloads": [str(p) for p in args.reserved_payloads],
+            "fit_payloads": [str(p) for p in args.fit_payloads or []],
+            "reserved_payloads": [str(p) for p in args.reserved_payloads or []],
+            "gap_fit_data": None
+            if not getattr(args, "gap_fit_data", None)
+            else [str(p) for p in args.gap_fit_data],
             "control_report": None if args.control_report is None else str(args.control_report),
             "control_report_sha256": file_sha256(args.control_report),
             # QoL gate v2: the reference-scale artifact (absent: the frozen 43.152).
@@ -3323,7 +3406,9 @@ def command_run(args: argparse.Namespace) -> int:
     return command_receipt(receipt_args)
 
 
-def seed_gate_report(work: Path, arm: ArmSpec, seed: int) -> dict[str, Any]:
+def seed_gate_report(
+    work: Path, arm: ArmSpec, seed: int, evidence_file: str = "evidence.json"
+) -> dict[str, Any]:
     """Seed gate: does the candidate's first seed end in StabilityAbort or a stability FAIL?
 
     Evidence: the ``*.stability-abort.json`` receipts (an abort, live early stop included) or,
@@ -3353,7 +3438,7 @@ def seed_gate_report(work: Path, arm: ArmSpec, seed: int) -> dict[str, Any]:
     if aborted:
         report.update(tripped=True, reason="stability-abort", evidence=aborted)
         return report
-    path = work / "evidence.json"
+    path = work / evidence_file
     if not path.exists():
         report["reason"] = "no-evidence (fit failed for a non-stability reason or is missing)"
         return report
@@ -3403,6 +3488,11 @@ def command_receipt(args: argparse.Namespace) -> int:
         attempt_id=args.attempt_id,
         trajectory_baseline=trajectory_baseline,
     )
+    if configuration.get("stage") == "critic":
+        receipt["critic_stage"] = critic_stage_summary(receipt)
+        receipt["receipt_digest"] = json_digest(
+            {k: v for k, v in receipt.items() if k != "receipt_digest"}
+        )
     seed_gate = configuration.get("seed_gate")
     if isinstance(seed_gate, Mapping) and seed_gate.get("tripped"):
         # The candidate's first seed failed stability: the remaining seeds were not run.
@@ -3451,7 +3541,94 @@ def command_receipt(args: argparse.Namespace) -> int:
     return 0
 
 
+# Checks a critic-stage receipt cannot judge: they read the A head, its fit or its
+# stability, or the determinism of the A probe. They HOLD in the receipt and the
+# critic-stage summary lists them as deferred, never as PASS.
+CRITIC_STAGE_DEFERRED_PREFIXES = (
+    "stability:advantage",
+    "qol:a:",
+    "a:",
+    "gap:advantage:",
+    "determinism:advantage:",
+)
+
+
+def critic_stage_deferred(check_id: str) -> bool:
+    return any(str(check_id).startswith(p) for p in CRITIC_STAGE_DEFERRED_PREFIXES)
+
+
+def critic_stage_summary(receipt: Mapping[str, Any]) -> dict[str, Any]:
+    """The V-only verdict of a ``--stage critic`` receipt (non-final).
+
+    Per arm: the seed-rule status of every primary check except the A-dependent ones
+    (``CRITIC_STAGE_DEFERRED_PREFIXES``) plus seed coverage; the determinism checks of the
+    critic probes; the arm comparison. The machine verdict of the receipt itself stays HOLD
+    (the A checks have no evidence) until ``--stage all`` writes gate-receipt.json."""
+    arms: dict[str, Any] = {}
+    for name, report in (receipt.get("arms") or {}).items():
+        gate = report.get(GATE_ID) or {}
+        rows = gate.get("checks") or []
+        judged = [r for r in rows if not critic_stage_deferred(r["id"])]
+        arms[name] = {
+            "status": combine([r["status"] for r in judged] + [gate.get("seed_coverage", "HOLD")]),
+            "seed_coverage": gate.get("seed_coverage"),
+            "per_seed_status": {
+                seed: combine(
+                    [
+                        (r["per_seed"].get(seed) or {}).get("status", "HOLD")
+                        for r in judged
+                    ]
+                )
+                for seed in sorted({s for r in judged for s in r["per_seed"]})
+            },
+            "not_passing": [
+                {"id": r["id"], "status": r["status"], "spread": r.get("spread")}
+                for r in judged
+                if r["status"] != "PASS"
+            ],
+            "deferred": sorted(r["id"] for r in rows if critic_stage_deferred(r["id"])),
+        }
+    determinism = [
+        r
+        for r in (receipt.get("determinism") or {}).get("checks") or []
+        if not critic_stage_deferred(r["id"])
+    ]
+    candidate = (receipt.get("verdict_basis") or {}).get("candidate_arm")
+    comparison = combine(
+        [
+            c["status"]
+            for n, c in (receipt.get("arm_comparisons") or {}).items()
+            if candidate and n.startswith(f"{candidate}-vs-")
+        ]
+    )
+    status = combine(
+        [
+            (arms.get(candidate) or {}).get("status", "HOLD"),
+            combine([r["status"] for r in determinism]),
+            comparison,
+        ]
+    )
+    return {
+        "stage": "critic",
+        "final": False,
+        "note": "V-only verdict; the A fit and gate (d) (same-state A ranking on the reserved "
+        "worlds) are deferred until search payloads exist (--stage all)",
+        "candidate_arm": candidate,
+        "status": status,
+        "arms": arms,
+        "determinism": {
+            "status": combine([r["status"] for r in determinism]),
+            "checks": [r["id"] for r in determinism],
+        },
+        "arm_comparison": comparison,
+    }
+
+
 def command_evaluate(args: argparse.Namespace) -> int:
+    if _stage(args) == "all" and (args.advantage is None or not args.reserved_payloads):
+        raise ValueError("evaluate needs --advantage and --reserved-payloads (or --stage critic)")
+    if _stage(args) == "critic" and (args.advantage is not None or args.reserved_payloads):
+        raise ValueError("--stage critic evaluates the V critic only: no --advantage/payloads")
     control = None
     if args.control_report is not None:
         control = json.loads(Path(args.control_report).read_text(encoding="utf-8"))
@@ -3615,6 +3792,12 @@ def _fmt(value: Any, digits: int = 3) -> str:
 
 def summarize(receipt: Mapping[str, Any]) -> str:
     lines = [f"{receipt['gate_id']} attempt {receipt['attempt_id']}: {receipt['machine_verdict']}"]
+    if receipt.get("critic_stage"):
+        stage = receipt["critic_stage"]
+        lines.append(
+            f"  critic stage (V only, non-final; A deferred): {stage['status']} "
+            + " ".join(f"{n}={a['status']}" for n, a in stage["arms"].items())
+        )
     for key, value in receipt["verdict_basis"].items():
         if key != "secondary_gate_note":
             lines.append(f"  {key}: {value}")
@@ -3671,7 +3854,13 @@ def argument_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--arm", required=True)
     evaluate.add_argument("--seed", type=int, required=True)
     evaluate.add_argument("--checkpoint", type=Path, required=True)
-    evaluate.add_argument("--advantage", type=Path, required=True)
+    evaluate.add_argument(
+        "--stage",
+        choices=STAGES,
+        default="all",
+        help="critic: V evidence only (no --advantage/--reserved-payloads; A checks HOLD)",
+    )
+    evaluate.add_argument("--advantage", type=Path, default=None)
     evaluate.add_argument(
         "--calibration-data",
         type=Path,
@@ -3686,7 +3875,7 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="teacher fitting dataset(s) for the generalisation gap; several are read as one",
     )
-    evaluate.add_argument("--reserved-payloads", type=Path, nargs="+", required=True)
+    evaluate.add_argument("--reserved-payloads", type=Path, nargs="+", default=None)
     evaluate.add_argument(
         "--control-report",
         type=Path,
@@ -3808,15 +3997,35 @@ def argument_parser() -> argparse.ArgumentParser:
         "--fit-payloads",
         type=Path,
         nargs="+",
-        required=True,
-        help="search candidate payloads from fitting worlds (A pairs)",
+        default=None,
+        help="search candidate payloads from fitting worlds (A pairs); required by --stage all",
     )
     run.add_argument(
         "--reserved-payloads",
         type=Path,
         nargs="+",
-        required=True,
-        help="held-out-test candidate payloads of reserved worlds 90154-90159",
+        default=None,
+        help="held-out-test candidate payloads of reserved worlds 90154-90159; required by "
+        "--stage all",
+    )
+    run.add_argument(
+        "--stage",
+        choices=STAGES,
+        default="all",
+        help="all: V fit, A fit, evaluate, gate-receipt.json. critic: V fits, their per-epoch "
+        "validation, the critic determinism probe and the V evaluation (relative ordering, "
+        "TD(0), calibration) without search payloads -> evidence-critic.json and "
+        "critic-receipt.json (A checks HOLD as deferred); a later --stage all in the same "
+        "--out continues at the A fit",
+    )
+    run.add_argument(
+        "--gap-fit-data",
+        type=Path,
+        nargs="+",
+        default=None,
+        help="fitting directories (a subset of --fit-data) the evaluation reads for the "
+        "generalisation gap; default every --fit-data directory (bounds evaluate's host "
+        "memory on small hosts)",
     )
     run.add_argument("--control-report", type=Path, default=None)
     run.add_argument(

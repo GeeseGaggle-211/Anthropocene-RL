@@ -1467,6 +1467,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         inactive_role_weight=getattr(args, "inactive_role_weight", 0.0),
         label_smoothing=getattr(args, "label_smoothing", 1e-6),
         inverse_freq_power=getattr(args, "inverse_freq_power", 0.5),
+        **_bc_lr_schedule_kwargs(args),
         **_bc_stability_kwargs(args, task, costs),
         **(
             {"family_schedule": schedule}
@@ -1508,6 +1509,22 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         trainer_state, state, "actor", bc_summary.get("family_weight_schedule")
     )
     _save_checkpoint(args.out, trainer_state)
+
+
+def _bc_lr_schedule_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    """``--lr-schedule``: absent or constant keeps the historical fixed --lr (no kwarg)."""
+    kind = getattr(args, "lr_schedule", None) or "constant"
+    if kind == "constant":
+        return {}
+    schedule: dict[str, Any] = {
+        "kind": kind,
+        "warmup_fraction": float(args.lr_warmup_fraction),
+        "final_fraction": float(args.lr_final_fraction),
+        "start_step": int(args.lr_schedule_start_step),
+    }
+    if getattr(args, "lr_schedule_total_steps", None) is not None:
+        schedule["total_steps"] = int(args.lr_schedule_total_steps)
+    return {"lr_schedule": schedule}
 
 
 def _bc_stability_kwargs(args: argparse.Namespace, task: Any, costs: Any) -> dict[str, Any]:
@@ -2466,6 +2483,28 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_bc.add_argument("--epochs", type=int, default=25)
     pretrain_bc.add_argument("--batch-size", type=int, default=64)
     pretrain_bc.add_argument("--lr", type=float, default=1e-3)
+    pretrain_bc.add_argument(
+        "--lr-schedule",
+        choices=("constant", "warmup-cosine"),
+        default="constant",
+        help="warmup-cosine (brief section 5.1): --lr is the peak; linear warm-up over "
+        "--lr-warmup-fraction of the program, cosine decay to --lr-final-fraction of the peak. "
+        "constant (default) keeps the historical fixed --lr",
+    )
+    pretrain_bc.add_argument("--lr-warmup-fraction", type=float, default=0.1)
+    pretrain_bc.add_argument("--lr-final-fraction", type=float, default=0.1)
+    pretrain_bc.add_argument(
+        "--lr-schedule-total-steps",
+        type=int,
+        default=None,
+        help="optimizer steps of the whole schedule (default: this fit's epochs x steps/epoch)",
+    )
+    pretrain_bc.add_argument(
+        "--lr-schedule-start-step",
+        type=int,
+        default=0,
+        help="global step this fit starts at (a resumed fit or a later round continues it)",
+    )
     pretrain_bc.add_argument("--target-log-std", type=float, default=-2.0)
     pretrain_bc.add_argument("--max-grad-norm", type=float, default=1.0)
     pretrain_bc.add_argument("--inactive-role-weight", type=float, default=0.0)

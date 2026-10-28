@@ -464,3 +464,62 @@ def test_resume_refuses_undeclared_directories(tmp_path, monkeypatch) -> None:
     (out / "world-99999").mkdir()
     with pytest.raises(ProvenanceError, match="undeclared"):
         labor_search.run_search_jobs(out, source, _jobs(out, source), resume=True)
+
+
+# ---------------------------------------------------------------------------
+# --plan-fraction: plans on a keyed share of roots
+# ---------------------------------------------------------------------------
+
+
+def test_plan_fraction_default_keeps_every_root_and_the_source_record() -> None:
+    from anthropocene_rl.autonomous_v7.labor_search import is_plan_root
+
+    config = SearchConfig(candidates=16, plan_candidates=2)
+    assert config.plan_fraction == 1.0
+    assert "plan_fraction" not in config.state_dict()  # historical records unchanged
+    assert all(is_plan_root([90100, 0, t, 7], 1.0) for t in range(50))
+    assert not any(is_plan_root([90100, 0, t, 7], 0.0) for t in range(50))
+    narrowed = SearchConfig(candidates=16, plan_candidates=2, plan_fraction=0.25)
+    assert narrowed.state_dict()["plan_fraction"] == 0.25
+    assert SearchConfig.from_mapping(narrowed.state_dict()) == narrowed
+    with pytest.raises(ValueError, match="plan fraction"):
+        SearchConfig(candidates=16, plan_candidates=2, plan_fraction=1.5)
+    args = labor_search.argument_parser().parse_args(
+        ["--normalizer-checkpoint", "n", "--worlds", "90100", "--out", "o",
+         "--plan-fraction", "0.25"]
+    )
+    assert args.plan_fraction == 0.25
+
+
+def test_plan_root_draw_is_keyed_and_independent_of_controls() -> None:
+    from anthropocene_rl.autonomous_v7.labor_search import is_control_root, is_plan_root
+
+    keys = [[w, 0, t, c] for w in (90100, 90101) for t in range(50) for c in (3, 7)]
+    plan = [is_plan_root(k, 0.25) for k in keys]
+    assert plan == [is_plan_root(k, 0.25) for k in keys]  # deterministic
+    assert 0.15 < sum(plan) / len(plan) < 0.35
+    control = [is_control_root(k, 0.25) for k in keys]
+    assert plan != control  # a separate keyed stream, not the control roots
+
+
+def test_search_root_plans_only_on_plan_roots() -> None:
+    from anthropocene_rl.autonomous_v7.labor_search import is_plan_root
+
+    config = SearchConfig(
+        candidates=10, actor_samples=0, horizons=(1, 2), keep=("all", "2"),
+        plan_candidates=2, plan_steps=3, reeval_streams=2, plan_fraction=0.5,
+    )
+    seen = {True: 0, False: 0}
+    for index in range(8):
+        key = [90100, 0, 4 + index, FOCAL]
+        _, result, _, _ = _plan_root(config, root_index=index)
+        record = result.payload_root["record"]
+        plan_rows = [c for c in record["candidates"] if c.get("plan_role")]
+        singles = [c for c in record["candidates"] if not c.get("plan_role")]
+        assert len(singles) <= config.single_budget  # same single budget on every root
+        expected = is_plan_root(key, 0.5)
+        seen[expected] += 1
+        assert record["plan_candidates"] == (2 if expected else 0)
+        assert len(plan_rows) == (4 if expected else 0)
+        assert (record["plan_horizon"] is not None) == expected
+    assert seen[True] and seen[False]

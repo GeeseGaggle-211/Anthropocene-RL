@@ -18,14 +18,25 @@
 #                     they keep their own source mass.
 #   CAL_DATA          r5 calibration dataset dir(s) (90180-90199), e.g. the batches
 #                     cal8-b01..b03; same list syntax, read as one dataset
-#   FIT_PAYLOADS      search candidate payload dir(s) of fitting worlds (A pairs)
-#   RESERVED_PAYLOADS held-out-test payload dir(s) of reserved worlds 90154-90159
+#   FIT_PAYLOADS      search candidate payload dir(s) of fitting worlds (A pairs); not used
+#                     (and not required) with STAGE=critic
+#   RESERVED_PAYLOADS held-out-test payload dir(s) of reserved worlds 90154-90159; not used
+#                     (and not required) with STAGE=critic
 # Every list variable (FIT_DATA, CAL_DATA, FIT_PAYLOADS, RESERVED_PAYLOADS) is space- or
 # colon-separated; paths must not contain spaces or colons.
 #   CONTROL_REPORT    critic3 critic-calibration JSON on 90180-90199 (other-head control)
 #   OUT               output directory (gate-receipt.json lands here)
 #   ATTEMPT_ID        receipt attempt id (new id for every corrected attempt)
 # Optional:
+#   STAGE=all         critic: V fits (seed gate, per-epoch validation, early stop), the critic
+#                     determinism probe and the V evaluation (relative ordering, TD(0),
+#                     calibration) without search payloads -> <arm>/seed-<s>/evidence-critic.json
+#                     and critic-receipt.json (A checks HOLD as deferred). A later STAGE=all run
+#                     with the same OUT continues at the A fit (critics are not refitted).
+#   GAP_FIT_DATA      fitting dirs (a subset of FIT_DATA) evaluate reads for the generalisation
+#                     gap; default all of FIT_DATA (bounds evaluate's host memory)
+#   LR=3e-4  INIT_ARGS="..."  CRITIC_ARGS="..."  ADVANTAGE_ARGS="..."  (run --lr/--init-args/
+#                     --critic-args/--advantage-args, quoted as one argument each)
 #   SEEDS=0,1,2,3,4  ARMS=privileged-e4:privileged:4:candidate,control-e4:plain:4:control
 #   JOBS=4 THREADS=14 (4 fits x 14 threads on the 60-core VM)  SEED_RULE=mean-with-floor
 #   ADVANTAGE_EPOCHS=50  RESUME_EVERY=100  DETERMINISM_STEPS=50  PYTHON=python3
@@ -53,7 +64,9 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${NORMALIZER:?}" "${PRIV_NORMALIZER:?}" "${FIT_DATA:?}" "${CAL_DATA:?}"
-: "${FIT_PAYLOADS:?}" "${RESERVED_PAYLOADS:?}" "${OUT:?}" "${ATTEMPT_ID:?}"
+: "${OUT:?}" "${ATTEMPT_ID:?}"
+STAGE="${STAGE:-all}"
+if [ "$STAGE" = "all" ]; then : "${FIT_PAYLOADS:?}" "${RESERVED_PAYLOADS:?}"; fi
 PYTHON="${PYTHON:-python3}"
 SEEDS="${SEEDS:-0,1,2,3,4}"
 ARMS="${ARMS:-privileged-e4:privileged:4:candidate,control-e4:plain:4:control}"
@@ -81,8 +94,10 @@ mkdir -p "$OUT"
 split_list() { local value="${1//:/ }"; read -r -a "$2" <<<"$value"; }
 split_list "$FIT_DATA" fit_data
 split_list "$CAL_DATA" cal_data
-split_list "$FIT_PAYLOADS" fit_payloads
-split_list "$RESERVED_PAYLOADS" reserved_payloads
+fit_payloads=(); reserved_payloads=(); gap_fit_data=()
+if [ -n "${FIT_PAYLOADS:-}" ]; then split_list "$FIT_PAYLOADS" fit_payloads; fi
+if [ -n "${RESERVED_PAYLOADS:-}" ]; then split_list "$RESERVED_PAYLOADS" reserved_payloads; fi
+if [ -n "${GAP_FIT_DATA:-}" ]; then split_list "$GAP_FIT_DATA" gap_fit_data; fi
 # CUDA fits: torch 2.14's torch._native Triton kernels need a C compiler the GPU VM lacks;
 # this switch (read once at `import torch`, inherited by every fit subprocess) keeps them
 # unregistered. Harmless on CPU. labor_device.configure refuses CUDA without it.
@@ -93,14 +108,20 @@ args=(
   --privileged-normalizer "$PRIV_NORMALIZER"
   --fit-data "${fit_data[@]}"
   --calibration-data "${cal_data[@]}"
-  --fit-payloads "${fit_payloads[@]}"
-  --reserved-payloads "${reserved_payloads[@]}"
+  --stage "$STAGE"
   --arms "$ARMS" --seeds "$SEEDS" --seed-rule "$SEED_RULE"
   --advantage-epochs "$ADVANTAGE_EPOCHS" --resume-every "$RESUME_EVERY"
   --determinism-steps "$DETERMINISM_STEPS"
   --jobs "$JOBS" --threads "$THREADS" --device "$DEVICE"
   --attempt-id "$ATTEMPT_ID" --out "$OUT"
 )
+if [ "${#fit_payloads[@]}" -gt 0 ]; then args+=(--fit-payloads "${fit_payloads[@]}"); fi
+if [ "${#reserved_payloads[@]}" -gt 0 ]; then args+=(--reserved-payloads "${reserved_payloads[@]}"); fi
+if [ "${#gap_fit_data[@]}" -gt 0 ]; then args+=(--gap-fit-data "${gap_fit_data[@]}"); fi
+if [ -n "${LR:-}" ]; then args+=(--lr "$LR"); fi
+if [ -n "${INIT_ARGS:-}" ]; then args+=(--init-args "$INIT_ARGS"); fi
+if [ -n "${CRITIC_ARGS:-}" ]; then args+=(--critic-args "$CRITIC_ARGS"); fi
+if [ -n "${ADVANTAGE_ARGS:-}" ]; then args+=(--advantage-args "$ADVANTAGE_ARGS"); fi
 if [ -n "${CONTROL_REPORT:-}" ]; then args+=(--control-report "$CONTROL_REPORT"); fi
 if [ "$CONTINUATIONS" = "1" ]; then args+=(--learner-state-continuations); fi
 if [ "$SCENARIOS" = "1" ]; then args+=(--curated-scenarios); fi
@@ -115,8 +136,9 @@ if [ -n "${QOL_REFERENCE_SCALE:-}" ]; then args+=(--qol-reference-scale "$QOL_RE
 # shellcheck disable=SC2206
 if [ -n "${EXTRA:-}" ]; then args+=($EXTRA); fi
 
-echo "[r5-acceptance] $(date -u +%FT%TZ) start attempt=$ATTEMPT_ID arms=$ARMS seeds=$SEEDS jobs=$JOBS threads=$THREADS device=$DEVICE early_stop=$EARLY_STOP critic_validation=$CRITIC_VALIDATION seed_gate=$SEED_GATE"
+echo "[r5-acceptance] $(date -u +%FT%TZ) start stage=$STAGE attempt=$ATTEMPT_ID arms=$ARMS seeds=$SEEDS jobs=$JOBS threads=$THREADS device=$DEVICE early_stop=$EARLY_STOP critic_validation=$CRITIC_VALIDATION seed_gate=$SEED_GATE"
 "$PYTHON" -m anthropocene_rl.autonomous_v7.labor_r5_acceptance run "${args[@]}" 2>&1 | tee -a "$OUT/driver.log"
 status=${PIPESTATUS[0]}
-echo "[r5-acceptance] $(date -u +%FT%TZ) done status=$status receipt=$OUT/gate-receipt.json"
+receipt="$OUT/gate-receipt.json"; [ "$STAGE" = "critic" ] && receipt="$OUT/critic-receipt.json"
+echo "[r5-acceptance] $(date -u +%FT%TZ) done status=$status receipt=$receipt"
 exit "$status"

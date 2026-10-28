@@ -2377,6 +2377,28 @@ def _evaluate_dataset(
     )
 
 
+LR_SCHEDULES = ("constant", "warmup-cosine")
+
+
+def lr_schedule_factor(
+    step: int, total_steps: int, warmup_fraction: float = 0.1, final_fraction: float = 0.1
+) -> float:
+    """Brief section 5.1 actor schedule: linear warm-up over the first ``warmup_fraction`` of
+    ``total_steps`` (to the peak at the last warm-up step), then cosine decay to
+    ``final_fraction`` of the peak at ``total_steps``; constant at that floor afterwards.
+
+    ``step`` is the 0-based global optimizer step of the whole program (rounds and resumed
+    fits continue it); the factor multiplies the peak learning rate."""
+    total = max(1, int(total_steps))
+    warmup = max(1, math.ceil(float(warmup_fraction) * total)) if warmup_fraction > 0 else 0
+    if step < warmup:
+        return float(step + 1) / float(warmup)
+    progress = min(1.0, float(step - warmup) / float(max(1, total - warmup)))
+    return float(final_fraction) + (1.0 - float(final_fraction)) * 0.5 * (
+        1.0 + math.cos(math.pi * progress)
+    )
+
+
 def pretrain_labor_actor_bc(
     *,
     actor: LaborActor,
@@ -2394,8 +2416,17 @@ def pretrain_labor_actor_bc(
     stability: Any = None,
     frozen_critics: Mapping[str, nn.Module] | None = None,
     family_schedule: Any = None,
+    lr_schedule: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Supervised behavioral cloning on LaborActor using heuristic dataset.
+
+    ``lr_schedule`` (None or kind ``constant``: the historical fixed ``lr``, bit for bit)
+    ``{"kind": "warmup-cosine", "total_steps": T, "warmup_fraction": 0.1,
+    "final_fraction": 0.1, "start_step": s}`` sets every parameter group's rate to
+    ``lr x lr_schedule_factor(s + step, T, ...)`` before each optimizer step, ``lr`` being
+    the peak (brief section 5.1: peak 3e-5, 10% warm-up, cosine to 10%). ``total_steps``
+    defaults to this fit's ``epochs x ceil(rows / batch_size)``; ``start_step`` continues
+    an earlier part of the program (a resumed fit or the next round).
 
     ``family_schedule`` (``labor_scenarios.FamilyWeightSchedule``, with a dataset
     reweighted by ``--family-weights``) decays each family up-weight toward 1 as
@@ -2504,6 +2535,40 @@ def pretrain_labor_actor_bc(
             family_schedule.weights,
         )
 
+    schedule = dict(lr_schedule or {"kind": "constant"})
+    kind = str(schedule.get("kind", "constant"))
+    if kind not in LR_SCHEDULES:
+        raise ValueError(f"lr schedule must be one of {LR_SCHEDULES}")
+    if kind != "constant":
+        schedule.setdefault("total_steps", int(epochs) * steps_per_epoch)
+        schedule.setdefault("warmup_fraction", 0.1)
+        schedule.setdefault("final_fraction", 0.1)
+        schedule.setdefault("start_step", 0)
+        schedule["peak_lr"] = float(lr)
+        if int(schedule["total_steps"]) < 1 or int(schedule["start_step"]) < 0:
+            raise ValueError("lr schedule needs total_steps >= 1 and start_step >= 0")
+        if not 0.0 <= float(schedule["warmup_fraction"]) < 1.0 or not (
+            0.0 <= float(schedule["final_fraction"]) <= 1.0
+        ):
+            raise ValueError("lr schedule fractions out of range")
+    applied_lrs: list[float] = []
+
+    def apply_lr() -> None:
+        if kind == "constant":
+            return
+        rate = float(lr) * lr_schedule_factor(
+            int(schedule["start_step"]) + global_step,
+            int(schedule["total_steps"]),
+            float(schedule["warmup_fraction"]),
+            float(schedule["final_fraction"]),
+        )
+        for group in opt.param_groups:
+            group["lr"] = rate
+        if not applied_lrs or len(applied_lrs) < 2:
+            applied_lrs.append(rate)
+        else:
+            applied_lrs[1] = rate
+
     def schedule_diagnostics() -> dict[str, Any]:
         progress = global_step / steps_per_epoch
         return {
@@ -2535,6 +2600,7 @@ def pretrain_labor_actor_bc(
                 spec_weights=spec_weights,
                 act_weights=act_weights,
             )
+            apply_lr()
             global_step += 1
             if monitor is not None:
                 opt.zero_grad()
@@ -2570,6 +2636,19 @@ def pretrain_labor_actor_bc(
         "inactive_role_weight": float(inactive_role_weight),
         "label_smoothing": float(label_smoothing),
         "inverse_freq_power": float(inverse_freq_power),
+        **(
+            {}
+            if kind == "constant"
+            else {
+                "lr_schedule": {
+                    **schedule,
+                    "steps_this_fit": int(global_step),
+                    "end_step": int(schedule["start_step"]) + int(global_step),
+                    "first_lr": applied_lrs[0] if applied_lrs else None,
+                    "last_lr": applied_lrs[-1] if applied_lrs else None,
+                }
+            }
+        ),
         "collection": copy.deepcopy(dataset.get("collection", {})),
         **({} if monitor is None else {"stability": monitor.finish()}),
         **(

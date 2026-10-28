@@ -157,6 +157,7 @@ CAND_TAG = 0x5343  # "SC": candidate family shuffles
 ACTOR_TAG = 0x5341  # "SA": actor samples
 DITHER_TAG = 0x5344  # "SD": continuation dither
 CONTROL_TAG = 0x5343 + 0x100  # control-root draw
+PLAN_ROOT_TAG = 0x5350 + 0x100  # plan-root draw (--plan-fraction)
 REEVAL_SCOPES = ("final-survivors", "winners")
 
 TRADE_SET = [name for name, _, _ in contracts.SETS].index("trade")
@@ -258,6 +259,9 @@ class SearchConfig:
     # toward ``candidates`` (M); they never enter halving or the label decision.
     plan_candidates: int = 0
     plan_steps: int = 3
+    # Keyed share of roots that carry the T2 plans (1.0: every root, the historical
+    # behaviour). Single-step candidates stay ``single_budget`` on every root.
+    plan_fraction: float = 1.0
 
     def __post_init__(self) -> None:
         if self.candidates < 2:
@@ -284,6 +288,8 @@ class SearchConfig:
             raise ValueError("control fraction must be in [0, 1]")
         if self.ranker_top < 1 or not 0.0 <= self.ranker_full_fraction <= 1.0:
             raise ValueError("ranker top must be positive and its full fraction in [0, 1]")
+        if not 0.0 <= self.plan_fraction <= 1.0:
+            raise ValueError("plan fraction must be in [0, 1]")
         if self.plan_candidates < 0 or self.plan_steps < 1:
             raise ValueError("plan candidates must be non-negative and plan steps positive")
         if self.plan_candidates and self.candidates - 2 * self.plan_candidates < 2:
@@ -340,6 +346,9 @@ class SearchConfig:
             "control_fraction": self.control_fraction,
             "plan_candidates": self.plan_candidates,
             "plan_steps": self.plan_steps,
+            # Recorded only when it narrows the plan roots, so every historical source
+            # record (and its --resume identity) is unchanged.
+            **({} if self.plan_fraction == 1.0 else {"plan_fraction": self.plan_fraction}),
         }
 
     @classmethod
@@ -673,6 +682,13 @@ def control_candidates(h12: Mapping[str, Any], catalog: LaborCatalog) -> list[Ca
 
 def is_control_root(key: Sequence[int], fraction: float) -> bool:
     return bool(np.random.default_rng([CONTROL_TAG, *[int(k) for k in key]]).random() < fraction)
+
+
+def is_plan_root(key: Sequence[int], fraction: float) -> bool:
+    """Keyed T2 plan-root draw (independent of the control draw); 1.0 is every root."""
+    if fraction >= 1.0:
+        return True
+    return bool(np.random.default_rng([PLAN_ROOT_TAG, *[int(k) for k in key]]).random() < fraction)
 
 
 def transfer_amounts(population: int) -> list[int]:
@@ -1983,7 +1999,9 @@ def search_root(
     for spec in plan_specs(
         h12.action,
         catalog,
-        count=len(PLAN_TEMPLATES) if config.plan_candidates else 0,
+        count=len(PLAN_TEMPLATES)
+        if config.plan_candidates and is_plan_root(key, config.plan_fraction)
+        else 0,
         steps=config.plan_steps,
         key=key,
         unavailable=plan_unavailable,
@@ -3198,6 +3216,13 @@ def argument_parser() -> argparse.ArgumentParser:
         "control row, both counted in --candidates; 0 disables",
     )
     parser.add_argument(
+        "--plan-fraction",
+        type=float,
+        default=1.0,
+        help="keyed share of roots that carry the T2 plans (default 1.0: every root); the "
+        "single-step budget M - 2N is the same on every root",
+    )
+    parser.add_argument(
         "--plan-steps",
         type=int,
         default=3,
@@ -3298,6 +3323,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         control_fraction=args.control_fraction,
         plan_candidates=args.plan_candidates,
         plan_steps=args.plan_steps,
+        plan_fraction=args.plan_fraction,
     )
     reset = LaborResetOptions(
         players=args.players,
