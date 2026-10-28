@@ -1069,7 +1069,8 @@ def qol_reference_scale_record(
         return_tail_method,
     )
 
-    returns = discounted_returns(dataset)["qol_years"].double().numpy()
+    all_returns = discounted_returns(dataset)
+    returns = all_returns["qol_years"].double().numpy()
     quarantined = _np(dataset, "row_quarantined").reshape(-1).astype(bool)
     available = critic_target_available(dataset).numpy().astype(bool)
     keep = ~quarantined & available
@@ -1108,6 +1109,15 @@ def qol_reference_scale_record(
         "worlds": sorted({int(w) for w in worlds[keep].tolist()}),
         "return_tail": method,
         "previous": {"value": FROZEN_QOL_REFERENCE_SCALE, "source": "frozen-g0"},
+        # Informational only (28 Oct): the r5 equivalent of the frozen population scale;
+        # it is never used as a unit.
+        "population_years": {
+            "informational": True,
+            "value": float(np.std(all_returns["population_years"].double().numpy()[keep])),
+            "mean": float(np.mean(all_returns["population_years"].double().numpy()[keep])),
+            "frozen": POPULATION_REFERENCE_SCALE_PROVENANCE["value"],
+            "frozen_provenance": POPULATION_REFERENCE_SCALE_PROVENANCE,
+        },
         "diagnostics": diagnostics,
         "datasets": list(datasets),
     }
@@ -1155,8 +1165,12 @@ def qol_nstep_calibration(
     k: int = QOL_NSTEP_K,
     world_factors: Mapping[int, float | None] | None = None,
     weight: float | None = None,
+    head: str = "qol_years",
 ) -> dict[str, Any]:
     """The QoL calibration gate's metrics against the n-step target (``QOL_GATE_TARGET``).
+
+    ``head`` selects the reward and tail arrays (``reward_<head>``, ``tail_value__<head>``);
+    other heads use it through :func:`population_nstep_diagnostic` (non-gating).
 
     ``values``: the critic's decoded QoL value on EVERY dataset row (bootstraps may sit on
     any row). ``rows``: the admitted rows; ``strata`` masks over ``rows``;
@@ -1190,7 +1204,7 @@ def qol_nstep_calibration(
     codes = _np(dataset, TAIL_METHOD_FIELD).reshape(-1) if randomized else None
     result = nstep_targets(
         values,
-        _np(dataset, "reward_qol_years").reshape(-1),
+        _np(dataset, f"reward_{head}").reshape(-1),
         elapsed_years(dataset).reshape(-1).double().numpy(),
         _np(dataset, "transition_terminal").reshape(-1),
         _np(dataset, "row_turn").reshape(-1),
@@ -1199,7 +1213,7 @@ def qol_nstep_calibration(
         _np(dataset, TRAJECTORY_FIELD).reshape(-1)
         if TRAJECTORY_FIELD in dataset
         else np.full(n, -1),
-        _np(dataset, TAIL_VALUE_PREFIX + "qol_years").reshape(-1) if randomized else None,
+        _np(dataset, TAIL_VALUE_PREFIX + head).reshape(-1) if randomized else None,
         None if codes is None else np.isin(codes, (TAIL_TERMINAL_EXACT, TAIL_RANDOMIZED)),
         k=k,
         discount_years=CRITIC_DISCOUNT_YEARS,
@@ -1214,8 +1228,13 @@ def qol_nstep_calibration(
     # Tail weight of each admitted row in its Monte Carlo target (as qol_tail_weight).
     from .labor_advantage import qol_tail_terms
 
-    terms = qol_tail_terms(dataset, 1.0)
-    part = (terms["coefficient"].numpy() * terms["tail"].numpy())[rows]
+    terms = qol_tail_terms(dataset, 1.0)  # discount coefficients are head-independent
+    head_tail = (
+        _np(dataset, TAIL_VALUE_PREFIX + head).reshape(-1).astype(np.float64)
+        if randomized
+        else np.zeros(n)
+    )
+    part = (terms["coefficient"].numpy() * head_tail)[rows]
     has_tail = terms["has_tail"].numpy()[rows]
     mc_rows = np.asarray(monte_carlo, dtype=np.float64)
     tail_weight = np.where(
@@ -1328,6 +1347,190 @@ def qol_nstep_calibration(
     }
 
 
+# Provenance of the frozen population-years reference scale (item 3 of the 28 Oct
+# population diagnostics). Informational; the frozen value stays the model's unit.
+POPULATION_REFERENCE_SCALE_PROVENANCE = {
+    "value": 85133.98,
+    "defined_at": "src/anthropocene_rl/autonomous_v7/contracts.py:28-40 "
+    "(OBJECTIVE_REFERENCE_SCALES['population_years']), re-exported as "
+    "labor_model.LABOR_OBJECTIVE_REFERENCE_SCALES (labor_model.py:74-77)",
+    "measured_by": "scale_reference.py (full_window_std)",
+    "data": "native heuristic (no actions), TRAIN seeds 1000-1059, 45-turn rollouts, rows "
+    "with at least 20 later turns (the first 25 turns, 37,085 decision rows), Small world, "
+    "model9 bridge on native contract 12, simulator f06e3be (21 October 2026)",
+    "era": "Round 3 (pre-labor-actor, pre-r5): heuristic discounted (400 y) population-years "
+    "return per decision over a full 400-year-equivalent window; mean 172,285 person-years",
+    "previous": "first build (25-turn rollouts, all rows, late returns truncated): 50,391",
+}
+
+
+def population_nstep_diagnostic(
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    values: np.ndarray,
+    monte_carlo: np.ndarray,
+    strata: Mapping[str, np.ndarray],
+    scale: float,
+    *,
+    world_factors: Mapping[int, float | None] | None = None,
+    weight: float | None = None,
+) -> dict[str, Any]:
+    """Population-years against the n-step k = 5 bootstrapped target (NON-GATING).
+
+    The same windows, exclusions, tail-weight cut and tail attribution as the QoL gate
+    (:func:`qol_nstep_calibration` with ``head="population_years"``), in the frozen
+    population reference scale. Separates roulette-tail target noise (Monte Carlo metrics
+    and the predicted tail bias) from critic error (n-step metrics, residual bias).
+    """
+    report = qol_nstep_calibration(
+        dataset,
+        rows,
+        values,
+        monte_carlo,
+        strata,
+        {"value": float(scale), "source": "frozen-model-scale"},
+        world_factors=world_factors,
+        weight=weight,
+        head="population_years",
+    )
+    for metrics in report["strata"].values():
+        metrics["bias_role"] = "non-gating diagnostic"
+        metrics["bias_tailcut"]["gating"] = False
+        metrics["bias_tailcut"].pop("target", None)
+    for key in ("target", "targets", "bias_target"):
+        report.pop(key, None)
+    report.update(
+        gating=False,
+        head="population_years",
+        nstep_target=f"nstep-k{QOL_NSTEP_K}-bootstrap (as {QOL_GATE_TARGET_ID})",
+        bias_tailcut_rule=f"Monte Carlo bias on rows with tail weight <= {QOL_BIAS_TAIL_CUT}",
+        reference_scale_provenance=POPULATION_REFERENCE_SCALE_PROVENANCE,
+    )
+    return report
+
+
+def _head_logits(
+    task: Any, dataset: Mapping[str, Any], rows: np.ndarray, head: str, batch_size: int
+) -> torch.Tensor:
+    from .labor_device import module_device, to_device
+    from .labor_model import critic_privileged_batch
+
+    device = module_device(task)
+    tensors = _input_tensors(dataset)
+    out = []
+    with torch.no_grad():
+        for index, batch in _batches(tensors, rows, batch_size):
+            batch = to_device(batch, device)
+            privileged = critic_privileged_batch(task, dataset, index, device=device)
+            out.append(task(batch, privileged)[head].double().cpu())
+    return torch.cat(out) if out else torch.zeros(0)
+
+
+def population_tail_explanation(
+    task: Any,
+    dataset: Mapping[str, Any],
+    rows: np.ndarray,
+    observed_max: float,
+    batch_size: int = 256,
+    *,
+    top: int = 10,
+    alarm: float = 0.01,
+) -> dict[str, Any]:
+    """Where the population head's mass beyond the observed max sits (NON-GATING).
+
+    ``observed_max`` is the largest normalized target G / s of these rows (as
+    ``value_support``; the stability check uses the fitting rows' maximum on its final
+    pass). Per support bin above it: decoded value (reference scales and person-years),
+    mean probability and mean excess contribution (p (v - max)), so the bins carrying
+    ``upper_excess`` are explicit. Per row: how concentrated the excess is (rows above the
+    0.01 alarm level, the share of the total from the top 1% / top ``top`` rows, how many
+    rows carry 50% / 90% of it) and the ``top`` rows by excess with their targets.
+    """
+    from .labor_bc import discounted_returns
+    from .labor_model import LABOR_OBJECTIVE_REFERENCE_SCALES
+
+    rows = np.asarray(rows, dtype=np.int64)
+    scale = LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
+    logits = _head_logits(task, dataset, rows, "population_years", batch_size)
+    report: dict[str, Any] = {
+        "gating": False,
+        "rows": len(rows),
+        "observed_normalized_max": float(observed_max),
+        "observed_max_person_years": float(observed_max) * scale,
+        "alarm_level": alarm,
+    }
+    if not len(rows):
+        return report
+    from .labor_model import symexp
+
+    probabilities = torch.softmax(logits, dim=-1).numpy()
+    values = symexp(task.bins.double()).cpu().numpy()
+    upper = values > float(observed_max)
+    excess_per_bin = probabilities * np.where(upper, values - float(observed_max), 0.0)
+    row_excess = excess_per_bin.sum(axis=1)
+    mean_mass = probabilities.mean(axis=0)
+    mean_excess = excess_per_bin.mean(axis=0)
+    total = float(row_excess.sum())
+    bins = []
+    for b in np.flatnonzero(upper):
+        bins.append(
+            {
+                "bin": int(b),
+                "value_reference_scales": float(values[b]),
+                "value_person_years": float(values[b]) * scale,
+                "mean_mass": float(mean_mass[b]),
+                "mean_excess": float(mean_excess[b]),
+                "excess_share": float(mean_excess[b] * len(rows) / total) if total > 0 else 0.0,
+            }
+        )
+    ordered = np.sort(row_excess)[::-1]
+    cumulative = np.cumsum(ordered) / total if total > 0 else np.zeros_like(ordered)
+    one_percent = max(1, math.ceil(0.01 * len(rows)))
+    targets = discounted_returns(dataset)["population_years"].double().numpy()[rows] / scale
+    preds = (probabilities * values).sum(axis=1)
+    worlds = _np(dataset, "row_world").reshape(-1)[rows]
+    camps = _np(dataset, "row_camp").reshape(-1)[rows]
+    turns = _np(dataset, "row_turn").reshape(-1)[rows]
+    top_rows = []
+    for i in np.argsort(-row_excess, kind="stable")[:top]:
+        top_rows.append(
+            {
+                "world": int(worlds[i]),
+                "camp": int(camps[i]),
+                "turn": int(turns[i]),
+                "upper_excess": float(row_excess[i]),
+                "upper_mass": float((probabilities[i] * upper).sum()),
+                "pred_reference_scales": float(preds[i]),
+                "target_reference_scales": float(targets[i]),
+            }
+        )
+    report.update(
+        upper_excess_mean=float(row_excess.mean()),
+        upper_mass_mean=float((probabilities * upper).sum(axis=1).mean()),
+        support_high_reference_scales=float(values[-1]),
+        bins_above_observed_max=int(upper.sum()),
+        bins=sorted(bins, key=lambda r: -r["mean_excess"])[:top],
+        concentration={
+            "rows_above_alarm": int((row_excess > alarm).sum()),
+            "share_rows_above_alarm": float((row_excess > alarm).mean()),
+            "top_1pct_rows": one_percent,
+            "top_1pct_share": float(cumulative[one_percent - 1]) if total > 0 else 0.0,
+            f"top_{top}_share": float(cumulative[min(top, len(rows)) - 1]) if total > 0 else 0.0,
+            "rows_for_50pct": int(np.searchsorted(cumulative, 0.5) + 1) if total > 0 else 0,
+            "rows_for_90pct": int(np.searchsorted(cumulative, 0.9) + 1) if total > 0 else 0,
+            "row_excess_quantiles": {
+                q: float(np.quantile(row_excess, float(q))) for q in ("0.5", "0.9", "0.99")
+            },
+            "verdict": "concentrated"
+            if total > 0 and np.searchsorted(cumulative, 0.5) + 1 <= max(1, 0.05 * len(rows))
+            else "widespread",
+            "verdict_rule": "concentrated when 5% of rows or fewer carry half the excess",
+        },
+        top_rows=top_rows,
+    )
+    return report
+
+
 def critic_dataset_report(
     task: Any,
     costs: Any,
@@ -1411,14 +1614,18 @@ def critic_dataset_report(
     # rows outside the admitted set get their own forward pass; the admitted rows' values
     # are the ones above, so the Monte Carlo metrics are unchanged.
     qol_nstep = None
+    population_nstep = population_tail = None
     if len(rows):
-        values = np.zeros(int(dataset["row_world"].shape[0]), dtype=np.float64)
+        size = int(dataset["row_world"].shape[0])
+        values = np.zeros(size, dtype=np.float64)
         values[rows] = preds["qol_years"]
+        population = np.zeros(size, dtype=np.float64)
+        population[rows] = preds["population_years"]
         others = np.flatnonzero(~keep)
         if len(others):
-            values[others] = critic_predictions(task, costs, dataset, others, batch_size)[
-                "qol_years"
-            ]
+            extra = critic_predictions(task, costs, dataset, others, batch_size)
+            values[others] = extra["qol_years"]
+            population[others] = extra["population_years"]
         qol_nstep = qol_nstep_calibration(
             dataset,
             rows,
@@ -1429,6 +1636,22 @@ def critic_dataset_report(
             weight=None
             if getattr(task, "qol_head", None) is None
             else task.qol_head.discount_weight,
+        )
+        # Population diagnostics (28 Oct, non-gating): n-step target, tail-cut bias with
+        # tail attribution, and where the head's upper-tail excess sits.
+        population_nstep = population_nstep_diagnostic(
+            dataset,
+            rows,
+            population,
+            returns["population_years"][rows],
+            strata,
+            LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"],
+            world_factors={
+                int(w): f for w, f in qol_nstep["world_factors"].items()
+            },
+        )
+        population_tail = population_tail_explanation(
+            task, dataset, rows, observed_max["population_years"], batch_size
         )
     tail_record: dict[str, Any] = {}
     if return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED and len(rows):
@@ -1449,6 +1672,8 @@ def critic_dataset_report(
     return {
         **tail_record,
         **({} if qol_nstep is None else {"qol_nstep": qol_nstep}),
+        **({} if population_nstep is None else {"population_nstep": population_nstep}),
+        **({} if population_tail is None else {"population_tail_explanation": population_tail}),
         "by_scenario_family": by_family,
         "rows": len(rows),
         "excluded_quarantined_rows": int(quarantined.sum()),
@@ -1609,6 +1834,30 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                 f"bias={_fmt(cut.get('bias'))} ({cut.get('rows')} rows, {cut.get('coverage')}) "
                 f"| non-gating: n-step bias={_fmt(m['bias'])} MC nMAE={_fmt(mc['nmae'])} "
                 f"bias={_fmt(mc['bias'])}"
+            )
+    for label in ("calibration", "fitting"):
+        section = report.get(label) or {}
+        pop = section.get("population_nstep")
+        if pop:
+            for stratum, m in pop["strata"].items():
+                a = m["bias_tailcut"]["attribution"]
+                lines.append(
+                    f"  population (non-gating) [{label}] {stratum:<16} n-step "
+                    f"nMAE={_fmt(m['nmae'])} bias={_fmt(m['bias'])} | MC nMAE="
+                    f"{_fmt(m['monte_carlo']['nmae'])} | tail-cut bias="
+                    f"{_fmt(m['bias_tailcut']['bias'])} factor={_fmt(a['mean_factor'])} "
+                    f"tail={_fmt(a['predicted_tail_bias'])} "
+                    f"residual={_fmt(a['residual_critic_bias'])}"
+                )
+        explanation = section.get("population_tail_explanation")
+        if explanation and "concentration" in explanation:
+            c = explanation["concentration"]
+            lines.append(
+                f"  population tail [{label}] excess={_fmt(explanation['upper_excess_mean'], 4)} "
+                f"max={_fmt(explanation['observed_normalized_max'])} "
+                f"bins>max={explanation['bins_above_observed_max']} "
+                f"rows>{explanation['alarm_level']}={c['rows_above_alarm']} "
+                f"50%-in={c['rows_for_50pct']} rows ({c['verdict']})"
             )
     for label in ("calibration", "fitting"):
         tail = (report.get(label) or {}).get("qol_tail")

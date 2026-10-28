@@ -493,7 +493,27 @@ schedule factor (per-world factors in `qol_nstep.world_factors`), the predicted 
 stored tail is f_w x its expectation, first-order equal to the -tail_weight (f_w - 1) G / scale
 form, which is reported too) and the residual critic bias (observed - predicted). The advisory
 `advisory:qol-bias-tail-attribution` FLAGs when |predicted| > 0.05 or when removing it would flip
-the |bias| <= 0.10 verdict; the gate verdict itself is unchanged. The QoL unit is remeasured on
+the |bias| <= 0.10 verdict; the gate verdict itself is unchanged.
+
+**Population-years diagnostics (28 Oct, non-gating).** Every critic-calibration section (calibration
+and fitting) also carries `population_nstep`: the population head against the same n-step k = 5
+bootstrapped target (its own decoded value, same windows and exclusions), per stratum nMAE/bias, the
+Monte Carlo metrics, and the tail-cut (weight <= 0.5) Monte Carlo bias with the same tail attribution
+(mean factor, predicted tail bias, residual critic bias), in the frozen 85,133.98 unit. Its
+`reference_scale_provenance` records where that unit comes from (contracts.py:28-40, scale_reference.py,
+Round 3 heuristic, TRAIN seeds 1000-1059, Small world, simulator f06e3be); the qol-reference-scale
+artifact adds the r5 equivalent (`population_years`, informational). `population_tail_explanation`
+lists the support bins above the observed normalized maximum with their decoded value (reference
+scales and person-years), mean mass and share of the excess, and how concentrated the per-row excess
+is (rows above 0.01, top 1% / top 10 share, rows carrying 50% / 90%, the 10 largest rows with
+world, camp, turn, prediction and target). The fitting section matches the stability check's rows.
+The acceptance evidence surfaces both as `advisory:population-diagnostics`. On an existing critic:
+
+```bash
+python -m anthropocene_rl.autonomous_v7.labor_pretrain_eval critic-calibration \
+  --checkpoint critic.pt --dataset CAL_b01 CAL_b02 CAL_b03 --fit-dataset FIT_b01 ... FIT_b08 \
+  [--qol-reference-scale scale.json] --out critic-calibration.json
+``` The QoL unit is remeasured on
 r5's own returns: `labor_r5_acceptance qol-reference-scale --fit-data FIT... --out scale.json` (fitting
 worlds only) writes `labor-r5-qol-reference-scale-v1`: the std (ddof 0, unweighted) of the per-row
 Monte Carlo QoL return on the admitted fitting rows, chosen over the n-step target because it needs no

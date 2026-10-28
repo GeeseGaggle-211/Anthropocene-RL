@@ -982,6 +982,7 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
             food_trade_advisory(evidence),
             qol_tail_advisory(evidence),
             qol_bias_tail_attribution_advisory(evidence),
+            population_diagnostics_advisory(evidence),
             *validation_advisories(evidence),
         ],
     }
@@ -1021,6 +1022,43 @@ def qol_bias_tail_attribution_advisory(evidence: Mapping[str, Any]) -> dict[str,
         "world_factors": _get(evidence, "calibration", "calibration", "qol_nstep", "world_factors"),
         "strata": strata,
     }
+
+
+def population_diagnostics_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Non-gating (28 Oct): population-years critic error versus roulette-tail noise.
+
+    From the calibration and fitting reports: per stratum the n-step nMAE/bias, the Monte
+    Carlo nMAE, the tail-cut bias with its tail attribution, and the population_tail
+    explanation (excess by bin, concentration). REPORT, or NOT-APPLICABLE without it."""
+    out: dict[str, Any] = {
+        "check": "advisory:population-diagnostics",
+        "gating": False,
+        "status": "NOT-APPLICABLE",
+    }
+    for label in ("calibration", "fitting"):
+        section = _get(evidence, "calibration", label) or {}
+        pop = section.get("population_nstep")
+        if pop is None:
+            continue
+        out["status"] = "REPORT"
+        out[label] = {
+            "strata": {
+                name: {
+                    "nstep_nmae": m.get("nmae"),
+                    "nstep_bias": m.get("bias"),
+                    "monte_carlo_nmae": _get(m, "monte_carlo", "nmae"),
+                    "monte_carlo_bias": _get(m, "monte_carlo", "bias"),
+                    "tailcut_bias": _get(m, "bias_tailcut", "bias"),
+                    "tailcut_rows": _get(m, "bias_tailcut", "rows"),
+                    "attribution": _get(m, "bias_tailcut", "attribution"),
+                }
+                for name, m in (pop.get("strata") or {}).items()
+            },
+            "world_factors": pop.get("world_factors"),
+            "reference_scale_provenance": pop.get("reference_scale_provenance"),
+            "tail_explanation": section.get("population_tail_explanation"),
+        }
+    return out
 
 
 def qol_tail_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:

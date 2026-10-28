@@ -611,6 +611,18 @@ def test_critic_dataset_report_carries_the_nstep_gate_section() -> None:
     assert report["heads"]["qol_years"]["all"]["scale"] == 43.152
     mc = nstep["strata"]["all"]["monte_carlo"]
     assert mc["nmae"] == pytest.approx(report["heads"]["qol_years"]["all"]["nmae"] * 43.152 / 10.0)
+    # Population diagnostics ride along (non-gating).
+    pop = report["population_nstep"]
+    assert pop["gating"] is False and set(pop["strata"]) == set(nstep["strata"])
+    assert pop["strata"]["all"]["monte_carlo"]["nmae"] == pytest.approx(
+        report["heads"]["population_years"]["all"]["nmae"]
+    )
+    tail = report["population_tail_explanation"]
+    assert tail["gating"] is False and tail["rows"] == report["rows"]
+    assert tail["upper_excess_mean"] == pytest.approx(
+        report["value_support"]["population_years"]["upper_excess"], rel=1e-5, abs=1e-9
+    )
+    assert "concentration" in tail and len(tail["top_rows"]) <= 10
 
 
 def _attribution(factors, offset=0.0):
@@ -667,3 +679,70 @@ def test_an_offset_critic_with_balanced_factors_keeps_its_residual_and_no_flag()
     # Old evidence: not applicable.
     old = {a["check"]: a for a in ra.fit_checks(_evidence())["advisory"]}
     assert old["advisory:qol-bias-tail-attribution"]["status"] == "NOT-APPLICABLE"
+
+
+# --- population-years diagnostics (28 Oct, non-gating) ------------------------------------------
+
+POP_REWARD = 4000.0  # V ~ 0.96 reference scales
+POP_SCALE = 85133.98
+POP_TRUE = POP_REWARD / (1.0 - GAMMA)
+
+
+def _population_worlds(factors, length=45, camps=4):
+    data = _three_worlds(factors, length, camps)
+    n = int(data["row_world"].shape[0])
+    data["reward_population_years"] = torch.full((n,), POP_REWARD, dtype=torch.float64)
+    per_world = dict(zip(range(90100, 90100 + len(factors)), factors, strict=True))
+    data["tail_value__population_years"] = torch.tensor(
+        [per_world[int(w)] * POP_TRUE for w in data["row_world"].tolist()], dtype=torch.float64
+    )
+    return data
+
+
+def _population(factors, offset=0.0):
+    data = _population_worlds(factors)
+    n = int(data["row_world"].shape[0])
+    values = np.full(n, POP_TRUE + offset * POP_SCALE)
+    report = pe.population_nstep_diagnostic(
+        data,
+        np.arange(n),
+        values,
+        discounted_returns(data)["population_years"].double().numpy(),
+        {"all": np.ones(n, dtype=bool)},
+        POP_SCALE,
+        world_factors={90100 + w: f for w, f in enumerate(factors)},
+    )
+    return report, report["strata"]["all"]
+
+
+def test_population_nstep_is_insensitive_to_world_tail_factors() -> None:
+    fair, fair_all = _population((1.0, 1.0, 1.0))
+    _, skewed_all = _population((1.67, 0.61, 1.0))
+    assert fair["gating"] is False and fair["head"] == "population_years"
+    for m in (fair_all, skewed_all):
+        assert m["nmae"] == pytest.approx(0.0, abs=1e-9)
+        assert m["bias_tailcut"]["gating"] is False
+    assert skewed_all["monte_carlo"]["nmae"] > 10 * max(fair_all["monte_carlo"]["nmae"], 1e-6)
+    common = _population((1.67, 1.67, 1.67))[1]["bias_tailcut"]
+    assert common["attribution"]["mean_factor"] == pytest.approx(1.67)
+    assert common["attribution"]["residual_critic_bias"] == pytest.approx(0.0, abs=1e-4)
+    assert common["attribution"]["flag"]
+    assert "contracts.py" in fair["reference_scale_provenance"]["defined_at"]
+
+
+def test_population_offset_critic_shows_in_the_residual() -> None:
+    _, m = _population((1.2, 0.8, 1.0), offset=0.2)
+    attribution = m["bias_tailcut"]["attribution"]
+    assert m["bias_tailcut"]["bias"] == pytest.approx(0.2, abs=0.02)
+    assert attribution["residual_critic_bias"] == pytest.approx(0.2, abs=0.01)
+    assert not attribution["flag"]
+    assert m["bias"] == pytest.approx((1 - GAMMA**5) * 0.2, rel=1e-6)  # n-step sees 0.22 c
+
+
+def test_reference_scale_artifact_reports_the_population_equivalent() -> None:
+    data = _population_worlds((1.67, 0.61, 1.0))
+    record = pe.qol_reference_scale_record(data)
+    pop = record["population_years"]
+    returns = discounted_returns(data)["population_years"].double().numpy()
+    assert pop["informational"] is True and pop["value"] == pytest.approx(float(np.std(returns)))
+    assert pop["frozen"] == 85133.98
