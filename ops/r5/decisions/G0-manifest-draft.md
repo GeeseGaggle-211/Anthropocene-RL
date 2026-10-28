@@ -236,3 +236,47 @@ r5 is approved and frozen: §8, §9 and these decisions.
   - Seed-0 gate on the candidate arm.
   - Accepted deviation: validation runs in train mode (dropout 0, guarded) to avoid the fused eval fast path.
   - Tarball r5-int-rl-d9555a3 (sha 45f776f6…). The pilot now uses --stability-early-stop --validation-dataset fit8-b04.
+- 2026-10-27 ~12:40Z (reviewer): b03 failure root cause is a LATENT label-conversion bug, not a resume regression.
+  - World 90119 turn 120, camp 327, Builder role: housing and housing-material at 0.5000000054 each, sum 1 + 1.09e-8.
+  - The row passes LABEL_TOLERANCE (1e-6) but fails SIMPLEX_TOLERANCE (1e-8). It is identical on c9fc899 and with transient restore on or off.
+  - Fix e6f8b67 (fast-forwarded into integration): quarantine via the existing over-budget path with the reason activity-simplex-tolerance-overrun:role<r>; no repair.
+  - Byte-identical shards elsewhere. Published data is unaffected: the case always crashed, never silently.
+  - Recovery: rerun b03 in full as fit8-b03r under e6f8b67; keep the old dir as evidence.
+  - New launches move to e6f8b67. Running b6a1290 batches stay pinned to their own commit for resume.
+- 2026-10-27 ~17:00Z, USER APPROVED (pilot A diagnosis):
+  - (1) Replace the flat QoL [0, W] target check with a per-row admissible bound U_i (same recursion; head max for V; max(tail, head_max) on the last row). It still flags reward ∉ [0, dt], wrong γ and decode out of range. Same thresholds.
+  - (2) Widen the bounded QoL head from (0, W) to (0, 2W) via a versioned qol_head_scale (absent = 1.0). QoL metrics and gates stay in units of W.
+  - Plus a non-gating per-world tail-factor diagnostic next to the QoL gates.
+  - Reviewer: the population-tail FAIL at step 0 is an untrained-head artifact. Targets fit the support (symlog max 1.96 < 2.5).
+  - QUEUED FOR r6: store per-step continuation rewards and use per-camp independent stop schedules (exact truncated tail plus V bootstrap: bounded, no world bias). It rides the r6 recollection.
+  - Implementer: Opus, branch feature/r5-qol-bound.
+- 2026-10-28 ~01:45Z, USER APPROVED (after pilot E):
+  - (1) A separate QoL encoder in the task critic (architecture change; pilot first on b01 → b04).
+  - (2) The QoL calibration gate measures against the tail-robust target (n-step bootstrapped, as in the TD-residual report), with the QoL reference scale remeasured on r5's own returns.
+  - (3) The TD trajectory rule is replaced by a well-posed criterion: PASS if declining (slope ≤ 0 and final ≤ 0.5 × post-warm-up peak) OR stationary at a floor (last K = 6 refreshes with range ≤ 0.5 × median, median ≤ a declared floor in W). Divergence = 3 consecutive >10% rises ending above 1.5 × the stationary median. The error series is the primary gated series.
+  - (4) Tail redesign moved INTO r5: store per-step continuation rewards per camp (all heads), with independent per-camp stop draws over the shared world continuation. This needs recollection of every batch collected under the old format.
+  - USER (01:50Z): HOLD item 4 (tail redesign) until 1-3 are done. Old-format collection continues meanwhile (keeps the option open if 4 is later dropped).
+- 2026-10-28 ~04:00Z (reviewer): gate v2 merged into integration (55774fc + bad7afc).
+  - QoL nMAE gate vs nstep-k5-bootstrap-v1.
+  - QoL |bias| gate vs mc-tailcut-0.5-v1: world-balanced MC bias on rows with tail weight ≤ 0.5, ≥ 200 rows and ≥ 3 worlds per stratum, else HOLD. Chosen because an n-step bias sees only ~0.22× a uniform offset.
+  - r5 QoL reference-scale artifact (MC per-row std on fitting batches).
+  - TD rule v2 (floor-or-declining, error primary, drift advisory). Pilots E1/E5 re-judge PASS.
+  - Known limitation: the tail-cut bias is still sensitive to the calibration set's MEAN tail factor (robust only when world factors balance). The receipt should show the calibration-set mean schedule factor. A lower cut (0.2) would tighten it but thins the late stratum. To raise with the user.
+  - USER (04:10Z): keep the 0.5 cut; show the calibration-set mean tail factor and attribute the bias to tail noise vs the critic. Amend requested: a non-gating predicted tail-induced bias, the residual critic bias, and advisory:qol-bias-tail-attribution when |pred| > 0.05 or the verdict would flip.
+  - USER approved the Fable audit escalation gate (28 Oct ~08:05Z); auto-launch if any F1/F2 trigger fires.
+- 2026-10-28 ~10:30Z, USER SIGNED OFF (gate philosophy): the critic must answer "given state and action, is the action / the next state better for the elder's reward?". Relative accuracy is primary; absolute calibration is secondary.
+  - Planned restructure:
+    - PRIMARY: (1) same-state A ranking ≥ 0.70 on reserved worlds; (2) next-state improvement: one-step/n-step advantage sign accuracy vs realised outcome, plus within-trajectory V ordering; (3) TD-residual self-consistency; (4) stability.
+    - DIAGNOSTIC: absolute nMAE/bias (both heads).
+    - GUARDS: a loose absolute-bias sanity bound; consistent QoL/population head scale tested via combined-advantage ranking.
+  - SEQUENCING (user): first get the saturation audit and decision-trace results (they may show immediate problems), THEN implement the relative-metric diagnostics and write the gate-restructure doc for approval.
+- 2026-10-28 ~16:30Z, USER DECISIONS:
+  - (1) Gate restructure APPROVED. Primary: within-trajectory ordering at lag ≥ 5 with a 0.02W margin ≥ 0.70; all-pairs ordering; TD(0) residual self-consistency; stability; same-state A ranking on reserved worlds ≥ 0.70. Diagnostic: n-step and MC nMAE, printed with the constant-predictor reference.
+  - (2) Tail redesign moved back to r6.
+  - (3) FIX the simulator's heuristic clothing rule (2-turn cycle) and the false-terminal rule (Terminated = Population ≤ 0 while hunters are away, ElderModel9.cs:1075).
+  - Reviewer tweaks proceeding: QoL head bias init at logit(mean p*) with step-0 TD targets from MC; per-world tail normalisation in the loader; check_support allclose 1e-6; shared encoder w30 as baseline; the campaign default reverted to shared.
+  - Open question raised with the user: which data the simulator fixes apply to (r5 recollection vs PPO/r6 onward).
+  - USER (16:45Z): the simulator fixes apply from PPO/G5 and r6 onward; r5's critic trains on existing data with false-terminal rows masked loader-side (item 6 added to feature/r5-relative-gates).
+  - USER (18:30Z): combined elder-reward variant GATES; QoL and population variants are diagnostics. TD(0) MAE ≤ 0.12 S and |bias| ≤ 0.02 S APPROVED. All-pairs ≥ 0.65: user asked what it is measured against (answered: agreement with the realised elder reward-to-go under the teacher's policy).
+  - USER (18:45Z): all-pairs ≥ 0.65 APPROVED (combined variant). Intent: PPO needs advantages with the right direction and order of magnitude. Asked for a non-gating advantage-magnitude diagnostic (sign, slope, std ratio, k = 1, 5) with proposed bounds.
+  - USER (19:00Z): SIGN AGREEMENT is the key advantage metric (likely to gate). Measure RELATIVE per-head advantage sizes, since PopArt dynamic normalisation is expected during PPO. Sent to the implementer.

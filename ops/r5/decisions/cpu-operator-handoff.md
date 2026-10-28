@@ -209,3 +209,12 @@ python -m anthropocene_rl.autonomous_v7.labor_training privileged-dead-mask-audi
 - Other background sleeps and waiters (`b8189fdyr`, `bu4gavvsy`, `bu9g3i5as`, `bnkvbg016`, `b0sbtvzf7`, `bfmg0w04r`) had already completed.
 - No local background tasks are running now.
 - On the VM, nothing was stopped: the r5 loop (`bash ~/r5/loop.sh`), the driver (pid 6115), the b03/b04 batches and `~/r5/memwatch.sh` are all running.
+
+## 10. r5f checkout and drive.sh pinning (27 Oct, operator addendum)
+
+- `~/code/r5f`: rl e6f8b67566fe4a133f824d8be3a42ccaf955ed5c, sim 8bd480b, built 12:38Z.
+- Bridge dll sha256, r5f: `8d318069b626e84387c71aebad931c55368296a1ec2736f0c4d2c1885aeffaae`
+- Bridge dll sha256, r5e: `32c967a96b8752c68a8fc00702a8b0acdf4eacffabb4911e9772eb258771629b`
+- They differ although integration/ source is unchanged between b6a1290 and e6f8b67 (non-reproducible .NET build); accepted by the coordinator.
+- drive.sh installed 12:4xZ, md5 `49b188aa2b060a23efb63777a94e86ae` (previous: `3d915dc30d7444dca544be83b447fbef`, kept as `~/r5/drive.sh.r5e-pre-r5f`). Each batch is pinned to the checkout matching its collection.json learner_commit (b6a1290 -> r5e, e6f8b67 -> r5f); fresh batches use r5f; the launch log line ends with `checkout=`. `fit8-b03` is replaced by `fit8-b03r` (same worlds), also in the post-collection dataset list, which stays on r5e. `~/r5/fit8-b03` and `fit8-b03.FAILED` are untouched evidence.
+- Driver restarted 12:46:44Z (pid 44834); the running b02/b04/b05 batches were not interrupted.

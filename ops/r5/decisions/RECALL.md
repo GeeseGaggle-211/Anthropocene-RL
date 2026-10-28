@@ -252,3 +252,144 @@
   - Commands are in the audit report (step 1 fit-privileged-normalizer, 2 initialize --campaign-r5, 3 size, 4 pretrain-critic, 5 critic-calibration, 6 the TD-residual snippet).
   - initialize needs the bridge on the GPU VM (the portable c9fc899 bridge is on its disk).
 - 05:15Z: GPU VM recreated in -c (STANDARD), now STOPPED. cloud-init REGENERATED the host keys (new instance id): reported ED25519 SHA256:77KjMK4quoPVB53ABMd33WyLC7TsDhFR42B1b5jkR+c. NOT yet pinned: I verify via the serial console myself after the next start, before any SSH. Start it only when the pilot data are uploaded. GPU operator a4b59f4231c0970d2 is standing by for 'go'. Pilot plan: g0/pilot-plan.md.
+- 06:00Z: ops/r5-runbook pushed (9a24037) to Anthropocene-RL: ops/r5/{decisions,gpu-vm,cpu-vm-snapshots,operator-tools,README.md}, credential-scanned. The user is doing a Codex guided review for r6 planning.
+- 06:30Z: early-stop d9555a3 merged into integration; the pilot uses it (tarball sha 45f776f6…); ops branch updated.
+- 10:10Z: fit8-b03 FAILED (rc=1, deterministic): ValueError 'activity[9] must sum to 1.0' in _simplex (labor_bridge.py:415) ← convert_heuristic_labor_label (labor_bc.py:630) ← shadow_teacher_labels (:921) ← _collect_teacher_tail (:1298), r5e b6a1290. Possibly a resume-code regression (transient restore in the shadow step?) or a rare old bug. The operator is staging evidence to gs://.../r5/debug/b03-simplex/. b03 is held (FAILED). b02/b04 still running.
+- 10:30Z: b03 failure is world 90119, tail decision 62 (overall 112), after ckpt-111 at 06:31Z. Evidence is in gs://.../r5/debug/b03-simplex/. Opus implementer a? (feature/r5-tail-simplex) is reproducing from the checkpoint and deciding regression vs latent edge case; fix via the quarantine mechanism; recovery plan. Note: the dead world's slot sat idle for 3.5 h (pool.map surfaces errors only at the end).
+- 11:10Z: guardrail stop at 10:46Z, restarted 11:03Z (a 17 min gap from poller latency). TAIL RESUME WORKS: fit8-b02's 7 worlds resumed in tail (checkpoints 62-96), no fallback. b04 (90129 at checkpoint 172) not yet relaunched; the operator is confirming. b03 is held.
+- 11:55Z: the pilot now trains on b01+b02 and validates on b04 (b03 held); the operator uploads b02 and b04 on publish. Only fit8-b01 is in pilot/ so far.
+- 12:40Z: e6f8b67 merged (tail simplex quarantine). Plan: operator builds r5f (e6f8b67), drive.sh pins each batch to the checkout matching its collection.json learner_commit, new launches use r5f, b03 is rerun as fit8-b03r. Local orphan python workers from the implementer are harmless; the classifier denied the kill (not laundered).
+- 12:55Z: drive.sh with per-batch commit pinning approved (b6a1290→r5e, e6f8b67→r5f; fresh→r5f; fit8-b03r replaces b03 in BATCHES and FITS; post-collection stays on r5e). r5f bridge sha 8d318069… differs from r5e's 32c967a9… (non-reproducible .NET build, same source).
+- 13:45Z: fit8-b04 PUBLISHED and uploaded to pilot/. GPU 'go' sent (start only; I verify the serial key). Pilot A: train b01, validate b04, code d9555a3. Collection ETA ~28 Oct 15:00Z (operator rough estimate); b03r waits on memory.
+- 14:10Z: GPU restart in -c STOCKOUT (x4). New disk in -a/-b blocked by SSD_TOTAL_GB quota 500 (us-central1). Approved: a pd-standard disk from the snapshot in -a then -b; fallback is one more -c try. Possible future ask for the user: an SSD quota increase, or deleting the -c disk once a new GPU VM exists.
+- 14:30Z: L4 is STOCKED OUT across us-central1-a/b/c (on-demand). Pilot A moves to the CPU VM: r5f, train b01, validate b04, CPU, nice 5, oom_score_adj +600, a memory guard of ≥30 GB to start and kill below 12 GB (it resumes). The GPU operator retries the -c start every 30 min for 4 h. If the GPU stays unavailable, ask the user: another region (new subnet), T4, or Spot L4.
+- 14:40Z: GPU VM RUNNING in -c (started 14:26Z on retry). Host key PINNED: ED25519 SHA256:77KjMK4quoPVB53ABMd33WyLC7TsDhFR42B1b5jkR+c (instance id 1037239037415234083 unchanged, no regeneration this boot). Pilot A moved back to the GPU (d9555a3); the CPU pilot is cancelled.
+- ~15:30Z PILOT A (GPU, b01 → b04) ABORTED at step 0: td_divergence targets-outside-[0,W].
+  - 20 rows over bound: target_max 456.68 vs W 410.08, from the initial TD(λ) refresh.
+  - The sizing run also FAILed population_tail: observed_normalized_max 6.09 vs support top 2.5, upper_excess 0.405, top_bin_mass 0.0022. This is a USER ESCALATION item.
+  - Suspect: the r5 horizon (50 decisions plus tail) exceeds the W/support calibration.
+  - Device tests 24/24 passed. VM stopped. Outputs in gs://.../pilot/out-a/.
+  - Opus read-only diagnosis launched.
+  - The guard WORKED: caught before the scale-out.
+- 16:30Z DIAGNOSIS of pilot A:
+  - The QoL alarm is a CHECK SPEC ERROR. The roulette tail estimator (γ/ρ = 1.0013) is unbiased but unbounded. One shared stop schedule per world gives a world-level factor of 0.61-1.67 (90103 = 1.25, 90129 = 1.67). The last-row targets r + γ·tail exceed W. TD bootstrap is not the cause.
+  - The population FAIL is the near-uniform untrained head; targets fit the support (symlog max 1.96 < 2.5). My RECALL line comparing 6.09 vs 2.5 mixed units and was WRONG.
+  - Also found: a silent clamp of targets to [0, W] in the bounded-head loss (labor_model.py:1476), biasing high-QoL worlds downward; and per-world correlated tail noise that matters for the QoL bias gates.
+  - Recommended fix 1: a per-row admissible bound U_i in the check (user decision, since it changes the approved alarm).
+  - Follow-up asked: are per-step tail rewards stored? If yes, use an exact truncated tail plus V bootstrap, which is bounded and has no world bias, with no recollection.
+- 17:00Z USER approved the per-row QoL bound and the 2W head (option A); r6 gets the tail redesign (C). Opus implementer on feature/r5-qol-bound. Pilot A reruns after review.
+- 18:10Z: QoL-bound fix 66bc618 reviewed and fast-forwarded into integration (per-row U_i, 2W head via qolHeadScale, tail diagnostics). Local b01 sanity: no alarm, 0 clipped at 2W; a local access violation after the refresh, likely memory (watch on the VM). Tarball sha d5b1a08e…. Pilot A2 sent to the GPU operator (new init, work dir pilot-a2).
+- ~18:45Z PILOT A2 (66bc618, GPU):
+  - The QoL bound fix WORKS: first refresh has 0 violations, 0 clipped, upper_max 1.95W; no native crash (62 GB box).
+  - Aborted at step 231 on td_divergence drift-rose->10% x3: drift 0.016 → 0.022 → 0.025 → 0.033, error 0.030 → 0.035, after an initial decline from 0.124.
+  - Epoch-1 validation 2.459 vs train 2.715 (pop-years 4.08, qol 0.66).
+  - Live population_tail alarm at step 25 (advisory).
+  - Speed ~107 s/100 steps; a full 8-epoch run ≈ 20 min.
+  - Diagnostic arms launched (tweak testing per the user's Fable rule): D1 = no early stop, D2 = lr 1e-4. Question: real bootstrap instability vs a relative-only rule too strict at small drift.
+- ~19:00Z: fit8-b02 PUBLISHED and uploaded to pilot/ (3.6 GB). Three batches are published: b01, b02, b04. Pilot B (b01+b02 → b04) becomes possible after the D1/D2 verdict.
+- ~19:15Z: L4 stocked out 16:42-18:29Z (8 tries); D1/D2 moved to the CPU VM (r5g = 66bc618; D1 lr 3e-4, D2 lr 1e-4, no early stop; b01 → b04). The GPU operator retries every 30 min for 8 h. Schedule risk: the critic scale-out needs a GPU; consider asking the user about another region or T4.
+- 18:35Z: GPU up (started 18:31Z). Sent D1 (lr 3e-4, no early stop), D2 (lr 1e-4) and pilot B (b01+b02 → b04, new priv normalizer on b01+b02, lr 3e-4, no early stop) concurrently on the GPU. The CPU D1/D2 is cancelled.
+- 19:15Z: fit8-b05 PUBLISHED at 18:58Z. Guardrail stop 19:03Z, restart 19:07Z: b03r resumed in tail (5 worlds, r5f) and b06 in window (8 worlds, r5f), no fallback. Published 4/12 (b01, b02, b04, b05). Running: b03r, b06. Queued: b07, b08, cal8-b01..03, heldout50.
+- ~20:30Z DIAGNOSTIC PILOTS on the GPU (66bc618; D1 b01 lr 3e-4, D2 lr 1e-4, B b01+b02; validation on b04; no early stop):
+  - All ran with no crash.
+  - QoL FAILS badly: nMAE ~1.1, bias -0.21 to -0.27, QoL validation loss FLAT ~0.65 from epoch 1. Possible 2W-scale bug or no learning.
+  - Population-years overfits after epoch 3 (nMAE 0.41; ranking 0.96 OK); doubling the data didn't help.
+  - gradient_dominance by population_years on the task encoder in all arms, which is the USER-ESCALATION item (2.5).
+  - TD trajectory-rule FAIL: drift is flat at ~0.02, final/max 0.66-0.73 vs ≤ 0.5. The A2 abort was a too-strict relative guard.
+  - FABLE HIGH consult launched (user permission) for the diagnosis. Overhauls go to the user.
+- ~21:30Z FABLE REVIEW (pilot): QoL is NOT a scale bug (pred mean 304 vs target 313).
+  - nMAE uses a G0-era reference scale of 43.15 (MAE ~48 QoL-years = 0.12W). The gate of 0.20 means 8.6 QoL-years: likely unreachable with the roulette-tail evaluation target.
+  - The QoL bias of -0.21 is explained by the per-world tail factor. The critic memorises fit-world tail factors.
+  - The flat QoL validation loss is the BCE entropy floor (0.665).
+  - QoL is STARVED on the shared encoder (0.5-2.5% of the gradient; population ~99%).
+  - Population overfits from world-level target noise after epoch 2-3.
+  - The TD trajectory rule is ill-posed at the noise floor; a stationary-floor criterion is proposed.
+  - No case for a GRU.
+  - Tweaks: QoL loss weight / GradNorm-lite, excess-BCE, best-validation early stop at 4 epochs. Opus implementer on feature/r5-critic-balance; pilot E1/E2/E3 to follow.
+  - USER DECISIONS pending:
+    - gate (b) target (tail-robust n-step target or tail-weight cut);
+    - remeasure the QoL reference scale;
+    - replace the TD trajectory rule;
+    - authorize a separate QoL encoder / PCGrad if weighting fails;
+    - bring the tail redesign (per-step rewards, independent schedules) forward to r5 with recollection.
+- ~22:30Z: balance tweaks a17abc5 (opt-in per-head weights, auto GradNorm-lite, excess-BCE, best-val checkpoint; defaults bitwise) fast-forwarded into integration. Tarball sha 47d161ce…. Pilot E (E1 w30, E2 auto 0.3, E3 control; b01 → b04, 4 epochs, lr 1e-4, dominance-excess) sent to the GPU operator, with the TD-residual (tail-robust) report. Note: weighted runs judge dominance on effective shares, so report raw shares too.
+- ~23:45Z PILOT E (b01 → b04, 4 epochs, lr 1e-4):
+  - **E1 (QoL weight 30) is best.** QoL nMAE 0.98 (control 1.10), fit nMAE 0.57 (0.75), ranking 0.76 (0.73). TD residual MAE 0.43, bias -0.01. Dominance cleared.
+  - **But the raw QoL encoder share still decays to ~2%,** even weighted. QoL UNDERFITS in-sample: the trunk is captured by population-years, which strongly suggests a separate QoL encoder (an OVERHAUL, user decision).
+  - **E2 auto weight:** oscillates, with a +0.13 bias.
+  - **Population tail:** upper_excess 0.02-0.03 FAIL in all arms (user-escalation item).
+  - **TD residual MAE is 2x the threshold** even on the tail-robust view.
+  - Launched E4 (weight 30, 8 epochs) and E5 (weight 100) as tweak tests.
+- ~01:30Z 28 Oct: E4 (w30, 8 epochs) and E5 (w100, 4 epochs) done.
+  - Marginal gains: QoL nMAE ~0.97, ranking 0.76-0.79, TD-residual MAE 0.41 (E5 best).
+  - E4 overfits after epoch 5: fit 0.48, gap +0.49.
+  - Raw QoL share still about 2%; the late stratum is worst (1.17).
+  - Population tail is marginal (0.0116) or failing.
+  - TWEAKS EXHAUSTED.
+  - Decisions are with the user: separate QoL encoder (overhaul), gate target/scale, TD rule, tail redesign in r5. The GPU VM is stopped.
+- 01:45Z USER approved 1-4 (separate QoL encoder, tail-robust gate plus r5 reference scale, TD rule replacement, tail redesign in r5 with recollection). Launching 3 Opus implementers (encoder; gate+TD rule; collector tail) and pausing new batch launches.
+- 01:50Z: item 4 on hold until 1-3 are done; collection continues (pause reverted).
+- 02:00Z: launched Opus implementers: (1) separate QoL encoder (feature/r5-qol-encoder, from a17abc5) and (2+3) tail-robust gate, r5 reference scale and TD rule v2 (feature/r5-gate-v2). Item 4 is on hold.
+- 02:35Z: published b01, b02, b03r (22:12Z), b04, b05 = 5/12. Running b06, b07 (22:12Z), b08 (01:17Z), all on r5f. Remaining: cal8-b01..03, heldout50. MAXB was 0 for 1 min (no effect). The poller missed the b03r alert; told the operator to fix it. Uploading b05 to pilot/.
+- ~03:30Z: gate-v2 55774fc reviewed: n-step k5 gate, r5 reference-scale artifact, TD rule v2 (pilots E1/E5 re-judge PASS). Found the bias gate too weak vs a uniform offset (sees 0.22c). Asked for an amend: bias gate = MC rows with tail weight ≤ 0.5 (within the approved tail-robust options); nMAE stays n-step. Merge after the amend.
+- ~03:00Z: fit8-b07 PUBLISHED (4.6 h) and uploaded to pilot/. Published 6/12: b01, b02, b03r, b04, b05, b07. Running: b06, b08. Queued: cal8-b01..03, heldout50.
+- 04:00Z: gate v2 (bad7afc) merged into integration. Pending: the QoL encoder implementer; then pilots F1/F2 under gate v2.
+- 04:40Z: tail attribution d7ec9a4 merged into integration (mean_factor, predicted_tail_bias with the exact (1-1/f) form, residual_critic_bias, advisory flag).
+- 05:00Z USER: gate v2 doesn't address the POPULATION-YEARS failure (nMAE ~0.41, overfit, tail check). Started non-gating population diagnostics (n-step target, tail-cut bias plus attribution, reference-scale provenance and r5 scale, tail-check breakdown) on feature/r5-gate-v2. Then re-evaluate the pilot critics on the GPU disk.
+- 05:30Z: population diagnostics bf07301 merged into integration (tarball sha 30a4cd3c…). The population reference scale 85,134 is Round-3 heuristic, Small world, 25 turns (contracts.py:28-40): an era mismatch like QoL's. The GPU operator re-evaluates pilot critics e1/e3/e5/d1/b with cal-v2 plus the r5 scale artifact (fit b01, b02, b03r, b05, b07).
+- 03:20Z guardrail: b06 (1 world), b08 (4, tail) and cal8-b01 (8, window) all resumed on r5f, no fallback. Published 6/12. Queued: cal8-b02, cal8-b03, heldout50.
+- 06:00Z: separate QoL encoder 755f44e (+0.76M params; full critic +34%; ~+30-36% CPU step time). The A head reads per-objective encoder context; auto weight refused; convert-qol-encoder copy|fresh. Asked to rebase onto bf07301. Note: --campaign-r5 now defaults to separate (acceptance control arms too). Pilot plan: F1 separate, 4 epochs, lr 1e-4; F2 separate, 8 epochs, best-val; both under gate v2 with the r5 scale (the weight arm is pointless: Adam is invariant).
+- 07:30Z: QoL encoder rebased (821660b) and fast-forwarded into integration; non-live suite 550 passed / 13 skipped / 0 failed. Tarball sha f07501f9…. F1 (separate, 4 epochs) and F2 (separate, 8 epochs, best-val) queued on the GPU after the re-eval.
+- 08:00Z: prepared g0/fable-audit-escalation.md (trigger criteria on F1/F2 plus evidence plus questions). Launch only if triggered; overhauls go to the user.
+- 08:05Z USER approved the escalation gate; auto-launch if triggered.
+- ~08:10Z: fit8-b06 PUBLISHED (~9.5 h) and uploaded. Published 7/12: b01, b02, b03r, b04, b05, b06, b07. Running: b08, cal8-b01. Queued: cal8-b02, cal8-b03, heldout50.
+- 08:30Z USER asked for representative decision traces (6-part story: knowledge, sampling/logp, native execution, reward/successor, target/loss, update effect) to find the high-level critic mismatch. Opus tracer launched → g0/decision-traces.md. The GPU operator uploads the F1/E5 init and final checkpoints to pilot/ckpt/.
+- 09:00Z USER asked about saturation guards and PopArt. Code check: NO PopArt in the labor critic. Pre-norm transformer plus LayerNorm trunk; QoL |z|>6 monitor only; NO guard on population logits; input bounded normalizer clips at ±10 with std floor 0.1 (known rail). Sonnet audit launched → g0/saturation-audit.md (input clip shares, hidden activations, head saturation/compression, PopArt relevance).
+- 09:30Z: LOCAL DISK C: 99% full (3.1 GB free). Session scratchpad ~9 GB (qbdata 3.3G needed; remeasure 1.8G, audit/audit2 1.4G, r5 0.5G, teach3, tput32, t134, smoke2, hl, g0test, r3p … older). Ask the user before deleting old scratch. The tracer lost context (disk wait); task re-sent with a low-disk rule. Saturation auditor told the same.
+- 09:45Z: the user approved deleting old scratch. Freed ~5.4 GB (8.5 GB free now). MY ERROR: audit2 (and possibly audit) were the saturation auditor's ACTIVE working dirs. I didn't check mtimes first, so I told it and it is restarting in satAudit. Lesson: check mtimes and active agents before deleting scratch.
+- 10:00Z USER: extend the saturation audit to training-time gradients and intermediate-layer saturation (per-block grad norms, clip activity, update/weight ratios, Adam step caps, pre-LN variance, SiLU/attention saturation, float32 resolution of the BCE KL signal). Sent to the auditor.
+- 10:30Z USER signed off relative-first gates. Execute AFTER the saturation and trace results.
+- ~11:00Z RE-EVAL under gate v2 (out-v2):
+  - r5 QoL scale 55.16 (was 43.15); r5 population std 135,589 (was 85,134; rescale ×0.628).
+  - QoL n-step nMAE on b04: e5 0.170, e1 0.183 (pass numerically), e3 control 0.264, d1 0.309, b 0.286. Bias small, residual critic bias ≤ 0.05 for e1/e5.
+  - The gate verdict still FAILs only on coverage (worlds_min 12 vs 8 pilot worlds) and the farmer_locked HOLD.
+  - Population n-step nMAE 0.08-0.09 (0.05 rescaled): PASS-level. MC 0.41 was tail noise.
+  - Fit-vs-cal n-step gap ~0.015, so the "overfit" was memorised tail noise.
+  - Population tail is WIDESPREAD small mass in the top bins (245-254, beyond the observed max of 8.4 scales); less with longer training.
+  - CONCLUSION: most "critic failure" was evaluation-target noise plus stale scales. The QoL weight helps (e1/e5 vs e3).
+  - F1 OOM-killed by RAM contention and relaunched; F2 running. e5 checkpoints are in pilot/ckpt/.
+- ~12:30Z F1/F2 (separate encoder): dominance gone and TD v2 PASS. QoL n-step nMAE 0.173-0.177 (≈ E5). QoL tail-cut residual bias NEGATIVE: F1 -0.172, F2 -0.097. Population unchanged; population tail widespread. ESCALATION TRIGGERS 3 and 4 FIRED; the Fable audit is deferred until the saturation and trace results (updated brief).
+- ~13:30Z DECISION TRACES done (g0/decision-traces.md):
+  - (1) OBSERVED: the world-level tail factor correlates 0.979 with the world-mean MC target; critics learn it (corr ~0.79). The privileged UNLOCKS block fingerprints the world (0.584 vs chance 0.125).
+  - (2) Last-row targets are 93-97% tail (SE 56-66 QoL-years).
+  - (3) The critic learns the teacher's V; the teacher falls into a 2-turn clothing/population cycle; the actor is near-uniform.
+  - (4) Delayed-investment credit goes only via V(s').
+  - (5) FALSE TERMINAL (sim ElderModel9.cs:1075: Population ≤ 0 while hunters are away; the camp reappears). The only terminal in b01 trains V=0. A simulator bug, so a user decision.
+  - (6) Zero rejected attempts in r5 data.
+  - (8) A few clipped features.
+  - (9) The first Adam step drops QoL predictions 105-216.
+  - BUG: E5 checkpoints FAIL the CPU check_support (GPU-written bins differ by 2.4e-7). CPU evaluation of GPU fits will raise; needs a fix.
+- DISK CRITICAL: 353 MB free on C:. A stale saturation-agent download in audit2 is growing back; told it to kill and delete it.
+- ~14:30Z SATURATION AUDIT done (g0/saturation-audit.md):
+  - NOT a cause: no input, hidden or head saturation; float32 fine.
+  - The global clip is active every step (multiplier median 0.17).
+  - The QoL weight sets the imbalance (w100 → 4.3:1 QoL); the PopArt-equivalent weight is ~21.
+  - Mild regression-to-mean shrinkage in both heads.
+  - Disk is back to 6.1 GB.
+- Launched the deferred FABLE ESCALATION AUDIT (triggers 3 and 4) with traces plus saturation evidence → g0/fable-audit-report.md.
+- ~16:00Z FABLE ESCALATION AUDIT (g0/fable-audit-report.md):
+  - CORRECTION: the n-step k5 nMAE gate certifies almost nothing. A CONSTANT predictor scores 0.145-0.173 vs E5 0.157-0.166. So my "close to passing" read was WRONG.
+  - The world tail affects only absolute calibration; ordering is immune.
+  - F1/F2's negative bias is a training-dynamics level offset: QoL head init ~W vs target ~300, then an Adam overshoot, then TD tracking. Not an encoder property.
+  - Baseline: SHARED encoder, w30; NOT F2 (F1 loses held-out ordering 0.61 vs 0.65).
+  - Tail redesign: NOT needed for relative metrics. Per-world tail normalisation in the loader removes the world factor without recollection. Recommend the redesign for r6.
+  - Relative estimates, E5 held-out: all-pairs ordering 0.65, at a 0.02W margin 0.70, lag-5 0.72. Lag-1 0.57 (the teacher 2-cycle dominates), so the next-state gate needs lag ≥ 5.
+  - Plan tweaks: QoL bias init plus step-0 MC targets; per-world tail normalisation; gate restructure with explicit thresholds; check_support allclose 1e-6; revert the campaign default to shared.
+  - User items: tail redesign timing, simulator clothing cycle, false-terminal rule.
+- 16:30Z USER: gate restructure approved; tail redesign moved to r6; fix the clothing and false-terminal rules. Launching implementers; asked the user which data the sim fixes apply to.
+- 16:45Z USER: sim fixes from PPO/r6 onward; r5 masks false terminals in the loader.
+- ~18:00Z relative-v1 gates + tweaks 68c65f3 fast-forwarded into integration (tarball sha 5bfa29fd…). 571 passed / 14 skipped.
+  - E5 measured on 2 held-out worlds: (a) QoL 0.701, pop 0.703, combined 0.684 (fails 0.70); all-pairs QoL 0.702; TD(0) MAE 0.093 S. Population late-stratum ordering is weak (0.44 held-out).
+  - Proposed thresholds for the user: (b) all-pairs ≥ 0.65; (c) TD(0) MAE ≤ 0.12 S, |bias| ≤ 0.02 S. Also which variants gate (QoL/pop/combined).
+  - Tail normalisation: world-factor corr 0.978 → 0.367. False terminal: 1 row masked in b01.
+  - G1 pilot plus the E5 relative re-score on all 8 b04 worlds sent to the GPU operator.
