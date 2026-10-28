@@ -402,3 +402,74 @@ def test_population_tail_trips_the_seed_gate_only_when_gated(tmp_path, monkeypat
     else:
         assert gate["tripped"] and gate["reason"] == "stability-fail" and len(calls) == 2
         assert receipt["machine_verdict"] == "FAIL"
+
+
+# --- other-head regression against the run's own control arm (user 28 Oct) --------------------
+
+
+def _no_report(record: dict) -> dict:
+    record.pop("control", None)
+    return record
+
+
+def _receipt_for(evidence):
+    return ra.build_receipt(
+        evidence, arms=ra.DEFAULT_ARMS, seeds=list(range(5)), seed_rule="mean-with-floor",
+        required_seeds=5, determinism=CRITIC_DETERMINISM, configuration={"stage": "critic"},
+        attempt_id="t", source={"commit": "test"},
+    )
+
+
+def _regression(receipt, arm="privileged-e4"):
+    return {
+        r["id"]: r for r in receipt["arms"][arm][ra.GATE_ID]["checks"]
+        if r["id"].startswith("regression:")
+    }
+
+
+def test_regression_reference_is_the_seed_matched_control_arm() -> None:
+    from tests.test_labor_r5_acceptance import _metrics
+
+    evidence = []
+    for seed in range(5):
+        evidence.append(_no_report(_critic_evidence("privileged-e4", seed, True)))
+        evidence.append(_no_report(_critic_evidence("control-e4", seed, False)))
+    receipt = _receipt_for(evidence)
+    rows = _regression(receipt)
+    assert "regression:control" not in rows and rows  # no HOLD for a missing report
+    assert all(r["status"] == "PASS" for r in rows.values())
+    reference = receipt["regression_reference"]
+    assert reference["privileged-e4/seed-3"] == {"kind": "control-arm", "arm": "control-e4", "seed": 3}
+    assert reference["control-e4/seed-3"]["kind"] == "self (reference arm)"
+    assert ra.critic_stage_summary(receipt)["status"] == "PASS"
+
+    # A candidate whose settlement-guard calibration is worse than its seed-matched control
+    # arm by more than 0.02 fails the regression check (seed rule over the 5 seeds).
+    for record in evidence:
+        if record["arm"] == "privileged-e4":
+            record["calibration"]["calibration"]["heads"]["settlement_guard"]["all"] = _metrics(
+                nmae=0.2
+            )
+    worse = _regression(_receipt_for(evidence))
+    assert worse["regression:settlement_guard:all:nmae"]["status"] == "FAIL"
+    assert worse["regression:settlement_guard:all:nmae"]["spread"]["mean"] == pytest.approx(0.1)
+
+
+def test_a_supplied_control_report_still_wins_and_a_missing_seed_holds() -> None:
+    evidence = [_critic_evidence("privileged-e4", 0, True), _critic_evidence("control-e4", 0, False)]
+    receipt = ra.build_receipt(
+        evidence, arms=ra.DEFAULT_ARMS, seeds=[0], seed_rule="mean-with-floor",
+        required_seeds=1, determinism=CRITIC_DETERMINISM, configuration={},
+        attempt_id="t", source={"commit": "test"},
+    )
+    assert receipt["regression_reference"]["privileged-e4/seed-0"] == {"kind": "control-report"}
+    lonely = [_no_report(_critic_evidence("privileged-e4", 1, True)),
+              _no_report(_critic_evidence("control-e4", 2, False))]
+    receipt = ra.build_receipt(
+        lonely, arms=ra.DEFAULT_ARMS, seeds=[1, 2], seed_rule="mean-with-floor",
+        required_seeds=1, determinism=CRITIC_DETERMINISM, configuration={},
+        attempt_id="t", source={"commit": "test"},
+    )
+    assert receipt["regression_reference"]["privileged-e4/seed-1"] is None
+    rows = {r["id"]: r for r in receipt["arms"]["privileged-e4"][ra.GATE_ID]["checks"]}
+    assert rows["regression:control"]["status"] == "HOLD"

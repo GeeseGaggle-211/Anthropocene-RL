@@ -1833,6 +1833,51 @@ def parse_arms(text: str | None) -> tuple[ArmSpec, ...]:
     return tuple(arms)
 
 
+def with_control_arm_reference(
+    by_arm: Mapping[str, Mapping[int, Mapping[str, Any]]], arms: Sequence[ArmSpec]
+) -> tuple[dict[str, dict[int, Mapping[str, Any]]], dict[str, Any]]:
+    """The other-head regression reference of every fit (user decision 28 Oct, Q2).
+
+    A fit that carries a control report (``--control-report``, critic3) keeps it. Otherwise
+    a candidate fit is compared with the seed-matched evaluation of the run's plain control
+    arm of the same epoch budget (same calibration worlds, evaluator and units: its
+    ``calibration`` section has the control report's shape). A control-arm fit is its own
+    reference (zero deltas: the regression check is about the candidate). A fit without a
+    seed-matched control evaluation keeps no reference and its regression check HOLDs.
+    Returns the per-arm fits to judge and the reference used per fit."""
+    judged: dict[str, dict[int, Mapping[str, Any]]] = {}
+    used: dict[str, Any] = {}
+    for arm in arms:
+        reference = next(
+            (c for c in arms if c.role == "control" and c.epochs == arm.epochs), None
+        )
+        out: dict[int, Mapping[str, Any]] = {}
+        for seed, record in (by_arm.get(arm.name) or {}).items():
+            key = f"{arm.name}/seed-{seed}"
+            if record.get("aborted") or record.get("control") is not None:
+                out[seed] = record
+                used[key] = (
+                    None if record.get("aborted") else {"kind": "control-report"}
+                )
+                continue
+            if arm.role == "control":
+                source = record
+                used[key] = {"kind": "self (reference arm)", "arm": arm.name, "seed": seed}
+            else:
+                source = (by_arm.get(reference.name) or {}).get(seed) if reference else None
+                used[key] = (
+                    None
+                    if source is None or source.get("calibration") is None
+                    else {"kind": "control-arm", "arm": reference.name, "seed": seed}
+                )
+            if source is None or source.get("calibration") is None:
+                out[seed] = record
+                continue
+            out[seed] = {**record, "control": source["calibration"]}
+        judged[arm.name] = out
+    return judged, used
+
+
 def build_receipt(
     evidence: Sequence[Mapping[str, Any]],
     *,
@@ -1860,9 +1905,10 @@ def build_receipt(
     by_arm: dict[str, dict[int, Mapping[str, Any]]] = defaultdict(dict)
     for record in evidence:
         by_arm[record["arm"]][int(record["seed"])] = record
+    judged, regression_reference = with_control_arm_reference(by_arm, arms)
     arm_reports = {}
     for arm in arms:
-        fits = by_arm.get(arm.name, {})
+        fits = judged.get(arm.name, {})
         per_seed_primary, per_seed_secondary = {}, {}
         per_seed_advisory: dict[int, Any] = {}
         per_seed_diagnostics: dict[int, Any] = {}
@@ -2030,6 +2076,9 @@ def build_receipt(
             evidence, [a.name for a in arms], seeds, trajectory_baseline
         ),
         "population_tail_policy": population_tail,
+        # Other-head regression reference per fit (user 28 Oct, Q2): a supplied critic3
+        # control report, else the run's own seed-matched plain control arm.
+        "regression_reference": regression_reference,
         "machine_state": verdict,
         "machine_verdict": verdict,
         "verdict_basis": {
