@@ -981,8 +981,45 @@ def fit_checks(evidence: Mapping[str, Any], *, strata: Sequence[str] = STRATA) -
         "advisory": [
             food_trade_advisory(evidence),
             qol_tail_advisory(evidence),
+            qol_bias_tail_attribution_advisory(evidence),
             *validation_advisories(evidence),
         ],
+    }
+
+
+def _bias_attribution(evidence: Mapping[str, Any]) -> dict[str, Any] | None:
+    strata = _get(evidence, "calibration", "calibration", "qol_nstep", "strata")
+    if not isinstance(strata, Mapping):
+        return None
+    return {
+        name: _get(metrics, "bias_tailcut", "attribution")
+        for name, metrics in strata.items()
+        if _get(metrics, "bias_tailcut", "attribution") is not None
+    }
+
+
+def qol_bias_tail_attribution_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Non-gating (user decision 28 Oct): is a QoL bias verdict driven by tail noise?
+
+    Per stratum, the world-balanced mean schedule factor, the predicted tail-induced bias
+    and the residual critic bias (``labor_pretrain_eval.QOL_BIAS_TAIL_ATTRIBUTION``). FLAG
+    when any stratum's |predicted| > 0.05 or removing it would flip the |bias| verdict;
+    else REPORT; NOT-APPLICABLE for evidence without the gate-v2 section."""
+    strata = _bias_attribution(evidence)
+    if not strata:
+        return {
+            "check": "advisory:qol-bias-tail-attribution",
+            "gating": False,
+            "status": "NOT-APPLICABLE",
+        }
+    flagged = sorted(name for name, a in strata.items() if a.get("flag"))
+    return {
+        "check": "advisory:qol-bias-tail-attribution",
+        "gating": False,
+        "status": "FLAG" if flagged else "REPORT",
+        "flagged_strata": flagged,
+        "world_factors": _get(evidence, "calibration", "calibration", "qol_nstep", "world_factors"),
+        "strata": strata,
     }
 
 
@@ -1628,6 +1665,14 @@ def qol_gate_section(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         else:
             named = {"nmae": target.get("id"), "bias": target.get("id")}
         fits[key] = {"target": named, "scale": scale}
+        attribution = _bias_attribution(record)
+        if attribution:
+            fits[key]["bias_tail_attribution"] = {
+                "world_factors": _get(
+                    record, "calibration", "calibration", "qol_nstep", "world_factors"
+                ),
+                "strata": attribution,
+            }
         distinct[json_digest([scale["value"], scale["digest"]])] = {
             "value": scale["value"],
             "digest": scale["digest"],

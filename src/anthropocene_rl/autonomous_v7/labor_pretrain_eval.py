@@ -886,6 +886,22 @@ QOL_BIAS_TARGET = {
     "units": "QoL reference scale of the gate (qol_reference_scale)",
     "nstep_bias": "the n-step bias stays in each stratum as a non-gating diagnostic",
 }
+# Non-gating tail attribution of the bias check (user decision 28 Oct): flag when the
+# predicted tail-induced bias exceeds this, or when removing it would flip the verdict.
+QOL_BIAS_TAIL_ATTRIBUTION_FLAG = 0.05
+QOL_BIAS_TAIL_ATTRIBUTION = {
+    "gating": False,
+    "factor": "per-world roulette schedule factor (tail_schedule_factor, the qol_tail "
+    "convention); a world without a schedule record counts as factor 1",
+    "predicted_tail_bias": "world-balanced mean over the tail-cut rows of "
+    "-tail_weight_i (1 - 1 / f_w) G_i / scale, in reference-scale units with the bias sign "
+    "(pred - target): the bias an exact critic shows when the stored tail is f_w x its "
+    "expectation; first-order in (f_w - 1) it is the -tail_weight (f_w - 1) G / scale form, "
+    "also reported as predicted_tail_bias_first_order",
+    "residual_critic_bias": "observed tail-cut bias - predicted_tail_bias",
+    "flag": "|predicted_tail_bias| > 0.05, or the |bias| <= 0.10 verdict differs between the "
+    "observed and the residual bias",
+}
 # Evidence field ``qol_gate_target``: one definition per gated metric.
 QOL_GATE_TARGETS = {"nmae": QOL_GATE_TARGET, "bias": QOL_BIAS_TARGET}
 FROZEN_QOL_REFERENCE_SCALE = 43.152  # contracts.OBJECTIVE_REFERENCE_SCALES["qol_years"]
@@ -1137,6 +1153,8 @@ def qol_nstep_calibration(
     reference: Mapping[str, Any],
     *,
     k: int = QOL_NSTEP_K,
+    world_factors: Mapping[int, float | None] | None = None,
+    weight: float | None = None,
 ) -> dict[str, Any]:
     """The QoL calibration gate's metrics against the n-step target (``QOL_GATE_TARGET``).
 
@@ -1148,7 +1166,10 @@ def qol_nstep_calibration(
     the same unit. ``living_end`` reports the excluded rows near the collection window end.
     ``bias_tailcut`` per stratum is the gated bias (``QOL_BIAS_TARGET``): Monte Carlo bias
     on rows whose tail weight is <= ``QOL_BIAS_TAIL_CUT``, with its coverage status; the
-    stratum's n-step ``bias`` is then a non-gating diagnostic.
+    stratum's n-step ``bias`` is then a non-gating diagnostic. ``bias_tailcut.attribution``
+    (non-gating, ``QOL_BIAS_TAIL_ATTRIBUTION``) splits that bias into the part predicted by
+    the worlds' schedule factors (``world_factors``; default from the dataset's
+    ``return_tail_by_world`` records and the discount weight ``weight``) and the residual.
     """
     from .labor_bc import (
         CRITIC_DISCOUNT_YEARS,
@@ -1203,6 +1224,53 @@ def qol_nstep_calibration(
         0.0,
     )
     low = tail_weight <= QOL_BIAS_TAIL_CUT
+    if world_factors is None:
+        from .labor_model import labor_qol_discount_weight
+
+        records = (dataset.get("collection") or {}).get("return_tail_by_world") or {}
+        w_ = labor_qol_discount_weight() if weight is None else float(weight)
+        world_factors = {
+            int(w): tail_schedule_factor(records.get(str(int(w))), w_)
+            for w in np.unique(worlds_all[rows])
+        }
+    factors = {int(w): f for w, f in world_factors.items()}
+    row_factor = np.array(
+        [factors.get(int(w)) if factors.get(int(w)) is not None else 1.0 for w in worlds_all[rows]],
+        dtype=np.float64,
+    )
+    tail_part = tail_weight * mc_rows / scale  # c_i tail_i / scale on rows with a tail
+    induced = -tail_part * (1.0 - 1.0 / row_factor)
+    first_order = -tail_part * (row_factor - 1.0)
+    limit = CRITIC_GATES["abs_bias_max"]
+
+    def attribution(mask: np.ndarray, observed: float | None) -> dict[str, Any]:
+        present = sorted({int(w) for w in worlds[mask]})
+        known = [factors.get(w) for w in present if factors.get(w) is not None]
+        out: dict[str, Any] = {
+            "gating": False,
+            "worlds": len(present),
+            "worlds_without_factor": len(present) - len(known),
+            "mean_factor": float(np.mean(known)) if known else None,
+            "predicted_tail_bias": None,
+            "predicted_tail_bias_first_order": None,
+            "residual_critic_bias": None,
+            "flag": False,
+        }
+        if not mask.any() or observed is None:
+            return out
+        weights_ = world_balanced(worlds[mask], np.ones(int(mask.sum()), dtype=bool))
+        predicted = weighted_mean(induced[mask], weights_)
+        residual = observed - predicted
+        flips = (abs(observed) <= limit) != (abs(residual) <= limit)
+        out.update(
+            predicted_tail_bias=predicted,
+            predicted_tail_bias_first_order=weighted_mean(first_order[mask], weights_),
+            residual_critic_bias=residual,
+            verdict_flips_without_tail=bool(flips),
+            flag=bool(abs(predicted) > QOL_BIAS_TAIL_ATTRIBUTION_FLAG or flips),
+        )
+        return out
+
     out_strata: dict[str, Any] = {}
     for name, mask in strata.items():
         m = np.asarray(mask, dtype=bool)
@@ -1223,6 +1291,7 @@ def qol_nstep_calibration(
                 "worlds": cut["worlds"],
                 "excluded_tail_weight_rows": int((m & ~low).sum()),
                 "coverage": "PASS" if covered else "HOLD",
+                "attribution": attribution(c, cut["bias"]),
             },
             "excluded_living_end_rows": int((m & ~gated).sum()),
             "monte_carlo": {
@@ -1248,6 +1317,8 @@ def qol_nstep_calibration(
         "target": QOL_GATE_TARGET,
         "targets": {"nmae": QOL_GATE_TARGET_ID, "bias": QOL_BIAS_TARGET_ID},
         "bias_target": QOL_BIAS_TARGET,
+        "bias_tail_attribution": QOL_BIAS_TAIL_ATTRIBUTION,
+        "world_factors": {str(w): f for w, f in sorted(factors.items())},
         "reference_scale": dict(reference),
         "rows": len(rows),
         "gated_rows": int(gated.sum()),
@@ -1355,6 +1426,9 @@ def critic_dataset_report(
             returns["qol_years"][rows],
             strata,
             frozen_qol_reference() if qol_reference is None else qol_reference,
+            weight=None
+            if getattr(task, "qol_head", None) is None
+            else task.qol_head.discount_weight,
         )
     tail_record: dict[str, Any] = {}
     if return_tail_method(dataset) == RETURN_TAIL_RANDOMIZED and len(rows):

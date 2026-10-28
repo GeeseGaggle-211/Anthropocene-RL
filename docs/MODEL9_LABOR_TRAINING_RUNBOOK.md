@@ -485,7 +485,15 @@ fewer than 200 such rows or fewer than 3 worlds HOLDs (`qol_bias_min_rows`, `qol
 The n-step bias stays per stratum as a non-gating diagnostic. The cut cancels balanced world factors
 (0.61/1.67/1.0: |shift| ~0.05 at 45-row trajectories), but a factor common to the calibration worlds
 still moves it (all 1.67: about -0.67 frozen scales on the same fixture), so the bias gate keeps some
-sensitivity to the realised mean tail factor of the 20 calibration worlds. The QoL unit is remeasured on
+sensitivity to the realised mean tail factor of the 20 calibration worlds. To tell tail noise
+from critic bias (user decision 28 Oct, non-gating), each stratum's `bias_tailcut.attribution`
+(also in the check detail and in the receipt's `qol_gate` per fit) reports the world-balanced mean
+schedule factor (per-world factors in `qol_nstep.world_factors`), the predicted tail-induced bias
+(world-balanced mean of -tail_weight (1 - 1/f_w) G / scale on the tail-cut rows: exact when the
+stored tail is f_w x its expectation, first-order equal to the -tail_weight (f_w - 1) G / scale
+form, which is reported too) and the residual critic bias (observed - predicted). The advisory
+`advisory:qol-bias-tail-attribution` FLAGs when |predicted| > 0.05 or when removing it would flip
+the |bias| <= 0.10 verdict; the gate verdict itself is unchanged. The QoL unit is remeasured on
 r5's own returns: `labor_r5_acceptance qol-reference-scale --fit-data FIT... --out scale.json` (fitting
 worlds only) writes `labor-r5-qol-reference-scale-v1`: the std (ddof 0, unweighted) of the per-row
 Monte Carlo QoL return on the admitted fitting rows, chosen over the n-step target because it needs no

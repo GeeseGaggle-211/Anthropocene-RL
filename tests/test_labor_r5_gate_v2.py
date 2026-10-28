@@ -611,3 +611,59 @@ def test_critic_dataset_report_carries_the_nstep_gate_section() -> None:
     assert report["heads"]["qol_years"]["all"]["scale"] == 43.152
     mc = nstep["strata"]["all"]["monte_carlo"]
     assert mc["nmae"] == pytest.approx(report["heads"]["qol_years"]["all"]["nmae"] * 43.152 / 10.0)
+
+
+def _attribution(factors, offset=0.0):
+    data = _three_worlds(factors)
+    n = int(data["row_world"].shape[0])
+    values = np.full(n, V_TRUE + offset * 43.152)
+    nstep = pe.qol_nstep_calibration(
+        data,
+        np.arange(n),
+        values,
+        discounted_returns(data)["qol_years"].double().numpy(),
+        {"all": np.ones(n, dtype=bool)},
+        pe.frozen_qol_reference(),
+        world_factors={90100 + w: f for w, f in enumerate(factors)},
+    )
+    calibration = _calibration()
+    nstep["strata"] = {s: nstep["strata"]["all"] for s in ra.STRATA}
+    calibration["calibration"]["qol_nstep"] = nstep
+    evidence = _evidence(calibration=calibration)
+    advisory = next(
+        a
+        for a in ra.fit_checks(evidence)["advisory"]
+        if a["check"] == "advisory:qol-bias-tail-attribution"
+    )
+    bias = {c["id"]: c for c in ra.fit_checks(evidence)["primary"]}["qol:b:abs-bias:all"]
+    return nstep["strata"]["all"]["bias_tailcut"], advisory, bias, evidence
+
+
+def test_common_tail_factor_with_an_exact_critic_is_attributed_to_the_tail() -> None:
+    cut, advisory, bias, evidence = _attribution((1.67, 1.67, 1.67))
+    attribution = cut["attribution"]
+    assert attribution["mean_factor"] == pytest.approx(1.67)
+    assert attribution["predicted_tail_bias"] == pytest.approx(cut["bias"], abs=1e-4)
+    assert attribution["residual_critic_bias"] == pytest.approx(0.0, abs=1e-4)
+    assert abs(attribution["predicted_tail_bias_first_order"]) > abs(
+        attribution["predicted_tail_bias"]
+    )
+    assert attribution["flag"] and attribution["verdict_flips_without_tail"]
+    assert advisory["status"] == "FLAG" and "all" in advisory["flagged_strata"]
+    assert bias["status"] == "FAIL"  # the gate verdict itself is unchanged (non-gating)
+    assert bias["detail"]["bias_tailcut"]["attribution"] == attribution
+    receipt = _receipt([evidence])
+    fit = receipt["qol_gate"]["fits"]["privileged-e4/seed-0"]["bias_tail_attribution"]
+    assert fit["strata"]["all"] == attribution and fit["world_factors"]["90100"] == 1.67
+
+
+def test_an_offset_critic_with_balanced_factors_keeps_its_residual_and_no_flag() -> None:
+    cut, advisory, bias, _ = _attribution((1.2, 0.8, 1.0), offset=0.15)
+    attribution = cut["attribution"]
+    assert abs(attribution["predicted_tail_bias"]) < 0.05
+    assert attribution["residual_critic_bias"] == pytest.approx(0.15, abs=0.01)
+    assert not attribution["flag"] and advisory["status"] == "REPORT"
+    assert bias["status"] == "FAIL"
+    # Old evidence: not applicable.
+    old = {a["check"]: a for a in ra.fit_checks(_evidence())["advisory"]}
+    assert old["advisory:qol-bias-tail-attribution"]["status"] == "NOT-APPLICABLE"
