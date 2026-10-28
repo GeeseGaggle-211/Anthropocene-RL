@@ -1775,6 +1775,11 @@ ADVANTAGE_MAGNITUDE_DEFINITION = {
     "recursion) and cannot serve. std(A_hat)/std(A_MC) is below 1 even for an exact critic "
     "(A_MC carries the post-window noise D_k (G_{t+k} - V(s_{t+k})))",
     "aggregation": "world-balanced weights (every world equal mass), per stratum",
+    "sign_agreement_world_centred": "the same sign agreement after removing each world's mean "
+    "of A_hat and of A_MC: A_MC = G - V shares the critic's own V(s_t), so a critic level "
+    "error (or a world's roulette tail factor) shifts every A_MC of that world and the raw "
+    "sign agreement then mostly measures that offset (measured: an untrained critic scores "
+    "higher than trained ones on the raw form)",
     "ppo_scale": "labor PPO uses the combined advantage raw in the clipped surrogate "
     "(labor_ppo.attempt_policy_terms: -mean(min(rho A, clip(rho) A)) - entropy_weight H); no "
     "per-batch standardisation, so the absolute scale sets the policy step against the "
@@ -1899,6 +1904,18 @@ def advantage_magnitude_report(
                 a_hat == 0.0, 0.5, (np.sign(a_hat) == np.sign(a_mc)).astype(np.float64)
             )
             pooled = _weighted_moments(a_hat, a_mc, np.ones(len(sel)))
+            # World-centred sign agreement: the critic's level error on a world (and the
+            # world's roulette tail factor) shifts A_MC = G - V by a constant there; removing
+            # each world's mean of both sides leaves the within-world direction.
+            sw = worlds_all[sel]
+            a_hat_c, a_mc_c = a_hat.copy(), a_mc.copy()
+            for world in np.unique(sw):
+                wm = sw == world
+                a_hat_c[wm] -= a_hat[wm].mean()
+                a_mc_c[wm] -= a_mc[wm].mean()
+            agree_c = np.where(
+                a_hat_c == 0.0, 0.5, (np.sign(a_hat_c) == np.sign(a_mc_c)).astype(np.float64)
+            )
             per_head: dict[str, Any] = {}
             predicted_spread, realised_spread = {}, {}
             for h in heads:
@@ -1941,6 +1958,10 @@ def advantage_magnitude_report(
                 "rows": len(sel),
                 "worlds": len(np.unique(worlds_all[sel])),
                 "sign_agreement": weighted_mean(agree, w),
+                "sign_agreement_world_centred": weighted_mean(agree_c, w),
+                "a_mc_mean_over_std": None
+                if not moments(a_mc, w)["std"]
+                else moments(a_mc, w)["mean"] / moments(a_mc, w)["std"],
                 **_weighted_moments(a_hat, a_mc, w),
                 "slope_pooled": pooled["slope"],
                 "scale": {

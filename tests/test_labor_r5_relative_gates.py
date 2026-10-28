@@ -448,6 +448,18 @@ def test_advantage_magnitude_perfect_scaled_and_constant_critics() -> None:
         assert c["sign_agreement"] < p["sign_agreement"]
         assert abs(c["slope"] - 1.0) > abs(p["slope"] - 1.0)
         assert set(perfect["ks"][k]) == {"all", "early_turns", "late_turns"}
+    # A uniform V offset: the raw sign agreement is trivially 1 (A_hat and A_MC both carry
+    # -offset); the world-centred form removes it and falls to chance.
+    offset = _magnitude(data, truth + 300.0)
+    for k in ("1", "5"):
+        o = offset["ks"][k]["all"]
+        assert o["sign_agreement"] > 0.99
+        assert 0.4 < o["sign_agreement_world_centred"] < 0.6
+    # Documented limitation: A_MC = G - V shares the critic's V, so a constant critic (whose
+    # A_hat and A_MC both carry the hidden level) still agrees on sign at least as often as
+    # the exact critic once centred. The sign check is not a ground-truth advantage test.
+    assert (constant["ks"]["5"]["all"]["sign_agreement_world_centred"]
+            >= perfect["ks"]["5"]["all"]["sign_agreement_world_centred"])
     # Only QoL moves: it carries the whole combined spread, predicted and realised.
     heads = perfect["ks"]["5"]["all"]["heads"]
     assert heads["qol_years"]["combined_contribution_share"] == pytest.approx(1.0)
