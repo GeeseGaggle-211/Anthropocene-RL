@@ -393,3 +393,25 @@
   - Proposed thresholds for the user: (b) all-pairs ≥ 0.65; (c) TD(0) MAE ≤ 0.12 S, |bias| ≤ 0.02 S. Also which variants gate (QoL/pop/combined).
   - Tail normalisation: world-factor corr 0.978 → 0.367. False terminal: 1 row masked in b01.
   - G1 pilot plus the E5 relative re-score on all 8 b04 worlds sent to the GPU operator.
+- 19:15Z CHECKPOINT for the user's flight: ops/r5-runbook df30672 pushed (all decision docs); morning brief §14 added. Running: G1 + E5 re-score (GPU operator), advantage sign/size diagnostic (implementer aedface5…), sim fixes (ac06d34…), collection (CPU operator af2f1d6…).
+- 08:56Z 28 Oct (the REAL clock; my earlier log timestamps today ran ahead and are approximate): the user is travelling with the laptop.
+  - Stable-state actions:
+    - the CPU VM autostart is now g0-autostart6 (every 2 h, to 2026-11-01T12:00Z); g0-autostart5 had expired at 12:00Z on 28 Oct;
+    - the GPU operator makes the G1/E5 job a detached VM script that uploads results and self-shutdowns;
+    - the implementers push WIP;
+    - the CPU operator is told that collection is self-sufficient.
+  - On return: check out-g1, out-e5rel, the branches feature/r5-relative-gates and feature/r5-sim-fixes, the CPU driver log, and the published batch count.
+- ~09:10Z G1 RESULTS (all 8 b04 worlds): combined lag≥5 0.835 (E5 0.656), all-pairs 0.829, late 0.75; population 0.98, QoL 0.73; TD0 MAE 0.103 / bias 0.006 (PASS). population_tail FAIL (summary). GPU VM self-terminated. CAVEAT: G1's evaluation reapplies tail normalisation while E5 is scored on raw tails, so it is not apples-to-apples; need E5 re-scored with --tail-normalize. An ERROR marker ('ERRORPATH') exists next to DONE although the statuses exit 0; check run.log.
+- ~09:30Z: fit8-b08 published 06:23Z and cal8-b01 published 09:21Z, so 9/12 (all 8 fit + cal8-b01). Running: cal8-b02, cal8-b03. Queued: heldout50. All fit8 batches are in pilot/; cal8 to be uploaded too. MY scratch cleanup likely deleted the CPU operator's poller dir; it recreated it (now cpu-operator-live). Guardrail ~11:17Z.
+- ~10:00Z: cal8-b01 uploaded to pilot/. Asked the implementer for an eval-time --tail-normalize flag so E5 can be re-scored on normalised b04 (the apples-to-apples test the user needs before deciding on a reward/telemetry redesign without tails).
+- ~10:10Z USER: run the renormalised E5 re-score on a VM tonight. CPU operator: build r5h (68c65f3), fetch the e5 ckpt, priv normalizer and r5-scale; run the raw baseline now; the normalised run follows once the implementer confirms the eval flag. Outputs go to pilot/out-e5norm/.
+- 15:45Z (real clock): the E5 re-score had not run while the laptop slept; the baseline (raw) launched 15:37Z on r5h. The normalised run needs c52c13e (pushed WIP with the eval flags), so the operator builds r5i and launches it. Collection: cal8-b02, cal8-b03 and heldout50 running (resumed after the 12:06Z guardrail restart). Published 9/12.
+- ~16:00Z relative-gates follow-ups (705affe..407958d) merged into integration.
+  - Only combined gates.
+  - Eval-time --tail-normalize / --false-terminal-policy overrides.
+  - LOCAL SMOKE: E5 on normalised b04 (2 worlds): combined lag≥5 0.819 (raw 0.684); population 0.958 (raw 0.703); QoL 0.704 (≈ raw). So most of G1's jump is the evaluation target. The full 8-world run is on the VM.
+  - SIGN AGREEMENT vs realised A_MC CANNOT gate: the untrained init beats trained critics, because A_MC shares V. Direction truth needs counterfactuals (gate d A ranking / search payloads).
+  - PPO feeds the combined advantage RAW (no per-batch standardisation), so scale matters. The settlement_guard cost is ≈ as large as QoL in the combined advantage, and the critic over-weights it on held-out.
+- ~16:15Z APPLES-TO-APPLES (8 b04 worlds), combined lag≥5 / all-pairs / late: E5 raw 0.656/0.658/0.555; E5 NORM 0.814/0.809/0.752; G1 NORM 0.835/0.829/0.752. Population: E5 norm 0.950, G1 0.983. QoL: E5 norm 0.702, G1 0.728. So the normalisation explains ~0.16 of the 0.18 gap; G1 adds +0.02 combined, +0.03 pop, +0.03 QoL. Both pass the gates on normalised targets. cal8-b02 published (10/12).
+- 17:15Z COLLECTION COMPLETE (12/12) at 16:47Z; privileged normalizer (12 dead) and dead-mask audit done; the VM self-shut 16:49Z (end-of-run). I restarted it, set STOP, launched final_upload.sh (cal8-b03, heldout50 → pilot/; post-collection artifacts → r5/post-collection/), which self-shutdowns. Detached g0-autostart6. TODO: remove the r5 @reboot crontab line later (VM is off). Sim fixes done (ddafab8): clothing fixed (+20% QoL), a residual Farmer 2-cycle is native; dormant-camp semantics need learner bridge changes.
+- 17:20Z: final uploads verified: pilot/cal8-b03 (334 objects plus dataset.json), pilot/heldout50 (500), post-collection/ (normalizer, report, audit, driver.log). CPU VM TERMINATED, schedule detached. The CPU operator stands down. Pending: remove the r5 @reboot crontab line next time the VM is up (or delete the VM after r5).
