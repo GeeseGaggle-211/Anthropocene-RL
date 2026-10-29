@@ -363,3 +363,14 @@ def test_the_pilot_critic_args_parse_as_pretrain_critic_arguments() -> None:
     assert lt._balance_kwargs(args) == {
         "loss_balancing": GradNormBalancing(), "grad_clip": "per-encoder"
     }
+
+
+def test_task_progress_stall_exempts_a_converged_head() -> None:
+    # gradnorm pilot 29 Oct: QoL excess BCE fell 96% then sat flat; that is convergence.
+    detector = _stall_detector()
+    for step in range(12):
+        qol = 0.03 * 0.5**step if step < 4 else 0.03 * 0.5**4
+        detector.update(step, {"qol_years": 1.0, "population_years": 1.0},
+                        {"qol_years": qol, "population_years": 3.0 * 0.9**step})
+        assert detector.progress_stall(step) is None
+    assert "qol_years" in detector.stall_converged

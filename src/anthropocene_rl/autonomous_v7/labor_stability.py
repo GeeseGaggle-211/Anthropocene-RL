@@ -116,6 +116,9 @@ class StabilityThresholds:
     dominance_share: float = 0.90  # one contender's share of the block's gradient norm
     dominance_persistence: float = 0.75  # share of window points above dominance_share
     dominance_min_progress: float = 0.01  # dominated contender's relative loss decrease
+    # task_progress_stall exempts a head whose window-end loss is at most this fraction of its
+    # first logged loss: it has converged, not stalled (gradnorm pilot, 29 Oct).
+    stall_converged_fraction: float = 0.3
     # 3. Bounded QoL head: share of |z| > 6 (r5-b item 4 defines the monitor).
     #    Approved with relaxation (user 26 Oct): low-side saturation on rows whose bounded
     #    target fraction G/W is below ``saturation_expected_low_target_fraction`` is expected
@@ -268,6 +271,7 @@ class DominanceDetector:
         persistence: float,
         min_progress: float,
         stall: bool = False,
+        converged_fraction: float = 0.3,
     ) -> None:
         if len(contenders) < 2:
             raise ValueError("dominance needs at least two contenders")
@@ -284,6 +288,8 @@ class DominanceDetector:
         self.dominant_windows = 0
         # ``task_progress_stall`` (gradnorm only): every contender's window progress gates.
         self.stall = bool(stall)
+        self.converged_fraction = float(converged_fraction)
+        self.stall_converged: dict[str, float] = {}
         self.stall_alarms: list[dict[str, Any]] = []
 
     def _progress(self, recent: Sequence[Mapping[str, Any]], contender: str) -> float:
@@ -314,6 +320,13 @@ class DominanceDetector:
             return None
         recent = self.points[-self.window :]
         stalled = self._stalled(recent, self.contenders)
+        half = self.window // 2
+        for contender in list(stalled):
+            first = float(self.points[0]["losses"][contender])
+            end = sum(p["losses"][contender] for p in recent[half:]) / (self.window - half)
+            if first > 0 and math.isfinite(end) and end <= self.converged_fraction * first:
+                self.stall_converged[contender] = end / first
+                del stalled[contender]
         if not stalled:
             return None
         alarm = {
@@ -1426,6 +1439,7 @@ class StabilityMonitor:
                 persistence=th.dominance_persistence,
                 min_progress=th.dominance_min_progress,
                 stall=loss_balancing == "gradnorm",
+                converged_fraction=th.stall_converged_fraction,
             )
         for name, contenders in self.contender_blocks.items():
             self.detectors[name] = DominanceDetector(
