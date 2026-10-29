@@ -118,14 +118,19 @@ def _stall_detector():
 def test_task_progress_stall_fires_on_a_flat_head_and_not_on_progress() -> None:
     flat = _stall_detector()
     alarms = []
-    for step in range(8):
-        flat.update(step, {"qol_years": 1.0, "population_years": 1.0},
+    for step in range(8):  # population flat AND starved (5% of the block's gradient)
+        flat.update(step, {"qol_years": 1.0, "population_years": 0.05},
                     {"qol_years": 2.0 * 0.9**step, "population_years": 3.0})
         alarms.append(flat.progress_stall(step))
     assert alarms[:7] == [None] * 7
     assert alarms[7]["check"] == "task_progress_stall"
     assert list(alarms[7]["stalled_progress"]) == ["population_years"]
-    assert not flat.alarms  # balanced norms: no dominance at all, yet the stall fires
+    unstarved = _stall_detector()  # flat but holding half the gradient: a plateau, not a stall
+    for step in range(8):
+        unstarved.update(step, {"qol_years": 1.0, "population_years": 1.0},
+                         {"qol_years": 2.0 * 0.9**step, "population_years": 3.0})
+        assert unstarved.progress_stall(step) is None
+    assert "population_years" in unstarved.stall_unstarved
     moving = _stall_detector()
     for step in range(12):
         moving.update(step, {"qol_years": 1.0, "population_years": 1.0},
