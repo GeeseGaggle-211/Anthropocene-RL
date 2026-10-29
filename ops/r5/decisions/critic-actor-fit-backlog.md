@@ -45,7 +45,7 @@ The combined advantage is built in `labor_ppo.py:402` `combine_labor_advantages`
 4. **Per-batch advantage standardization (optional)** on top of PopArt, as a safety net for the raw-A surrogate. Status: proposed.
 5. **Critic GradNorm on the task heads plus a separate clip per encoder,** with `task_progress_stall` gating and dominance advisory under GradNorm (`feature/r5-gradnorm`). This is the user's backup and escalation gate, which fired on 29 Oct (seed 0 tripped at weight 30 and at weight 50). Status: in progress, then a 1-seed 60-world pilot.
 6. **Teacher V vs actor V.** The G5 refit on actor trajectories, plus DAgger continuations, so advantages reflect the actor's policy. The teacher's 2-turn clothing cycle is fixed in the simulator (`feature/r5-sim-fixes` ddafab8) for PPO, G5 and r6. Status: approved (sequencing).
-7. **Dormant-camp bridge handling,** needed before PPO runs on the fixed simulator. The collector must accept dormant successor rows (`labor_bridge.py:1924`, `:2069`) and discount gaps by true elapsed years. Status: required with the simulator fixes.
+7. **Dormant-camp bridge handling,** needed before PPO runs on the fixed simulator. The collector must accept dormant successor rows (`labor_bridge.py:1924`, `:2069`) and discount gaps by true elapsed years. Dormant rows (population 0, not terminated) must NOT count toward settlement_guard (`labor_training.py:294` would charge 1 per dormant turn). Status: required with the simulator fixes.
 8. **A head and gate (d)** after the search payloads land. Then actor-root search from the pilot actor once it passes fidelity. Status: approved (sequencing).
 
 ## Done (for the record)
@@ -58,3 +58,9 @@ The combined advantage is built in `labor_ppo.py:402` `combine_labor_advantages`
 - Search root-level resume (selftest passed 29 Oct).
 - Open-file fix for mmap loaders.
 - Moved to r6: the tail redesign.
+
+## Notes (29 Oct)
+
+- **PopArt applies on the PPO side only.** The critic's QoL head is a bounded logistic and its population head a fixed-support categorical, so neither can be rescaled in the PopArt way. Use PPO-side per-head statistics.
+- **LayerNorm and saturation are not the QoL bottleneck** (saturation-audit.md: no hidden or head saturation; float32 is fine). QoL is limited by a weak learnable signal (~0.003 nats of BCE excess) and by gradient competition. The levers are GradNorm (in progress), more worlds, and the tail normalization already in place.
+- **Feasibility cost** (`ElderActorLaborLedger.cs:243`) is 0, or 1 + Σ severity of avoidable, actor-visible violations, up to 319 per attempt. It is always 0 in r5 teacher data, and it would swamp raw advantages in PPO without normalization or a capped multiplier.
