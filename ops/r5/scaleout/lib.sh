@@ -16,6 +16,16 @@ die() { log "FAIL $*"; exit 1; }
 # join_paths DIR NAME... -> "DIR/NAME1 DIR/NAME2 ..."
 join_paths() { local d=$1; shift; local out=() n; for n in "$@"; do out+=("$d/$n"); done; echo "${out[*]}"; }
 
+# raise_nofile: soft open-file limit to the hard limit for this shell and its children. The
+# memory-mapped dataset loaders hold one descriptor per stored array until the copy
+# (60 worlds x ~84 arrays); the loader also raises it itself (labor_teacher_data).
+raise_nofile() {
+  local hard
+  hard=$(ulimit -Hn)
+  ulimit -Sn "$hard" 2> /dev/null || ulimit -Sn 65536 2> /dev/null || true
+  echo "open-file limit soft=$(ulimit -Sn) hard=$(ulimit -Hn)"
+}
+
 mem_available_gb() { awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo; }
 disk_free_gb() { df -Pk "$1" | awk 'NR==2{print int($4/1048576)}'; }
 

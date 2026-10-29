@@ -9,6 +9,8 @@ dataset is read exactly as before.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -360,3 +362,70 @@ def test_shard_arrays_load_memory_mapped_with_the_stored_values(tmp_path) -> Non
             assert torch.equal(tensor, torch.from_numpy(array))
             del tensor
         del loaded
+
+
+MANY_WORLDS = tuple(range(90100, 90116))
+LOW_LIMIT_RUNNER = """
+import json, resource, sys
+soft, hard = int(sys.argv[2]), int(sys.argv[3])
+resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+from anthropocene_rl.autonomous_v7 import labor_teacher_data as ltd
+data = ltd.load_labor_data(sys.argv[1], training=False)
+print(json.dumps({
+    "rows": int(data["core"].shape[0]),
+    "core_sum": float(data["core"].double().sum()),
+    "limit": list(resource.getrlimit(resource.RLIMIT_NOFILE)),
+}))
+"""
+
+
+@pytest.mark.skipif(os.name != "posix", reason="RLIMIT_NOFILE is POSIX-only")
+@pytest.mark.parametrize("hard_low", [False, True], ids=["soft-low", "soft-and-hard-low"])
+def test_many_shard_load_survives_a_low_open_file_limit(tmp_path, hard_low) -> None:
+    import resource
+    import subprocess
+    import sys
+
+    dataset = _publish(tmp_path / "many", MANY_WORLDS)
+    arrays_per_world = len(list((dataset / f"world-{MANY_WORLDS[0]}").glob("*.npy")))
+    assert arrays_per_world * len(MANY_WORLDS) > 256  # more maps than the low limit
+    reference = ltd.load_labor_data(dataset, training=False)
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    hard_cap = 128 if hard_low else hard
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+    result = subprocess.run(
+        [sys.executable, "-c", LOW_LIMIT_RUNNER, str(dataset), "128", str(hard_cap)],
+        capture_output=True, text=True, timeout=600, env=env,
+    )
+    assert result.returncode == 0, result.stderr[-3000:]
+    report = json.loads(result.stdout.strip().splitlines()[-1])
+    assert report["rows"] == int(reference["core"].shape[0])
+    assert report["core_sum"] == float(reference["core"].double().sum())
+    if not hard_low:
+        assert report["limit"][0] == hard or report["limit"][0] >= arrays_per_world * len(MANY_WORLDS)
+
+
+def test_descriptor_exhaustion_falls_back_to_a_plain_read(tmp_path, monkeypatch) -> None:
+    import errno
+
+    from anthropocene_rl.autonomous_v7 import labor_teacher_data as module
+
+    stored = np.arange(12, dtype=np.float32).reshape(3, 4)
+    np.save(tmp_path / "a.npy", stored, allow_pickle=False)
+    real = np.load
+
+    def load(path, *args, **kwargs):
+        if kwargs.get("mmap_mode"):
+            raise OSError(errno.EMFILE, "Too many open files")
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(module.np, "load", load)
+    loaded = module.load_shard_array(tmp_path / "a.npy")
+    assert not isinstance(loaded, np.memmap) and np.array_equal(loaded, stored)
+
+    def other(path, *args, **kwargs):
+        raise OSError(errno.EACCES, "denied")
+
+    monkeypatch.setattr(module.np, "load", other)
+    with pytest.raises(OSError, match="denied"):
+        module.load_shard_array(tmp_path / "a.npy")

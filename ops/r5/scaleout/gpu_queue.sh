@@ -75,6 +75,11 @@ PY
 free_gb=$(disk_free_gb "$R")
 [ "$free_gb" -ge "${MIN_DISK_GB:-40}" ] || die "only ${free_gb} GB free under $R (need ${MIN_DISK_GB:-40})"
 log "disk free ${free_gb} GB, MemAvailable $(mem_available_gb) GB"
+log "$(raise_nofile)"
+# The many-shard loader under a low descriptor limit (bd800d0 regression, POSIX-only test).
+(cd "$CODE" && timeout 900 "$PY" -m pytest -q -p no:cacheprovider tests/test_labor_multi_dataset.py \
+   -k "open_file_limit or descriptor_exhaustion" > "$WORK/fd-selftest.log" 2>&1 < /dev/null) \
+  || die "open-file-limit loader test failed (see fd-selftest.log)"
 memwatch_pid=$(memwatch_start "$WORK/memwatch.csv" 60)
 
 # Inputs: the 8 fitting and 3 calibration batches plus both normalizers.

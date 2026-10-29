@@ -156,6 +156,35 @@ def _payload(directory: Path) -> dict[str, Any]:
     return out
 
 
+_NOFILE_RAISED = False
+
+
+def raise_open_file_limit() -> tuple[int, int] | None:
+    """Raise the soft RLIMIT_NOFILE to the hard limit (once per process; POSIX only).
+
+    Every live memory map holds a file descriptor until the loader's ``torch.cat`` has
+    copied it, so a merged load keeps one descriptor per stored array open at once: 60
+    fitting worlds x ~84 arrays is ~5,000, over the usual soft limit of 1,024. Returns the
+    (soft, hard) limits after the call, or None where the resource module is absent."""
+    global _NOFILE_RAISED
+    try:
+        import resource
+    except ImportError:  # Windows: no per-process descriptor limit of this kind
+        return None
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if not _NOFILE_RAISED:
+        _NOFILE_RAISED = True
+        target = hard if hard != resource.RLIM_INFINITY else max(soft, 1 << 20)
+        if soft == resource.RLIM_INFINITY or (target != resource.RLIM_INFINITY and soft >= target):
+            return soft, hard
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        except (ValueError, OSError):
+            return soft, hard
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    return soft, hard
+
+
 def load_shard_array(path: Path) -> np.ndarray:
     """One stored shard array for a loader that concatenates it into a new tensor.
 
@@ -163,10 +192,21 @@ def load_shard_array(path: Path) -> np.ndarray:
     reclaimable page cache, so concatenating many shards holds about one copy of the
     data in anonymous memory instead of two (the per-shard arrays plus the result).
     The values are the stored values; the caller's ``torch.cat`` always copies, so no
-    returned tensor stays backed by the file. Empty arrays are read normally."""
+    returned tensor stays backed by the file. Empty arrays are read normally.
+
+    Each map holds a descriptor until the copy: the soft open-file limit is raised to the
+    hard limit first, and if descriptors still run out (EMFILE/ENFILE) the array is read
+    into memory instead (same values; only that array loses the memory saving)."""
+    import errno
+
+    raise_open_file_limit()
     try:
         array = np.load(path, allow_pickle=False, mmap_mode="c")
     except ValueError:  # zero-length data segment
+        return np.load(path, allow_pickle=False)
+    except OSError as error:
+        if error.errno not in (errno.EMFILE, errno.ENFILE):
+            raise
         return np.load(path, allow_pickle=False)
     return array if array.size else np.load(path, allow_pickle=False)
 

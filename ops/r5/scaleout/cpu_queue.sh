@@ -113,6 +113,7 @@ if [ "${RESUME_SELFTEST:-1}" = "1" ] && [ "$(cat "$WORK/RESUME_SELFTEST_PASSED" 
     die "search kill/resume selftest failed or was skipped (see resume-selftest.log); search not started"
   fi
 fi
+log "$(raise_nofile)"
 memwatch_pid=$(memwatch_start "$WORK/memwatch.csv" 120)
 
 # Scheduler -------------------------------------------------------------------------------

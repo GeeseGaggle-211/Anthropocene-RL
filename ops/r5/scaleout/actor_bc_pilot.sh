@@ -44,6 +44,7 @@ LOG_FILE="$OUTD/driver.log"
 export TORCH_DISABLE_NATIVE_JIT=1 PYTHONUNBUFFERED=1 PYTHONPATH="$CODE/src"
 export OMP_NUM_THREADS="$THREADS" MKL_NUM_THREADS="$THREADS"
 M=anthropocene_rl.autonomous_v7
+raise_nofile > /dev/null
 cd "$CODE"
 [ -f "$OUTD/DONE" ] && { log "already done ($OUTD/DONE)"; exit 0; }
 log "start device=$DEVICE epochs=$EPOCHS seed=$SEED lr=$LR batches=[$BC_BATCHES] code=$(cat "$CODE/../COMMIT" 2>/dev/null || git -C "$CODE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
