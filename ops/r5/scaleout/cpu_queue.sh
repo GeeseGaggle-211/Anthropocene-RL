@@ -42,6 +42,26 @@ memwatch_pid=""
 exec 8> "$WORK/queue.lock"
 flock -n 8 || { echo "another cpu_queue.sh holds $WORK/queue.lock" >&2; exit 3; }
 
+# The one @reboot line the user approved (28 Oct) to relaunch this queue after a guardrail
+# stop or preemption; tagged so it can be found and removed. Installed after the resume
+# selftest passes (INSTALL_REBOOT=1), removed when search and the panel are done.
+REBOOT_TAG="# r5-scaleout-cpu-queue"
+REBOOT_LINE="@reboot sleep 120; CODE=$CODE bash $here/cpu_queue.sh >> $WORK/queue.out 2>&1 < /dev/null $REBOOT_TAG"
+reboot_installed() { crontab -l 2> /dev/null | grep -qF -- "$REBOOT_TAG"; }
+install_reboot() {
+  reboot_installed && return 0
+  { crontab -l 2> /dev/null || true; echo "$REBOOT_LINE"; } | crontab - && log "installed @reboot relaunch: $REBOOT_LINE"
+}
+remove_reboot() {
+  reboot_installed || return 0
+  { crontab -l 2> /dev/null | grep -vF -- "$REBOOT_TAG" || true; } | crontab - && log "removed the @reboot relaunch"
+}
+if [ -f "$WORK/DONE" ]; then  # finished earlier: never restart work, never stop the VM
+  remove_reboot
+  log "already done ($WORK/DONE); nothing to run"
+  exit 0
+fi
+
 finish() {
   local status=$?
   trap - EXIT
@@ -104,7 +124,7 @@ if [ "${RESUME_SELFTEST:-1}" = "1" ] && [ "$(cat "$WORK/RESUME_SELFTEST_PASSED" 
   log "search kill/resume selftest (live, bitwise)"
   if (cd "$CODE" && timeout 7200 "$PY" -m pytest -q -rs -p no:cacheprovider tests/test_labor_search_resume_live.py \
         > "$WORK/resume-selftest.log" 2>&1 < /dev/null) \
-     && ! grep -q "skipped" "$WORK/resume-selftest.log"; then
+     && ! grep -qi "skipped" "$WORK/resume-selftest.log"; then
     echo "$HEAD_SHA" > "$WORK/RESUME_SELFTEST_PASSED"
     log "selftest passed: $(tail -n 1 "$WORK/resume-selftest.log")"
     gcs_put "$WORK/resume-selftest.log" "$SCALEOUT_GCS/cpu-logs/resume-selftest.log"
@@ -113,9 +133,18 @@ if [ "${RESUME_SELFTEST:-1}" = "1" ] && [ "$(cat "$WORK/RESUME_SELFTEST_PASSED" 
     die "search kill/resume selftest failed or was skipped (see resume-selftest.log); search not started"
   fi
 fi
+if [ "${INSTALL_REBOOT:-1}" = "1" ]; then install_reboot; fi
 log "$(raise_nofile)"
 memwatch_pid=$(memwatch_start "$WORK/memwatch.csv" 120)
 
 # Scheduler -------------------------------------------------------------------------------
+sched_status=0
 "$PY" "$here/cpu_sched.py" --work "$WORK" --code "$CODE" --python "$PY" --normalizer "$NORMALIZER" \
-  >> "$WORK/sched.out" 2>&1 < /dev/null
+  >> "$WORK/sched.out" 2>&1 < /dev/null || sched_status=$?
+# Search and the panel done (or the panel switched off): the relaunch line goes away.
+if [ -f "$WORK/SEARCH_H12_DONE" ] && { [ -f "$WORK/PANEL_DONE" ] || [ "${PANEL:-1}" = "0" ]; }; then
+  remove_reboot
+  touch "$WORK/DONE"
+  gcs_put "$WORK/DONE" "$SCALEOUT_GCS/cpu-logs/DONE"
+fi
+exit "$sched_status"

@@ -156,6 +156,20 @@ mkdir -p ~/r5/scaleout
 CODE=~/code/r5s/rl setsid nohup bash ~/code/r5s/rl/ops/r5/scaleout/cpu_queue.sh > ~/r5/scaleout/queue.out 2>&1 < /dev/null &
 ```
 
+C3, relaunch after stops (user-approved @reboot line, 28 Oct). `cpu_queue.sh` installs it
+itself once the resume selftest has passed (`INSTALL_REBOOT=1`, default), tagged
+`# r5-scaleout-cpu-queue`:
+
+```
+@reboot sleep 120; CODE=/home/<user>/code/r5s/rl bash /home/<user>/code/r5s/rl/ops/r5/scaleout/cpu_queue.sh >> /home/<user>/r5/scaleout/queue.out 2>&1 < /dev/null # r5-scaleout-cpu-queue
+```
+Check with `crontab -l`. The queue is duplicate-safe (`flock` on `~/r5/scaleout/queue.lock`: a
+second launch exits 3 without touching the VM). Restarting the VM after a guardrail stop or a
+preemption is still manual (no autostart schedule). When search and the panel are done the queue
+removes the line itself and writes `~/r5/scaleout/DONE` (a later boot then exits at once without
+stopping the VM). Manual removal at any time:
+`crontab -l | grep -vF '# r5-scaleout-cpu-queue' | crontab -`.
+
 Dry run of the task list (no work): `CODE=~/code/r5s/rl NORMALIZER=~/r5/actor-normalizer.pt PYTHONPATH=~/code/r5s/rl/src ~/m9-bench/venv/bin/python ~/code/r5s/rl/ops/r5/scaleout/cpu_sched.py --dry-run | head`.
 Watch: `~/r5/scaleout/status.json` (counts, mean hours per task, projected remaining wall hours),
 `sched.log`, `memwatch.csv`, `logs/search-*.log`.
