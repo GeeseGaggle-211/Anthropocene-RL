@@ -138,7 +138,7 @@ if [ ! -f "$CRITIC_OUT/critic-receipt.json" ]; then
   JOBS="${JOBS:-1}" THREADS="${THREADS:-12}" \
   SEEDS="${SEEDS:-0,1,2,3,4}" \
   ARMS="${ARMS:-privileged-e4:privileged:4:candidate,control-e4:plain:4:control}" \
-  SEED_RULE=mean-with-floor SEED_GATE="${SEED_GATE:-1}" EARLY_STOP=1 CRITIC_VALIDATION=1 \
+  SEED_RULE=mean-with-floor SEED_GATE="${SEED_GATE:-1}" EARLY_STOP=1 CRITIC_VALIDATION="${CRITIC_VALIDATION:-1}"\
   POPULATION_TAIL="${POPULATION_TAIL:-advisory}" \
   LR="${LR:-1e-4}" \
   FAMILY_WEIGHTS="${FAMILY_WEIGHTS:-default,under-clothed=2}" FAMILY_WEIGHT_DECAY=cosine \
