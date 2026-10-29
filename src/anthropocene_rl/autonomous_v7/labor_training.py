@@ -1638,6 +1638,31 @@ def _task_weight_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     return kwargs
 
 
+def _balance_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    """``--loss-balancing gradnorm`` / ``--grad-clip per-encoder`` (user-approved 29 Oct).
+
+    Only non-default settings are passed, keeping default runs byte-identical."""
+    from .labor_bc import GradNormBalancing
+
+    kwargs: dict[str, Any] = {}
+    mode = getattr(args, "loss_balancing", None) or "none"
+    if mode == "gradnorm":
+        if str(getattr(args, "qol_loss_weight", None) or "").strip().lower() == "auto":
+            raise ValueError(
+                "--loss-balancing gradnorm and --qol-loss-weight auto exclude each other"
+            )
+        kwargs["loss_balancing"] = GradNormBalancing(
+            alpha=float(getattr(args, "gradnorm_alpha", 1.5)),
+            lr=float(getattr(args, "gradnorm_lr", 0.025)),
+        )
+    elif mode != "none":
+        raise ValueError("--loss-balancing must be none or gradnorm")
+    clip = getattr(args, "grad_clip", None) or "global"
+    if clip != "global":
+        kwargs["grad_clip"] = clip
+    return kwargs
+
+
 def _critic_level_kwargs(args: argparse.Namespace, state: Mapping[str, Any]) -> dict[str, Any]:
     """``--qol-head-bias-init`` / ``--td-step0-targets`` (Fable audit section 2, 28 Oct).
 
@@ -1779,6 +1804,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
                 ),
                 **_critic_stability_kwargs(args, actor),
                 **_task_weight_kwargs(args),
+                **_balance_kwargs(args),
                 **_critic_level_kwargs(args, state),
                 **({} if validation is None else {"validation_dataset": validation}),
                 **({} if best_sink is None else {"best_validation_sink": best_sink}),
@@ -1804,10 +1830,14 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         best_sink = None
         if _cost_weight_kwargs(args):
             raise ValueError("--cost-loss-weight is supported only with --dataset")
-        if _task_weight_kwargs(args) or getattr(args, "dominance_excess_loss", False):
+        if (
+            _task_weight_kwargs(args)
+            or _balance_kwargs(args)
+            or getattr(args, "dominance_excess_loss", False)
+        ):
             raise ValueError(
-                "--task-loss-weights / --qol-loss-weight / --dominance-excess-loss are "
-                "supported only with --dataset"
+                "--task-loss-weights / --qol-loss-weight / --loss-balancing / --grad-clip / "
+                "--dominance-excess-loss are supported only with --dataset"
             )
         if getattr(args, "select_best_validation", False):
             raise ValueError("--select-best-validation needs --validation-dataset")
@@ -2646,6 +2676,30 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     pretrain_critic.add_argument("--qol-weight-target-share", type=float, default=0.3)
     pretrain_critic.add_argument("--qol-weight-ema", type=float, default=0.3)
+    pretrain_critic.add_argument(
+        "--loss-balancing",
+        choices=("none", "gradnorm"),
+        default="none",
+        help="gradnorm: GradNorm (Chen et al. 2018) learns the task-head weights on the shared "
+        "task encoder's last layer, starting from the --qol-loss-weight ratio renormalised to "
+        "sum to the head count; target mean grad norm x (relative inverse training rate)^alpha; "
+        "under the stability monitor gradient_dominance becomes advisory and "
+        "task_progress_stall gates (user-approved 29 Oct). Default none (unchanged)",
+    )
+    pretrain_critic.add_argument(
+        "--gradnorm-alpha", type=float, default=1.5, help="GradNorm asymmetry alpha (1.5)"
+    )
+    pretrain_critic.add_argument(
+        "--gradnorm-lr", type=float, default=0.025, help="Adam rate of the GradNorm weights (0.025)"
+    )
+    pretrain_critic.add_argument(
+        "--grad-clip",
+        choices=("global", "per-encoder"),
+        default="global",
+        help="per-encoder: clip the task critic (task encoder + heads) and each cost critic "
+        "(encoder + head) to --max-grad-norm separately instead of one global clip. "
+        "Default global (unchanged)",
+    )
     pretrain_critic.add_argument(
         "--dominance-excess-loss",
         action="store_true",

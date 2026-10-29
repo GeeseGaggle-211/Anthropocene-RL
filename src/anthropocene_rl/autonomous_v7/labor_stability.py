@@ -76,7 +76,20 @@ STATUSES = ("PASS", "FAIL", "HOLD", "NOT_APPLICABLE")
 # which still stops and FAILs) and more than max_total_rollbacks
 # rollbacks (finite_updates). QoL saturation and the population tail stay end-of-run
 # judgements; the population tail adds a live, non-gating alarm.
-EARLY_STOP_CHECKS = ("gradient_dominance", "td_divergence", "finite_updates")
+EARLY_STOP_CHECKS = (
+    "gradient_dominance",
+    "td_divergence",
+    "finite_updates",
+    "task_progress_stall",
+)
+# ``pretrain-critic --loss-balancing gradnorm`` (user-approved 29 Oct): GradNorm balances the
+# task heads' gradients on the shared task encoder, so ``gradient_dominance`` there is near-
+# tautological and becomes advisory (alarms logged, never gating); the gating replacement is
+# ``task_progress_stall``: any task head whose relative training progress over the dominance
+# window (mean of the window's second half against its first half, the dominance detector's
+# ``stalled_progress`` computation) is below ``dominance_min_progress``. It exists (and appears
+# in ``checks()``) only under gradnorm, so every other receipt is unchanged.
+GRADNORM_CHECKS = ("task_progress_stall",)
 # Held-out validation (monitoring only): the advisory alarm fires when the validation total
 # loss rises on this many consecutive epochs while the training loss falls.
 VALIDATION_DIVERGENCE_EPOCHS = 2
@@ -254,6 +267,7 @@ class DominanceDetector:
         share: float,
         persistence: float,
         min_progress: float,
+        stall: bool = False,
     ) -> None:
         if len(contenders) < 2:
             raise ValueError("dominance needs at least two contenders")
@@ -268,6 +282,51 @@ class DominanceDetector:
         self.points: list[dict[str, Any]] = []
         self.alarms: list[dict[str, Any]] = []
         self.dominant_windows = 0
+        # ``task_progress_stall`` (gradnorm only): every contender's window progress gates.
+        self.stall = bool(stall)
+        self.stall_alarms: list[dict[str, Any]] = []
+
+    def _progress(self, recent: Sequence[Mapping[str, Any]], contender: str) -> float:
+        """Relative loss progress of ``contender`` over a window: second-half mean against
+        first-half mean (positive is a decrease)."""
+        half = self.window // 2
+        first = [p["losses"][contender] for p in recent[:half]]
+        second = [p["losses"][contender] for p in recent[half:]]
+        start = sum(first) / len(first)
+        end = sum(second) / len(second)
+        return (start - end) / abs(start) if start != 0 else 0.0
+
+    def _stalled(
+        self, recent: Sequence[Mapping[str, Any]], contenders: Iterable[str]
+    ) -> dict[str, float]:
+        """The contenders whose window progress is nonfinite or below ``min_progress``
+        (the dominance alarm's ``stalled_progress``)."""
+        stalled = {}
+        for other in contenders:
+            progress = self._progress(recent, other)
+            if not math.isfinite(progress) or progress < self.min_progress:
+                stalled[other] = progress
+        return stalled
+
+    def progress_stall(self, step: int) -> dict[str, Any] | None:
+        """``task_progress_stall`` on the latest full window (call after :meth:`update`)."""
+        if not self.stall or len(self.points) < self.window:
+            return None
+        recent = self.points[-self.window :]
+        stalled = self._stalled(recent, self.contenders)
+        if not stalled:
+            return None
+        alarm = {
+            "check": "task_progress_stall",
+            "block": self.name,
+            "step": int(step),
+            "window": self.window,
+            "min_progress": self.min_progress,
+            "stalled_progress": stalled,
+            "progress": {c: self._progress(recent, c) for c in self.contenders},
+        }
+        self.stall_alarms.append(alarm)
+        return alarm
 
     def update(
         self, step: int, norms: Mapping[str, float], losses: Mapping[str, float]
@@ -289,18 +348,7 @@ class DominanceDetector:
             if above < self.persistence * self.window:
                 continue
             self.dominant_windows += 1
-            half = self.window // 2
-            stalled = {}
-            for other in self.contenders:
-                if other == dominant:
-                    continue
-                first = [p["losses"][other] for p in recent[:half]]
-                second = [p["losses"][other] for p in recent[half:]]
-                start = sum(first) / len(first)
-                end = sum(second) / len(second)
-                progress = (start - end) / abs(start) if start != 0 else 0.0
-                if not math.isfinite(progress) or progress < self.min_progress:
-                    stalled[other] = progress
+            stalled = self._stalled(recent, (c for c in self.contenders if c != dominant))
             if stalled:
                 alarm = {
                     "check": "gradient_dominance",
@@ -323,6 +371,7 @@ class DominanceDetector:
             "dominant_windows": self.dominant_windows,
             "alarms": list(self.alarms),
             "last_shares": self.points[-1]["shares"] if self.points else None,
+            **({"stall_alarms": list(self.stall_alarms)} if self.stall else {}),
         }
 
 
@@ -1246,6 +1295,20 @@ def population_tail_report(
 # ---------------------------------------------------------------------------
 
 
+def clip_grad_groups(
+    groups: Mapping[str, Sequence[nn.Parameter]], max_grad_norm: float
+) -> tuple[float, dict[str, float]]:
+    """``--grad-clip per-encoder``: clip each parameter group to ``max_grad_norm`` on its own.
+
+    Returns the global pre-clip norm sqrt(sum of squared group norms), used for the
+    finiteness check and the step record, and each group's pre-clip norm."""
+    norms = {
+        name: float(nn.utils.clip_grad_norm_(params, max_grad_norm))
+        for name, params in groups.items()
+    }
+    return math.sqrt(sum(value * value for value in norms.values())), norms
+
+
 def _norm(tensors: Iterable[torch.Tensor | None]) -> float:
     total = 0.0
     for tensor in tensors:
@@ -1304,7 +1367,16 @@ class StabilityMonitor:
         shared_heads: Mapping[str, tuple[Sequence[nn.Parameter], Sequence[str]]] | None = None,
         contender_blocks: Mapping[str, Mapping[str, Sequence[str]]] | None = None,
         applicable: Mapping[str, bool] | None = None,
+        loss_balancing: str | None = None,
+        clip_groups: Mapping[str, Sequence[nn.Parameter]] | None = None,
     ) -> None:
+        """``loss_balancing="gradnorm"``: the shared-head detectors also judge the gating
+        ``task_progress_stall`` and every ``gradient_dominance`` alarm is advisory.
+        ``clip_groups`` (``--grad-clip per-encoder``): a partition of ``parameters``; each
+        group is clipped to ``max_grad_norm`` on its own instead of one global clip."""
+        if loss_balancing not in (None, "gradnorm"):
+            raise ValueError("loss_balancing must be None or 'gradnorm'")
+        self.loss_balancing = loss_balancing
         self.config = config
         self.t = config.thresholds
         self.fit = str(fit)
@@ -1316,6 +1388,15 @@ class StabilityMonitor:
             len(p) for p in self.blocks.values()
         ) != len(self.parameters):
             raise ValueError("stability blocks must partition the trained parameters")
+        self.clip_groups = (
+            None
+            if clip_groups is None
+            else {name: list(params) for name, params in clip_groups.items()}
+        )
+        if self.clip_groups is not None:
+            grouped = [id(p) for params in self.clip_groups.values() for p in params]
+            if set(grouped) != covered or len(grouped) != len(self.parameters):
+                raise ValueError("clip groups must partition the trained parameters")
         self.frozen = dict(frozen or {})
         frozen_ids = {id(p) for m in self.frozen.values() for p in m.parameters()}
         if frozen_ids & covered:
@@ -1344,6 +1425,7 @@ class StabilityMonitor:
                 share=th.dominance_share,
                 persistence=th.dominance_persistence,
                 min_progress=th.dominance_min_progress,
+                stall=loss_balancing == "gradnorm",
             )
         for name, contenders in self.contender_blocks.items():
             self.detectors[name] = DominanceDetector(
@@ -1357,6 +1439,8 @@ class StabilityMonitor:
         self.applicable = {name: False for name in MANDATORY_CHECKS + ADVISORY_CHECKS}
         self.applicable.update({"finite_updates": True, "frozen_gradients_zero": bool(self.frozen)})
         self.applicable["gradient_dominance"] = bool(self.detectors)
+        if loss_balancing == "gradnorm":
+            self.applicable["task_progress_stall"] = bool(self.shared_heads)
         self.applicable.update(dict(applicable or {}))
         self.step_index = 0
         self.successful_steps = 0
@@ -1444,10 +1528,14 @@ class StabilityMonitor:
             self._jsonl = None
 
     def _alarm(self, alarm: Mapping[str, Any]) -> None:
+        if alarm.get("check") == "gradient_dominance" and self.loss_balancing == "gradnorm":
+            # Advisory under gradnorm (user-approved 29 Oct): logged, never a stop or a FAIL.
+            self._advisory({**alarm, "advisory_reason": "loss-balancing gradnorm"})
+            return
         record = {"step": self.step_index, **alarm}
         self.alarms.append(record)
         self.write({"kind": "alarm", **record})
-        if alarm.get("check") in ("gradient_dominance", "td_divergence"):
+        if alarm.get("check") in ("gradient_dominance", "td_divergence", "task_progress_stall"):
             # Every such alarm is a mandatory FAIL in ``checks()`` (dominance: any detector
             # alarm; TD: any live alarm of TDDriftMonitor.update).
             self._request_stop(
@@ -1547,8 +1635,12 @@ class StabilityMonitor:
                 if log
                 else {}
             )
-            total = nn.utils.clip_grad_norm_(self.parameters, max_grad_norm)
-            total = float(total)
+            group_norms: dict[str, float] = {}
+            if self.clip_groups is None:
+                total = nn.utils.clip_grad_norm_(self.parameters, max_grad_norm)
+                total = float(total)
+            else:
+                total, group_norms = clip_grad_groups(self.clip_groups, max_grad_norm)
             if not math.isfinite(total):
                 reason = "nonfinite-gradient"
         frozen_norms: dict[str, float] = {}
@@ -1642,12 +1734,22 @@ class StabilityMonitor:
             )
             if head_grad_scales is not None:
                 record["shared_head_grad_norm_unweighted"] = raw_norms
+            if self.clip_groups is not None:
+                record["grad_clip"] = "per-encoder"
+                record["grad_norm_group_preclip"] = group_norms
+                record["clip_multiplier_groups"] = {
+                    name: min(1.0, max_grad_norm / (value + 1e-6))
+                    for name, value in group_norms.items()
+                }
             if detector_losses is not head_values:
                 record["dominance_progress_losses"] = detector_losses
             for block, norms in shared_norms.items():
                 alarm = self.detectors[block].update(self.step_index, norms, detector_losses)
                 if alarm:
                     self._alarm(alarm)
+                stall = self.detectors[block].progress_stall(self.step_index)
+                if stall:
+                    self._alarm(stall)
             contender_norms = {}
             for block, contenders in self.contender_blocks.items():
                 norms = {
@@ -1795,6 +1897,7 @@ class StabilityMonitor:
                     "points": copy.deepcopy(d.points),
                     "alarms": _jsonable(d.alarms),
                     "dominant_windows": d.dominant_windows,
+                    **({"stall_alarms": _jsonable(d.stall_alarms)} if d.stall else {}),
                 }
                 for name, d in self.detectors.items()
             },
@@ -1829,6 +1932,7 @@ class StabilityMonitor:
             detector.points = list(saved["points"])
             detector.alarms = list(saved["alarms"])
             detector.dominant_windows = int(saved["dominant_windows"])
+            detector.stall_alarms = list(saved.get("stall_alarms") or [])
         if self.epoch_rankings:
             self.applicable["advantage_overfit"] = True
         # Resume files written before the live advisories existed lack these keys.
@@ -1845,11 +1949,11 @@ class StabilityMonitor:
         th = self.t
         out: dict[str, dict[str, Any]] = {}
 
-        def put(name: str, status: str, **detail: Any) -> None:
+        def put(name: str, status: str, mandatory: bool | None = None, **detail: Any) -> None:
             if not self.applicable.get(name, False):
                 status = "NOT_APPLICABLE"
             out[name] = {
-                "mandatory": name in MANDATORY_CHECKS,
+                "mandatory": name in MANDATORY_CHECKS if mandatory is None else mandatory,
                 "status": status,
                 **detail,
             }
@@ -1874,11 +1978,34 @@ class StabilityMonitor:
             modules=sorted(self.frozen),
         )
         dominance_alarms = [a for d in self.detectors.values() for a in d.alarms]
+        gradnorm = self.loss_balancing == "gradnorm"
         put(
             "gradient_dominance",
             "FAIL" if dominance_alarms else "PASS",
+            # Advisory under gradnorm (user-approved 29 Oct): reported, never gating.
+            **(
+                {
+                    "mandatory": False,
+                    "advisory": True,
+                    "advisory_reason": "loss-balancing gradnorm",
+                }
+                if gradnorm
+                else {}
+            ),
             detectors={k: d.report() for k, d in self.detectors.items()},
         )
+        if gradnorm:
+            stalls = [a for d in self.detectors.values() for a in d.stall_alarms]
+            put(
+                "task_progress_stall",
+                "FAIL" if stalls else "PASS",
+                mandatory=True,
+                alarms=stalls,
+                window=th.dominance_window,
+                min_progress=th.dominance_min_progress,
+                definition="any task head's relative loss progress over the dominance window "
+                "(second-half mean against first-half mean) below dominance_min_progress",
+            )
         final_sat = self.final.get("qol_saturation")
         detail = self.final.get("qol_saturation_detail")
         if final_sat is None:
@@ -2021,6 +2148,8 @@ class StabilityMonitor:
                 # New fields appear only when used (non-gating, never part of ``checks()``).
                 **({"early_stop": self.early_stop} if self.early_stop is not None else {}),
                 **({"advisories": self.advisories} if self.advisories else {}),
+                **({"loss_balancing": self.loss_balancing} if self.loss_balancing else {}),
+                **({"grad_clip": "per-encoder"} if self.clip_groups is not None else {}),
                 **(
                     {"validation": self.validation.report()}
                     if self.validation is not None

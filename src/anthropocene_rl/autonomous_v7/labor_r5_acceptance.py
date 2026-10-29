@@ -229,6 +229,20 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "approved (user 26 Oct)",
         "source": "2.2: 16-point window (400 steps)",
     },
+    # User decision 29 Oct (60-world scale-out): pretrain-critic --loss-balancing gradnorm.
+    # GradNorm equalises the task heads' encoder gradients, so gradient_dominance is advisory
+    # for such a fit and task_progress_stall gates instead (mandatory, live early stop, seed
+    # gate); it reuses the dominance window, its stalled_progress computation and
+    # min_progress. Fits without gradnorm are judged exactly as before.
+    "stability_task_progress_stall": {
+        "value": {"applies": "pretrain-critic --loss-balancing gradnorm", "window_points": 16,
+                  "steps": 400, "min_progress": 0.01, "heads": ["qol_years", "population_years"],
+                  "gradient_dominance": "advisory under gradnorm"},
+        "status": "approved (user 29 Oct)",
+        "source": "scale-out: fixed QoL weights 30/50 tripped gradient_dominance at 60 worlds "
+        "(task_encoder at step 1875; global_clip at step 2225); any task head's relative "
+        "progress below dominance_min_progress over the dominance window FAILs",
+    },
     "stability_saturation": {
         "value": "see saturation_* entries",
         "status": "approved (user 26 Oct)",
@@ -4172,7 +4186,12 @@ def argument_parser() -> argparse.ArgumentParser:
     run.add_argument("--init-world", type=int, default=90100)
     run.add_argument("--qol-head", default="logistic,td-lambda,0.8")
     run.add_argument("--init-args", default="", help="extra initialize arguments")
-    run.add_argument("--critic-args", default="", help="extra pretrain-critic arguments")
+    run.add_argument(
+        "--critic-args",
+        default="",
+        help="extra pretrain-critic arguments (e.g. --qol-loss-weight 30 --loss-balancing "
+        "gradnorm --grad-clip per-encoder)",
+    )
     run.add_argument("--advantage-args", default="", help="extra advantage fit arguments")
     run.add_argument("--batch-size", type=int, default=256)
     run.add_argument("--lr", type=float, default=3e-4)

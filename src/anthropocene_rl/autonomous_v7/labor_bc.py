@@ -3064,6 +3064,144 @@ class AutoQoLLossWeight:
         }
 
 
+GRAD_CLIP_MODES = ("global", "per-encoder")
+
+
+@dataclass(frozen=True)
+class GradNormBalancing:
+    """``--loss-balancing gradnorm``: GradNorm (Chen et al. 2018) over the task heads.
+
+    Learnable per-head weights w_i (renormalised to sum to the head count K after every
+    update) on the shared task encoder's last layer W (:func:`gradnorm_shared_parameters`).
+    Each optimizer step measures the unweighted head gradient norms g_i = ||d L_i / d W||
+    and G_i = w_i g_i; with loss ratios Lt_i = L_i(t) / L_i(0) (L_i(0) the first step's batch
+    losses) and relative inverse training rates r_i = Lt_i / mean(Lt), the target is
+    mean(G) r_i^alpha, held constant; the weight loss sum_i |G_i - target_i| has gradient
+    sign(G_i - target_i) g_i in w_i, applied by the weights' own Adam (``lr``), then
+    w <- max(w, floor), w <- K w / sum(w). The weights a step used are those of the previous
+    update; a rolled-back step leaves the weights and their optimizer unchanged. The progress
+    losses (raw head means, or the QoL excess BCE under ``--dominance-excess-loss``) are the
+    same series the stability detectors read. No RNG; all weight arithmetic is float64 on CPU.
+    """
+
+    alpha: float = 1.5
+    lr: float = 0.025
+    floor: float = 1e-3
+
+    def __post_init__(self) -> None:
+        for name in ("alpha", "lr", "floor"):
+            if not math.isfinite(float(getattr(self, name))):
+                raise ValueError(f"gradnorm {name} must be finite")
+        if self.alpha < 0.0:
+            raise ValueError("gradnorm alpha must be non-negative")
+        if self.lr <= 0.0:
+            raise ValueError("gradnorm lr must be positive")
+        if not 0.0 < self.floor < 1.0:
+            raise ValueError("gradnorm weight floor must be in (0, 1)")
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "mode": "gradnorm",
+            "alpha": float(self.alpha),
+            "lr": float(self.lr),
+            "floor": float(self.floor),
+        }
+
+
+def gradnorm_shared_parameters(task_critic: nn.Module) -> list[nn.Parameter]:
+    """GradNorm's W: the weight of the last ``nn.Linear`` of the shared task-encoder trunk."""
+    trunk = getattr(task_critic.encoder, "trunk", None)
+    linears = [] if trunk is None else [m for m in trunk.modules() if isinstance(m, nn.Linear)]
+    if not linears:
+        raise ValueError("gradnorm needs a task encoder with a linear trunk")
+    return [linears[-1].weight]
+
+
+class GradNormState:
+    """Runtime GradNorm weights, their optimizer and initial losses (exact resume state)."""
+
+    def __init__(
+        self, config: GradNormBalancing, heads: Sequence[str], initial: Mapping[str, float]
+    ) -> None:
+        self.config = config
+        self.heads = tuple(heads)
+        values = torch.tensor([float(initial[h]) for h in self.heads], dtype=torch.float64)
+        values = values * (len(self.heads) / values.sum())
+        self.weights = nn.Parameter(values)
+        self.optimizer = torch.optim.Adam([self.weights], lr=float(config.lr))
+        self.initial_losses: dict[str, float] | None = None
+
+    def values(self) -> dict[str, float]:
+        values = self.weights.detach().tolist()
+        return {h: float(v) for h, v in zip(self.heads, values, strict=True)}
+
+    def proposal(
+        self, raw_norms: Mapping[str, float], losses: Mapping[str, float]
+    ) -> dict[str, Any]:
+        """The update's quantities at the current weights (pure)."""
+        initial = self.initial_losses or {h: float(losses[h]) for h in self.heads}
+        w = self.weights.detach().tolist()
+        g = [max(0.0, float(raw_norms[h])) for h in self.heads]
+        big_g = [wi * gi for wi, gi in zip(w, g, strict=True)]
+        mean_g = sum(big_g) / len(big_g)
+        ratio = [
+            float(losses[h]) / initial[h] if initial[h] > 0.0 else 1.0 for h in self.heads
+        ]
+        mean_ratio = sum(ratio) / len(ratio)
+        rate = [r / mean_ratio if mean_ratio > 0.0 else 1.0 for r in ratio]
+        target = [mean_g * max(0.0, ri) ** float(self.config.alpha) for ri in rate]
+        grad = [
+            (0.0 if gi_big == ti else math.copysign(1.0, gi_big - ti)) * gi
+            for gi_big, ti, gi in zip(big_g, target, g, strict=True)
+        ]
+        named = lambda values: dict(zip(self.heads, values, strict=True))  # noqa: E731
+        return {
+            "weights": named(w),
+            "raw_grad_norm": named(g),
+            "weighted_grad_norm": named(big_g),
+            "mean_grad_norm": mean_g,
+            "loss": {h: float(losses[h]) for h in self.heads},
+            "initial_loss": dict(initial),
+            "loss_ratio": named(ratio),
+            "inverse_rate": named(rate),
+            "target_grad_norm": named(target),
+            "weight_grad": named(grad),
+            "gradnorm_loss": sum(abs(a - b) for a, b in zip(big_g, target, strict=True)),
+        }
+
+    def snapshot(self) -> dict[str, Any]:
+        return self.state_dict()
+
+    def commit(self, proposal: Mapping[str, Any]) -> dict[str, float]:
+        """Apply one weight update; returns the renormalised weights for the next step."""
+        if self.initial_losses is None:
+            self.initial_losses = dict(proposal["initial_loss"])
+        self.optimizer.zero_grad(set_to_none=True)
+        self.weights.grad = torch.tensor(
+            [proposal["weight_grad"][h] for h in self.heads], dtype=torch.float64
+        )
+        self.optimizer.step()
+        with torch.no_grad():
+            self.weights.clamp_(min=float(self.config.floor))
+            self.weights.mul_(len(self.heads) / self.weights.sum())
+        self.optimizer.zero_grad(set_to_none=True)
+        return self.values()
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "weights": self.weights.detach().clone(),
+            "optimizer": copy.deepcopy(self.optimizer.state_dict()),
+            "initial_losses": None if self.initial_losses is None else dict(self.initial_losses),
+        }
+
+    def load_state_dict(self, state: Mapping[str, Any]) -> None:
+        with torch.no_grad():
+            self.weights.copy_(state["weights"])
+        self.optimizer.load_state_dict(copy.deepcopy(state["optimizer"]))
+        initial = state["initial_losses"]
+        self.initial_losses = None if initial is None else {k: float(v) for k, v in initial.items()}
+
+
 def pretrain_critic_on_dataset(
     *,
     task_critic: LaborTaskCritic,
@@ -3093,8 +3231,20 @@ def pretrain_critic_on_dataset(
     best_validation_sink: dict[str, Any] | None = None,
     qol_head_bias_init: str | None = None,
     td_step0_targets: str | None = None,
+    loss_balancing: GradNormBalancing | None = None,
+    grad_clip: str = "global",
 ) -> dict[str, Any]:
     """Fit task/cost critics on heuristic returns closed by the declared tail, world-balanced.
+
+    Loss balancing and clipping (user-approved 29 Oct; both default off, the historical fit
+    bitwise): ``loss_balancing`` (:class:`GradNormBalancing`) learns the task-head weights by
+    GradNorm on the shared task encoder's last layer, starting from the ratio of
+    ``task_loss_weights`` (``--qol-loss-weight``) renormalised to sum to the head count; its
+    weights, initial losses and optimizer state are in the resume payload and fingerprint,
+    and under the stability monitor ``gradient_dominance`` is advisory and
+    ``task_progress_stall`` gates. ``grad_clip="per-encoder"`` clips the task critic (task
+    encoder and heads) and each cost critic (encoder and head) to ``max_grad_norm``
+    separately instead of one global clip.
 
     QoL level fixes (reviewer tweak 28 Oct, Fable audit section 2; both default off, which is
     the historical fit bitwise): ``qol_head_bias_init="mean-target"`` sets the logistic QoL
@@ -3180,8 +3330,24 @@ def pretrain_critic_on_dataset(
             raise ValueError("give the QoL weight either explicitly or as auto, not both")
         weight_values["qol_years"] = float(qol_loss_weight_auto.initial)
     # All-1.0 fixed weights are the historical unweighted objective (bitwise default path).
-    weighted = qol_loss_weight_auto is not None or any(
-        v != 1.0 for v in weight_values.values()
+    if grad_clip not in GRAD_CLIP_MODES:
+        raise ValueError(f"grad_clip must be one of {GRAD_CLIP_MODES}")
+    if loss_balancing is not None:
+        if not isinstance(loss_balancing, GradNormBalancing):
+            raise ValueError("loss_balancing must be a GradNormBalancing or None")
+        if qol_loss_weight_auto is not None:
+            raise ValueError(
+                "--loss-balancing gradnorm and --qol-loss-weight auto exclude each other"
+            )
+        if separate_qol:
+            raise ValueError(
+                "--loss-balancing gradnorm balances the heads on a shared task encoder; this "
+                "critic has a separate QoL encoder"
+            )
+    weighted = (
+        qol_loss_weight_auto is not None
+        or loss_balancing is not None
+        or any(v != 1.0 for v in weight_values.values())
     )
     weight_history: list[dict[str, Any]] = []
     require_critic_teacher_dataset(
@@ -3274,6 +3440,24 @@ def pretrain_critic_on_dataset(
 
     critic_params = list(task_critic.parameters()) + list(cost_critics.parameters())
     optimizer = torch.optim.Adam(critic_params, lr=lr)
+    gradnorm = None
+    gradnorm_params: list[nn.Parameter] = []
+    if loss_balancing is not None:
+        gradnorm = GradNormState(loss_balancing, LABOR_OBJECTIVES, weight_values)
+        weight_values.update(gradnorm.values())
+        gradnorm_params = gradnorm_shared_parameters(task_critic)
+    clip_groups = None
+    if grad_clip == "per-encoder":
+        # The task critic (encoder(s) and heads) and each cost critic (its own encoder and
+        # head) are clipped on their own: no group's norm can shrink another's update.
+        clip_groups = {"task": list(task_critic.parameters())}
+        for name in LABOR_COSTS:
+            clip_groups[f"cost:{name}"] = list(cost_critics.encoders[name].parameters()) + list(
+                cost_critics.heads[name].parameters()
+            )
+        grouped = [id(p) for params in clip_groups.values() for p in params]
+        if set(grouped) != {id(p) for p in critic_params} or len(grouped) != len(critic_params):
+            raise ValueError("per-encoder clip groups must partition the critic parameters")
     # Modules decide the device (labor_device); data stays in host memory and each
     # chunk/minibatch moves to the device. On CPU every move is a no-op (bitwise path).
     device = module_device(task_critic)
@@ -3393,6 +3577,8 @@ def pretrain_critic_on_dataset(
                 "privileged_attention": task_critic.privileged_layout is not None,
                 "dead_features": True,
             },
+            **({} if loss_balancing is None else {"loss_balancing": "gradnorm"}),
+            **({} if clip_groups is None else {"clip_groups": clip_groups}),
         )
     if qol_loss_weight_auto is not None and monitor is None:
         raise ValueError("--qol-loss-weight auto reads the stability monitor; enable it")
@@ -3664,6 +3850,12 @@ def pretrain_critic_on_dataset(
                     "qol_loss_weight_auto": None
                     if qol_loss_weight_auto is None
                     else qol_loss_weight_auto.state_dict(),
+                    # Only a gradnorm fit adds the key (fixed/auto fingerprints unchanged).
+                    **(
+                        {}
+                        if loss_balancing is None
+                        else {"loss_balancing": loss_balancing.state_dict()}
+                    ),
                 },
                 sort_keys=True,
             ).encode("utf-8")
@@ -3678,6 +3870,7 @@ def pretrain_critic_on_dataset(
             ("td_step0_targets", td_step0_targets),
             ("tail_normalization", tail_normalization),
             ("false_terminal_correction", false_terminals),
+            ("grad_clip", None if grad_clip == "global" else grad_clip),
         )
         if value is not None
     }
@@ -3761,6 +3954,10 @@ def pretrain_critic_on_dataset(
                 raise ValueError("resume state has no task loss weight state")
             weight_values.update({k: float(v) for k, v in saved_weights["values"].items()})
             weight_history[:] = copy.deepcopy(list(saved_weights["history"]))
+        if gradnorm is not None:
+            if resume.get("gradnorm") is None:
+                raise ValueError("resume state has no gradnorm state")
+            gradnorm.load_state_dict(resume["gradnorm"])
         if resume.get("best_validation") is not None:
             best_validation.update(copy.deepcopy(resume["best_validation"]))
         first_epoch, first_start = int(resume["epoch"]), int(resume["start"])
@@ -3801,6 +3998,8 @@ def pretrain_critic_on_dataset(
                 "values": dict(weight_values),
                 "history": copy.deepcopy(weight_history),
             }
+        if gradnorm is not None:
+            payload["gradnorm"] = gradnorm.state_dict()
         if td_step0_targets is not None:
             payload["td_step0_mc_pending"] = bool(mc_pending[0])
         if qol_head_bias_init is not None:
@@ -3869,11 +4068,44 @@ def pretrain_critic_on_dataset(
             )
             loss = task_loss + cost_loss_weight * cost_loss
             accepted = True
+            gradnorm_entry: dict[str, Any] | None = None
+            gradnorm_saved: dict[str, Any] | None = None
+            if gradnorm is not None:
+                # Unweighted head gradients on W (no .grad accumulation; the graph is kept for
+                # the step's backward), committed before the step and undone on a rollback.
+                raw = {}
+                for name in LABOR_OBJECTIVES:
+                    grads = torch.autograd.grad(
+                        task_heads[name].mean(), gradnorm_params, retain_graph=True,
+                        allow_unused=True,
+                    )
+                    raw[name] = math.sqrt(
+                        sum(float(g.detach().double().pow(2).sum()) for g in grads if g is not None)
+                    )
+                rate_losses = {
+                    name: float(task_heads[name].detach().mean()) for name in LABOR_OBJECTIVES
+                }
+                if excess_progress:
+                    excess_rows = qol_excess(task_output, b_task_targets)
+                    if excess_rows is not None:
+                        rate_losses["qol_years"] = float(excess_rows.detach().mean())
+                proposal = gradnorm.proposal(raw, rate_losses)
+                if all(math.isfinite(v) for v in (*raw.values(), *rate_losses.values())):
+                    gradnorm_saved = gradnorm.snapshot()
+                    next_weights = gradnorm.commit(proposal)
+                    gradnorm_entry = {
+                        "step": int(steps) + 1, **proposal, "weights_next": next_weights
+                    }
             if monitor is None:
                 if not torch.isfinite(loss):
                     raise ValueError("heuristic critic pretraining produced a nonfinite loss")
                 loss.backward()
-                nn.utils.clip_grad_norm_(critic_params, max_grad_norm)
+                if clip_groups is None:
+                    nn.utils.clip_grad_norm_(critic_params, max_grad_norm)
+                else:
+                    from .labor_stability import clip_grad_groups
+
+                    clip_grad_groups(clip_groups, max_grad_norm)
                 optimizer.step()
             else:
 
@@ -3918,9 +4150,15 @@ def pretrain_critic_on_dataset(
                     effective: Mapping[str, Mapping[str, float]],
                     raw: Mapping[str, Mapping[str, float]],
                     used: Mapping[str, float] | None = step_weights,
+                    gradnorm_step: Mapping[str, Any] | None = gradnorm_entry,
                 ) -> dict[str, Any]:
-                    """Log the weights this step used; update the auto QoL weight."""
+                    """Log the weights this step used (and the gradnorm update); update the
+                    auto QoL weight."""
                     fields: dict[str, Any] = {"task_loss_weights": dict(used)}
+                    if gradnorm_step is not None:
+                        entry = {**gradnorm_step, "step": int(monitor.step_index)}
+                        weight_history.append(entry)
+                        fields["gradnorm"] = entry
                     if qol_loss_weight_auto is not None:
                         norms = raw["task_encoder"]
                         update = qol_loss_weight_auto.update(
@@ -3953,6 +4191,11 @@ def pretrain_critic_on_dataset(
                         else {}
                     ),
                 )
+            if gradnorm is not None:
+                if accepted and gradnorm_saved is not None:
+                    weight_values.update(gradnorm.values())
+                elif gradnorm_saved is not None:
+                    gradnorm.load_state_dict(gradnorm_saved)  # rolled back: weights unchanged
             if validation is not None and accepted:
                 # Read-only accumulation on the device (no host sync per step).
                 value = loss.detach().double()
@@ -4035,8 +4278,27 @@ def pretrain_critic_on_dataset(
     weight_record: dict[str, Any] = {}
     if weighted:
         weight_record["task_loss_weights"] = {
-            "mode": "auto-qol" if qol_loss_weight_auto is not None else "fixed",
+            "mode": "gradnorm"
+            if gradnorm is not None
+            else "auto-qol"
+            if qol_loss_weight_auto is not None
+            else "fixed",
             "final": dict(weight_values),
+            **(
+                {}
+                if gradnorm is None
+                else {
+                    "gradnorm": loss_balancing.state_dict(),
+                    "initial_ratio": {
+                        k: float(v) for k, v in (task_loss_weights or {}).items()
+                    },
+                    "shared_layer": "task_encoder.trunk last Linear weight",
+                    "initial_losses": None
+                    if gradnorm.initial_losses is None
+                    else dict(gradnorm.initial_losses),
+                    "history": copy.deepcopy(weight_history),
+                }
+            ),
             **(
                 {}
                 if qol_loss_weight_auto is None
@@ -4048,6 +4310,14 @@ def pretrain_critic_on_dataset(
             "note": "weights act on the optimizer objective; reported losses are unweighted",
         }
     level_record: dict[str, Any] = {}
+    if clip_groups is not None:
+        level_record["grad_clip"] = {
+            "mode": grad_clip,
+            "max_grad_norm": float(max_grad_norm),
+            "groups": {
+                name: sum(p.numel() for p in params) for name, params in clip_groups.items()
+            },
+        }
     if bias_init_record is not None:
         level_record["qol_head_bias_init"] = bias_init_record
     if td_step0_targets is not None:

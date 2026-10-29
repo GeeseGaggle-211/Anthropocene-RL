@@ -128,6 +128,31 @@ task objective, the context of the encoder feeding that objective's value head (
 population-years: `encoder`); widths are unchanged and the A artifact records
 `task_context: per-objective-value-head-encoder`, checked at load.
 
+**GradNorm loss balancing and per-encoder clipping (user decision 29 Oct).** At 60 worlds every fixed
+QoL weight tripped `gradient_dominance` at seed 0 (weight 30: `task_encoder`, population-years dominant,
+QoL progress 0.0012, step 1875; weight 50: `global_clip`, the task critic dominant, step 2225).
+`pretrain-critic --loss-balancing gradnorm` (Chen et al. 2018) learns the two task-head weights on the
+weight of the shared task encoder's last trunk `Linear`: every optimizer step measures the unweighted
+head gradient norms g_i on that layer, G_i = w_i g_i, loss ratios L_i(t)/L_i(0) (L_i(0) = the first
+step's batch losses; the QoL excess BCE under `--dominance-excess-loss`, else the raw head losses) and
+relative inverse training rates r_i; the target is mean(G) r_i^alpha (`--gradnorm-alpha`, 1.5), held
+constant, and the weights' own Adam (`--gradnorm-lr`, 0.025) steps on sum |G_i - target_i|, then floors
+them at 1e-3 and renormalises them to sum to 2. `--qol-loss-weight`/`--task-loss-weights` give the
+initial ratio (30 starts at 60/31 : 2/31). The weights a step uses come from the previous update; a
+rolled-back step leaves them unchanged. The weights, L_i(0) and the weight optimizer are in the resume
+payload (`gradnorm`) and the fingerprint; each stability step logs `task_loss_weights` and a `gradnorm`
+record (norms, rates, targets, `weights_next`); the summary lists them under `task_loss_weights`.
+Refused with `--qol-loss-weight auto` and with a separate QoL encoder. Under gradnorm,
+`gradient_dominance` is advisory (non-mandatory, alarms in `advisories`) and the mandatory, early-stopping
+`task_progress_stall` gates: any task head whose relative progress over the 16-point dominance window
+(the dominance check's `stalled_progress` computation) is below `dominance_min_progress` (0.01)
+(PREREGISTERED `stability_task_progress_stall`; the seed gate reads it like every mandatory check).
+`--grad-clip per-encoder` clips the task critic (task encoder and heads) and each cost critic (its own
+encoder and head) to `--max-grad-norm` separately instead of one global clip; step records add
+`grad_norm_group_preclip` and `clip_multiplier_groups` (`grad_norm_global` stays the global pre-clip
+norm). Both default off; the default fit is unchanged bit for bit (parameters compared against 50caf4c).
+Through the acceptance harness both are plain `--critic-args` (shell `CRITIC_ARGS`).
+
 Saturation keeps |z| > 6 (frozen r5 text). The expected-low stratum is a physical statement (G < 0.05 W:
 no housing or clothing yet), so it is still applied to G/W, which at scale 2 is `p* < 0.025` in head
 units; a low-saturated row decodes below `2 sigmoid(-6) W = 0.0049 W` (0.0025 W at scale 1), still far
