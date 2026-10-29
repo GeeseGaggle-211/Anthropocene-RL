@@ -155,6 +155,19 @@ def reference(tmp_path_factory: pytest.TempPathFactory, normalizer: Path) -> Pat
     return out
 
 
+def _refusals(stderr: str) -> list[str]:
+    """Every refused checkpoint with its full reason (never truncated in the failure)."""
+    out = []
+    for line in stderr.splitlines():
+        if '"resume_refused"' in line or "CheckpointIdentityError" in line:
+            try:
+                record = json.loads(line)
+                out.append(f"world {record.get('world')}: {record.get('resume_refused')}")
+            except ValueError:
+                out.append(line)
+    return out
+
+
 def _killed_then_resumed(tmp_path: Path, normalizer: Path, kills, before_resume=None) -> Path:
     out = tmp_path / "out"
     for kill in kills:
@@ -164,8 +177,10 @@ def _killed_then_resumed(tmp_path: Path, normalizer: Path, kills, before_resume=
     if before_resume is not None:
         before_resume(out)
     resumed = _run(out, normalizer, resume=True)
-    assert resumed.returncode == 0, resumed.stderr[-4000:]
-    assert "search_resumed_from_checkpoint" in resumed.stderr
+    refused = _refusals(resumed.stderr)
+    assert resumed.returncode == 0, "\n".join([*refused, resumed.stderr[-4000:]])
+    assert not refused, "resume refused:\n" + "\n".join(refused)
+    assert "search_resumed_from_checkpoint" in resumed.stderr, resumed.stderr[-4000:]
     assert (out / "dataset.json").is_file() and not (out / "_work").exists()
     return out
 

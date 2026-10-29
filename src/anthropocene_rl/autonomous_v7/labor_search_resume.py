@@ -53,7 +53,6 @@ from .labor_collect_resume import (
     ContinuationMismatch,
     _canonical_payloads,
     _fsync_dir,
-    step_digest,
 )
 
 SEARCH_CHECKPOINT_SCHEMA = 1
@@ -83,6 +82,20 @@ def _bytes(value: Any) -> bytes:
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def replay_step_digest(step: Mapping[str, Any]) -> str:
+    """Digest replayed search state without process-local branch identities.
+
+    Search explores native forks before executing the main-path decision.  A fresh
+    bridge process recreates the same physical successor on resume, but its
+    ``decisionId`` values are process-local and therefore need not equal the ids from
+    the interrupted process.  This is the same physical-state contract used by the
+    search fork/restore verifier.
+    """
+    from .labor_search import physical_digest
+
+    return physical_digest(step)
 
 
 def _write(path: Path, data: bytes) -> None:
@@ -127,7 +140,7 @@ class SearchResumePoint:
         initial = {int(c): dict(p) for c, p in replay["payloads"]["initial"].items()}
         retry = {int(c): dict(p) for c, p in replay["payloads"]["retry"].items()}
         step, _ = bridge.step_labor(initial, retry or None)
-        actual = step_digest(step)
+        actual = replay_step_digest(step)
         if actual != replay["step_digest"]:
             raise ContinuationMismatch(
                 f"search world {world} checkpoint {self.boundary}: replayed boundary digest "
@@ -322,7 +335,7 @@ class SearchCheckpointer:
                 "snapshot_sha256": _sha(snapshot_bytes),
                 "transient": None if transient is None else dict(transient),
                 "payloads": payloads,
-                "step_digest": step_digest(next_step),
+                "step_digest": replay_step_digest(next_step),
                 "turn": int(next_step["turn"]),
             },
             "wall_seconds": self.wall_seconds(),

@@ -217,6 +217,24 @@ def _same(a: dict, b: dict) -> None:
         assert x["record"] == y["record"] and torch.equal(x["tensors"]["core"], y["tensors"]["core"])
 
 
+def test_replay_digest_ignores_process_local_branch_identity_only() -> None:
+    recorded = {
+        "turn": 4,
+        "decisionId": "interrupted-process/37",
+        "villages": [{"camp": 3, "observation": {"food": 1.25, "trajectoryId": "old"}}],
+        "nativeMs": 3.0,
+    }
+    replayed = {
+        "turn": 4,
+        "decisionId": "resumed-process/1",
+        "villages": [{"camp": 3, "observation": {"food": 1.25, "trajectoryId": "new"}}],
+        "nativeMs": 99.0,
+    }
+    assert lsr.replay_step_digest(recorded) == lsr.replay_step_digest(replayed)
+    replayed["villages"][0]["observation"]["food"] = 1.5
+    assert lsr.replay_step_digest(recorded) != lsr.replay_step_digest(replayed)
+
+
 def _reference(tmp_path, monkeypatch) -> dict:
     _install(monkeypatch)
     return ls.search_world(_job(tmp_path / "ref", resume=False))
