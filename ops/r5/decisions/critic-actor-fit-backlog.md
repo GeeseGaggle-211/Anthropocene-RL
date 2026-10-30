@@ -64,3 +64,17 @@ The combined advantage is built in `labor_ppo.py:402` `combine_labor_advantages`
 - **PopArt applies on the PPO side only.** The critic's QoL head is a bounded logistic and its population head a fixed-support categorical, so neither can be rescaled in the PopArt way. Use PPO-side per-head statistics.
 - **LayerNorm and saturation are not the QoL bottleneck** (saturation-audit.md: no hidden or head saturation; float32 is fine). QoL is limited by a weak learnable signal (~0.003 nats of BCE excess) and by gradient competition. The levers are GradNorm (in progress), more worlds, and the tail normalization already in place.
 - **Feasibility cost** (`ElderActorLaborLedger.cs:243`) is 0, or 1 + Σ severity of avoidable, actor-visible violations, up to 319 per attempt. It is always 0 in r5 teacher data, and it would swamp raw advantages in PPO without normalization or a capped multiplier.
+
+## Candidate: inter-village inputs for the critic (user idea, 30 Oct)
+
+- **Hypothesis:** the critic sees one camp, while fission, emigration and immigration depend on other settlements, so QoL looks noisy to it. Population-years should suffer too but is masked by its scale and growth rate.
+- **Diagnostic (approved; runs after pilot 4):** on the local b01 copy, split critic QoL and population error and ordering by:
+  - a fission/migration event within 5 decisions;
+  - the teacher clothing-cycle phase.
+- **If the error concentrates on events:**
+  - Step 1 (tweak): privileged k-nearest known-settlement features: their QoL, population and distance, plus this camp's fission and immigration utilities.
+  - Step 2 (architecture, user decision): a centralized critic attending over all villages' input and privileged tokens in the world (CTDE; the actor stays decentralized).
+- **Caveats:**
+  - More inputs per row do not add rows; the effective sample size stays the number of worlds.
+  - World-level inputs make world fingerprinting easier: privileged unlocks already identify a world 58% of the time.
+  - Cost scales with village count, which grows with fission.
