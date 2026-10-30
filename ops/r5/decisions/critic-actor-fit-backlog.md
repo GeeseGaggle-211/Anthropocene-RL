@@ -103,3 +103,19 @@ The combined advantage is built in `labor_ppo.py:402` `combine_labor_advantages`
   - Privileged schema bump.
 - **Timing:** bundle it with the dormant-camp bridge change (item 7), so the G5/PPO data (fixed simulator) carries it. No r5 recollection.
 - **r5 evidence first:** the world-relative QoL/population gap probe (in the full event-split run) estimates how much critic error at immigration rows is explained.
+
+## Actor-head gradient signal under PopArt (user, 30 Oct)
+
+- **Mechanics:** every actor output head (specialty, activity incl. field.expansion / field.operation, movement, fission, trade) is trained by the SAME scalar combined advantage per row, through its own ∇log π. A head's useful gradient therefore depends on whether the combined advantage covaries with that head's action choice, not on the head's size.
+- **Risk is noise amplification, not swamping:**
+  - PopArt equalises each critic head's advantage VARIANCE, not its signal.
+  - gn4 one-step ΔV vs realised: QoL corr 0.17, population 0.50.
+  - Unit-variance QoL at one step is mostly noise, and PopArt would give it equal weight with population's real signal.
+- **Field payoffs are slow,** over several turns. One-step advantages cannot credit field.expansion; GAE λ≈0.95 (multi-step) is required.
+- **Mitigations to evaluate:**
+  - (a) GAE λ 0.95;
+  - (b) reliability-weighted normalisation: scale each head by its signal fraction, e.g. its corr or calibration slope vs realised, instead of pure unit variance;
+  - (c) PopArt on the combined GAE advantage per batch rather than per one-step head.
+- **Measure:**
+  - (1) on the reserved-world search payloads, does the critic's per-candidate advantage separate field-heavy vs field-light allocations as the realised returns do (by actor-head dimension)?
+  - (2) in the first PPO smoke run, per actor head, the gradient signal-to-noise E[A∇logπ]/sd over minibatches, under λ ∈ {0, 0.95} and both normalisations.
