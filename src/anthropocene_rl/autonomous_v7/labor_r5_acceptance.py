@@ -2232,7 +2232,8 @@ def _work_totals(evidence: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     steps = defaultdict(int)
     for record in evidence:
         for stage, value in (record.get("timings_seconds") or {}).items():
-            seconds[stage] += float(value)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                seconds[stage] += float(value)  # skips labels such as evaluate_device
         for label in ("critic", "advantage"):
             summary = _get(record, "stability", label)
             if summary:
