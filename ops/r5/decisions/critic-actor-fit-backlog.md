@@ -91,3 +91,15 @@ The combined advantage is built in `labor_ppo.py:402` `combine_labor_advantages`
   - the A head and the V-based one-step advantage (what PPO uses), both.
   - **Population specifically:** how often its per-candidate error flips the combined advantage's sign. Population dominates the combined spread once PopArt is applied.
 - **Gate:** a primary gate alongside ordering, with thresholds set from the first measurement and approved by the user.
+
+## Migration pressure TO a village: critic input gap (user, 30 Oct)
+
+- **Outflow is covered:** the fission-history block carries the simulator's own evaluation (pressure, expected stayer gain, expected daughter QoL, exit-opportunity pressure; `observations/features.py:128-137`).
+- **Inflow is NOT covered:** the contacts block (features.py:206-216) has no neighbour QoL, population or crowding, and no measure of this camp's attractiveness as a destination. The critic cannot see immigration pressure toward the camp, which moves both QoL and population advantages.
+- **Proposal:** symmetric privileged (critic-only) inflow fields, exported by the bridge from `Immigration.cs` with this camp as destination:
+  - expected inflow (the sum over known origins of their utility for moving here);
+  - the number of origins above the threshold;
+  - per contact, true QoL, population and exit-opportunity pressure.
+  - Privileged schema bump.
+- **Timing:** bundle it with the dormant-camp bridge change (item 7), so the G5/PPO data (fixed simulator) carries it. No r5 recollection.
+- **r5 evidence first:** the world-relative QoL/population gap probe (in the full event-split run) estimates how much critic error at immigration rows is explained.
