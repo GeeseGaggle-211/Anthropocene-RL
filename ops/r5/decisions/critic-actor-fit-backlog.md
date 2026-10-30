@@ -78,3 +78,16 @@ The combined advantage is built in `labor_ppo.py:402` `combine_labor_advantages`
   - More inputs per row do not add rows; the effective sample size stays the number of worlds.
   - World-level inputs make world fingerprinting easier: privileged unlocks already identify a world 58% of the time.
   - Cost scales with village count, which grows with fission.
+
+## Per-(state, action) advantage error gate (user, 30 Oct)
+
+- **Why:** ordering metrics rank states along the teacher's single trajectory and hide per-(s,a) error.
+  - QoL n-step error is ~0.26 S (~14 QoL-years) on non-event rows and ~0.39 S near fission/migration events, against a predicted one-step QoL advantage spread of ~8 QoL-years. So the per-row error is 2-3× the signal.
+  - Population error also more than doubles near events: 0.077 vs 0.031 S.
+  - Errors correlated with an action's consequences (labor → food/QoL → fission timing) bias advantages; they don't average out.
+- **Measure, when the reserved-world search payloads land (PHASE1_DONE):** for each root's candidate actions (≤14), predicted vs search-realised advantage, **for each head separately (QoL, population_years, both costs) and on the combined elder reward:**
+  - MAE, bias and calibration slope;
+  - split by event vs non-event roots;
+  - the A head and the V-based one-step advantage (what PPO uses), both.
+  - **Population specifically:** how often its per-candidate error flips the combined advantage's sign. Population dominates the combined spread once PopArt is applied.
+- **Gate:** a primary gate alongside ordering, with thresholds set from the first measurement and approved by the user.
