@@ -39,9 +39,13 @@ from .labor_privileged import (
     CRITIC_PREFIX as PRIVILEGED_CRITIC_PREFIX,
 )
 from .labor_privileged import (
+    LINEAGE_CRITIC_KEYS,
+    LINEAGE_FEATURES,
     LaborPrivilegedLayout,
     LaborPrivilegedNormalizer,
     assert_actor_batch,
+    lineage_critic_batch,
+    lineage_spec,
 )
 from .labor_privileged import (
     critic_keys as privileged_critic_keys,
@@ -590,8 +594,17 @@ class LaborPrivilegedCriticContract:
     cost_encoder_width: int
     token_width: int
     family_rows: tuple[tuple[str, int, int], ...]
+    # Learner-derived lineage token (``initialize --privileged-lineage``). False keeps
+    # the historical record byte for byte (no "lineage" field).
+    lineage: bool = False
 
     def state_dict(self) -> dict[str, Any]:
+        state = self._state_dict()
+        if self.lineage:
+            state["lineage"] = lineage_spec()
+        return state
+
+    def _state_dict(self) -> dict[str, Any]:
         return {
             "architecture": LABOR_PRIVILEGED_CRITIC_ARCHITECTURE,
             "schemaVersion": self.schema_version,
@@ -624,8 +637,11 @@ class LaborPrivilegedCriticContract:
             "architecture", "schemaVersion", "layoutDigest", "normalizerDigest", "encoders",
             "actorPrivilegedWidth", "widths", "families", "tokenInjection", "film",
         }
-        if not isinstance(state, Mapping) or set(state) != keys:
+        if not isinstance(state, Mapping) or set(state) - {"lineage"} != keys:
             raise ValueError("privileged critic contract fields are malformed")
+        lineage = "lineage" in state
+        if lineage and state["lineage"] != lineage_spec():
+            raise ValueError("privileged critic lineage record is unsupported")
         if state["architecture"] != LABOR_PRIVILEGED_CRITIC_ARCHITECTURE:
             raise ValueError("privileged critic architecture is unsupported")
         widths = state["widths"]
@@ -643,6 +659,7 @@ class LaborPrivilegedCriticContract:
             int(widths["costEncoder"]),
             int(widths["token"]),
             tuple((str(f["name"]), int(f["rows"]), int(f["width"])) for f in state["families"]),
+            lineage,
         )
         if record.state_dict() != dict(state):
             raise ValueError("privileged critic contract is not canonical")
@@ -672,6 +689,7 @@ class LaborPrivilegedCriticContract:
             int(cost.width),
             int(task_critic.encoder.token_width),
             tuple((f.name, f.rows, f.width) for f in layout.families),
+            bool(getattr(task_critic, "privileged_lineage", False)),
         )
 
 
@@ -714,6 +732,14 @@ def labor_checkpoint_qol_encoder(state: Mapping[str, Any]) -> str:
     if not isinstance(state, Mapping) or "labor_model_contract" not in state:
         raise ValueError("checkpoint is not an explicit labor/retry artifact")
     return LaborModelContract.from_state(state["labor_model_contract"]).qol_encoder
+
+
+def labor_checkpoint_privileged_lineage(state: Mapping[str, Any]) -> bool:
+    """Whether a labor checkpoint's critics carry the lineage token (False when absent)."""
+    if not isinstance(state, Mapping) or "labor_model_contract" not in state:
+        raise ValueError("checkpoint is not an explicit labor/retry artifact")
+    record = LaborModelContract.from_state(state["labor_model_contract"]).privileged_critic
+    return bool(record is not None and record.lineage)
 
 
 @dataclass(frozen=True)
@@ -1347,12 +1373,19 @@ class LaborCriticEncoder(LaborObservationEncoder):
         token_width: int = 128,
         layers: int = 2,
         heads: int = 4,
+        *,
+        lineage: bool = False,
     ) -> None:
         super().__init__(layout, width, token_width, layers, heads)
         self.privileged_layout = layout.privileged
+        self.privileged_lineage = bool(lineage)
         # Strict-load migration: off unless a reviewed conversion enables it.
         self.privileged_migration = False
         if self.privileged_layout is None:
+            if self.privileged_lineage:
+                raise ValueError(
+                    "the lineage token needs a privileged critic (--privileged-normalizer)"
+                )
             return
         with torch.random.fork_rng(devices=[]):
             self.privileged_project = nn.ModuleDict(
@@ -1374,6 +1407,12 @@ class LaborCriticEncoder(LaborObservationEncoder):
                     if family.overflow
                 }
             )
+        if self.privileged_lineage:
+            # Learner-derived lineage token: registered after every other tensor and
+            # built under its own forked RNG, so a lineage-off encoder is unchanged.
+            with torch.random.fork_rng(devices=[]):
+                self.lineage_project = nn.Linear(len(LINEAGE_FEATURES), token_width)
+                self.lineage_kind = nn.Parameter(0.02 * torch.randn(token_width))
         self._register_load_state_dict_pre_hook(self._migrate_privileged)
 
     def _migrate_privileged(self, state_dict, prefix, *args) -> None:
@@ -1401,6 +1440,8 @@ class LaborCriticEncoder(LaborObservationEncoder):
                 "(labor_model.critic_privileged_batch)"
             )
         expected = set(privileged_critic_keys(self.privileged_layout))
+        if self.privileged_lineage:
+            expected |= set(LINEAGE_CRITIC_KEYS)
         if not isinstance(privileged, Mapping) or set(privileged) != expected:
             raise ValueError(
                 f"privileged critic batch keys differ from schema "
@@ -1428,6 +1469,14 @@ class LaborCriticEncoder(LaborObservationEncoder):
                 projected = projected + overflow * self.privileged_overflow[family.name]
             tokens.append(projected)
             present.append(mask)
+        if self.privileged_lineage:
+            values, mask = self._tokens(
+                privileged, LINEAGE_CRITIC_KEYS[0], LINEAGE_CRITIC_KEYS[1], len(LINEAGE_FEATURES), 1
+            )
+            if len(values) != batch:
+                raise ValueError("lineage critic batch rows differ from the observation batch")
+            tokens.append(self.lineage_project(values) + self.lineage_kind)
+            present.append(mask)
         return torch.cat(tokens, dim=1), torch.cat(present, dim=1)
 
 
@@ -1451,7 +1500,11 @@ def critic_privileged_batch(
     normalizer = getattr(critic, "privileged_normalizer", None)
     if not isinstance(normalizer, LaborPrivilegedNormalizer) or normalizer.layout != layout:
         raise ValueError("privileged critic has no bound privileged normalizer for its layout")
-    return normalizer.critic_batch(arrays, rows, device=device)
+    batch = normalizer.critic_batch(arrays, rows, device=device)
+    if getattr(critic, "privileged_lineage", False):
+        # Learner-derived, bounded: bypasses the frozen normalizer (identity).
+        batch.update(lineage_critic_batch(arrays, rows, device=device))
+    return batch
 
 
 def bind_privileged_normalizer(
@@ -1506,8 +1559,10 @@ class LaborTaskCritic(nn.Module):
         qol_head: LaborQoLHead | None = None,
         qol_encoder: str = "shared",
         qol_encoder_seed: int | None = None,
+        privileged_lineage: bool = False,
     ) -> None:
         super().__init__()
+        self.privileged_lineage = bool(privileged_lineage)
         self.qol_encoder_mode = _check_qol_encoder_mode(qol_encoder)
         self.support = LaborValueSupport() if support is None else support
         if not isinstance(self.support, LaborValueSupport):
@@ -1515,7 +1570,9 @@ class LaborTaskCritic(nn.Module):
         if qol_head is not None and not isinstance(qol_head, LaborQoLHead):
             raise ValueError("task critic QoL head must be a LaborQoLHead or None")
         self.qol_head = qol_head
-        self.encoder = LaborCriticEncoder(layout, width, token_width)
+        self.encoder = LaborCriticEncoder(
+            layout, width, token_width, lineage=self.privileged_lineage
+        )
         self.privileged_layout = layout.privileged
         self.privileged_normalizer: LaborPrivilegedNormalizer | None = None
         self.heads = nn.ModuleDict(
@@ -1544,7 +1601,9 @@ class LaborTaskCritic(nn.Module):
                 )
                 # CPU generator only (module init is on CPU); CUDA RNG untouched.
                 torch.random.default_generator.manual_seed(seed)
-                self.qol_encoder = LaborCriticEncoder(layout, width, token_width)
+                self.qol_encoder = LaborCriticEncoder(
+                    layout, width, token_width, lineage=self.privileged_lineage
+                )
 
     @property
     def separate_qol_encoder(self) -> bool:
@@ -1765,11 +1824,22 @@ class LaborCostCritics(nn.Module):
     """
 
     def __init__(
-        self, layout: LaborEncoderLayout, width: int = 128, token_width: int = 128
+        self,
+        layout: LaborEncoderLayout,
+        width: int = 128,
+        token_width: int = 128,
+        *,
+        privileged_lineage: bool = False,
     ) -> None:
         super().__init__()
+        self.privileged_lineage = bool(privileged_lineage)
         self.encoders = nn.ModuleDict(
-            {name: LaborCriticEncoder(layout, width, token_width) for name in LABOR_COSTS}
+            {
+                name: LaborCriticEncoder(
+                    layout, width, token_width, lineage=self.privileged_lineage
+                )
+                for name in LABOR_COSTS
+            }
         )
         self.privileged_layout = layout.privileged
         self.privileged_normalizer: LaborPrivilegedNormalizer | None = None
@@ -1809,6 +1879,10 @@ def labor_checkpoint_payload(
         or actor.encoder.layout.privileged is not None
     ):
         raise ValueError("labor checkpoint models disagree with the layout's privileged block")
+    if bool(getattr(task_critic, "privileged_lineage", False)) != bool(
+        getattr(cost_critics, "privileged_lineage", False)
+    ):
+        raise ValueError("labor task and cost critics disagree on the lineage token")
     privileged_record = None
     privileged_normalizer = None
     if layout.privileged is not None:
@@ -1881,6 +1955,17 @@ def load_labor_checkpoint_models(
     privileged_normalizer = labor_checkpoint_privileged_normalizer(
         state, contract, expected_layout
     )
+    declared_lineage = bool(
+        contract.privileged_critic is not None and contract.privileged_critic.lineage
+    )
+    if (
+        bool(getattr(task_critic, "privileged_lineage", False)) != declared_lineage
+        or bool(getattr(cost_critics, "privileged_lineage", False)) != declared_lineage
+    ):
+        raise ValueError(
+            "labor checkpoint declares a different lineage token; construct the critics with "
+            "labor_checkpoint_privileged_lineage(state)"
+        )
     if (
         task_critic.privileged_layout != expected_layout.privileged
         or cost_critics.privileged_layout != expected_layout.privileged

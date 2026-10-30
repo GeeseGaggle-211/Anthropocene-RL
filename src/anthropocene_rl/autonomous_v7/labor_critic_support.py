@@ -228,7 +228,12 @@ def convert_task_critic_support(
     # Same (default) widths as _models_from_checkpoint, which just loaded old_task strictly.
     width = old_task.heads[LABOR_OBJECTIVES[0]].in_features
     head_seed = int(state["optimizer_seed"] if seed is None else seed)
-    task = LaborTaskCritic(layout, support=support, qol_encoder=old_task.qol_encoder_mode)
+    task = LaborTaskCritic(
+        layout,
+        support=support,
+        qol_encoder=old_task.qol_encoder_mode,
+        privileged_lineage=old_task.privileged_lineage,
+    )
     task.encoder.load_state_dict(old_task.encoder.state_dict(), strict=True)
     if old_task.qol_encoder is not None:
         task.qol_encoder.load_state_dict(old_task.qol_encoder.state_dict(), strict=True)
@@ -444,6 +449,7 @@ def convert_qol_encoder(
         qol_head=old_task.qol_head,
         qol_encoder="separate",
         qol_encoder_seed=labor_qol_encoder_seed(init_seed),
+        privileged_lineage=old_task.privileged_lineage,
     )
     source = dict(old_task.state_dict())
     new_encoder = old_task.encoder if init == "copy" else task.qol_encoder

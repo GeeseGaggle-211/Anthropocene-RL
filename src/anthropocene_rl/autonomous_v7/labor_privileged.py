@@ -1199,3 +1199,178 @@ def _numpy(value: Any) -> np.ndarray:
     if isinstance(value, torch.Tensor):
         return value.detach().cpu().numpy()
     return np.asarray(value)
+
+
+# ---------------------------------------------------------------------------
+# Learner-derived lineage features (critic-only, ``initialize --privileged-lineage``)
+# ---------------------------------------------------------------------------
+#
+# The settlement-guard cost exempts young daughters (parentSociety > 0 and at
+# most YOUNG_DAUGHTER_TURNS after founding), but no critic input says "this camp
+# is a daughter" or "founded k turns ago": fission-age resets for parent and
+# daughter alike, episode-age is the world clock and ``daughters`` counts
+# children. The lineage family supplies both, derived by the learner (the
+# simulator's privileged schema-1 layout is unchanged):
+#
+# * ``is-daughter`` in {0, 1};
+# * ``turns-since-founding-over-4`` = min(turn - founded_turn, 4) / 4 in [0, 1].
+#
+# Both are bounded by construction, so they bypass the privileged normalizer
+# (identity, no fitted moments): the critic batch carries the raw values as one
+# always-present token row ``privileged__lineage`` [N, 1, 2].
+#
+# Offline (stored rows, no parentSociety): a camp is a daughter iff its founding
+# turn -- the stored ``founded_turn`` when a branch dataset has one, else its
+# first row turn -- is after its world's first row turn. Camps present at the
+# world's first window turn therefore count as originals (and their age starts
+# at that turn); :func:`offline_lineage` reports how many rows that covers.
+# Online (rollouts and the T4/G5 trace): ``is-daughter`` = parentSociety > 0 (the
+# guard's own test) and the founding turn is the rollout's tracked
+# ``founded_turns`` (first turn the camp was seen; originals at reset). On a
+# fresh episode both derivations agree row for row (tested).
+
+LINEAGE_FAMILY = "lineage"
+LINEAGE_FEATURES = ("is-daughter", "turns-since-founding-over-4")
+LINEAGE_CAP_TURNS = 4
+LINEAGE_SEMANTICS = "labor-critic-lineage-v1"
+# Raw (already bounded) per-row values [N, 2] float32; never an actor input.
+LINEAGE_RAW_KEY = SHARD_PREFIX + LINEAGE_FAMILY
+LINEAGE_CRITIC_KEYS = (CRITIC_PREFIX + LINEAGE_FAMILY, CRITIC_PREFIX + LINEAGE_FAMILY + "_present")
+# A row r is a guard-exempt young daughter iff next_turn - founded <= 3, i.e. its
+# own age (turn - founded) <= 2 (YOUNG_DAUGHTER_TURNS = 3 is applied at the outcome turn).
+YOUNG_DAUGHTER_ROW_AGE = 2
+
+
+def lineage_spec() -> dict[str, Any]:
+    """The checkpoint record of the lineage family (stored only when enabled)."""
+    return {
+        "semantics": LINEAGE_SEMANTICS,
+        "features": list(LINEAGE_FEATURES),
+        "capTurns": LINEAGE_CAP_TURNS,
+        "rows": 1,
+        "normalization": "bounded-identity-bypasses-privileged-normalizer",
+        "offline": (
+            "daughter iff founding turn (stored founded_turn, else first row turn) > "
+            "world's first row turn"
+        ),
+        "online": "daughter iff parentSociety > 0; founding turn from the rollout's founded_turns",
+    }
+
+
+def lineage_values(is_daughter: Any, turns_since: Any) -> np.ndarray:
+    """[N, 2] float32 lineage features from daughter flags and turns since founding."""
+    daughter = np.asarray(is_daughter, dtype=bool).reshape(-1)
+    age = np.asarray(turns_since, dtype=np.int64).reshape(-1)
+    if len(daughter) != len(age):
+        raise ValueError("lineage flags and ages differ in length")
+    capped = np.clip(age, 0, LINEAGE_CAP_TURNS).astype(np.float32) / float(LINEAGE_CAP_TURNS)
+    return np.stack([daughter.astype(np.float32), capped], axis=1).astype(np.float32)
+
+
+def offline_lineage(
+    worlds: Any, camps: Any, turns: Any, founded_turn: Any | None = None
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Lineage features for stored rows, derived once per dataset (see the notes above)."""
+    w = _numpy(worlds).reshape(-1).astype(np.int64)
+    c = _numpy(camps).reshape(-1).astype(np.int64)
+    t = _numpy(turns).reshape(-1).astype(np.int64)
+    n = len(w)
+    if len(c) != n or len(t) != n:
+        raise ValueError("lineage derivation needs equal-length row_world/row_camp/row_turn")
+    world_first: dict[int, int] = {}
+    for world, turn in zip(w.tolist(), t.tolist(), strict=True):
+        if turn < world_first.get(world, turn + 1):
+            world_first[world] = turn
+    if founded_turn is not None:
+        founded = _numpy(founded_turn).reshape(-1).astype(np.int64)
+        if len(founded) != n:
+            raise ValueError("stored founded_turn length differs from the rows")
+        source = "stored-founded_turn"
+    else:
+        first: dict[tuple[int, int], int] = {}
+        for world, camp, turn in zip(w.tolist(), c.tolist(), t.tolist(), strict=True):
+            key = (world, camp)
+            if turn < first.get(key, turn + 1):
+                first[key] = turn
+        founded = np.asarray(
+            [first[key] for key in zip(w.tolist(), c.tolist(), strict=True)], np.int64
+        )
+        source = "first-row-turn"
+    start = np.asarray([world_first[world] for world in w.tolist()], np.int64)
+    daughter = founded > start
+    age = t - founded
+    originals = ~daughter
+    stats = {
+        "rows": int(n),
+        "founding_source": source,
+        "daughter_rows": int(daughter.sum()),
+        # Edge case: camps present at the world's first window turn count as originals.
+        "window_original_rows": int(originals.sum()),
+        "window_original_camps": len(
+            set(zip(w[originals].tolist(), c[originals].tolist(), strict=True))
+        ),
+        "young_daughter_rows": int((daughter & (age <= YOUNG_DAUGHTER_ROW_AGE)).sum()),
+        "negative_age_rows": int((age < 0).sum()),
+    }
+    return lineage_values(daughter, age), stats
+
+
+def online_lineage(
+    villages: Sequence[Mapping[str, Any]], founded_turns: Mapping[int, int], turn: int
+) -> np.ndarray:
+    """Lineage features for live bridge rows at decision ``turn`` (rollout/trace path).
+
+    A camp not yet in ``founded_turns`` is founded now (age 0), the same rule the
+    rollout's ``founded_turns.setdefault`` applies.
+    """
+    daughter, age = [], []
+    for village in villages:
+        camp = int(village["camp"])
+        daughter.append(int(village.get("parentSociety", 0) or 0) > 0)
+        age.append(int(turn) - int(founded_turns.get(camp, int(turn))))
+    return lineage_values(daughter, age)
+
+
+def ensure_lineage(arrays: Any) -> np.ndarray:
+    """The dataset's lineage features, derived once and cached under :data:`LINEAGE_RAW_KEY`.
+
+    ``arrays`` is a full stored dataset (the derivation needs every row of each
+    world) or a live batch that already carries the key. The derivation stats are
+    recorded in ``arrays["collection"]["lineage"]`` when there is a collection record.
+    """
+    if LINEAGE_RAW_KEY in arrays:
+        values = _numpy(arrays[LINEAGE_RAW_KEY])
+    else:
+        missing = [k for k in ("row_world", "row_camp", "row_turn") if k not in arrays]
+        if missing:
+            raise ValueError(
+                f"lineage critic needs {LINEAGE_RAW_KEY} or the row identity arrays {missing}"
+            )
+        values, stats = offline_lineage(
+            arrays["row_world"], arrays["row_camp"], arrays["row_turn"],
+            arrays.get("founded_turn"),
+        )
+        if not isinstance(arrays, dict):
+            raise ValueError("lineage derivation needs a mutable dataset dictionary to cache into")
+        arrays[LINEAGE_RAW_KEY] = torch.from_numpy(values)
+        if isinstance(arrays.get("collection"), dict):
+            arrays["collection"]["lineage"] = stats
+    if values.ndim != 2 or values.shape[1] != len(LINEAGE_FEATURES):
+        raise ValueError(f"{LINEAGE_RAW_KEY} must be [rows, {len(LINEAGE_FEATURES)}]")
+    if not np.isfinite(values).all() or (values < 0).any() or (values > 1).any():
+        raise ValueError(f"{LINEAGE_RAW_KEY} must lie in [0, 1]")
+    return values
+
+
+def lineage_critic_batch(
+    arrays: Any, rows: Any | None = None, *, device: torch.device | str = "cpu"
+) -> dict[str, torch.Tensor]:
+    """The critic-only lineage token batch (identity: the features are bounded)."""
+    values = ensure_lineage(arrays)
+    if rows is not None:
+        values = values[_numpy(rows).astype(np.int64)]
+    out = torch.as_tensor(values, dtype=torch.float32, device=device).reshape(-1, 1, 2)
+    return {
+        LINEAGE_CRITIC_KEYS[0]: out,
+        LINEAGE_CRITIC_KEYS[1]: torch.ones(len(out), 1, dtype=torch.bool, device=device),
+    }

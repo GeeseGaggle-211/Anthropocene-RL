@@ -2353,7 +2353,7 @@ def run_critic_calibration(
 
     qol_reference = frozen_qol_reference() if qol_reference is None else dict(qol_reference)
 
-    from .labor_bc import critic_target_available, discounted_returns, loader_corrections
+    from .labor_bc import critic_target_available, discounted_returns
 
     state, _, task, costs, normalizer = _load_models(checkpoint)
     if device is not None:  # forward passes only; predictions come back to the host
@@ -2803,7 +2803,13 @@ def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
                 break
             contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
             catalogs = {context[0].camp_id: context[0] for context in contexts}
-            values = None if recorder is None else recorder.predict(live, tensors)
+            values = (
+                None
+                if recorder is None
+                else recorder.predict(live, tensors, int(step["turn"]))
+                if getattr(task, "privileged_lineage", False)
+                else recorder.predict(live, tensors)
+            )
             execution = actor_labor_decision(
                 bridge,
                 actor,
@@ -3271,6 +3277,281 @@ def _write(path: Path, report: Mapping[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+
+# ---------------------------------------------------------------------------
+# Lineage conditioning diagnostic (lineage-ablation)
+# ---------------------------------------------------------------------------
+
+# Fission event (as in the r5 event split): the camp's own fission-age feature
+# (actor core column 12) drops between consecutive decisions in t..t+4.
+FISSION_AGE_CORE_INDEX = 12
+FISSION_EVENT_WINDOW = 5
+LINEAGE_ABLATION_HEADS = ("settlement_guard", "qol_years", "population_years")
+LINEAGE_ABLATION_LAMBDA = 0.95
+
+
+def _trajectory_groups(dataset: Mapping[str, Any]) -> list[np.ndarray]:
+    """Row indices per (world, camp, trajectory), each sorted by turn."""
+    n = int(dataset["row_world"].shape[0])
+    w, c, t = (_np(dataset, k).reshape(-1) for k in ("row_world", "row_camp", "row_turn"))
+    traj = (
+        _np(dataset, "row_trajectory").reshape(-1)
+        if "row_trajectory" in dataset
+        else np.full(n, -1)
+    )
+    order = np.lexsort((t, traj, c, w))
+    key = np.stack([w, c, traj], 1)[order]
+    cuts = np.flatnonzero(np.any(key[1:] != key[:-1], axis=1)) + 1
+    return np.split(order, cuts) if n else []
+
+
+def fission_event_rows(dataset: Mapping[str, Any], groups: Sequence[np.ndarray]) -> np.ndarray:
+    """Rows whose own camp fissions within the next :data:`FISSION_EVENT_WINDOW` decisions."""
+    n = int(dataset["row_world"].shape[0])
+    turns = _np(dataset, "row_turn").reshape(-1)
+    age = _np(dataset, "core")[:, FISSION_AGE_CORE_INDEX]
+    drop = np.zeros(n, dtype=bool)  # interval s -> s+1, stored at s
+    for g in groups:
+        for a in range(len(g) - 1):
+            s, b = g[a], g[a + 1]
+            if turns[b] == turns[s] + 1:
+                drop[s] = age[b] < age[s] - 0.5
+    event = np.zeros(n, dtype=bool)
+    for g in groups:
+        for a in range(len(g)):
+            event[g[a]] = bool(drop[g[a : a + FISSION_EVENT_WINDOW]].any())
+    return event
+
+
+def lambda_returns(
+    values: np.ndarray,
+    rewards: np.ndarray,
+    mc: np.ndarray,
+    gamma: np.ndarray,
+    terminal: np.ndarray,
+    groups: Sequence[np.ndarray],
+    lam: float,
+) -> np.ndarray:
+    """TD(lambda) returns per trajectory; a living end closes on the MC (tail) return."""
+    out = np.zeros(len(values), dtype=np.float64)
+    for g in groups:
+        for a in range(len(g) - 1, -1, -1):
+            i = g[a]
+            if terminal[i]:
+                out[i] = rewards[i]
+            elif a == len(g) - 1:
+                out[i] = mc[i]
+            else:
+                j = g[a + 1]
+                out[i] = rewards[i] + gamma[i] * ((1.0 - lam) * values[j] + lam * out[j])
+    return out
+
+
+def explained_variance(pred: np.ndarray, target: np.ndarray, worlds: np.ndarray) -> float | None:
+    """World-balanced 1 - Var(target - pred) / Var(target)."""
+    if len(pred) < 2:
+        return None
+    w = world_balanced(worlds, np.ones(len(worlds), dtype=bool))
+    mean = lambda x: float((x * w).sum() / w.sum())  # noqa: E731
+    vg = mean((target - mean(target)) ** 2)
+    e = target - pred
+    ve = mean((e - mean(e)) ** 2)
+    return None if not vg > 0.0 else float(1.0 - ve / vg)
+
+
+def shuffle_within_world_turn(
+    values: np.ndarray, worlds: np.ndarray, turns: np.ndarray, seed: int
+) -> np.ndarray:
+    """Rows of ``values`` permuted within each (world, turn) group (seeded)."""
+    rng = np.random.default_rng(seed)
+    out = values.copy()
+    groups: dict[tuple[int, int], list[int]] = defaultdict(list)
+    for i, key in enumerate(zip(worlds.tolist(), turns.tolist(), strict=True)):
+        groups[(int(key[0]), int(key[1]))].append(i)
+    for rows in groups.values():
+        index = np.asarray(rows)
+        out[index] = values[index[rng.permutation(len(index))]]
+    return out
+
+
+def lineage_ablation_report(
+    task: Any,
+    costs: Any,
+    dataset: dict[str, Any],
+    *,
+    batch_size: int = 256,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Re-evaluate a lineage critic with its lineage features zeroed and shuffled.
+
+    Reports, per head (settlement_guard, qol_years, population_years) and per split
+    (all / young-daughter / other / fission-event / non-event): mean |delta| of the
+    predictions and the informative ranking accuracy against the MC return before and
+    after, plus each head's explained variance of the lambda=0.95 return.
+    """
+    from .labor_bc import (
+        CRITIC_DISCOUNT_YEARS,
+        critic_target_available,
+        discounted_returns,
+        elapsed_years,
+    )
+    from .labor_model import LABOR_OBJECTIVE_REFERENCE_SCALES
+    from .labor_privileged import (
+        LINEAGE_CAP_TURNS,
+        LINEAGE_RAW_KEY,
+        YOUNG_DAUGHTER_ROW_AGE,
+        ensure_lineage,
+    )
+
+    if not getattr(task, "privileged_lineage", False):
+        raise ValueError(
+            "lineage-ablation needs a checkpoint initialized with --privileged-lineage"
+        )
+    lineage = ensure_lineage(dataset)
+    n = int(dataset["row_world"].shape[0])
+    worlds = _np(dataset, "row_world").reshape(-1)
+    turns = _np(dataset, "row_turn").reshape(-1)
+    admitted = ~_np(dataset, "row_quarantined").reshape(-1).astype(bool) & (
+        critic_target_available(dataset).numpy().astype(bool)
+    )
+    rows = np.arange(n)
+    preds = {"base": critic_predictions(task, costs, dataset, rows, batch_size)}
+    variants = {
+        "zeroed": np.zeros_like(lineage),
+        "shuffled": shuffle_within_world_turn(lineage, worlds, turns, seed),
+    }
+    for name, values in variants.items():
+        ablated = dict(dataset)
+        ablated[LINEAGE_RAW_KEY] = torch.from_numpy(values)
+        preds[name] = critic_predictions(task, costs, ablated, rows, batch_size)
+
+    groups = _trajectory_groups(dataset)
+    age = np.rint(lineage[:, 1] * LINEAGE_CAP_TURNS).astype(np.int64)
+    young = (lineage[:, 0] > 0.5) & (age <= YOUNG_DAUGHTER_ROW_AGE)
+    event = fission_event_rows(dataset, groups)
+    splits = {
+        "all": np.ones(n, dtype=bool),
+        "young_daughter": young,
+        "other": ~young,
+        "fission_event": event,
+        "non_event": ~event,
+    }
+    mc = {k: v.double().numpy() for k, v in discounted_returns(dataset).items()}
+    reward_keys = {
+        "settlement_guard": "reward_settlement_guard",
+        "qol_years": "reward_qol_years",
+        "population_years": "reward_population_years",
+    }
+    gamma = np.exp(-elapsed_years(dataset).reshape(-1).double().numpy() / CRITIC_DISCOUNT_YEARS)
+    terminal = _np(dataset, "transition_terminal").reshape(-1).astype(bool)
+    heads: dict[str, Any] = {}
+    for head in LINEAGE_ABLATION_HEADS:
+        scale = float(LABOR_OBJECTIVE_REFERENCE_SCALES.get(head, 1.0))
+        threshold = CRITIC_GATES["informative_delta_fraction"] * scale
+        rewards = _np(dataset, reward_keys[head]).reshape(-1).astype(np.float64)
+        lam = {
+            variant: lambda_returns(
+                np.asarray(p[head], np.float64), rewards, mc[head], gamma, terminal, groups,
+                LINEAGE_ABLATION_LAMBDA,
+            )
+            for variant, p in preds.items()
+        }
+        section: dict[str, Any] = {}
+        for split, mask in splits.items():
+            sel = mask & admitted
+            entry: dict[str, Any] = {"rows": int(sel.sum())}
+            if not sel.any():
+                section[split] = entry
+                continue
+            base = np.asarray(preds["base"][head], np.float64)[sel]
+            entry["pred_mean"] = float(base.mean())
+            entry["ranking_base"] = ranking_accuracy(
+                base, mc[head][sel], worlds[sel], turns[sel], threshold
+            )["accuracy"]
+            entry[f"ev_lambda{LINEAGE_ABLATION_LAMBDA}_base"] = explained_variance(
+                base, lam["base"][sel], worlds[sel]
+            )
+            for variant in variants:
+                pred = np.asarray(preds[variant][head], np.float64)[sel]
+                entry[f"mean_abs_delta_{variant}"] = float(np.abs(pred - base).mean())
+                entry[f"mean_abs_delta_{variant}_over_scale"] = float(
+                    np.abs(pred - base).mean() / scale
+                )
+                entry[f"ranking_{variant}"] = ranking_accuracy(
+                    pred, mc[head][sel], worlds[sel], turns[sel], threshold
+                )["accuracy"]
+                entry[f"ev_lambda{LINEAGE_ABLATION_LAMBDA}_{variant}"] = explained_variance(
+                    pred, lam[variant][sel], worlds[sel]
+                )
+            section[split] = entry
+        heads[head] = section
+    return {
+        "schema": REPORT_SCHEMA,
+        "command": "lineage-ablation",
+        "rows": n,
+        "admitted_rows": int(admitted.sum()),
+        "seed": int(seed),
+        "lineage_derivation": (dataset.get("collection") or {}).get("lineage"),
+        "variants": {
+            "zeroed": "both lineage features set to 0 (every row reads as an original, age 0)",
+            "shuffled": "lineage rows permuted within each (world, turn) group (seeded)",
+        },
+        "splits": {
+            "young_daughter": f"is-daughter and turn - founded <= {YOUNG_DAUGHTER_ROW_AGE} "
+            "(the guard's exemption at the outcome turn)",
+            "fission_event": f"own fission-age (core[{FISSION_AGE_CORE_INDEX}]) drops within "
+            f"the next {FISSION_EVENT_WINDOW} decisions",
+        },
+        "ranking": "informative pairs within (world, turn) against the MC return "
+        "(threshold 0.05 x reference scale)",
+        "ev": f"world-balanced explained variance of the lambda={LINEAGE_ABLATION_LAMBDA} "
+        "return built from each variant's own predictions",
+        "heads": heads,
+    }
+
+
+def run_lineage_ablation(
+    checkpoint: Path,
+    dataset_path: Path | Sequence[Path],
+    *,
+    batch_size: int = 256,
+    seed: int = 0,
+    corrections_override: Mapping[str, str | None] | None = None,
+) -> dict[str, Any]:
+    state, _, task, costs, normalizer = _load_models(checkpoint)
+    corrections, source = resolve_loader_corrections(state, corrections_override)
+    dataset = _load_dataset(
+        dataset_path,
+        normalizer,
+        require_privileged=task.privileged_layout is not None,
+        corrections=corrections,
+    )
+    report = lineage_ablation_report(task, costs, dataset, batch_size=batch_size, seed=seed)
+    report["checkpoint"] = str(checkpoint)
+    report["dataset"] = dataset_label(dataset_path)
+    report["loader_corrections"] = {"applied": corrections, "source": source}
+    return report
+
+
+def summarize_lineage_ablation(report: Mapping[str, Any]) -> str:
+    lines = [f"lineage-ablation rows={report['rows']} admitted={report['admitted_rows']}"]
+    ev = f"ev_lambda{LINEAGE_ABLATION_LAMBDA}"
+    for head, section in report["heads"].items():
+        for split, e in section.items():
+            if "pred_mean" not in e:
+                continue
+            lines.append(
+                f"  {head:16s} {split:15s} n={e['rows']:6d} "
+                f"|d|zero={_fmt(e['mean_abs_delta_zeroed'])} "
+                f"|d|shuf={_fmt(e['mean_abs_delta_shuffled'])} "
+                f"rank base/zero/shuf={_fmt(e['ranking_base'])}/{_fmt(e['ranking_zeroed'])}/"
+                f"{_fmt(e['ranking_shuffled'])} "
+                f"EV base/zero/shuf={_fmt(e[ev + '_base'])}/{_fmt(e[ev + '_zeroed'])}/"
+                f"{_fmt(e[ev + '_shuffled'])}"
+            )
+    return "\n".join(lines)
+
+
 def argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -3320,6 +3601,20 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     critic.add_argument("--batch-size", type=int, default=256)
     critic.add_argument("--out", type=Path, required=True)
+    ablation = commands.add_parser("lineage-ablation")
+    ablation.add_argument("--checkpoint", type=Path, required=True)
+    ablation.add_argument("--dataset", type=Path, nargs="+", required=True)
+    ablation.add_argument("--seed", type=int, default=0, help="shuffle seed")
+    ablation.add_argument(
+        "--tail-normalize", choices=("none", "world-factor"), default=None,
+        help="override the checkpoint's recorded tail normalisation (default: recorded)",
+    )
+    ablation.add_argument(
+        "--false-terminal-policy", choices=("none", "mask"), default=None,
+        help="override the checkpoint's recorded false-terminal policy (default: recorded)",
+    )
+    ablation.add_argument("--batch-size", type=int, default=256)
+    ablation.add_argument("--out", type=Path, required=True)
     auto = commands.add_parser("autonomous")
     auto.add_argument("--checkpoint", type=Path, required=True)
     auto.add_argument("--worlds", required=True, help="development seeds/ranges, e.g. 2000-2007")
@@ -3363,6 +3658,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             },
         )
         summary = summarize_critic(report)
+    elif args.command == "lineage-ablation":
+        report = run_lineage_ablation(
+            args.checkpoint,
+            args.dataset,
+            batch_size=args.batch_size,
+            seed=args.seed,
+            corrections_override={
+                "tail_normalize": args.tail_normalize,
+                "false_terminal_policy": args.false_terminal_policy,
+            },
+        )
+        summary = summarize_lineage_ablation(report)
     else:
         if args.turns < 1 or args.jobs < 1:
             raise ValueError("turns and jobs must be positive")

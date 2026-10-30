@@ -1226,7 +1226,7 @@ class CriticTraceRecorder:
         self.critic_digest = critic_digest
         self.founded: dict[int, int] = {}
 
-    def _privileged(self, live: Sequence[Mapping[str, Any]]) -> Any:
+    def _privileged(self, live: Sequence[Mapping[str, Any]], turn: int | None = None) -> Any:
         if (
             self.task.privileged_layout is None
             and getattr(self.costs, "privileged_layout", None) is None
@@ -1234,10 +1234,25 @@ class CriticTraceRecorder:
             return None
         from .labor_privileged import privileged_row_tensors
 
-        return privileged_row_tensors(live)
+        raw = privileged_row_tensors(live)
+        if raw is not None and getattr(self.task, "privileged_lineage", False):
+            # Online lineage: the same derivation as rollouts (founded_turns + parentSociety).
+            import torch
 
-    def predict(self, live: Sequence[Mapping[str, Any]], tensors: Mapping[str, Any]) -> dict:
-        return critic_values(self.task, self.costs, tensors, self._privileged(live))
+            from .labor_privileged import LINEAGE_RAW_KEY, online_lineage
+
+            if turn is None:
+                raise ValueError("the lineage critic trace needs the decision turn")
+            raw[LINEAGE_RAW_KEY] = torch.from_numpy(online_lineage(live, self.founded, turn))
+        return raw
+
+    def predict(
+        self,
+        live: Sequence[Mapping[str, Any]],
+        tensors: Mapping[str, Any],
+        turn: int | None = None,
+    ) -> dict:
+        return critic_values(self.task, self.costs, tensors, self._privileged(live, turn))
 
     def record(
         self,
@@ -1296,7 +1311,11 @@ class CriticTraceRecorder:
         if not live:
             self.final = {"turn": int(step["turn"]), "camps": []}
             return
-        values = self.predict(live, tensors)
+        values = (
+            self.predict(live, tensors, int(step["turn"]))
+            if getattr(self.task, "privileged_lineage", False)
+            else self.predict(live, tensors)
+        )
         self.final = {
             "turn": int(step["turn"]),
             "camps": [

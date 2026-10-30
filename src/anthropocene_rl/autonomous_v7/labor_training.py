@@ -62,6 +62,7 @@ from .labor_model import (
     LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
     LaborValueSupport,
     LaborQoLHead,
+    labor_checkpoint_privileged_lineage,
     labor_checkpoint_qol_encoder,
     labor_checkpoint_qol_head,
     labor_checkpoint_value_support,
@@ -182,11 +183,48 @@ def labor_behavior_configuration(
     }
 
 
+def rollout_privileged_raw(
+    villages: Sequence[Mapping[str, Any]],
+    founded_turns: Mapping[int, int],
+    turn: int,
+    *,
+    lineage: bool,
+) -> dict[str, torch.Tensor] | None:
+    """Raw critic-only privileged arrays for live rollout rows (None: no bridge view).
+
+    With ``lineage`` the learner-derived lineage features are added from the rollout's
+    tracked ``founded_turns`` and each village's parentSociety
+    (``labor_privileged.online_lineage``), the train/serve twin of the loader's
+    ``offline_lineage``.
+    """
+    from .labor_privileged import LINEAGE_RAW_KEY, online_lineage, privileged_row_tensors
+
+    raw = privileged_row_tensors(villages)
+    if raw is not None and lineage:
+        raw[LINEAGE_RAW_KEY] = torch.from_numpy(online_lineage(villages, founded_turns, turn))
+    return raw
+
+
+def _critic_privileged(
+    critic: Any, raw: Mapping[str, torch.Tensor] | None
+) -> dict[str, torch.Tensor] | None:
+    if getattr(critic, "privileged_layout", None) is None:
+        return None
+    if raw is None:
+        raise ValueError("a privileged critic's rollout values need the bridge's privileged view")
+    from .labor_model import critic_privileged_batch
+
+    return critic_privileged_batch(critic, dict(raw))
+
+
 def _task_values(
-    critic: LaborTaskCritic, tensors: Mapping[str, torch.Tensor]
+    critic: LaborTaskCritic,
+    tensors: Mapping[str, torch.Tensor],
+    privileged_raw: Mapping[str, torch.Tensor] | None = None,
 ) -> dict[str, torch.Tensor]:
     with torch.no_grad():
-        logits = critic(tensors)
+        privileged = _critic_privileged(critic, privileged_raw)
+        logits = critic(tensors) if privileged is None else critic(tensors, privileged)
         return {
             name: critic.expectation(name, logits[name]).detach().cpu()
             for name in LABOR_OBJECTIVES
@@ -194,10 +232,14 @@ def _task_values(
 
 
 def _cost_values(
-    critics: LaborCostCritics, tensors: Mapping[str, torch.Tensor]
+    critics: LaborCostCritics,
+    tensors: Mapping[str, torch.Tensor],
+    privileged_raw: Mapping[str, torch.Tensor] | None = None,
 ) -> dict[str, torch.Tensor]:
     with torch.no_grad():
-        return {name: value.detach().cpu() for name, value in critics(tensors).items()}
+        privileged = _critic_privileged(critics, privileged_raw)
+        output = critics(tensors) if privileged is None else critics(tensors, privileged)
+        return {name: value.detach().cpu() for name, value in output.items()}
 
 
 def _score_nonlabor(
@@ -325,6 +367,19 @@ def _execute_single_step_detailed(
     catalogs = {context[0].camp_id: context[0] for context in contexts}
     if len(catalogs) != len(live):
         raise ValueError("labor rollout has duplicate live camp identities")
+    privileged_raw = None
+    if any(
+        getattr(c, "privileged_layout", None) is not None
+        for c in (task_critic, cost_critics)
+        if c is not None
+    ):
+        privileged_raw = rollout_privileged_raw(
+            live,
+            founded_turns,
+            int(step["turn"]),
+            lineage=bool(getattr(task_critic, "privileged_lineage", False)),
+        )
+    village_row = {int(village["camp"]): row for row, village in enumerate(live)}
 
     with torch.no_grad():
         output = actor(tensors)
@@ -333,11 +388,11 @@ def _execute_single_step_detailed(
         labor_lp = labor_log_prob(output, initial_labor, tensors)["joint"].detach().cpu()
         nonlabor_lp = nonlabor_log_prob(output, initial_nonlabor)["joint"].detach().cpu()
         if task_critic is not None:
-            initial_task = _task_values(task_critic, tensors)
+            initial_task = _task_values(task_critic, tensors, privileged_raw)
         else:
             initial_task = {name: torch.zeros(len(live)) for name in LABOR_OBJECTIVES}
         if cost_critics is not None:
-            initial_cost = _cost_values(cost_critics, tensors)
+            initial_cost = _cost_values(cost_critics, tensors, privileged_raw)
         else:
             initial_cost = {name: torch.zeros(len(live)) for name in LABOR_COSTS}
 
@@ -372,6 +427,12 @@ def _execute_single_step_detailed(
         )
         if retry_contexts[0][0].digest != catalog.digest or retry_contexts[0][2] != attempt:
             raise ValueError("labor retry tensor context differs from typed rejection")
+        retry_raw = (
+            None
+            if privileged_raw is None
+            else {key: value[village_row[camp] : village_row[camp] + 1]
+                  for key, value in privileged_raw.items()}
+        )
         with torch.no_grad():
             retry_output = actor(retry_tensors)
             retry_sample = sample_labor_policy(retry_output, retry_tensors, generator=generator)
@@ -381,14 +442,18 @@ def _execute_single_step_detailed(
             if task_critic is not None:
                 task_values = {
                     name: float(value[0])
-                    for name, value in _task_values(task_critic, retry_tensors).items()
+                    for name, value in _task_values(
+                        task_critic, retry_tensors, retry_raw
+                    ).items()
                 }
             else:
                 task_values = {name: 0.0 for name in LABOR_OBJECTIVES}
             if cost_critics is not None:
                 cost_values = {
                     name: float(value[0])
-                    for name, value in _cost_values(cost_critics, retry_tensors).items()
+                    for name, value in _cost_values(
+                        cost_critics, retry_tensors, retry_raw
+                    ).items()
                 }
             else:
                 cost_values = {name: 0.0 for name in LABOR_COSTS}
@@ -912,8 +977,11 @@ def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
         support=labor_checkpoint_value_support(state),
         qol_head=labor_checkpoint_qol_head(state),
         qol_encoder=labor_checkpoint_qol_encoder(state),
+        privileged_lineage=labor_checkpoint_privileged_lineage(state),
     )
-    costs = LaborCostCritics(layout)
+    costs = LaborCostCritics(
+        layout, privileged_lineage=labor_checkpoint_privileged_lineage(state)
+    )
     # Also applies the contract's optional FiLM bound to all four encoders.
     _, normalizer = load_labor_checkpoint_models(
         state, actor, task, costs, expected_layout=layout
@@ -1289,6 +1357,9 @@ def _command_initialize(args: argparse.Namespace) -> None:
     privileged_normalizer = _load_privileged_normalizer(
         getattr(args, "privileged_normalizer", None)
     )
+    lineage = bool(getattr(args, "privileged_lineage", False))
+    if lineage and privileged_normalizer is None:
+        raise ValueError("--privileged-lineage needs --privileged-normalizer (a privileged critic)")
     world = checked_seeds([args.world_seed], "labor initialize world")[0]
     with LaborModel9Bridge() as bridge:
         step = bridge.reset(world)
@@ -1318,8 +1389,9 @@ def _command_initialize(args: argparse.Namespace) -> None:
         qol_head=_initialize_qol_head(args),
         qol_encoder=_initialize_qol_encoder(args),
         qol_encoder_seed=labor_qol_encoder_seed(args.optimizer_seed),
+        privileged_lineage=lineage,
     )
-    costs = LaborCostCritics(layout)
+    costs = LaborCostCritics(layout, privileged_lineage=lineage)
     bind_privileged_normalizer(privileged_normalizer, task, costs)
     conditioning = LaborPersonalityConditioning(
         getattr(args, "personality", "balanced"),
@@ -2481,6 +2553,14 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="fit-privileged-normalizer output: build the three critics with the critic-only "
         "privileged block (schema 1); the actor never receives it",
+    )
+    initialize.add_argument(
+        "--privileged-lineage",
+        action="store_true",
+        default=False,
+        help="add the learner-derived critic-only lineage token (is-daughter, "
+        "min(turns since founding, 4)/4) to all three critics; needs --privileged-normalizer. "
+        "Recorded as privilegedCritic.lineage; off keeps checkpoints bit-identical",
     )
     initialize.add_argument("--out", type=Path, required=True)
     initialize.set_defaults(handler=_command_initialize)
