@@ -2160,7 +2160,28 @@ def _batch_loss_and_l1(
     label_smoothing: float = 1e-6,
     spec_weights: torch.Tensor | None = None,
     act_weights: torch.Tensor | None = None,
+    task_terms: dict[str, Any] | None = None,
+    task_weights: Mapping[str, float] | None = None,
+    role_weighting: str = "share",
 ) -> tuple[torch.Tensor, float, float, dict[str, float]]:
+    """The actor BC loss of one batch, its specialty/activity L1 and loss components.
+
+    Opt-in task decomposition (``labor_actor_gradnorm``; all three default to the historical
+    loss, bit for bit): ``task_terms`` (a dict) is filled with the per-task loss tensors of
+    :data:`~.labor_actor_gradnorm.ACTOR_BC_TASKS` on the same graph (``"loss"``), each role's
+    staffed-row count (``"staffed_rows"``) and its composition-normalised mean CE
+    (``"mean_ce"``). The 13 role terms ``activity:<role>`` share the activity denominator, so
+    they sum to the activity loss. ``task_weights`` rebuilds the total as the weighted sum of
+    those task terms (plus the unweighted gauge anchors, log-std, trade value and trade share
+    terms). ``role_weighting`` changes only the reported role terms (``uniform``: each staffed
+    role of a row gets an equal share of the row's activity weight); the total is unchanged.
+    """
+    if role_weighting not in ("share", "uniform"):
+        raise ValueError("role_weighting must be 'share' or 'uniform'")
+    if role_weighting != "share" and task_terms is None:
+        raise ValueError("role_weighting other than 'share' only reports task terms")
+    if role_weighting != "share" and task_weights is not None:
+        raise ValueError("task_weights use the training ('share') role weighting")
     B = len(batch_tensors["target_specialty"])
     # Stored rows may carry critic-only privileged arrays; the actor never sees them.
     output = actor(actor_inputs(batch_tensors))
@@ -2291,16 +2312,69 @@ def _batch_loss_and_l1(
     ts_std_loss = ((output["trade_share_log_std"] - (-1.5)) ** 2).mean()
     trade_share_loss = ts_mean_loss + ts_std_loss
 
-    total_loss = (
-        total_spec_loss
-        + total_act_loss
-        + std_reg_loss
-        + move_loss
-        + fission_loss
-        + trade_gate_loss
-        + trade_value_loss
-        + trade_share_loss
-    )
+    if task_terms is None and task_weights is None:
+        total_loss = (
+            total_spec_loss
+            + total_act_loss
+            + std_reg_loss
+            + move_loss
+            + fission_loss
+            + trade_gate_loss
+            + trade_value_loss
+            + trade_share_loss
+        )
+    else:
+        from .labor_actor_gradnorm import ACTOR_BC_TASKS, ACTOR_ROLES, role_task
+
+        if role_weighting == "uniform":
+            staffed = (base_role_weights > 0).to(base_role_weights.dtype)
+            per_row = staffed.sum(dim=-1, keepdim=True).clamp(min=1.0)
+            role_base = staffed / per_row * base_role_weights.sum(dim=-1, keepdim=True)
+        else:
+            role_base = base_role_weights
+        denominator = act_row_w.sum().clamp(min=1e-12)
+        role_mass = role_base * role_act_w * row_weight.unsqueeze(-1)
+        role_losses = (act_role_ce * role_mass).sum(dim=0) / denominator  # (13,)
+        losses: dict[str, torch.Tensor] = {"specialty": spec_loss}
+        for index, role in enumerate(ACTOR_ROLES):
+            losses[role_task(role)] = role_losses[index]
+        losses.update(movement=move_loss, fission=fission_loss, trade_gate=trade_gate_loss)
+        if task_terms is not None:
+            with torch.no_grad():
+                staffed_rows = ((role_base > 0) & (row_weight.unsqueeze(-1) > 0)).sum(dim=0)
+                mass = role_mass.sum(dim=0)
+                mean_ce = (act_role_ce * role_mass).sum(dim=0) / mass.clamp(min=1e-12)
+            task_terms["loss"] = losses
+            task_terms["staffed_rows"] = {
+                role_task(r): int(staffed_rows[i]) for i, r in enumerate(ACTOR_ROLES)
+            }
+            task_terms["mean_ce"] = {
+                role_task(r): float(mean_ce[i]) for i, r in enumerate(ACTOR_ROLES)
+            }
+        if task_weights is None:
+            total_loss = (
+                total_spec_loss
+                + total_act_loss
+                + std_reg_loss
+                + move_loss
+                + fission_loss
+                + trade_gate_loss
+                + trade_value_loss
+                + trade_share_loss
+            )
+        else:
+            missing = set(ACTOR_BC_TASKS) - set(task_weights)
+            if missing:
+                raise ValueError(f"actor task weights miss {sorted(missing)}")
+            weighted = sum(float(task_weights[name]) * losses[name] for name in ACTOR_BC_TASKS)
+            total_loss = (
+                weighted
+                + gauge_anchor_spec
+                + gauge_anchor_act
+                + std_reg_loss
+                + trade_value_loss
+                + trade_share_loss
+            )
     components = {
         "specialty": float(spec_loss.detach()),
         "activity": float(act_loss.detach()),
