@@ -100,6 +100,11 @@ class ActorGradNorm:
     default, or its last layer; :func:`gradnorm_shared_parameters_for`) and task
     losses enter EMAs (rate ``ema``); a role task is measured, and its weight updated, only when
     the batch staffs it in at least ``min_rows`` rows (otherwise its EMAs and weight are held).
+    A measured task whose scale-normalised EMA norm g_i / s_i is below ``hold_below`` times the
+    median over the measured tasks is also held (``negligible``): equalising a near-zero
+    gradient (a solved or constant-label head; on the r5 pilot fission and trade gate at
+    ~1e-5) would otherwise hand it the whole weight budget and clamp every real task to
+    ``min_weight`` (observed in the first smoke fit).
     Over the updated tasks U, with G_i = w_i g_i, loss ratios Lt_i = L_i / L_i(0) (L_i(0) the
     task's first EMA loss; a role's loss is its composition-normalised mean CE) and inverse
     rates r_i = Lt_i / mean_U(Lt), the GradNorm target is mean_U(G) r_i^alpha and the ideal
@@ -120,8 +125,11 @@ class ActorGradNorm:
     max_weight: float = 100.0
     every: int = 1
     shared: str = "trunk"
+    hold_below: float = 0.05
 
     def __post_init__(self) -> None:
+        if not 0.0 <= float(self.hold_below) < 1.0:
+            raise ValueError("actor gradnorm hold_below must be in [0, 1)")
         for name in ("alpha", "ema", "lr", "min_weight", "max_weight"):
             if not math.isfinite(float(getattr(self, name))):
                 raise ValueError(f"actor gradnorm {name} must be finite")
@@ -151,6 +159,7 @@ class ActorGradNorm:
             "max_weight": float(self.max_weight),
             "every": int(self.every),
             "shared": str(self.shared),
+            "hold_below": float(self.hold_below),
         }
 
 
@@ -201,6 +210,7 @@ class ActorGradNormState:
         self.updates = 0
         self.task_updates = {t: 0 for t in self.tasks}
         self.task_holds = {t: 0 for t in self.tasks}
+        self.task_negligible = {t: 0 for t in self.tasks}
         self.last: dict[str, Any] | None = None
 
     def values(self) -> dict[str, float]:
@@ -208,7 +218,7 @@ class ActorGradNormState:
 
     _STATE = (
         "weights", "ema_norm", "ema_loss", "initial_loss", "updates", "task_updates",
-        "task_holds", "last",
+        "task_holds", "task_negligible", "last",
     )
 
     def snapshot(self) -> dict[str, Any]:
@@ -257,7 +267,19 @@ class ActorGradNormState:
             if self.initial_loss[t] is None:
                 self.initial_loss[t] = self.ema_loss[t]
             eligible.append(t)
+        negligible: list[str] = []
+        if c.hold_below > 0.0 and len(eligible) >= 2:
+            # Scale-normalised intensity g_i / s_i; a task far below the median (an already
+            # solved or constant-label head, e.g. fission/trade gate) would otherwise absorb the
+            # whole weight budget under equalisation: it is held at its weight instead.
+            intensity = {t: float(self.ema_norm[t]) / self.scales[t] for t in eligible}
+            middle = sorted(intensity.values())[len(intensity) // 2]
+            negligible = [t for t in eligible if intensity[t] < c.hold_below * middle]
+            for t in negligible:
+                self.task_negligible[t] += 1
+            eligible = [t for t in eligible if t not in negligible]
         entry: dict[str, Any] = {
+            "negligible": negligible,
             "weights_used": dict(self.weights),
             "raw_grad_norm": {t: float(raw_norms.get(t, math.nan)) for t in self.tasks},
             "loss": {t: float(losses.get(t, math.nan)) for t in self.tasks},
@@ -306,6 +328,7 @@ class ActorGradNormState:
             "updates": int(self.updates),
             "task_updates": dict(self.task_updates),
             "task_holds": dict(self.task_holds),
+            "task_negligible": dict(self.task_negligible),
             "ema_grad_norm": dict(self.ema_norm),
             "initial_loss": dict(self.initial_loss),
             "ema_loss": dict(self.ema_loss),

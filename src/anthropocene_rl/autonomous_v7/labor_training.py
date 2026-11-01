@@ -1549,6 +1549,7 @@ def _bc_loss_balancing_kwargs(args: argparse.Namespace) -> dict[str, Any]:
             max_weight=float(args.gradnorm_max_weight),
             every=int(args.gradnorm_every),
             shared=str(args.gradnorm_shared),
+            hold_below=float(args.gradnorm_hold_below),
         )
     }
 
@@ -2607,6 +2608,11 @@ def argument_parser() -> argparse.ArgumentParser:
         help="parameters the task gradient norms are measured on: the whole actor encoder "
         "(default) or its last global attention layer + output norm (cheaper, biased against "
         "the role activity tasks)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-hold-below", type=float, default=0.05,
+        help="hold a task whose resident-scale-normalised gradient norm is below this fraction "
+        "of the median (solved/constant heads such as fission and trade gate); 0 disables",
     )
     pretrain_bc.add_argument("--allow-vm-scale", action="store_true", default=False)
     pretrain_bc.add_argument(

@@ -90,7 +90,7 @@ def test_update_renormalises_and_holds_understaffed_roles() -> None:
 
 def test_alpha_zero_equalises_the_weighted_ema_norms() -> None:
     config = ActorGradNorm(alpha=0.0, lr=0.5, ema=0.5, init="share", min_weight=1e-3,
-                           max_weight=1e3)
+                           max_weight=1e3, hold_below=0.0)
     state = ActorGradNormState(config, SCALES)
     raw = {t: 0.01 * (1 + 3 * i) for i, t in enumerate(ACTOR_BC_TASKS)}
     staffed = {t: 100 for t in ACTOR_ROLE_TASKS}
@@ -101,8 +101,31 @@ def test_alpha_zero_equalises_the_weighted_ema_norms() -> None:
     assert state.scale_sum() == pytest.approx(state.target_scale, rel=1e-9)
 
 
+def test_negligible_gradient_tasks_are_held_not_inflated() -> None:
+    config = ActorGradNorm(lr=1.0, ema=1.0, init="share", max_weight=1e3)
+    state = ActorGradNormState(config, SCALES)
+    raw = {t: 0.05 * SCALES.get(t, 1.0) for t in ACTOR_BC_TASKS}  # equal intensity g/s
+    raw["fission"] = raw["trade_gate"] = 1e-6  # a solved, constant-label head
+    staffed = {t: 100 for t in ACTOR_ROLE_TASKS}
+    for _ in range(20):
+        entry = state.update(raw, {t: 1.0 for t in ACTOR_BC_TASKS}, staffed)
+    assert set(entry["negligible"]) == {"fission", "trade_gate"}
+    assert state.values()["fission"] == 1.0 and state.values()["trade_gate"] == 1.0
+    assert state.task_negligible["fission"] == 20
+    assert state.scale_sum() == pytest.approx(state.target_scale, rel=1e-9)
+    assert min(state.values().values()) > config.min_weight  # nothing pinned to the floor
+    unheld = ActorGradNormState(
+        ActorGradNorm(lr=1.0, ema=1.0, init="share", hold_below=0.0), SCALES
+    )
+    for _ in range(20):
+        unheld.update(raw, {t: 1.0 for t in ACTOR_BC_TASKS}, staffed)
+    assert unheld.values()["fission"] > 2.0  # the failure the hold prevents
+
+
 def test_alpha_favours_slower_tasks() -> None:
-    config = ActorGradNorm(alpha=1.0, lr=1.0, ema=1.0, init="share", max_weight=1e3)
+    config = ActorGradNorm(
+        alpha=1.0, lr=1.0, ema=1.0, init="share", max_weight=1e3, hold_below=0.0
+    )
     state = ActorGradNormState(config, SCALES)
     staffed = {t: 100 for t in ACTOR_ROLE_TASKS}
     raw = {t: 1.0 for t in ACTOR_BC_TASKS}
