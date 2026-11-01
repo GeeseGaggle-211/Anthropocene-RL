@@ -20,7 +20,9 @@ compact summary:
     cost heads use scale 1.
     QoL gate v2 (28 Oct): ``qol_nstep`` judges the QoL head against the tail-robust
     n-step target (``QOL_GATE_TARGET``) in ``--qol-reference-scale`` units; the Monte Carlo
-    metrics stay as non-gating diagnostics.
+    metrics stay as non-gating diagnostics. ``--checkpoint`` accepts several critics, scored
+    as one averaged critic (per-row mean of the members' value-unit predictions, same
+    metrics; ``labor_critic_ensemble``); ``--member-reports`` adds each member's own run.
 
 ``autonomous``
     Closed-loop S1 check on development worlds: the actor controls every
@@ -648,7 +650,14 @@ def critic_predictions(
     observed_max: Mapping[str, float] | None = None,
 ) -> dict[str, np.ndarray]:
     """Decoded predictions; with ``observed_max`` (normalized target max per task
-    head) also per-row value-support tail terms keyed ``"<head>/<term>"``."""
+    head) also per-row value-support tail terms keyed ``"<head>/<term>"``.
+
+    A critic ensemble (:class:`labor_critic_ensemble.EnsembleTask`) is the per-row mean of
+    its members' predictions in value units."""
+    from .labor_critic_ensemble import EnsembleTask, ensemble_critic_predictions
+
+    if isinstance(task, EnsembleTask):
+        return ensemble_critic_predictions(task, costs, dataset, rows, batch_size, observed_max)
     from .labor_device import module_device, to_device
     from .labor_model import LABOR_COSTS, LABOR_OBJECTIVES, critic_privileged_batch
 
@@ -1993,6 +2002,18 @@ def _head_logits(
     return torch.cat(out) if out else torch.zeros(0)
 
 
+def _head_probabilities(
+    task: Any, dataset: Mapping[str, Any], rows: np.ndarray, head: str, batch_size: int
+) -> np.ndarray:
+    """Softmax of a categorical head (rows x bins); a critic ensemble's is the uniform
+    mixture of its members' distributions."""
+    from .labor_critic_ensemble import EnsembleTask, ensemble_head_probabilities
+
+    if isinstance(task, EnsembleTask):
+        return ensemble_head_probabilities(task, dataset, rows, head, batch_size)
+    return torch.softmax(_head_logits(task, dataset, rows, head, batch_size), dim=-1).numpy()
+
+
 def population_tail_explanation(
     task: Any,
     dataset: Mapping[str, Any],
@@ -2018,7 +2039,6 @@ def population_tail_explanation(
 
     rows = np.asarray(rows, dtype=np.int64)
     scale = LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
-    logits = _head_logits(task, dataset, rows, "population_years", batch_size)
     report: dict[str, Any] = {
         "gating": False,
         "rows": len(rows),
@@ -2030,7 +2050,7 @@ def population_tail_explanation(
         return report
     from .labor_model import symexp
 
-    probabilities = torch.softmax(logits, dim=-1).numpy()
+    probabilities = _head_probabilities(task, dataset, rows, "population_years", batch_size)
     values = symexp(task.bins.double()).cpu().numpy()
     upper = values > float(observed_max)
     excess_per_bin = probabilities * np.where(upper, values - float(observed_max), 0.0)
@@ -2332,14 +2352,44 @@ def resolve_loader_corrections(
     return active, "explicit-override" if explicit else "checkpoint"
 
 
+def _checkpoint_paths(checkpoint: Path | str | Sequence[Path | str]) -> list[Path]:
+    if isinstance(checkpoint, (str, Path)):
+        return [Path(checkpoint)]
+    paths = [Path(p) for p in checkpoint]
+    if not paths:
+        raise ValueError("critic-calibration needs at least one checkpoint")
+    return paths
+
+
+def _generalisation_gap(
+    calibration: Mapping[str, Any], fitting: Mapping[str, Any]
+) -> dict[str, Any]:
+    gap = {}
+    for name, strata in calibration["heads"].items():
+        c, f = strata["all"], fitting["heads"][name]["all"]
+        gap[name] = {
+            "nmae_cal_minus_fit": None
+            if c["nmae"] is None or f["nmae"] is None
+            else c["nmae"] - f["nmae"],
+            "bias_cal_minus_fit": c["bias"] - f["bias"],
+            "ranking_cal_minus_fit": (
+                None
+                if c["ranking"]["accuracy"] is None or f["ranking"]["accuracy"] is None
+                else c["ranking"]["accuracy"] - f["ranking"]["accuracy"]
+            ),
+        }
+    return gap
+
+
 def run_critic_calibration(
-    checkpoint: Path,
+    checkpoint: Path | Sequence[Path],
     dataset_path: Path | Sequence[Path],
     fit_dataset_path: Path | Sequence[Path] | None,
     batch_size: int = 256,
     device: Any = None,
     qol_reference: Mapping[str, Any] | None = None,
     corrections_override: Mapping[str, str | None] | None = None,
+    member_reports: bool = False,
 ) -> dict[str, Any]:
     """``qol_reference`` (:func:`load_qol_reference_scale`) is the QoL gate's unit; absent,
     the frozen 43.152.
@@ -2348,20 +2398,42 @@ def run_critic_calibration(
     (``labor_bc.loader_corrections``). ``corrections_override`` ({"tail_normalize": ...,
     "false_terminal_policy": ...}; a None value keeps the recorded one) applies the given
     corrections to the calibration and fitting datasets whatever the checkpoint recorded,
-    for scoring a critic against another fit's targets (apples-to-apples)."""
+    for scoring a critic against another fit's targets (apples-to-apples).
+
+    ``checkpoint`` may be several paths: they are scored as ONE critic whose per-row
+    predictions are the mean of the members' in value units
+    (:mod:`labor_critic_ensemble`), through exactly the single-checkpoint metrics; the
+    members must share input kind, normalizers, value support, QoL head and loader
+    corrections (otherwise ``ValueError``). The report then carries an ``ensemble`` block
+    and, with ``member_reports``, each member's own evaluation of the same loaded data
+    (``member_reports``). One path is the historical evaluation, output unchanged."""
     from .labor_bc import CRITIC_DISCOUNT_YEARS
 
     qol_reference = frozen_qol_reference() if qol_reference is None else dict(qol_reference)
 
     from .labor_bc import critic_target_available, discounted_returns, loader_corrections
 
-    state, _, task, costs, normalizer = _load_models(checkpoint)
+    paths = _checkpoint_paths(checkpoint)
+    if member_reports and len(paths) < 2:
+        raise ValueError("member reports need several checkpoints")
+    ensemble = None
+    if len(paths) == 1:
+        checkpoint = paths[0]
+        state, _, task, costs, normalizer = _load_models(checkpoint)
+        # The loader corrections the fit trained on (absent: none, the historical evaluation).
+        corrections, source = resolve_loader_corrections(state, corrections_override)
+        fit_records = [task]
+    else:
+        from .labor_critic_ensemble import load_critic_ensemble
+
+        ensemble = load_critic_ensemble(paths, corrections_override)
+        task, costs, normalizer = ensemble.task, ensemble.costs, ensemble.normalizer
+        corrections, source = ensemble.corrections, ensemble.corrections_source
+        fit_records = [m.task for m in ensemble.members]
     if device is not None:  # forward passes only; predictions come back to the host
         task.to(device)
         costs.to(device)
     privileged = task.privileged_layout is not None
-    # The loader corrections the fit trained on (absent: none, the historical evaluation).
-    corrections, source = resolve_loader_corrections(state, corrections_override)
     calibration_dataset = _load_dataset(
         dataset_path, normalizer, require_privileged=privileged, corrections=corrections
     )
@@ -2381,7 +2453,9 @@ def run_critic_calibration(
             "source": "fitting-set mean Monte Carlo QoL return (admitted rows, unweighted)",
         }
     if privileged:
-        fitted = set(task.privileged_normalizer.fit_record.get("worlds", []))
+        fitted = set()
+        for member_task in fit_records:
+            fitted |= set(member_task.privileged_normalizer.fit_record.get("worlds", []))
         overlap = sorted(fitted & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()})
         if overlap:
             raise ValueError(
@@ -2394,7 +2468,7 @@ def run_critic_calibration(
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
         "command": "critic-calibration",
-        "checkpoint": str(checkpoint),
+        "checkpoint": str(checkpoint) if ensemble is None else [str(p) for p in paths],
         "dataset": dataset_label(dataset_path),
         "targets": (
             "discounted returns over each (world, camp) trajectory, closed at the collection "
@@ -2420,6 +2494,8 @@ def run_critic_calibration(
     if corrections or source != "checkpoint":
         report["loader_corrections"] = corrections
         report["loader_corrections_source"] = source
+    if ensemble is not None:
+        report["ensemble"] = ensemble.block()
     if fit_dataset_path is not None:
         shared = sorted(
             {int(w) for w in fit_dataset["row_world"].reshape(-1).tolist()}
@@ -2438,26 +2514,57 @@ def run_critic_calibration(
         )
         report["fit_dataset"] = dataset_label(fit_dataset_path)
         report["fitting"] = fitting
-        gap = {}
-        for name, strata in calibration["heads"].items():
-            c, f = strata["all"], fitting["heads"][name]["all"]
-            gap[name] = {
-                "nmae_cal_minus_fit": None
-                if c["nmae"] is None or f["nmae"] is None
-                else c["nmae"] - f["nmae"],
-                "bias_cal_minus_fit": c["bias"] - f["bias"],
-                "ranking_cal_minus_fit": (
-                    None
-                    if c["ranking"]["accuracy"] is None or f["ranking"]["accuracy"] is None
-                    else c["ranking"]["accuracy"] - f["ranking"]["accuracy"]
+        report["generalisation_gap"] = _generalisation_gap(calibration, fitting)
+    if member_reports:
+        # Each member alone, over the same loaded datasets (one data load for N+1 scorings).
+        members = []
+        for m in ensemble.members:
+            own: dict[str, Any] = {
+                "index": m.index,
+                "checkpoint": str(m.path),
+                "sha256": m.sha256,
+                "calibration": critic_dataset_report(
+                    m.task, m.costs, calibration_dataset, batch_size, normalizer=normalizer,
+                    qol_reference=qol_reference, constant=constant,
                 ),
             }
-        report["generalisation_gap"] = gap
+            own["verdict"] = {
+                name: strata["all"]["gate"] for name, strata in own["calibration"]["heads"].items()
+            }
+            if fit_dataset_path is not None:
+                own["fitting"] = critic_dataset_report(
+                    m.task, m.costs, fit_dataset, batch_size, normalizer=normalizer,
+                    qol_reference=qol_reference, constant=constant,
+                )
+                own["generalisation_gap"] = _generalisation_gap(own["calibration"], own["fitting"])
+            members.append(own)
+        report["member_reports"] = members
     return report
+
+
+def _summarize_member_reports(report: Mapping[str, Any]) -> list[str]:
+    lines = []
+    for member in report.get("member_reports", []):
+        lines.append(f"  member {member['index']} {member['checkpoint']}")
+        for name, strata in member["calibration"]["heads"].items():
+            m = strata["all"]
+            rank = m["ranking"]
+            lines.append(
+                f"    {name:<17} all {m['gate']:<4} nMAE={_fmt(m['nmae'])} bias={_fmt(m['bias'])} "
+                f"rank={_fmt(rank['accuracy'])}"
+            )
+    return lines
 
 
 def summarize_critic(report: Mapping[str, Any]) -> str:
     lines = []
+    ensemble = report.get("ensemble")
+    if ensemble:
+        lines.append(
+            f"critic-calibration ENSEMBLE of {ensemble['member_count']} checkpoints "
+            f"(per-row mean in value units): "
+            + ", ".join(f"{m['checkpoint']}@{m['sha256'][:12]}" for m in ensemble["members"])
+        )
     for label in ("calibration", "fitting"):
         if label not in report:
             continue
@@ -2491,6 +2598,7 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                     f"mass>max={_fmt(h['upper_mass'], 4)} top-bin={_fmt(h['top_bin_mass'], 5)} "
                     f"decoded>max={_fmt(h['upper_contribution'])} excess={_fmt(h['upper_excess'])}"
                 )
+    lines.extend(_summarize_member_reports(report))
     for label in ("calibration", "fitting"):
         nstep = (report.get(label) or {}).get("qol_nstep")
         if not nstep:
@@ -3282,7 +3390,22 @@ def argument_parser() -> argparse.ArgumentParser:
     actor.add_argument("--batch-size", type=int, default=256)
     actor.add_argument("--out", type=Path, required=True)
     critic = commands.add_parser("critic-calibration")
-    critic.add_argument("--checkpoint", type=Path, required=True)
+    critic.add_argument(
+        "--checkpoint",
+        type=Path,
+        nargs="+",
+        required=True,
+        help="critic checkpoint; several are scored as one averaged critic (per-row mean of "
+        "the members' predictions in value units; members must share input kind, normalizers, "
+        "value support and loader corrections)",
+    )
+    critic.add_argument(
+        "--member-reports",
+        action="store_true",
+        default=False,
+        help="with several checkpoints, also write each member's own evaluation on the same "
+        "loaded data (report['member_reports'])",
+    )
     critic.add_argument(
         "--tail-normalize",
         choices=("none", "world-factor"),
@@ -3361,6 +3484,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "tail_normalize": args.tail_normalize,
                 "false_terminal_policy": args.false_terminal_policy,
             },
+            member_reports=args.member_reports,
         )
         summary = summarize_critic(report)
     else:
