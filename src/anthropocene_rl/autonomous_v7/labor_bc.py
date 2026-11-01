@@ -2451,6 +2451,41 @@ def _evaluate_dataset(
     )
 
 
+def _actor_gradnorm_update(
+    gradnorm: Any,
+    terms: Mapping[str, Any],
+    params: Sequence[nn.Parameter],
+    step: int,
+) -> dict[str, Any]:
+    """One actor GradNorm controller update from the step's task terms (before backward).
+
+    Raw task gradient norms on ``params`` (``torch.autograd.grad``: no ``.grad``
+    accumulation, the graph is kept for the step's backward); a role task staffed in fewer
+    than ``min_rows`` rows of the batch is not measured (held). A role's progress loss is its
+    composition-normalised mean CE, every other task's its loss."""
+    from .labor_actor_gradnorm import ACTOR_ROLE_TASKS
+
+    config = gradnorm.config
+    raw: dict[str, float] = {}
+    losses: dict[str, float] = {}
+    for name in gradnorm.tasks:
+        value = terms["loss"][name]
+        if name in ACTOR_ROLE_TASKS:
+            if terms["staffed_rows"][name] < config.min_rows:
+                continue
+            losses[name] = float(terms["mean_ce"][name])
+        else:
+            losses[name] = float(value.detach())
+        if not value.requires_grad:
+            continue
+        grads = torch.autograd.grad(value, params, retain_graph=True, allow_unused=True)
+        raw[name] = math.sqrt(
+            sum(float(g.detach().double().pow(2).sum()) for g in grads if g is not None)
+        )
+    entry = gradnorm.update(raw, losses, terms["staffed_rows"])
+    return {"update_step": int(step), **entry}
+
+
 LR_SCHEDULES = ("constant", "warmup-cosine")
 
 
@@ -2491,8 +2526,16 @@ def pretrain_labor_actor_bc(
     frozen_critics: Mapping[str, nn.Module] | None = None,
     family_schedule: Any = None,
     lr_schedule: Mapping[str, Any] | None = None,
+    loss_balancing: Any = None,
 ) -> dict[str, Any]:
     """Supervised behavioral cloning on LaborActor using heuristic dataset.
+
+    ``loss_balancing`` (None: the historical loss, bit for bit; or a
+    :class:`~.labor_actor_gradnorm.ActorGradNorm`, ``pretrain-bc --loss-balancing gradnorm``)
+    weights the BC tasks (specialty, the 13 role activity CEs, movement, fission, trade gate)
+    by GradNorm on the shared encoder (or its last layer); the weights, gradient norms and
+    losses join the stability log (``actor_gradnorm``) and the summary, and the monitor then
+    judges ``gradient_dominance`` over the tasks on those parameters (block ``actor_tasks``).
 
     ``lr_schedule`` (None or kind ``constant``: the historical fixed ``lr``, bit for bit)
     ``{"kind": "warmup-cosine", "total_steps": T, "warmup_fraction": 0.1,
@@ -2555,6 +2598,32 @@ def pretrain_labor_actor_bc(
         spec_weights = to_device(spec_weights, device)
         act_weights = to_device(act_weights, device)
 
+    gradnorm = None
+    gradnorm_params: list[nn.Parameter] = []
+    gradnorm_history: list[dict[str, Any]] = []
+    if loss_balancing is not None:
+        from .labor_actor_gradnorm import (
+            ActorGradNorm,
+            ActorGradNormState,
+            gradnorm_shared_parameters_for,
+            role_resident_scales,
+        )
+
+        if not isinstance(loss_balancing, ActorGradNorm):
+            raise ValueError("loss_balancing must be an ActorGradNorm or None")
+        scale_keep = torch.ones(N, dtype=torch.bool)
+        if "label_specialty_valid" in dataset:
+            scale_keep = scale_keep & dataset["label_specialty_valid"].reshape(N).bool()
+        if "row_quarantined" in dataset:
+            scale_keep = scale_keep & ~dataset["row_quarantined"].reshape(N).bool()
+        gradnorm = ActorGradNormState(
+            loss_balancing,
+            role_resident_scales(
+                dataset["target_specialty"], dataset.get("row_weight"), scale_keep
+            ),
+        )
+        gradnorm_params = gradnorm_shared_parameters_for(actor, loss_balancing.shared)
+
     evaluation = {
         "batch_size": batch_size,
         "target_log_std": target_log_std,
@@ -2589,6 +2658,11 @@ def pretrain_labor_actor_bc(
             parameters=list(actor.parameters()),
             blocks=blocks,
             frozen=dict(frozen_critics or {}),
+            **(
+                {}
+                if gradnorm is None
+                else {"shared_heads": {"actor_tasks": (gradnorm_params, gradnorm.tasks)}}
+            ),
         )
 
     weighter = None
@@ -2665,6 +2739,11 @@ def pretrain_labor_actor_bc(
                 )
             batch = to_device(cpu_batch, device)
 
+            terms: dict[str, Any] | None = None
+            weights_used: dict[str, float] | None = None
+            if gradnorm is not None:
+                terms = {}
+                weights_used = gradnorm.values()
             loss, _, _, _ = _batch_loss_and_l1(
                 actor,
                 batch,
@@ -2673,16 +2752,51 @@ def pretrain_labor_actor_bc(
                 label_smoothing=label_smoothing,
                 spec_weights=spec_weights,
                 act_weights=act_weights,
+                **({} if terms is None else {"task_terms": terms, "task_weights": weights_used}),
             )
+            gradnorm_entry: dict[str, Any] | None = None
+            gradnorm_saved: dict[str, Any] | None = None
+            if gradnorm is not None and global_step % loss_balancing.every == 0:
+                gradnorm_saved = gradnorm.snapshot()
+                gradnorm_entry = _actor_gradnorm_update(
+                    gradnorm, terms, gradnorm_params, global_step + 1
+                )
+                if not gradnorm_history or (global_step + 1) % 500 == 0:
+                    gradnorm_history.append(
+                        {"step": global_step + 1, "weights": gradnorm_entry["weights_next"]}
+                    )
             apply_lr()
             global_step += 1
             if monitor is not None:
                 opt.zero_grad()
-                monitor.step(
+                gradnorm_kwargs: dict[str, Any] = {}
+                if gradnorm is not None:
+
+                    def gradnorm_log(
+                        effective: Mapping[str, Mapping[str, float]],
+                        raw: Mapping[str, Mapping[str, float]],
+                        entry: Mapping[str, Any] | None = gradnorm_entry,
+                        used: Mapping[str, float] | None = weights_used,
+                    ) -> dict[str, Any]:
+                        """Log the task weights this step used and the controller update."""
+                        fields: dict[str, Any] = {"actor_task_weights": dict(used or {})}
+                        if entry is not None:
+                            fields["actor_gradnorm"] = {**entry, "step": int(monitor.step_index)}
+                        return fields
+
+                    gradnorm_kwargs = {
+                        "head_losses": terms["loss"],
+                        "head_grad_scales": weights_used,
+                        "log_hook": gradnorm_log,
+                    }
+                accepted = monitor.step(
                     loss,
                     max_grad_norm=max_grad_norm,
                     diagnostics=schedule_diagnostics if family_schedule is not None else None,
+                    **gradnorm_kwargs,
                 )
+                if not accepted and gradnorm_saved is not None:
+                    gradnorm.restore(gradnorm_saved)  # rolled back: weights unchanged
                 continue
             if not torch.isfinite(loss):
                 raise ValueError("labor BC produced a nonfinite loss")
@@ -2724,6 +2838,11 @@ def pretrain_labor_actor_bc(
             }
         ),
         "collection": copy.deepcopy(dataset.get("collection", {})),
+        **(
+            {}
+            if gradnorm is None
+            else {"loss_balancing": {**gradnorm.summary(), "history": gradnorm_history}}
+        ),
         **({} if monitor is None else {"stability": monitor.finish()}),
         **(
             {}

@@ -188,9 +188,14 @@ def task_gradient_report(
     staffed_batches = {t: 0 for t in ACTOR_ROLE_TASKS}
     losses: dict[str, dict[str, float]] = {w: {t: 0.0 for t in ACTOR_BC_TASKS} for w in weightings}
     mean_ce = {t: [] for t in ACTOR_ROLE_TASKS}
+    l1_sum = torch.zeros(len(ACTOR_ROLE_TASKS), dtype=torch.float64)
+    l1_weight = torch.zeros(len(ACTOR_ROLE_TASKS), dtype=torch.float64)
     started = time.time()
     for index in batches:
         batch = {k: dataset[k][torch.as_tensor(index, dtype=torch.long)] for k in keys}
+        l1, weight = _role_activity_l1(actor, batch)
+        l1_sum += l1
+        l1_weight += weight
         for weighting in weightings:
             terms: dict[str, Any] = {}
             _batch_loss_and_l1(
@@ -248,6 +253,10 @@ def task_gradient_report(
         "role_mean_ce_staffed_batches": {
             t: (sum(v) / len(v) if v else None) for t, v in mean_ce.items()
         },
+        "role_activity_l1_staffed": {
+            t: (float(l1_sum[i] / l1_weight[i]) if l1_weight[i] > 0 else None)
+            for i, t in enumerate(ACTOR_ROLE_TASKS)
+        },
         "weightings": {},
     }
     for weighting in weightings:
@@ -272,6 +281,29 @@ def task_gradient_report(
     return report
 
 
+def _role_activity_l1(
+    actor: torch.nn.Module, batch: Mapping[str, torch.Tensor]
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-role sums of the activity-share L1 (max 2) over rows staffing the role, weighted by
+    ``row_weight``, and the weight sums (deterministic masked-softmax decoding)."""
+    from .labor_model import _masked_softmax, _masks
+    from .labor_privileged import actor_inputs
+
+    with torch.no_grad():
+        output = actor(actor_inputs(batch))
+        n = len(batch["target_specialty"])
+        _, act_mask = _masks(batch, n)
+        pred = _masked_softmax(output["activity_logits"], act_mask)
+        l1 = (torch.abs(pred - batch["target_activity"]) * act_mask.float()).sum(dim=-1)
+        row_weight = batch.get("row_weight")
+        row_weight = torch.ones(n) if row_weight is None else row_weight.reshape(n).float()
+        staffed = (batch["target_specialty"][:, 1:] > 0) & act_mask.any(dim=-1)
+        if "label_activity_role_valid" in batch:
+            staffed = staffed & batch["label_activity_role_valid"].reshape(staffed.shape).bool()
+        weight = staffed.double() * row_weight.double().unsqueeze(-1)
+        return (l1.double() * weight).sum(dim=0), weight.sum(dim=0)
+
+
 def _shares(norms: Mapping[str, float]) -> dict[str, float]:
     total = sum(max(0.0, v) for v in norms.values())
     return {k: (max(0.0, v) / total if total > 0 else 0.0) for k, v in norms.items()}
@@ -286,14 +318,13 @@ def _per_staffed_row(report: Mapping[str, Any], rows: int) -> dict[str, Any]:
             t: (shares[t] / (report["staffed_rows"][t] / rows) if report["staffed_rows"][t] else None)
             for t in ACTOR_ROLE_TASKS
         }
-        reference = intensity.get("activity:Gatherer") or None
-        out[weighting] = {
-            "share_per_staffed_fraction": intensity,
-            "relative_to_gatherer": {
+        out[weighting] = {"share_per_staffed_fraction": intensity}
+        for role in ("Gatherer", "Farmer"):
+            reference = intensity.get(f"activity:{role}") or None
+            out[weighting][f"relative_to_{role.lower()}"] = {
                 t: (v / reference if v is not None and reference else None)
                 for t, v in intensity.items()
-            },
-        }
+            }
     return out
 
 
@@ -305,7 +336,7 @@ def format_table(report: Mapping[str, Any]) -> str:
         f"rows={report['rows']} batches={report['batches']}x{report['batch_size']} "
         f"trunk params={report['parameter_sets']['trunk']}",
         f"{'task':26s} {'staffed':>7s} {'share%':>7s} {'samp%':>7s} {'W%':>7s} "
-        f"{'unif%':>7s} {'unifW%':>7s} {'perRow/G':>8s} {'unif/G':>7s}",
+        f"{'unif%':>7s} {'unifW%':>7s} {'row/F':>7s} {'unif/F':>7s} {'L1':>6s}",
     ]
     for task in report["tasks"]:
         staffed = report["staffed_rows"].get(task, report["rows"])
@@ -315,8 +346,10 @@ def format_table(report: Mapping[str, Any]) -> str:
             return "-" if value is None else f"{100 * value:7.2f}"
 
         def relative(weighting: str) -> str:
-            value = rel.get(weighting, {}).get("relative_to_gatherer", {}).get(task)
+            value = rel.get(weighting, {}).get("relative_to_farmer", {}).get(task)
             return "-" if value is None else f"{value:.3g}"
+
+        l1 = report.get("role_activity_l1_staffed", {}).get(task)
 
         lines.append(
             f"{task:26s} {staffed:7d} {pct(share, 'trunk', 'mean_batch_share')} "
@@ -324,7 +357,8 @@ def format_table(report: Mapping[str, Any]) -> str:
             f"{pct(share, 'gradnorm_w', 'mean_batch_share')} "
             f"{pct(uniform, 'trunk', 'mean_batch_share')} "
             f"{pct(uniform, 'gradnorm_w', 'mean_batch_share')} "
-            f"{relative('share'):>8s} {relative('uniform'):>7s}"
+            f"{relative('share'):>7s} {relative('uniform'):>7s} "
+            f"{'-' if l1 is None else format(l1, '6.3f'):>6s}"
         )
     return "\n".join(lines)
 
