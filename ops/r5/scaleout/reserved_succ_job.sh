@@ -64,7 +64,10 @@ if [ ! -f "$CODE/.snapshot-ok" ]; then
   mkdir -p "$CODE.tmp"
   timeout 600 gcloud storage cp --no-user-output-enabled "$CODE_GCS" "$CODE.tmp/code.tar.gz" < /dev/null \
     || die "download failed: $CODE_GCS"
-  archived=$(gzip -dc "$CODE.tmp/code.tar.gz" | git get-tar-commit-id) || die "tarball has no commit id"
+  # get-tar-commit-id stops reading after the header, so gzip may die of SIGPIPE (141)
+  # under pipefail; judge by the output instead of the pipeline status.
+  archived=$(gzip -dc "$CODE.tmp/code.tar.gz" | git get-tar-commit-id || true)
+  [ -n "$archived" ] || die "tarball has no commit id"
   [ "$archived" = "$SHA" ] || [ "${archived:0:${#SHA}}" = "$SHA" ] || die "tarball commit $archived != SHA $SHA"
   mkdir -p "$CODE.tmp/rl"
   tar -xzf "$CODE.tmp/code.tar.gz" -C "$CODE.tmp/rl"
