@@ -2463,8 +2463,19 @@ def _actor_gradnorm_update(
     accumulation, the graph is kept for the step's backward); a role task staffed in fewer
     than ``min_rows`` rows of the batch is not measured (held). A role's progress loss is its
     composition-normalised mean CE, every other task's its loss."""
-    from .labor_actor_gradnorm import ACTOR_ROLE_TASKS
+    from .labor_actor_gradnorm import ACTOR_ROLE_TASKS, ActorGroupedGradNormState
 
+    if isinstance(gradnorm, ActorGroupedGradNormState):
+        groups = _actor_group_losses(gradnorm, terms)
+        group_norms = {name: _grad_norm(value, params) for name, value in groups.items()}
+        group_losses = {name: float(value.detach()) for name, value in groups.items()}
+        role_norms = role_losses = None
+        if gradnorm.config.inner == "gradnorm":
+            role_norms, role_losses = _actor_role_norms(terms, params, gradnorm.config.min_rows)
+        entry = gradnorm.update(
+            group_norms, group_losses, role_norms, role_losses, terms["staffed_rows"]
+        )
+        return {"update_step": int(step), **entry}
     config = gradnorm.config
     raw: dict[str, float] = {}
     losses: dict[str, float] = {}
@@ -2478,12 +2489,53 @@ def _actor_gradnorm_update(
             losses[name] = float(value.detach())
         if not value.requires_grad:
             continue
-        grads = torch.autograd.grad(value, params, retain_graph=True, allow_unused=True)
-        raw[name] = math.sqrt(
-            sum(float(g.detach().double().pow(2).sum()) for g in grads if g is not None)
-        )
+        raw[name] = _grad_norm(value, params)
     entry = gradnorm.update(raw, losses, terms["staffed_rows"])
     return {"update_step": int(step), **entry}
+
+
+def _grad_norm(value: torch.Tensor, params: Sequence[nn.Parameter]) -> float:
+    """L2 norm of d value / d params (no ``.grad`` accumulation; the graph is kept)."""
+    if not value.requires_grad:
+        return 0.0
+    grads = [
+        g for g in torch.autograd.grad(value, params, retain_graph=True, allow_unused=True)
+        if g is not None
+    ]
+    if not grads:
+        return 0.0
+    # One device reduction and one host sync per task (not one per parameter tensor).
+    return math.sqrt(float(torch.stack([g.detach().double().pow(2).sum() for g in grads]).sum()))
+
+
+def _actor_group_losses(gradnorm: Any, terms: Mapping[str, Any]) -> dict[str, torch.Tensor]:
+    """The grouped controller's three group losses (unweighted by the top weights): specialty,
+    movement and the activity group sum_r v_r L_r at the current inner role weights."""
+    from .labor_actor_gradnorm import ACTOR_ROLE_TASKS
+
+    inner = gradnorm.role_weights()
+    activity = sum(float(inner[t]) * terms["loss"][t] for t in ACTOR_ROLE_TASKS)
+    return {
+        "specialty": terms["loss"]["specialty"],
+        "movement": terms["loss"]["movement"],
+        "activity": activity,
+    }
+
+
+def _actor_role_norms(
+    terms: Mapping[str, Any], params: Sequence[nn.Parameter], min_rows: int
+) -> tuple[dict[str, float], dict[str, float]]:
+    """Raw role-term gradient norms and mean CEs of the roles staffed in >= min_rows rows."""
+    from .labor_actor_gradnorm import ACTOR_ROLE_TASKS
+
+    norms: dict[str, float] = {}
+    losses: dict[str, float] = {}
+    for name in ACTOR_ROLE_TASKS:
+        if terms["staffed_rows"][name] < min_rows:
+            continue
+        losses[name] = float(terms["mean_ce"][name])
+        norms[name] = _grad_norm(terms["loss"][name], params)
+    return norms, losses
 
 
 LR_SCHEDULES = ("constant", "warmup-cosine")
@@ -2530,7 +2582,10 @@ def pretrain_labor_actor_bc(
 ) -> dict[str, Any]:
     """Supervised behavioral cloning on LaborActor using heuristic dataset.
 
-    ``loss_balancing`` (None: the historical loss, bit for bit; or a
+    ``loss_balancing`` (None: the historical loss, bit for bit; a
+    :class:`~.labor_actor_gradnorm.ActorGroupedGradNorm`, ``--loss-balancing grouped``: GradNorm
+    over the specialty/movement/activity groups with role-balanced weights inside activity,
+    dominance judged over the groups (block ``actor_groups``); or a
     :class:`~.labor_actor_gradnorm.ActorGradNorm`, ``pretrain-bc --loss-balancing gradnorm``)
     weights the BC tasks (specialty, the 13 role activity CEs, movement, fission, trade gate)
     by GradNorm on the shared encoder (or its last layer); the weights, gradient norms and
@@ -2599,29 +2654,40 @@ def pretrain_labor_actor_bc(
         act_weights = to_device(act_weights, device)
 
     gradnorm = None
+    grouped = False
     gradnorm_params: list[nn.Parameter] = []
     gradnorm_history: list[dict[str, Any]] = []
     if loss_balancing is not None:
         from .labor_actor_gradnorm import (
             ActorGradNorm,
             ActorGradNormState,
+            ActorGroupedGradNorm,
+            ActorGroupedGradNormState,
             gradnorm_shared_parameters_for,
             role_resident_scales,
         )
 
-        if not isinstance(loss_balancing, ActorGradNorm):
-            raise ValueError("loss_balancing must be an ActorGradNorm or None")
+        if not isinstance(loss_balancing, (ActorGradNorm, ActorGroupedGradNorm)):
+            raise ValueError(
+                "loss_balancing must be an ActorGradNorm, an ActorGroupedGradNorm or None"
+            )
         scale_keep = torch.ones(N, dtype=torch.bool)
         if "label_specialty_valid" in dataset:
             scale_keep = scale_keep & dataset["label_specialty_valid"].reshape(N).bool()
         if "row_quarantined" in dataset:
             scale_keep = scale_keep & ~dataset["row_quarantined"].reshape(N).bool()
-        gradnorm = ActorGradNormState(
+        state_class = (
+            ActorGroupedGradNormState
+            if isinstance(loss_balancing, ActorGroupedGradNorm)
+            else ActorGradNormState
+        )
+        gradnorm = state_class(
             loss_balancing,
             role_resident_scales(
                 dataset["target_specialty"], dataset.get("row_weight"), scale_keep
             ),
         )
+        grouped = state_class is ActorGroupedGradNormState
         gradnorm_params = gradnorm_shared_parameters_for(actor, loss_balancing.shared)
 
     evaluation = {
@@ -2661,7 +2727,13 @@ def pretrain_labor_actor_bc(
             **(
                 {}
                 if gradnorm is None
-                else {"shared_heads": {"actor_tasks": (gradnorm_params, gradnorm.tasks)}}
+                else {
+                    "shared_heads": {
+                        "actor_groups": (gradnorm_params, ("specialty", "movement", "activity"))
+                    }
+                    if grouped
+                    else {"actor_tasks": (gradnorm_params, gradnorm.tasks)}
+                }
             ),
         )
 
@@ -2741,9 +2813,12 @@ def pretrain_labor_actor_bc(
 
             terms: dict[str, Any] | None = None
             weights_used: dict[str, float] | None = None
+            group_used: dict[str, float] | None = None
             if gradnorm is not None:
                 terms = {}
                 weights_used = gradnorm.values()
+                if grouped:
+                    group_used = gradnorm.group_weights()
             loss, _, _, _ = _batch_loss_and_l1(
                 actor,
                 batch,
@@ -2756,6 +2831,21 @@ def pretrain_labor_actor_bc(
             )
             gradnorm_entry: dict[str, Any] | None = None
             gradnorm_saved: dict[str, Any] | None = None
+            group_terms: dict[str, torch.Tensor] | None = None
+            role_report: dict[str, Any] | None = None
+            if grouped:
+                # Group losses at the weights this step uses (before any update).
+                group_terms = _actor_group_losses(gradnorm, terms)
+                if monitor is not None and (monitor.step_index + 1) % monitor.config.log_every == 0:
+                    # Roles are reported on log steps (raw role-term norms on the shared
+                    # parameters), whether or not the inner level balances them.
+                    norms, role_ce = _actor_role_norms(terms, gradnorm_params, 1)
+                    role_report = {
+                        "raw_grad_norm": norms,
+                        "mean_ce": role_ce,
+                        "staffed_rows": dict(terms["staffed_rows"]),
+                        "role_weights": gradnorm.role_weights(),
+                    }
             if gradnorm is not None and global_step % loss_balancing.every == 0:
                 gradnorm_saved = gradnorm.snapshot()
                 gradnorm_entry = _actor_gradnorm_update(
@@ -2777,16 +2867,22 @@ def pretrain_labor_actor_bc(
                         raw: Mapping[str, Mapping[str, float]],
                         entry: Mapping[str, Any] | None = gradnorm_entry,
                         used: Mapping[str, float] | None = weights_used,
+                        groups_used: Mapping[str, float] | None = group_used,
+                        roles: Mapping[str, Any] | None = role_report,
                     ) -> dict[str, Any]:
                         """Log the task weights this step used and the controller update."""
                         fields: dict[str, Any] = {"actor_task_weights": dict(used or {})}
+                        if groups_used is not None:
+                            fields["actor_group_weights"] = dict(groups_used)
+                        if roles is not None:
+                            fields["actor_roles"] = dict(roles)
                         if entry is not None:
                             fields["actor_gradnorm"] = {**entry, "step": int(monitor.step_index)}
                         return fields
 
                     gradnorm_kwargs = {
-                        "head_losses": terms["loss"],
-                        "head_grad_scales": weights_used,
+                        "head_losses": group_terms if grouped else terms["loss"],
+                        "head_grad_scales": group_used if grouped else weights_used,
                         "log_hook": gradnorm_log,
                     }
                 accepted = monitor.step(

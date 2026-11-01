@@ -189,20 +189,29 @@ class ActorGradNormState:
 
     SCALE_FLOOR = 1e-6
 
-    def __init__(self, config: ActorGradNorm, role_scales: Mapping[str, float]) -> None:
+    def __init__(
+        self,
+        config: ActorGradNorm,
+        role_scales: Mapping[str, float],
+        tasks: tuple[str, ...] = ACTOR_BC_TASKS,
+    ) -> None:
+        """``tasks`` (default every BC task: the flat controller) may be any task set; role
+        tasks in it take their resident scale and the min-rows rule, others scale 1. The
+        grouped controller uses one state over its three groups and one over the roles."""
         self.config = config
-        self.tasks = ACTOR_BC_TASKS
+        self.tasks = tuple(tasks)
+        self.role_tasks = tuple(t for t in self.tasks if t in ACTOR_ROLE_TASKS)
         self.scales = {
-            t: (max(self.SCALE_FLOOR, float(role_scales[t])) if t in ACTOR_ROLE_TASKS else 1.0)
+            t: (max(self.SCALE_FLOOR, float(role_scales[t])) if t in self.role_tasks else 1.0)
             for t in self.tasks
         }
         self.target_scale = sum(self.scales.values())
         self.weights = {t: 1.0 for t in self.tasks}
-        if config.init != "share":
+        if config.init != "share" and self.role_tasks:
             power = 1.0 if config.init == "uniform" else 0.5
-            for t in ACTOR_ROLE_TASKS:
+            for t in self.role_tasks:
                 self.weights[t] = self.scales[t] ** -power
-            self._project(set(ACTOR_ROLE_TASKS))
+            self._project(set(self.role_tasks))
         self.initial_weights = dict(self.weights)
         self.ema_norm: dict[str, float | None] = {t: None for t in self.tasks}
         self.ema_loss: dict[str, float | None] = {t: None for t in self.tasks}
@@ -257,7 +266,7 @@ class ActorGradNormState:
         eligible = []
         for t in self.tasks:
             norm, loss = float(raw_norms.get(t, math.nan)), float(losses.get(t, math.nan))
-            rows_ok = t not in ACTOR_ROLE_TASKS or int(staffed_rows.get(t, 0)) >= c.min_rows
+            rows_ok = t not in self.role_tasks or int(staffed_rows.get(t, 0)) >= c.min_rows
             if not rows_ok or not math.isfinite(norm) or not math.isfinite(loss) or norm <= 0.0:
                 self.task_holds[t] += 1
                 continue
@@ -283,7 +292,7 @@ class ActorGradNormState:
             "weights_used": dict(self.weights),
             "raw_grad_norm": {t: float(raw_norms.get(t, math.nan)) for t in self.tasks},
             "loss": {t: float(losses.get(t, math.nan)) for t in self.tasks},
-            "staffed_rows": {t: int(staffed_rows.get(t, 0)) for t in ACTOR_ROLE_TASKS},
+            "staffed_rows": {t: int(staffed_rows.get(t, 0)) for t in self.role_tasks},
             "updated": list(eligible),
         }
         if len(eligible) >= 2:
@@ -320,7 +329,7 @@ class ActorGradNormState:
     def summary(self) -> dict[str, Any]:
         return {
             **self.config.state_dict(),
-            "role_scales": {t: self.scales[t] for t in ACTOR_ROLE_TASKS},
+            "role_scales": {t: self.scales[t] for t in self.role_tasks},
             "scale_target": self.target_scale,
             "initial_weights": dict(self.initial_weights),
             "final_weights": dict(self.weights),
@@ -332,4 +341,156 @@ class ActorGradNormState:
             "ema_grad_norm": dict(self.ema_norm),
             "initial_loss": dict(self.initial_loss),
             "ema_loss": dict(self.ema_loss),
+        }
+
+
+# ---------------------------------------------------------------------------
+# Two-level (grouped) balancing (``pretrain-bc --loss-balancing grouped``)
+# ---------------------------------------------------------------------------
+
+ACTOR_GROUPS: tuple[str, ...] = ("specialty", "movement", "activity")
+GRADNORM_INNER = ("none", "gradnorm")
+
+
+@dataclass(frozen=True)
+class ActorGroupedGradNorm:
+    """``pretrain-bc --loss-balancing grouped``: two-level balancing of the actor BC loss.
+
+    Top level: GradNorm (:class:`ActorGradNorm` arithmetic: EMA norms and losses, alpha, the
+    log-space ``lr`` step, [``min_weight``, ``max_weight``] clamp, renormalisation) over the
+    three groups :data:`ACTOR_GROUPS` with weights W_g (sum W_g = 3, all 1 at the start = the
+    historical loss scale of each group). A group's gradient norm is the norm on the shared
+    parameters of its combined loss: the specialty CE, the movement CE, and the activity group
+    loss sum_r v_r L_r. Fission and trade gate keep their fixed weight 1 and are not balanced.
+
+    Inside the activity group: per-role weights v_r (``init`` uniform/sqrt/share), normalised
+    within the group by sum_r v_r s_r = sum_r s_r (s_r the role's mean resident share), so the
+    group's scale is set only by W_activity. ``inner`` none keeps them fixed; ``inner``
+    gradnorm equalises the roles with the same controller, the min-rows hold and the
+    negligible-gradient hold (``hold_below``), clamped to [``inner_min_weight``,
+    ``inner_max_weight``]. A role's effective loss weight is W_activity v_r.
+
+    Cost per controller update: three backward passes on the shared parameters (plus one per
+    staffed role with ``inner`` gradnorm).
+    """
+
+    alpha: float = 0.0
+    ema: float = 0.1
+    lr: float = 0.25
+    init: str = "uniform"
+    inner: str = "none"
+    min_rows: int = 4
+    min_weight: float = 0.1
+    max_weight: float = 3.0
+    inner_min_weight: float = 0.01
+    inner_max_weight: float = 30.0
+    every: int = 1
+    shared: str = "trunk"
+    hold_below: float = 0.05
+
+    def __post_init__(self) -> None:
+        if self.inner not in GRADNORM_INNER:
+            raise ValueError(f"actor gradnorm inner must be one of {GRADNORM_INNER}")
+        self.top_config()
+        self.inner_config()
+
+    def top_config(self) -> ActorGradNorm:
+        return ActorGradNorm(
+            alpha=self.alpha, ema=self.ema, lr=self.lr, init="share", min_rows=1,
+            min_weight=self.min_weight, max_weight=self.max_weight, every=self.every,
+            shared=self.shared, hold_below=0.0,
+        )
+
+    def inner_config(self) -> ActorGradNorm:
+        return ActorGradNorm(
+            alpha=self.alpha, ema=self.ema, lr=self.lr, init=self.init, min_rows=self.min_rows,
+            min_weight=self.inner_min_weight, max_weight=self.inner_max_weight,
+            every=self.every, shared=self.shared, hold_below=self.hold_below,
+        )
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "mode": "grouped",
+            "groups": list(ACTOR_GROUPS),
+            "roles": list(ACTOR_ROLE_TASKS),
+            "fixed": ["fission", "trade_gate"],
+            "alpha": float(self.alpha),
+            "ema": float(self.ema),
+            "lr": float(self.lr),
+            "init": str(self.init),
+            "inner": str(self.inner),
+            "min_rows": int(self.min_rows),
+            "min_weight": float(self.min_weight),
+            "max_weight": float(self.max_weight),
+            "inner_min_weight": float(self.inner_min_weight),
+            "inner_max_weight": float(self.inner_max_weight),
+            "every": int(self.every),
+            "shared": str(self.shared),
+            "hold_below": float(self.hold_below),
+        }
+
+
+class ActorGroupedGradNormState:
+    """Runtime two-level weights: a top state over the groups, an inner one over the roles."""
+
+    def __init__(self, config: ActorGroupedGradNorm, role_scales: Mapping[str, float]) -> None:
+        self.config = config
+        self.tasks = ACTOR_BC_TASKS
+        self.top = ActorGradNormState(config.top_config(), role_scales, ACTOR_GROUPS)
+        self.inner = ActorGradNormState(config.inner_config(), role_scales, ACTOR_ROLE_TASKS)
+        self.initial_weights = self.values()
+        self.updates = 0
+
+    @property
+    def last(self) -> dict[str, Any] | None:
+        return {"top": self.top.last, "inner": self.inner.last}
+
+    def group_weights(self) -> dict[str, float]:
+        return self.top.values()
+
+    def role_weights(self) -> dict[str, float]:
+        return self.inner.values()
+
+    def values(self) -> dict[str, float]:
+        """The effective weight of every BC task (the loss's ``task_weights``)."""
+        top, inner = self.top.values(), self.inner.values()
+        weights = {"specialty": top["specialty"], "movement": top["movement"]}
+        weights.update({t: top["activity"] * inner[t] for t in ACTOR_ROLE_TASKS})
+        weights.update(fission=1.0, trade_gate=1.0)
+        return {t: weights[t] for t in self.tasks}
+
+    def snapshot(self) -> dict[str, Any]:
+        return {"top": self.top.snapshot(), "inner": self.inner.snapshot(), "updates": self.updates}
+
+    def restore(self, state: Mapping[str, Any]) -> None:
+        self.top.restore(state["top"])
+        self.inner.restore(state["inner"])
+        self.updates = int(state["updates"])
+
+    def update(
+        self,
+        group_norms: Mapping[str, float],
+        group_losses: Mapping[str, float],
+        role_norms: Mapping[str, float] | None,
+        role_losses: Mapping[str, float] | None,
+        staffed_rows: Mapping[str, int],
+    ) -> dict[str, Any]:
+        """One update: the groups always, the roles only with ``inner`` gradnorm."""
+        entry: dict[str, Any] = {"top": self.top.update(group_norms, group_losses, {})}
+        if self.config.inner == "gradnorm" and role_norms is not None:
+            entry["inner"] = self.inner.update(role_norms, role_losses or {}, staffed_rows)
+        self.updates += 1
+        entry["weights_next"] = self.values()
+        return entry
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            **self.config.state_dict(),
+            "initial_weights": dict(self.initial_weights),
+            "final_weights": self.values(),
+            "final_group_weights": self.group_weights(),
+            "final_role_weights": self.role_weights(),
+            "updates": int(self.updates),
+            "top": self.top.summary(),
+            "inner_state": self.inner.summary(),
         }

@@ -197,3 +197,135 @@ def test_cli_builds_the_controller() -> None:
         ActorGradNorm(init="flat")
     with pytest.raises(ValueError):
         ActorGradNorm(min_weight=2.0)
+
+
+# ---------------------------------------------------------------------------
+# Two-level (grouped) balancing
+# ---------------------------------------------------------------------------
+
+from anthropocene_rl.autonomous_v7.labor_actor_gradnorm import (  # noqa: E402
+    ACTOR_GROUPS,
+    ActorGroupedGradNorm,
+    ActorGroupedGradNormState,
+)
+
+STAFFED = {t: 100 for t in ACTOR_ROLE_TASKS}
+
+
+def _role_sum(state: ActorGroupedGradNormState) -> float:
+    return sum(state.role_weights()[t] * SCALES[t] for t in ACTOR_ROLE_TASKS)
+
+
+def test_grouped_initial_weights_and_invariants() -> None:
+    state = ActorGroupedGradNormState(ActorGroupedGradNorm(inner_max_weight=1000.0), SCALES)
+    weights = state.values()
+    assert set(weights) == set(ACTOR_BC_TASKS)
+    for task in ("specialty", "movement", "fission", "trade_gate"):
+        assert weights[task] == 1.0
+    assert state.group_weights() == {g: 1.0 for g in ACTOR_GROUPS}
+    assert _role_sum(state) == pytest.approx(sum(SCALES.values()), rel=1e-9)
+    masses = [state.role_weights()[t] * SCALES[t] for t in ACTOR_ROLE_TASKS]
+    assert max(masses) == pytest.approx(min(masses))  # uniform per role inside activity
+    for t in ACTOR_ROLE_TASKS:  # effective role weight = W_activity * v_r
+        assert weights[t] == pytest.approx(state.role_weights()[t])
+    share = ActorGroupedGradNormState(ActorGroupedGradNorm(init="share"), SCALES)
+    assert share.values() == {t: 1.0 for t in ACTOR_BC_TASKS}  # the historical loss
+
+
+def test_grouped_top_equalises_groups_and_renormalises() -> None:
+    config = ActorGroupedGradNorm(lr=0.5, ema=0.5, min_weight=0.01, max_weight=3.0)
+    state = ActorGroupedGradNormState(config, SCALES)
+    norms = {"specialty": 0.8, "movement": 2.0, "activity": 0.4}
+    for _ in range(200):
+        state.update(norms, {g: 1.0 for g in ACTOR_GROUPS}, None, None, STAFFED)
+    top = state.group_weights()
+    assert sum(top.values()) == pytest.approx(3.0, rel=1e-9)
+    weighted = [top[g] * norms[g] for g in ACTOR_GROUPS]
+    assert max(weighted) / min(weighted) == pytest.approx(1.0, abs=1e-6)
+    assert state.values()["fission"] == 1.0 and state.values()["trade_gate"] == 1.0
+    roles = state.values()
+    for t in ACTOR_ROLE_TASKS:
+        assert roles[t] == pytest.approx(top["activity"] * state.role_weights()[t])
+
+
+def test_grouped_group_scale_is_independent_of_inner_weights() -> None:
+    config = ActorGroupedGradNorm(inner="gradnorm", lr=1.0, ema=1.0, inner_max_weight=1000.0)
+    state = ActorGroupedGradNormState(config, SCALES)
+    role_norms = {t: 0.01 * (1 + i) for i, t in enumerate(ACTOR_ROLE_TASKS)}
+    groups = {g: 1.0 for g in ACTOR_GROUPS}
+    state.update(groups, groups, role_norms, {t: 1.0 for t in ACTOR_ROLE_TASKS}, STAFFED)
+    before_top = state.group_weights()
+    before_inner = state.role_weights()
+    shifted = dict(role_norms, **{"activity:Gatherer": 5.0})
+    state.update(groups, groups, shifted, {t: 1.0 for t in ACTOR_ROLE_TASKS}, STAFFED)
+    assert state.role_weights() != before_inner  # the roles moved...
+    assert state.group_weights() == pytest.approx(before_top)  # ...the groups did not
+    assert _role_sum(state) == pytest.approx(sum(SCALES.values()), rel=1e-9)
+
+
+def test_grouped_inner_holds_and_inner_none_is_fixed() -> None:
+    fixed = ActorGroupedGradNormState(ActorGroupedGradNorm(inner="none"), SCALES)
+    initial = fixed.role_weights()
+    role_norms = {t: 0.01 * (1 + i) for i, t in enumerate(ACTOR_ROLE_TASKS)}
+    groups = {g: 1.0 for g in ACTOR_GROUPS}
+    fixed.update(groups, groups, role_norms, {t: 1.0 for t in ACTOR_ROLE_TASKS}, STAFFED)
+    assert fixed.role_weights() == initial
+    config = ActorGroupedGradNorm(inner="gradnorm", min_rows=4, inner_max_weight=1000.0)
+    state = ActorGroupedGradNormState(config, SCALES)
+    potter = state.role_weights()["activity:Potter"]
+    staffed = dict(STAFFED, **{"activity:Potter": 2})
+    norms = {t: 0.05 * SCALES[t] for t in ACTOR_ROLE_TASKS}
+    norms["activity:Fisher"] = 1e-9  # negligible: held
+    entry = state.update(groups, groups, norms, {t: 1.0 for t in ACTOR_ROLE_TASKS}, staffed)
+    assert state.role_weights()["activity:Potter"] == potter
+    assert state.inner.task_holds["activity:Potter"] == 1
+    assert entry["inner"]["negligible"] == ["activity:Fisher"]
+    snapshot = state.snapshot()
+    state.update(groups, groups, norms, {t: 1.0 for t in ACTOR_ROLE_TASKS}, staffed)
+    state.restore(snapshot)
+    assert state.inner.task_holds["activity:Potter"] == 1 and state.updates == 1
+
+
+def test_grouped_fit_logs_groups_roles_and_judges_dominance(tmp_path) -> None:
+    jsonl = tmp_path / "stability.jsonl"
+    config = ActorGroupedGradNorm(inner="gradnorm", min_rows=2)
+    _, summary = _fit(loss_balancing=config, stability=StabilityConfig(jsonl=str(jsonl),
+                                                                       log_every=2))
+    record = summary["loss_balancing"]
+    assert record["mode"] == "grouped" and record["groups"] == list(ACTOR_GROUPS)
+    assert record["updates"] == 8
+    assert sum(record["final_group_weights"].values()) == pytest.approx(3.0, rel=1e-6)
+    steps = [json.loads(line) for line in jsonl.read_text().splitlines()]
+    logged = [r for r in steps if r.get("kind") == "step" and "actor_group_weights" in r]
+    assert logged
+    assert set(logged[0]["shared_head_grad_norm"]["actor_groups"]) == set(ACTOR_GROUPS)
+    assert "activity:Gatherer" in logged[0]["actor_roles"]["raw_grad_norm"]
+    assert "top" in logged[0]["actor_gradnorm"]
+    assert summary["stability"]["checks"]["gradient_dominance"]["status"] in ("PASS", "FAIL")
+
+
+def test_grouped_checkpoint_round_trip_and_cli(tmp_path) -> None:
+    config = ActorGroupedGradNorm(alpha=0.5, init="sqrt", inner="gradnorm",
+                                  inner_max_weight=20.0, every=2)
+    _, summary = _fit(loss_balancing=config, epochs=1)
+    path = tmp_path / "actor.pt"
+    lt._save_checkpoint(path, {"heuristic_bc_pretraining": summary})
+    record = torch.load(path, map_location="cpu", weights_only=True)[
+        "heuristic_bc_pretraining"]["loss_balancing"]
+    for key, value in config.state_dict().items():
+        assert record[key] == value
+    args = lt.argument_parser().parse_args(
+        ["pretrain-bc", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
+         "--loss-balancing", "grouped", "--gradnorm-inner", "gradnorm",
+         "--gradnorm-inner-max-weight", "20", "--gradnorm-every", "4"]
+    )
+    built = lt._bc_loss_balancing_kwargs(args)["loss_balancing"]
+    assert built == ActorGroupedGradNorm(inner="gradnorm", inner_max_weight=20.0, every=4)
+    bad = lt.argument_parser().parse_args(
+        ["pretrain-bc", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
+         "--loss-balancing", "gradnorm", "--gradnorm-inner", "gradnorm"]
+    )
+    with pytest.raises(ValueError, match="grouped only"):
+        lt._bc_loss_balancing_kwargs(bad)
+    with pytest.raises(ValueError):
+        ActorGroupedGradNorm(inner="flat")
