@@ -33,6 +33,8 @@ ARGS = [
     "--personalities", "balanced", "--control-fraction", "0.5", "--plan-candidates", "1",
     "--plan-steps", "2", "--plan-fraction", "0.5", "--players", "4", "--jobs", "1",
     "--allow-dirty",
+    # Extra search flags for a variant selftest, e.g. "--successor-rows" (export v2).
+    *os.environ.get("ANTHROPOCENE_SEARCH_SELFTEST_EXTRA", "").split(),
 ]
 
 pytestmark = pytest.mark.skipif(

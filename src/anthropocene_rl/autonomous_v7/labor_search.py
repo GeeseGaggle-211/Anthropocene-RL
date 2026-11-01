@@ -38,6 +38,14 @@ courses held by the focal camp for ``--plan-steps`` decisions, each with a paire
 first-step control (same first step, then H12). They count toward M, never enter
 halving or the labels, and are exported as plan rows of the candidate payload.
 
+Successor rows (``--successor-rows``, payload export v2): every candidate
+branch also records the focal camp's critic-input rows (actor-visible
+observation row plus the raw privileged row, the root-row format) at the state
+after decision 1 and at the last declared horizon, per stream, with the focal
+camp's status at every boundary, so ``V(s'_a)`` is computable per candidate
+(``labor_sa_advantage``). Reading the successor state never changes a search
+decision or a return; without the flag the export is the v1 payload unchanged.
+
 ``--resume`` continues a preempted output: verified world shards are kept,
 partial worlds are redone into fresh shards, a changed source record is refused,
 and dataset.json is published only once every world is complete.
@@ -262,6 +270,8 @@ class SearchConfig:
     # Keyed share of roots that carry the T2 plans (1.0: every root, the historical
     # behaviour). Single-step candidates stay ``single_budget`` on every root.
     plan_fraction: float = 1.0
+    # Export each candidate's successor critic-input rows (payload export v2).
+    successor_rows: bool = False
 
     def __post_init__(self) -> None:
         if self.candidates < 2:
@@ -297,6 +307,11 @@ class SearchConfig:
                 "plans count toward the candidate budget: M - 2 x plans must leave H12 and one "
                 "single-step alternative"
             )
+
+    @property
+    def successor_decisions(self) -> tuple[int, ...]:
+        """Decision boundaries whose successor rows are exported: 1 and the last horizon."""
+        return tuple(sorted({1, int(self.horizons[-1])}))
 
     @property
     def single_budget(self) -> int:
@@ -349,6 +364,8 @@ class SearchConfig:
             # Recorded only when it narrows the plan roots, so every historical source
             # record (and its --resume identity) is unchanged.
             **({} if self.plan_fraction == 1.0 else {"plan_fraction": self.plan_fraction}),
+            # Likewise recorded only when on (v1 source records and payloads unchanged).
+            **({"successor_rows": True} if self.successor_rows else {}),
         }
 
     @classmethod
@@ -1326,6 +1343,9 @@ class Branch:
     steps: list[list[float]] = field(default_factory=list)
     years: list[float] = field(default_factory=list)
     terminated: bool = False
+    # Successor rows (--successor-rows): set on first-action candidate branches only.
+    record: bool = False
+    boundaries: list[dict[str, Any]] = field(default_factory=list)
 
 
 class NativeSearch:
@@ -1346,6 +1366,30 @@ class NativeSearch:
         self.options = options
         self.config = config
         self.work = Work()
+        # ``successor_view(village) -> {"tensors", "privileged"}`` (--successor-rows):
+        # the focal camp's critic-input row at a successor state. Read-only.
+        self.successor_view: Any | None = None
+        self.successor_seconds = 0.0
+
+    def record_boundary(
+        self, branch: Branch, step: Mapping[str, Any], focal: int, *, terminal: bool, live: bool
+    ) -> None:
+        """Record the focal camp's status (and, at exported decisions, its critic-input
+        row) at the boundary ``branch.horizon`` just reached. Reads ``step`` only."""
+        started = time.perf_counter()
+        decision = int(branch.horizon)
+        status = "terminated" if terminal else ("live" if live else "inactive")
+        entry: dict[str, Any] = {
+            "decision": decision,
+            "turn": int(step["turn"]),
+            "status": status,
+            "row": None,
+        }
+        if status == "live" and decision in self.config.successor_decisions:
+            village = next(v for v in _live(step) if int(v["camp"]) == focal)
+            entry["row"] = self.successor_view(village)
+        branch.boundaries.append(entry)
+        self.successor_seconds += time.perf_counter() - started
 
     # -- primitives -------------------------------------------------------
     def catalogs(self) -> dict[int, LaborCatalog]:
@@ -1528,6 +1572,14 @@ class NativeSearch:
             catalogs = self.catalogs() if _live(step) else {}
             if terminal[focal] or focal not in catalogs:
                 branch.alive = False
+            if branch.record and self.successor_view is not None:
+                self.record_boundary(
+                    branch,
+                    step,
+                    focal,
+                    terminal=bool(terminal[focal]),
+                    live=focal in catalogs and any(int(v["camp"]) == focal for v in _live(step)),
+                )
         branch.resolves += self.work.resolves - before
         old = branch.fork
         branch.fork = self.fork() if keep_fork and branch.alive else None
@@ -2055,8 +2107,9 @@ def search_root(
         )
 
     # 2. Successive halving over horizon on the deterministic selection stream.
+    record = bool(config.successor_rows)
     branches = {
-        i: Branch(i, 0, founded=dict(founded), societies={int(village["society"])})
+        i: Branch(i, 0, founded=dict(founded), societies={int(village["society"])}, record=record)
         for i in range(n)
     }
     keep = config.keep_counts(len(evaluated))
@@ -2146,7 +2199,11 @@ def search_root(
         reeval_info[cand] = {}
         for stream in range(1, config.reeval_streams + 1):
             branch = Branch(
-                cand, stream, founded=dict(founded), societies={int(village["society"])}
+                cand,
+                stream,
+                founded=dict(founded),
+                societies={int(village["society"])},
+                record=record,
             )
             before = native.work.resolves
             native.extend(
@@ -2166,6 +2223,11 @@ def search_root(
                 "horizon": branch.horizon,
                 "terminated": branch.terminated,
                 "years": list(branch.years),
+                **(
+                    {"steps": [list(r) for r in branch.steps], "boundaries": branch.boundaries}
+                    if record
+                    else {}
+                ),
             }
 
     # 3b. T2 plans and their paired first-step controls on every stream (0 and the
@@ -2279,6 +2341,7 @@ def search_root(
     # every accepted candidate's complete action and every native evaluation.
     horizons = [int(h) for h in config.horizons]
     payload_candidates = []
+    store = payload_module.SuccessorRows(root_vector) if record else None
     for i in range(n):
         branch = branches[i]
         counts = labor_state(accepted[i].payload, catalog)[0]
@@ -2320,6 +2383,22 @@ def search_root(
                 "predicted_advantage": None if predicted is None else predicted[i].tolist(),
             }
         )
+        if store is not None:
+            streams_out = []
+            if i in evaluated:
+                streams_out.append(
+                    payload_module.successor_stream(
+                        0, branch.steps, branch.years, branch.terminated, branch.boundaries, store
+                    )
+                )
+            for s, info in sorted(reeval_info.get(i, {}).items()):
+                streams_out.append(
+                    payload_module.successor_stream(
+                        s, info["steps"], info["years"], info["terminated"], info["boundaries"],
+                        store,
+                    )
+                )
+            payload_candidates[-1]["successor_streams"] = streams_out
     plan_horizons = sorted({*(h for h in horizons if h <= plan_horizon), plan_horizon})
     for spec, result in zip(plans, plan_results, strict=True):
         payload_candidates.extend(
@@ -2352,11 +2431,15 @@ def search_root(
         "plan_unavailable": list(plan_unavailable),
         **dict(root_extra or {}),
     }
+    if store is not None:
+        root_record["successor_decisions"] = list(config.successor_decisions)
     root_payload = {
         "record": root_record,
         "tensors": root_tensors,
         "privileged": root_privileged,
     }
+    if store is not None:
+        root_payload["successors"] = store.rows
 
     work = native.work
     table = {
@@ -2465,6 +2548,24 @@ def verify_exact_restore(
     return {"equal": True, "digest": digests[0]}
 
 
+def successor_row_view(normalizer: Any) -> Any:
+    """The focal camp's critic-input row at a successor state, in the root-row format:
+    ``labor_policy_tensors`` (bounded normalizer; rows are built independently, so a
+    one-village batch equals that village's row of the full batch) and the raw
+    privileged arrays (``privileged_row_tensors``)."""
+    from .labor_model import labor_policy_tensors
+
+    def view(village: Mapping[str, Any]) -> dict[str, Any]:
+        _, tensors = labor_policy_tensors([village], normalizer)
+        privileged = privileged_row_tensors([village])
+        return {
+            "tensors": _one_row(tensors, 0),
+            "privileged": None if privileged is None else _one_row(privileged, 0),
+        }
+
+    return view
+
+
 def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
     """Drive one fitting world, searching its keyed roots. Returns rows and tables."""
     from .bridge import Model9Bridge
@@ -2550,6 +2651,8 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
             shutil.rmtree(work_dir)
     with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heuristic:
         native = NativeSearch(bridge, heuristic, world=world, options=options, config=config)
+        if config.successor_rows:
+            native.successor_view = successor_row_view(normalizer)
         first_index = 0
         if resume_point is not None:
             step = resume_point.restore(bridge, world, options.reset_kwargs())
@@ -2684,6 +2787,11 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
                                 "work": result.table["work"],
                                 "wall_seconds": round(result.table["wall_seconds"], 1),
                                 "labels": [d["reason"] for d in result.table["decisions"]],
+                                **(
+                                    {"successor_seconds_total": round(native.successor_seconds, 2)}
+                                    if config.successor_rows
+                                    else {}
+                                ),
                             }
                         ),
                         file=sys.stderr,
@@ -3371,6 +3479,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=2,
         help="decision-boundary checkpoints kept per unfinished world (labor_search_resume)",
     )
+    parser.add_argument(
+        "--successor-rows",
+        action="store_true",
+        help="also export every candidate's successor critic-input rows (after decision 1 and "
+        "at the last horizon, per stream) and focal status (candidate payload export v2); "
+        "search decisions and returns are unchanged",
+    )
     parser.add_argument("--no-verify-restore", action="store_true")
     parser.add_argument(
         "--held-out-test",
@@ -3461,6 +3576,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         plan_candidates=args.plan_candidates,
         plan_steps=args.plan_steps,
         plan_fraction=args.plan_fraction,
+        successor_rows=bool(args.successor_rows),
     )
     reset = LaborResetOptions(
         players=args.players,
@@ -3510,7 +3626,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else None,
         "search": config.state_dict(),
         "candidate_payload_schema": payload_module.CANDIDATE_PAYLOAD_SCHEMA,
-        "candidate_export_schema": payload_module.EXPORT_SCHEMA,
+        "candidate_export_schema": payload_module.export_schema(config.successor_rows),
         "advantage_ranker_sha256": checkpoint_hash(args.advantage_ranker)
         if args.advantage_ranker
         else None,

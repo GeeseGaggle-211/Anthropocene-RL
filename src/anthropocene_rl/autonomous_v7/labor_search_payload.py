@@ -82,6 +82,31 @@ Shard (``labor-advantage-candidates-v1`` fields, then exporter extensions):
   (templates not constructible at the root). First-action readers
   (``labor_advantage.parse_candidate_shard``) keep plan rows apart in
   ``Root.plans``.
+
+Successor rows (export v2, :data:`EXPORT_SCHEMA_SUCCESSORS`; ``--successor-rows``).
+Additive: every v1 field keeps its value and readers that ignore unknown keys
+(``labor_advantage.parse_candidate_shard``, ``labor_r5_acceptance``) read v2
+shards unchanged. Without the flag the export is v1, byte for byte.
+
+* shard: ``successor_tensors`` (the focal camp's actor-visible observation rows at
+  the successor states, exactly the root-row format: ``labor_policy_tensors``
+  through the run's normalizer, ``labor_personality`` set to the root
+  personality), ``successor_privileged`` (the raw critic-only arrays of the
+  same rows, or None for a pre-privileged producer) and ``successor_row_count``.
+  Identical rows within one root are stored once (content digest) and shared
+  by index;
+* root: ``successor_decisions`` (the decision boundaries that carry rows: 1 and
+  the last declared horizon) and ``successor_rows`` (rows this root added);
+* first-action candidate: ``successor_streams``, one entry per evaluated stream
+  (0 when natively evaluated; 1..S when re-evaluated): ``stream``,
+  ``step_rewards`` [[4]] and ``step_years`` (raw per-step rewards of that
+  stream's branch), ``terminated``, and ``boundaries``: per decision boundary d
+  reached, ``decision``, ``turn`` (native turn of the successor state),
+  ``status`` (``live``: the focal camp has a labor observation there;
+  ``terminated``; ``inactive``: present without an observation or labor
+  catalog, the branch ends) and ``row`` (index into ``successor_tensors`` for a
+  live boundary in ``successor_decisions``, else None). Plan rows carry no
+  successor streams.
 """
 
 from __future__ import annotations
@@ -104,6 +129,10 @@ from .labor_bridge import ACTIVITIES, SPECIALTIES
 CANDIDATE_PAYLOAD_SCHEMA = "labor-advantage-candidates-v1"
 RETURNS_UNITS = "raw-discounted-component-return"
 EXPORT_SCHEMA = "labor-search-candidate-export-v1"
+# v2 = v1 plus successor critic-input rows (additive; see the module docstring).
+EXPORT_SCHEMA_SUCCESSORS = "labor-search-candidate-export-v2"
+EXPORT_SCHEMAS = (EXPORT_SCHEMA, EXPORT_SCHEMA_SUCCESSORS)
+SUCCESSOR_STATUSES = ("live", "terminated", "inactive")
 PAYLOAD_FILE = "advantage-candidates.pt"
 COMPONENTS = ("qol_years", "population_years", "feasibility", "settlement_guard")
 HEADS = ("labor", "movement", "fission", "trade_gate", "trade_value", "trade_share")
@@ -244,6 +273,132 @@ def reevaluation_records(
     return out
 
 
+def export_schema(successor_rows: bool) -> str:
+    return EXPORT_SCHEMA_SUCCESSORS if successor_rows else EXPORT_SCHEMA
+
+
+def _row_digest(row: Mapping[str, Any]) -> str:
+    digest = hashlib.sha256()
+    for part in ("tensors", "privileged"):
+        values = row.get(part)
+        digest.update(part.encode())
+        if values is None:
+            digest.update(b"none")
+            continue
+        for key in sorted(values):
+            array = torch.as_tensor(values[key]).detach().cpu().contiguous()
+            digest.update(key.encode())
+            digest.update(str(array.dtype).encode())
+            digest.update(repr(tuple(array.shape)).encode())
+            digest.update(array.numpy().tobytes())
+    return digest.hexdigest()
+
+
+class SuccessorRows:
+    """One root's successor critic-input rows, deduplicated by content.
+
+    ``add`` takes ``{"tensors": one-row actor-visible tensors, "privileged": one-row
+    raw privileged arrays or None}``, sets ``labor_personality`` to the root
+    personality (as the root row has it) and returns the root-local row index."""
+
+    def __init__(self, personality: Sequence[float]) -> None:
+        self.personality = torch.tensor([[float(x) for x in personality]], dtype=torch.float32)
+        self.rows: list[dict[str, Any]] = []
+        self._index: dict[str, int] = {}
+
+    def add(self, row: Mapping[str, Any]) -> int:
+        tensors = {k: torch.as_tensor(v) for k, v in row["tensors"].items()}
+        tensors["labor_personality"] = self.personality.clone()
+        privileged = row.get("privileged")
+        item = {
+            "tensors": tensors,
+            "privileged": None
+            if privileged is None
+            else {k: torch.as_tensor(v) for k, v in privileged.items()},
+        }
+        key = _row_digest(item)
+        if key not in self._index:
+            self._index[key] = len(self.rows)
+            self.rows.append(item)
+        return self._index[key]
+
+
+def successor_stream(
+    stream: int,
+    steps: Sequence[Sequence[float]],
+    years: Sequence[float],
+    terminated: bool,
+    boundaries: Sequence[Mapping[str, Any]],
+    store: SuccessorRows,
+) -> dict[str, Any]:
+    """One candidate stream's successor record (root-local row indices)."""
+    out = []
+    for b in boundaries:
+        status = str(b["status"])
+        if status not in SUCCESSOR_STATUSES:
+            raise ValueError(f"successor status {status!r} is not one of {SUCCESSOR_STATUSES}")
+        row = b.get("row")
+        if row is not None and status != "live":
+            raise ValueError("only a live successor boundary carries a row")
+        out.append(
+            {
+                "decision": int(b["decision"]),
+                "turn": int(b["turn"]),
+                "status": status,
+                "row": None if row is None else store.add(row),
+            }
+        )
+    return {
+        "stream": int(stream),
+        "step_rewards": [[float(x) for x in r] for r in steps],
+        "step_years": [float(y) for y in years],
+        "terminated": bool(terminated),
+        "boundaries": out,
+    }
+
+
+def _assemble_successors(
+    roots: Sequence[Mapping[str, Any]], records: list[dict[str, Any]], privileged_flag: bool
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor] | None, int]:
+    """Concatenate per-root successor rows; rewrite root-local row indices to shard rows."""
+    from .labor_privileged import is_privileged_key
+
+    rows: list[Mapping[str, Any]] = []
+    for root, record in zip(roots, records, strict=True):
+        local = list(root["successors"] or [])
+        offset = len(rows)
+        record["successor_rows"] = len(local)
+        for cand in record["candidates"]:
+            for entry in cand.get("successor_streams") or []:
+                for b in entry["boundaries"]:
+                    if b["row"] is not None:
+                        if not 0 <= int(b["row"]) < len(local):
+                            raise ValueError("successor row index out of range")
+                        b["row"] = offset + int(b["row"])
+        rows.extend(local)
+    if not rows:
+        return {}, None, 0
+    keys = set(rows[0]["tensors"])
+    for row in rows:
+        if set(row["tensors"]) != keys:
+            raise ValueError("successor rows carry different observation tensors")
+        if (row["privileged"] is not None) != privileged_flag:
+            raise ValueError("successor rows and root rows disagree on the privileged view")
+    leaked = sorted(k for k in keys if is_privileged_key(k))
+    if leaked:
+        raise ValueError(f"privileged keys in successor observation tensors: {leaked}")
+    tensors = {
+        k: torch.cat([torch.as_tensor(r["tensors"][k]) for r in rows]) for k in sorted(keys)
+    }
+    privileged = None
+    if privileged_flag:
+        names = sorted(rows[0]["privileged"])
+        privileged = {
+            k: torch.cat([torch.as_tensor(r["privileged"][k]) for r in rows]) for k in names
+        }
+    return tensors, privileged, len(rows)
+
+
 def candidate_shard(
     roots: Sequence[Mapping[str, Any]],
     *,
@@ -286,9 +441,14 @@ def candidate_shard(
     ids = [r["record"]["root_id"] for r in roots]
     if len(set(ids)) != len(ids):
         raise ValueError("candidate root ids repeat within a shard")
-    return {
+    successors = {r.get("successors") is not None for r in roots}
+    if len(successors) != 1:
+        raise ValueError("candidate roots mix successor-row and v1 exports")
+    with_successors = successors == {True}
+    records = [json.loads(json.dumps(r["record"], allow_nan=False)) for r in roots]
+    shard: dict[str, Any] = {
         "schema": CANDIDATE_PAYLOAD_SCHEMA,
-        "producer": dict(producer, export_schema=EXPORT_SCHEMA),
+        "producer": dict(producer, export_schema=export_schema(with_successors)),
         "component_order": list(COMPONENTS),
         "returns_units": RETURNS_UNITS,
         "discount_years": float(discount_years),
@@ -297,8 +457,16 @@ def candidate_shard(
         "trade_groups": list(contracts.TRADE_GROUPS),
         "tensors": tensors,
         "privileged": privileged,
-        "roots": [json.loads(json.dumps(r["record"], allow_nan=False)) for r in roots],
+        "roots": records,
     }
+    if with_successors:
+        s_tensors, s_privileged, count = _assemble_successors(
+            roots, records, privileged is not None
+        )
+        shard["successor_tensors"] = s_tensors
+        shard["successor_privileged"] = s_privileged
+        shard["successor_row_count"] = count
+    return shard
 
 
 def write_candidate_shard(path: Path, shard: Mapping[str, Any]) -> dict[str, Any]:
@@ -313,9 +481,9 @@ def write_candidate_shard(path: Path, shard: Mapping[str, Any]) -> dict[str, Any
     torch.save(dict(shard), temporary)
     os.replace(temporary, path)
     roots = shard["roots"]
-    return {
+    binding = {
         "schema": CANDIDATE_PAYLOAD_SCHEMA,
-        "export_schema": EXPORT_SCHEMA,
+        "export_schema": shard["producer"].get("export_schema", EXPORT_SCHEMA),
         "file": PAYLOAD_FILE,
         "sha256": checkpoint_hash(path),
         "roots": len(roots),
@@ -323,6 +491,14 @@ def write_candidate_shard(path: Path, shard: Mapping[str, Any]) -> dict[str, Any
         "evaluations": sum(len(c["evaluations"]) for r in roots for c in r["candidates"]),
         "plan_rows": sum(1 for r in roots for c in r["candidates"] if c.get("plan_role")),
     }
+    if "successor_row_count" in shard:  # v2 only: v1 bindings are unchanged
+        binding["successor_rows"] = int(shard["successor_row_count"])
+    return binding
+
+
+def has_successors(shard: Mapping[str, Any]) -> bool:
+    """True for a v2 shard carrying successor rows (``successor_tensors``)."""
+    return "successor_row_count" in shard and shard.get("successor_tensors") is not None
 
 
 def read_candidate_shard(path: Path) -> dict[str, Any]:
