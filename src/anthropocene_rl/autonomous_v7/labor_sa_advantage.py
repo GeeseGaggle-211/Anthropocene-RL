@@ -31,6 +31,14 @@ What this module computes instead:
 4. signal-to-noise of that error against the realised within-root advantage spread, and a
    modelled sign-flip rate of candidate-pair advantage differences (per-candidate errors
    drawn from the measured executed-candidate error distribution; labelled a model).
+5. when the payloads carry successor rows (search export v2, ``--successor-rows``): the
+   full V-based per-candidate advantage ``A_k(s, a) = sum_{j<k} g r_j + g^k V(s_{a,k}) -
+   V(s)`` for k = 1 and the branch end (k = 3), per stream, with V(s) from the payload's
+   root row, scored against the realised H3 advantage ``G3(a) - G3(h12)`` per head and
+   combined: MAE/bias, within-root calibration slope and correlation, pair sign accuracy
+   (with and without the control candidates), top-1, the *measured* population-only
+   sign-flip rate, field separation, event/non-event split, per-member spread
+   (``successor_check``). Payloads without successor rows give the earlier output exactly.
 
 Combined objective: ``labor_ppo.combine_labor_advantages`` with the balanced personality
 and unit cost multipliers, with the frozen reference scales and (by rescaling the inputs)
@@ -42,7 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -79,6 +87,18 @@ class Cand:
 
 
 @dataclass
+class SuccStream:
+    """One evaluated stream of a candidate with its successor rows (export v2)."""
+
+    stream: int
+    rewards: np.ndarray  # [d, 4] raw per-step rewards
+    years: np.ndarray  # [d]
+    terminated: bool
+    status: dict[int, str]  # decision -> live / terminated / inactive
+    row: dict[int, int]  # decision -> global successor row (live, exported decisions)
+
+
+@dataclass
 class RootRec:
     root_id: str
     world: int
@@ -109,9 +129,40 @@ def _field_shares(
     return exp + op, exp, op
 
 
-def parse_payload(shard: Mapping[str, Any], label: str = "") -> list[RootRec]:
+def parse_successors(
+    raw_root: Mapping[str, Any], row_offset: int = 0
+) -> dict[int, list[SuccStream]]:
+    """Per first-action candidate index: its successor streams (empty for v1 payloads).
+    ``row_offset`` maps shard rows to rows of a concatenated multi-shard dataset."""
+    out: dict[int, list[SuccStream]] = {}
+    for c in raw_root["candidates"]:
+        if c.get("plan_role") is not None or "successor_streams" not in c:
+            continue
+        streams = []
+        for e in c["successor_streams"]:
+            status, row = {}, {}
+            for b in e["boundaries"]:
+                status[int(b["decision"])] = str(b["status"])
+                if b.get("row") is not None:
+                    row[int(b["decision"])] = int(b["row"]) + int(row_offset)
+            streams.append(
+                SuccStream(
+                    int(e["stream"]),
+                    np.asarray(e["step_rewards"], dtype=np.float64).reshape(-1, len(COMPONENTS)),
+                    np.asarray(e["step_years"], dtype=np.float64),
+                    bool(e["terminated"]),
+                    status,
+                    row,
+                )
+            )
+        out[int(c["index"])] = streams
+    return out
+
+
+def parse_payload(shard: Mapping[str, Any], label: str = "", horizon: int = 3) -> list[RootRec]:
     """First-action candidates of each root (plan rows are skipped, as
-    ``labor_advantage.parse_candidate_shard`` keeps them apart)."""
+    ``labor_advantage.parse_candidate_shard`` keeps them apart). ``Cand.g3`` holds the
+    returns at ``horizon`` (the search's final horizon; 3 for the r5 searches)."""
     if list(shard["component_order"]) != list(COMPONENTS):
         raise ValueError("unexpected component order")
     if float(shard["discount_years"]) != 400.0:
@@ -130,7 +181,7 @@ def parse_payload(shard: Mapping[str, Any], label: str = "") -> list[RootRec]:
                     continue  # truncated branch (labor_advantage parse rule)
                 if int(ev["horizon"]) == 1 and int(ev["stream"]) == 0:
                     r1 = np.asarray(ev["returns"], dtype=np.float64)
-                if int(ev["horizon"]) == 3:
+                if int(ev["horizon"]) == int(horizon):
                     g3[int(ev["stream"])] = np.asarray(ev["returns"], dtype=np.float64)
             if r1 is None:
                 continue
@@ -380,7 +431,7 @@ def realised_rows(
     rows: dict[str, list[Any]] = defaultdict(list)
     for root in roots:
         cands = [c for c in root.cands if not c.twin]
-        if horizon == 3:
+        if horizon != 1:
             cands = [c for c in cands if c.g3]
             if not any(c.is_h12 for c in cands):
                 continue
@@ -578,13 +629,16 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     import torch
 
     payload_files = sorted(Path(args.payloads).glob("**/advantage-candidates.pt"))
+    H = int(getattr(args, "horizon", 3))  # the search's final horizon ("H3" when 3)
     roots: list[RootRec] = []
+    succ = SuccessorData()
     for f in payload_files:
         shard = torch.load(f, map_location="cpu", weights_only=True)
         label = str(f.relative_to(args.payloads)).replace("\\", "/")
-        roots.extend(parse_payload(shard, label))
+        roots.extend(parse_payload(shard, label, H))
         for root in roots[-len(shard["roots"]) :]:
             root.extra["core"] = np.asarray(shard["tensors"]["core"][root.tensor_row])
+        succ.add(shard, roots[-len(shard["roots"]) :])
     roots.sort(key=lambda r: (r.world, r.turn, r.camp))
     worlds_seen = sorted({r.world for r in roots})
     if any(3000 <= w <= 3059 for w in worlds_seen):
@@ -611,7 +665,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "roots_per_world": {str(w): sum(r.world == w for r in roots) for w in worlds_seen},
         "s_units": s_units,
         "combined_scales": scale_sets,
-        "successor_observations_in_payload": False,
+        "successor_observations_in_payload": succ.present,
     }
 
     # ---- trajectory match, events, critic -----------------------------------
@@ -679,12 +733,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     # ---- realised structure, reward-only floor --------------------------------
     realised: dict[str, Any] = {}
     cache: dict[tuple[int, str, str], dict[str, np.ndarray]] = {}
-    for horizon in (1, 3):
+    for horizon in (1, H):
         for baseline in ("h12", "mean"):
-            for streams in ("reeval", "0") if horizon == 3 else ("0",):
+            for streams in ("reeval", "0") if horizon != 1 else ("0",):
                 rows = realised_rows(roots, horizon=horizon, baseline=baseline, streams=streams)
                 cache[(horizon, baseline, streams)] = rows
                 key = f"H{horizon}/{baseline}/streams-{streams}"
+                if not rows:  # e.g. no survivor reached the final horizon
+                    realised[key] = {"rows": 0}
+                    continue
                 block: dict[str, Any] = {"rows": len(rows["root"]), "heads": {}}
                 for k, name in enumerate(COMPONENTS):
                     real = rows["real"][:, k]
@@ -715,8 +772,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return heads
 
     floor: dict[str, Any] = {}
-    for key in (("H3", "h12", "reeval"), ("H3", "mean", "reeval"), ("H3", "h12", "0")):
-        rows = cache[(3, key[1], key[2])]
+    for key in ((f"H{H}", "h12", "reeval"), (f"H{H}", "mean", "reeval"), (f"H{H}", "h12", "0")):
+        rows = cache[(H, key[1], key[2])]
+        if not rows:
+            continue
         pred = head_series(rows, "reward_only")
         real = head_series(rows, "real")
         masks = split_masks(rows)
@@ -746,12 +805,20 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     fsep = {}
     for label, rows, which in (
         ("H1_all/real", cache[(1, "mean", "0")], "real"),
-        ("H3_survivors/real", cache[(3, "mean", "reeval")], "real"),
-        ("H3_survivors/reward_only", cache[(3, "mean", "reeval")], "reward_only"),
+        (f"H{H}_survivors/real", cache[(H, "mean", "reeval")], "real"),
+        (f"H{H}_survivors/reward_only", cache[(H, "mean", "reeval")], "reward_only"),
     ):
+        if not rows:
+            continue
         series = head_series(rows, which)
         fsep[label] = {head: field_separation(rows, v) for head, v in series.items()}
     report["field_separation"] = fsep
+
+    # ---- successor rows: full V-based per-candidate advantage ----------------------
+    if succ.present:
+        report["successor_check"] = successor_section(
+            args, roots, succ, root_rows, traj, events, s_units, scale_sets, median_turn
+        )
 
     # ---- critic ------------------------------------------------------------
     if traj and args.arm:
@@ -1003,7 +1070,7 @@ def arm_metrics(
     # SNR and modelled flips
     snr: dict[str, Any] = {}
     flips: dict[str, Any] = {}
-    rows = cache[(3, "h12", "reeval")]
+    rows = cache[(int(getattr(args, "horizon", 3)), "h12", "reeval")]
     real = {name: rows["real"][:, k] / s_units[name] for k, name in enumerate(COMPONENTS)}
     for sname, scales in scale_sets.items():
         real[f"combined_{sname}"] = combine(vec_to_heads(rows["real"]), scales)
@@ -1071,6 +1138,453 @@ def arm_metrics(
     return result
 
 
+# ---------------------------------------------------------------------------
+# Successor rows (search export v2): the full V-based per-candidate advantage
+# ---------------------------------------------------------------------------
+
+
+class SuccessorData:
+    """Root and successor critic-input rows of every v2 payload, concatenated."""
+
+    def __init__(self) -> None:
+        self.root_parts: list[dict[str, Any]] = []
+        self.succ_parts: list[dict[str, Any]] = []
+        self.root_rows = 0
+        self.succ_rows = 0
+        self.roots: list[RootRec] = []
+
+    @property
+    def present(self) -> bool:
+        return bool(self.roots)
+
+    @staticmethod
+    def _merge(tensors: Mapping[str, Any], privileged: Mapping[str, Any] | None) -> dict:
+        out = dict(tensors)
+        if privileged is not None:
+            out.update(privileged)
+        return out
+
+    def add(self, shard: Mapping[str, Any], roots: Sequence[RootRec]) -> None:
+        if "successor_row_count" not in shard or shard.get("successor_tensors") is None:
+            return
+        raw = {str(r["root_id"]): r for r in shard["roots"]}
+        for root in roots:
+            root.extra["succ"] = parse_successors(raw[root.root_id], self.succ_rows)
+            root.extra["root_global_row"] = self.root_rows + root.tensor_row
+            self.roots.append(root)
+        self.root_parts.append(self._merge(shard["tensors"], shard.get("privileged")))
+        self.root_rows += int(shard["tensors"]["core"].shape[0])
+        count = int(shard["successor_row_count"])
+        if count:
+            self.succ_parts.append(
+                self._merge(shard["successor_tensors"], shard.get("successor_privileged"))
+            )
+        self.succ_rows += count
+
+    @staticmethod
+    def _concat(parts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+        import torch
+
+        if not parts:
+            return {}
+        keys = set(parts[0])
+        for p in parts[1:]:
+            keys &= set(p)
+        return {k: torch.cat([torch.as_tensor(p[k]) for p in parts]) for k in sorted(keys)}
+
+    def datasets(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        return self._concat(self.root_parts), self._concat(self.succ_parts)
+
+
+def _ensemble_values(paths: Sequence[Path], datasets: Sequence[Mapping[str, Any]]):
+    """Per member, per dataset: decoded predictions per head (value units)."""
+    from .labor_critic_ensemble import load_critic_ensemble
+    from .labor_pretrain_eval import critic_predictions
+
+    ensemble = load_critic_ensemble([Path(p) for p in paths])
+    members = []
+    for member in ensemble.members:
+        per = []
+        for data in datasets:
+            n = int(data["core"].shape[0]) if data else 0
+            if n == 0:
+                per.append({h: np.zeros(0) for h in COMPONENTS})
+                continue
+            preds = critic_predictions(member.task, member.costs, data, np.arange(n), 256)
+            per.append({h: np.asarray(preds[h], dtype=np.float64) for h in COMPONENTS})
+        members.append(per)
+    return ensemble, members
+
+
+def successor_target(
+    stream: SuccStream, k: int, v_succ: Mapping[str, np.ndarray], discount_years: float = 400.0
+) -> np.ndarray | None:
+    """``sum_{j<k} prod g r_j + prod g * V(s_{a,k})`` per head (raw units) on one stream: a
+    terminated focal camp closes with zero; an inactive one, a missing step or a missing
+    row at decision k make the target unavailable (None)."""
+    total = np.zeros(len(COMPONENTS))
+    discount = 1.0
+    for j in range(k):
+        if j >= len(stream.rewards):
+            return None
+        total = total + discount * stream.rewards[j]
+        discount *= math.exp(-float(stream.years[j]) / discount_years)
+        status = stream.status.get(j + 1)
+        if status == "terminated":
+            return total
+        if status != "live":
+            return None
+    row = stream.row.get(k)
+    if row is None:
+        return None
+    return total + discount * np.asarray([v_succ[h][row] for h in COMPONENTS])
+
+
+def successor_rows_table(
+    roots: Sequence[RootRec],
+    v_root: Mapping[str, np.ndarray],
+    v_succ: Mapping[str, np.ndarray],
+    *,
+    k: int,
+    mode: str,
+) -> dict[str, np.ndarray]:
+    """Per-candidate predicted ``A_k = target_k - V(s)`` and realised H3 advantage
+    ``G3(a) - G3(h12)`` (raw units, [4]); H3 survivors (twins excluded). ``mode``:
+    ``"reeval"`` averages both over the streams >= 1 every included candidate shares
+    (paired with H12 per stream); ``"0"`` uses the deterministic stream 0. Also counts
+    candidates dropped for an unavailable target."""
+    rows: dict[str, list[Any]] = defaultdict(list)
+    dropped = 0
+    for root in roots:
+        succ = root.extra.get("succ") or {}
+        vs = np.asarray([v_root[h][root.extra["root_global_row"]] for h in COMPONENTS])
+        cands = [c for c in root.cands if not c.twin and c.g3 and c.index in succ]
+        if not any(c.is_h12 for c in cands):
+            continue
+        if mode == "0":
+            streams = [0]
+            cands = [c for c in cands if 0 in c.g3]
+        else:
+            sets = [{s for s in c.g3 if s >= 1} & {e.stream for e in succ[c.index]} for c in cands]
+            streams = sorted(set.intersection(*sets)) if sets else []
+        if not streams or not any(c.is_h12 for c in cands):
+            continue
+        preds, keep = [], []
+        for c in cands:
+            by = {e.stream: e for e in succ[c.index]}
+            targets = [
+                successor_target(by[s], k, v_succ) if s in by else None for s in streams
+            ]
+            if any(t is None for t in targets):
+                dropped += 1
+                continue
+            preds.append(np.mean(targets, axis=0) - vs)
+            keep.append(c)
+        if len(keep) < 2 or not any(c.is_h12 for c in keep):
+            continue
+        h = next(i for i, c in enumerate(keep) if c.is_h12)
+        value = np.stack([np.mean([c.g3[s] for s in streams], axis=0) for c in keep])
+        real = value - value[h]
+        for i, c in enumerate(keep):
+            rows["root"].append(root.root_id)
+            rows["world"].append(root.world)
+            rows["turn"].append(root.turn)
+            rows["is_h12"].append(c.is_h12)
+            rows["family"].append(c.family)
+            rows["control"].append(c.control is not None or c.family.startswith("control"))
+            rows["field"].append(c.field_share)
+            rows["real"].append(real[i])
+            rows["pred"].append(preds[i])
+    out: dict[str, Any] = {"dropped": dropped}
+    if not rows:
+        return out
+    out.update(
+        {
+            "root": np.asarray(rows["root"]),
+            "world": np.asarray(rows["world"], dtype=np.int64),
+            "turn": np.asarray(rows["turn"], dtype=np.int64),
+            "is_h12": np.asarray(rows["is_h12"], dtype=bool),
+            "family": np.asarray(rows["family"]),
+            "control": np.asarray(rows["control"], dtype=bool),
+            "field": np.asarray(rows["field"], dtype=np.float64),
+            "real": np.stack(rows["real"]),
+            "pred": np.stack(rows["pred"]),
+        }
+    )
+    return out
+
+
+def _series(arr: np.ndarray, s_units, scale_sets) -> dict[str, np.ndarray]:
+    out = {name: arr[:, k] / s_units[name] for k, name in enumerate(COMPONENTS)}
+    for sname, scales in scale_sets.items():
+        out[f"combined_{sname}"] = combine(vec_to_heads(arr), scales)
+    return out
+
+
+def _subset(rows: Mapping[str, Any], mask: np.ndarray) -> dict[str, Any]:
+    return {k: (v[mask] if isinstance(v, np.ndarray) else v) for k, v in rows.items()}
+
+
+def population_only_flips(
+    rows: Mapping[str, Any], scale_sets, *, margin: float
+) -> dict[str, Any]:
+    """Measured sign flips of same-root pair differences of the combined advantage
+    (|realised combined diff| > margin) when only the population head is the critic's
+    prediction (every other head realised), and when every head is predicted."""
+    out: dict[str, Any] = {}
+    for sname, scales in scale_sets.items():
+        real = combine(vec_to_heads(rows["real"]), scales)
+        mixed_arr = rows["real"].copy()
+        mixed_arr[:, 1] = rows["pred"][:, 1]
+        mixed = combine(vec_to_heads(mixed_arr), scales)
+        full = combine(vec_to_heads(rows["pred"]), scales)
+        per_world: dict[int, dict[str, Any]] = {}
+        for w in sorted(set(int(x) for x in rows["world"])):
+            m = rows["world"] == w
+            n = flips_pop = flips_all = 0
+            for gid in np.unique(rows["root"][m]):
+                kk = np.nonzero(m & (rows["root"] == gid))[0]
+                for a in range(len(kk)):
+                    for b in range(a + 1, len(kk)):
+                        d = real[kk[a]] - real[kk[b]]
+                        if abs(d) <= margin:
+                            continue
+                        n += 1
+                        flips_pop += int(np.sign(mixed[kk[a]] - mixed[kk[b]]) != np.sign(d))
+                        flips_all += int(np.sign(full[kk[a]] - full[kk[b]]) != np.sign(d))
+            per_world[w] = {
+                "pairs": n,
+                "population_only_flip_rate": None if n == 0 else flips_pop / n,
+                "all_heads_flip_rate": None if n == 0 else flips_all / n,
+            }
+        out[sname] = {"world_balanced": world_mean(per_world), "per_world": per_world}
+    return out
+
+
+def successor_section(
+    args, roots, succ: SuccessorData, root_rows, traj, events, s_units, scale_sets, median_turn
+) -> dict[str, Any]:
+    """The full V-based per-candidate advantage on v2 payloads (see the module docstring)."""
+    root_data, succ_data = succ.datasets()
+    used = succ.roots
+    out: dict[str, Any] = {
+        "definition": "predicted A_k(s,a) = sum_{j<k} g r_j(a) + g^k V(s_{a,k}) - V(s) on each "
+        "stream (g = exp(-years/400); a terminated focal camp closes with 0; inactive or "
+        "missing rows drop the candidate), V(s) from the payload's root row; realised = H3 "
+        "advantage G3(a) - G3(h12) (truncated, no tail) on the same streams. reeval: mean "
+        "over the shared streams >= 1; 0: deterministic stream 0. S units per head; combined "
+        "in PPO units. Ensemble = per-row member mean.",
+        "roots": len(used),
+        "successor_rows": succ.succ_rows,
+        "status_counts": dict(
+            sorted(
+                Counter(
+                    st
+                    for r in used
+                    for streams in r.extra["succ"].values()
+                    for e in streams
+                    for st in e.status.values()
+                ).items()
+            )
+        ),
+        "margin": args.margin,
+        "arms": {},
+    }
+    # Consistency: the H12 candidate's stream-0 decision-1 successor row is the trajectory's
+    # next row of the focal camp (deterministic H12 step) when the root lies on it.
+    if traj:
+        checked = equal = 0
+        entry_of = {e["root"]: e for e in root_rows}
+        for r in used:
+            e = entry_of.get(r.root_id)
+            h12 = r.h12
+            streams = {s.stream: s for s in r.extra["succ"].get(h12.index, [])}
+            if not e or not e.get("matched") or len(e["rows"]) < 2 or 0 not in streams:
+                continue
+            row = streams[0].row.get(1)
+            if row is None:
+                continue
+            core = np.load(traj[r.world]["dir"] / "core.npy", mmap_mode="r")[e["rows"][1]]
+            checked += 1
+            equal += int(np.array_equal(np.asarray(core), succ_data["core"][row].numpy()))
+        out["h12_successor_equals_trajectory_next_row"] = {"checked": checked, "equal": equal}
+    if not args.arm:
+        out["note"] = "no --arm: successor rows present but no critic to evaluate"
+        return out
+
+    def masks_for(rows):
+        ev = np.asarray(
+            [
+                None if not events or events.get(r) is None else events[r]["event"]
+                for r in rows["root"]
+            ],
+            dtype=object,
+        )
+        m = {
+            "all": np.ones(len(rows["root"]), dtype=bool),
+            "no_controls": ~rows["control"],
+            "early": rows["turn"] < median_turn,
+            "late": rows["turn"] >= median_turn,
+        }
+        if events:
+            m["event"] = ev == True  # noqa: E712
+            m["non_event"] = ev == False  # noqa: E712
+        return m
+
+    for arm in args.arm:
+        name_, _, paths = arm.partition("=")
+        ensemble, members = _ensemble_values(paths.split(","), [root_data, succ_data])
+        mean_root = {h: np.mean([m[0][h] for m in members], axis=0) for h in COMPONENTS}
+        mean_succ = {h: np.mean([m[1][h] for m in members], axis=0) for h in COMPONENTS}
+        block: dict[str, Any] = {
+            "members": [str(m.path) for m in ensemble.members],
+            "member_sha256": [m.sha256 for m in ensemble.members],
+        }
+        # member disagreement of V(s'_a) (RMS SD over successor rows), S / PPO units
+        dis = {}
+        if succ.succ_rows:
+            for h in COMPONENTS:
+                stack = np.stack([m[1][h] for m in members])
+                dis[h] = float(np.sqrt(np.mean(np.var(stack, axis=0)))) / s_units[h]
+            for sname, scales in scale_sets.items():
+                stack = np.stack(
+                    [combine({h: m[1][h] for h in COMPONENTS}, scales) for m in members]
+                )
+                dis[f"combined_{sname}"] = float(np.sqrt(np.mean(np.var(stack, axis=0))))
+        block["member_disagreement_V_successor_rms_sd"] = dis
+        results: dict[str, Any] = {}
+        for k in sorted({1, int(getattr(args, "horizon", 3))}):
+            for mode in ("reeval", "0"):
+                rows = successor_rows_table(used, mean_root, mean_succ, k=k, mode=mode)
+                key = f"k{k}/streams-{mode}"
+                if "root" not in rows:
+                    results[key] = {"rows": 0, "dropped": rows["dropped"]}
+                    continue
+                pred = _series(rows["pred"], s_units, scale_sets)
+                real = _series(rows["real"], s_units, scale_sets)
+                metrics: dict[str, Any] = {}
+                for head in pred:
+                    metrics[head] = {}
+                    for mname, m in masks_for(rows).items():
+                        if m.sum() < 2:
+                            continue
+                        metrics[head][mname] = within_root_metrics(
+                            pred[head][m],
+                            real[head][m],
+                            rows["root"][m],
+                            rows["world"][m],
+                            margin=args.margin,
+                        )["world_balanced"]
+                field = {
+                    head: {
+                        "predicted": field_separation(rows, pred[head]),
+                        "realised": field_separation(rows, real[head]),
+                    }
+                    for head in pred
+                }
+                flips = {
+                    "with_controls": population_only_flips(rows, scale_sets, margin=args.margin),
+                    "no_controls": population_only_flips(
+                        _subset(rows, ~rows["control"]), scale_sets, margin=args.margin
+                    ),
+                }
+                # per member: MAE and pair sign accuracy (all, no controls)
+                member_stats = []
+                for m in members:
+                    mr = successor_rows_table(
+                        used,
+                        {h: m[0][h] for h in COMPONENTS},
+                        {h: m[1][h] for h in COMPONENTS},
+                        k=k,
+                        mode=mode,
+                    )
+                    if "root" not in mr:
+                        continue
+                    mp = _series(mr["pred"], s_units, scale_sets)
+                    mreal = _series(mr["real"], s_units, scale_sets)
+                    nc = ~mr["control"]
+                    stat = {}
+                    for head in mp:
+                        allm = within_root_metrics(
+                            mp[head], mreal[head], mr["root"], mr["world"], margin=args.margin
+                        )["world_balanced"]
+                        ncm = within_root_metrics(
+                            mp[head][nc],
+                            mreal[head][nc],
+                            mr["root"][nc],
+                            mr["world"][nc],
+                            margin=args.margin,
+                        )["world_balanced"]
+                        stat[head] = {
+                            "mae": allm["mae"],
+                            "pair_sign_accuracy": allm["pair_sign_accuracy"],
+                            "pair_sign_accuracy_no_controls": ncm["pair_sign_accuracy"],
+                        }
+                    member_stats.append(stat)
+                spread = {}
+                if member_stats:
+                    for head in member_stats[0]:
+                        spread[head] = {}
+                        for stat_name in member_stats[0][head]:
+                            vals = [
+                                ms[head][stat_name]
+                                for ms in member_stats
+                                if ms[head][stat_name] is not None
+                            ]
+                            spread[head][stat_name] = (
+                                None
+                                if not vals
+                                else {
+                                    "min": float(min(vals)),
+                                    "max": float(max(vals)),
+                                    "sd": float(np.std(vals)),
+                                }
+                            )
+                results[key] = {
+                    "rows": int(len(rows["root"])),
+                    "roots": int(len(np.unique(rows["root"]))),
+                    "dropped": rows["dropped"],
+                    "metrics": metrics,
+                    "field_separation": field,
+                    "measured_sign_flips": flips,
+                    "per_member": member_stats,
+                    "member_spread": spread,
+                }
+        # all candidates, stream 0, k=1: the predicted within-root spread per head (the
+        # population head's first-step reward is identical across candidates, so its spread
+        # comes from g V(s'_a) alone)
+        allrows: dict[str, list[Any]] = defaultdict(list)
+        for root in used:
+            sc = root.extra["succ"]
+            vs = np.asarray([mean_root[h][root.extra["root_global_row"]] for h in COMPONENTS])
+            for c in root.cands:
+                if c.twin or c.index not in sc:
+                    continue
+                by = {e.stream: e for e in sc[c.index]}
+                t = successor_target(by[0], 1, mean_succ) if 0 in by else None
+                if t is None:
+                    continue
+                allrows["root"].append(root.root_id)
+                allrows["pred"].append(t - vs)
+                allrows["field"].append(c.field_share)
+        if allrows:
+            ar = {
+                "root": np.asarray(allrows["root"]),
+                "field": np.asarray(allrows["field"]),
+            }
+            ps = _series(np.stack(allrows["pred"]), s_units, scale_sets)
+            results["k1/all-candidates/stream-0"] = {
+                "rows": len(allrows["root"]),
+                "predicted_within_root_sd": {h: within_root_spread(ar, v) for h, v in ps.items()},
+                "predicted_field_separation": {
+                    h: field_separation(ar, v) for h, v in ps.items()
+                },
+            }
+        block["results"] = results
+        out["arms"][name_] = block
+    return out
+
+
 def _round(value: Any) -> Any:
     if isinstance(value, float):
         return None if not math.isfinite(value) else float(f"{value:.6g}")
@@ -1100,6 +1614,12 @@ def argument_parser() -> argparse.ArgumentParser:
     p.add_argument("--qol-scale-artifact", type=Path, help="QoL reference-scale artifact")
     p.add_argument("--population-scale", type=float, default=R5_POPULATION_SCALE)
     p.add_argument("--margin", type=float, default=0.01, help="pair margin (S / PPO units)")
+    p.add_argument(
+        "--horizon",
+        type=int,
+        default=3,
+        help="the search's final horizon (realised H returns; successor k = 1 and this)",
+    )
     p.add_argument("--out", type=Path, required=True)
     return p
 

@@ -222,3 +222,169 @@ def test_run_without_trajectory_is_deterministic(tmp_path):
     assert "critic" not in report
     floor = report["reward_only_floor"]["metrics"]["H3/h12/reeval"]["qol_years"]["all"]
     assert floor["pair_sign_accuracy"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Successor rows (search export v2)
+# ---------------------------------------------------------------------------
+
+G = math.exp(-20 / 400)
+
+
+def _succ_stream(stream, rewards, rows, statuses=None):
+    statuses = statuses or {d: "live" for d in range(1, len(rewards) + 1)}
+    return {
+        "stream": stream,
+        "step_rewards": [list(r) for r in rewards],
+        "step_years": [20.0] * len(rewards),
+        "terminated": "terminated" in statuses.values(),
+        "boundaries": [
+            {"decision": d, "turn": 10 + d, "status": statuses[d], "row": rows.get(d)}
+            for d in sorted(statuses)
+        ],
+    }
+
+
+def toy_shard_v2(world=90154):
+    """toy_shard plus successor rows. Successor row core = [qol V, population V, 0, 0]
+    under the fake critic below (V reads core[0], core[1])."""
+    shard = toy_shard(world)
+    succ_core = []
+
+    def row(qv, pv):
+        succ_core.append([qv, pv, 0.0, 0.0])
+        return len(succ_core) - 1
+
+    for root in shard["roots"]:
+        root["successor_decisions"] = [1, 3]
+        for c in root["candidates"]:
+            r1 = next(e["returns"] for e in c["evaluations"] if e["horizon"] == 1)
+            streams = []
+            for s in sorted({e["stream"] for e in c["evaluations"]}):
+                # step rewards: r1 on every step (stream-independent), V(s1) = 2 * r1,
+                # V(s3) = r1 + candidate index (population: 1000 * index)
+                rows = {
+                    1: row(2 * r1[0], 2 * r1[1]),
+                    3: row(r1[0] + c["index"], 1000.0 * c["index"]),
+                }
+                if c["index"] == 3:  # H1-only candidate: one step, row at decision 1
+                    streams.append(_succ_stream(s, [r1], {1: rows[1]}))
+                else:
+                    streams.append(_succ_stream(s, [r1, r1, r1], rows))
+            c["successor_streams"] = streams
+        root["successor_rows"] = None
+    shard["successor_tensors"] = {"core": torch.tensor(succ_core, dtype=torch.float32)}
+    shard["successor_privileged"] = None
+    shard["successor_row_count"] = len(succ_core)
+    shard["tensors"] = {"core": torch.zeros(2, 4)}  # V(s) = 0 at both roots
+    return shard
+
+
+def _fake_values(_paths, datasets):
+    class M:
+        path = "fake"
+        sha256 = "0"
+
+    class E:
+        members = [M(), M()]
+
+    members = []
+    for scale in (1.0, 1.0):
+        per = []
+        for data in datasets:
+            core = data["core"].double().numpy() if data else np.zeros((0, 4))
+            per.append(
+                {
+                    "qol_years": scale * core[:, 0],
+                    "population_years": scale * core[:, 1],
+                    "feasibility": np.zeros(len(core)),
+                    "settlement_guard": np.zeros(len(core)),
+                }
+            )
+        members.append(per)
+    return E(), members
+
+
+def test_parse_successors_and_target_rules():
+    shard = toy_shard_v2()
+    succ = sa.parse_successors(shard["roots"][0], row_offset=100)
+    assert sorted(succ) == [0, 1, 2, 3, 4]
+    s0 = succ[1][0]
+    assert s0.stream == 0 and s0.row[1] >= 100 and set(s0.row) == {1, 3}
+    v = {h: np.arange(200, dtype=np.float64) for h in sa.COMPONENTS}
+    t1 = sa.successor_target(s0, 1, v)
+    assert t1[0] == pytest.approx(s0.rewards[0][0] + G * s0.row[1])
+    t3 = sa.successor_target(s0, 3, v)
+    assert t3[0] == pytest.approx(s0.rewards[0][0] * (1 + G + G * G) + G**3 * s0.row[3])
+    assert sa.successor_target(succ[3][0], 3, v) is None  # H1-only: no decision-3 row
+    dead = sa.SuccStream(0, np.ones((2, 4)), np.full(2, 20.0), True,
+                         {1: "live", 2: "terminated"}, {1: 0})
+    assert sa.successor_target(dead, 3, v)[0] == pytest.approx(1 + G)
+    asleep = sa.SuccStream(0, np.ones((1, 4)), np.full(1, 20.0), False, {1: "inactive"}, {})
+    assert sa.successor_target(asleep, 1, v) is None
+
+
+def test_successor_section_full_advantage(tmp_path, monkeypatch):
+    monkeypatch.setattr(sa, "_ensemble_values", _fake_values)
+    payloads = tmp_path / "search" / "w" / "world-90154"
+    payloads.mkdir(parents=True)
+    torch.save(toy_shard_v2(), payloads / "advantage-candidates.pt")
+    out = tmp_path / "r.json"
+    sa.main(["--payloads", str(tmp_path / "search"), "--out", str(out), "--arm", "p=x",
+             "--margin", "1e-6"])
+    report = json.loads(out.read_text())
+    assert report["successor_observations_in_payload"] is True
+    check = report["successor_check"]
+    assert check["roots"] == 2 and check["status_counts"] == {"live": 62}  # 2 x (3 x 3 x 3 + 1 + 3)
+    res = check["arms"]["p"]["results"]
+    # k=1 stream 0: pred(a) = r1 + g * 2 r1 - 0 for survivors (H12, transfer, activity)
+    k1 = res["k1/streams-0"]
+    assert k1["rows"] == 6 and k1["dropped"] == 0
+    # QoL: pred ranks as r1 does; realised H3 QoL: transfer > h12 > activity at both roots
+    q = k1["metrics"]["qol_years"]["all"]
+    assert q["pair_sign_accuracy"] == 1.0 and q["top1"] == 1.0
+    # population: r1 identical -> k=1 prediction identical -> no sign skill (ties)
+    p1 = k1["metrics"]["population_years"]["all"]
+    assert p1["pair_sign_accuracy"] == 0.0
+    # k=3: V(s3) population = 1000 * index -> activity (2) > transfer (1) > h12 (0), but
+    # realised H3 population: transfer (310) > h12 (300) > activity (290): pairs with
+    # activity are wrong, transfer vs h12 right
+    p3 = res["k3/streams-0"]["metrics"]["population_years"]["all"]
+    assert p3["pair_sign_accuracy"] == pytest.approx(1 / 3)
+    flips = res["k3/streams-0"]["measured_sign_flips"]["with_controls"]["frozen"]
+    assert flips["world_balanced"]["pairs"] > 0
+    assert 0.0 <= flips["world_balanced"]["population_only_flip_rate"] <= 1.0
+    # all-candidate predicted spread exists for every head
+    allc = res["k1/all-candidates/stream-0"]
+    assert allc["rows"] == 8  # twins excluded, 4 per root
+    assert allc["predicted_within_root_sd"]["population_years"] == pytest.approx(0.0)
+    # reeval mode uses streams 1, 2
+    assert res["k1/streams-reeval"]["rows"] == 6
+
+
+def test_successor_metrics_value_by_hand(tmp_path, monkeypatch):
+    monkeypatch.setattr(sa, "_ensemble_values", _fake_values)
+    shard = toy_shard_v2()
+    roots = sa.parse_payload(shard)
+    data = sa.SuccessorData()
+    data.add(shard, roots)
+    root_data, succ_data = data.datasets()
+    _, members = _fake_values(None, [root_data, succ_data])
+    rows = sa.successor_rows_table(
+        data.roots, members[0][0], members[0][1], k=1, mode="0"
+    )
+    k = (rows["root"] == "90154/0") & (rows["family"] == "transfer")
+    r1 = 12.0  # base 10 + 2
+    assert rows["pred"][k][0, 0] == pytest.approx(r1 + G * 2 * r1)
+    assert rows["real"][k][0, 0] == pytest.approx(36.0 - 30.0)
+
+
+def test_old_payload_output_has_no_successor_section(tmp_path):
+    payloads = tmp_path / "search" / "w" / "world-90154"
+    payloads.mkdir(parents=True)
+    torch.save(toy_shard(), payloads / "advantage-candidates.pt")
+    out = tmp_path / "r.json"
+    sa.main(["--payloads", str(tmp_path / "search"), "--out", str(out)])
+    report = json.loads(out.read_text())
+    assert "successor_check" not in report
+    assert report["successor_observations_in_payload"] is False
