@@ -370,6 +370,11 @@ class ActorGroupedGradNorm:
     negligible-gradient hold (``hold_below``), clamped to [``inner_min_weight``,
     ``inner_max_weight``]. A role's effective loss weight is W_activity v_r.
 
+    Inner cap 100 (not lower): in the 320-step r5 smoke (pilot checkpoint, fit8-b01 sample,
+    held-out cal8-b01) a cap of 30 clipped the uniform weights of Potter (89 -> 30),
+    Carpenter and ClayMiner and gave up most of Potter's held-out L1 gain (0.378 vs 0.247 at
+    cap 100) with no stability difference (no rollbacks, dominance PASS in both).
+
     Cost per controller update: three backward passes on the shared parameters (plus one per
     staffed role with ``inner`` gradnorm).
     """
@@ -383,7 +388,7 @@ class ActorGroupedGradNorm:
     min_weight: float = 0.1
     max_weight: float = 3.0
     inner_min_weight: float = 0.01
-    inner_max_weight: float = 30.0
+    inner_max_weight: float = 100.0
     every: int = 1
     shared: str = "trunk"
     hold_below: float = 0.05
