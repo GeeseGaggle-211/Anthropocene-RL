@@ -1,0 +1,304 @@
+"""Golden actor/heuristic/search equivalence in the pretrained action units."""
+
+from __future__ import annotations
+
+import copy
+import math
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import torch
+from test_labor_bridge import _catalog_payload, _payload
+
+from anthropocene_rl.autonomous_v7.labor_action_adapter import (
+    action_adapter_contract,
+    action_adapter_digest,
+    actor_action_features,
+    canonical_action_features,
+)
+from anthropocene_rl.autonomous_v7.labor_advantage import action_features, action_layout_state
+from anthropocene_rl.autonomous_v7.labor_advantage_eval import _reordered
+from anthropocene_rl.autonomous_v7.labor_bc import _retained_action, convert_heuristic_labor_label
+from anthropocene_rl.autonomous_v7.labor_bridge import SIMPLEX_TOLERANCE, LaborCatalog
+from anthropocene_rl.autonomous_v7.labor_model import (
+    LaborActor,
+    sample_labor_policy,
+    sample_nonlabor_policy,
+    schema12_initial_action,
+    schema12_retry_action,
+)
+from anthropocene_rl.autonomous_v7.labor_search_payload import compiled_action
+
+
+def _fixture(value=3.0, share=0.5):
+    catalog = LaborCatalog.from_payload(_catalog_payload())
+    action = {
+        "schemaVersion": 12,
+        **_payload(catalog.masks),
+        "movement": -1,
+        "fission": 1,
+        "tradeGate": [2] * 7,
+        "tradeValue": [value] * 7,
+        "tradeShare": share,
+    }
+    retained = _retained_action(
+        SimpleNamespace(action=action), catalog, torch.ones(1, 1, dtype=torch.bool)
+    )
+    return catalog, action, retained
+
+
+@pytest.mark.parametrize("value", [0.25, 1.0, 1.5, 3.0, 4.0])
+def test_actor_latents_and_heuristic_search_wire_units_have_same_features(value):
+    catalog, action, retained = _fixture(value)
+    actor = actor_action_features(
+        retained.labor_sample,
+        retained.nonlabor_sample,
+        catalog,
+        expected_layout=action_layout_state(),
+    )
+    # Search training's parser invokes this same historical encoder on the wire action.
+    search = action_features(action)
+    np.testing.assert_allclose(actor.numpy(), search, rtol=0, atol=1e-7)
+    assert not actor.requires_grad
+    # Native counts/worker-years are explanatory export fields, not encoder inputs.
+    compiled = compiled_action(action, [1, 3] + [0] * 12, 20.0)
+    assert compiled["specialty_counts"][1] == 3
+    assert actor[1] == 0.75  # three out of four residents, not the raw number three
+    reordered, specialties, activities = _reordered(action)
+    np.testing.assert_array_equal(
+        search, action_features(reordered, specialty_ids=specialties, activity_ids=activities)
+    )
+
+
+def test_different_wire_trade_values_are_not_arbitrarily_rescaled():
+    catalog, action, retained = _fixture(3.0)
+    encoded_three = canonical_action_features(action, catalog)
+    other = dict(action, tradeValue=[1.5] * 7)
+    encoded_one_half = canonical_action_features(other, catalog)
+    assert not torch.equal(encoded_three, encoded_one_half)
+    # An actor log-latent log(3) maps to the heuristic request 3 via exp, not x2.
+    assert retained.nonlabor_sample["trade_value_latent"][0, 0] == pytest.approx(np.log(3.0))
+    assert action_adapter_contract()["criticLayout"] == action_layout_state()
+    assert len(action_adapter_digest()) == 64
+
+
+def test_production_heuristic_count_and_worker_year_converter_matches_actor_units():
+    from test_labor_bc_g1 import _catalog, _diag, _herding, _village
+
+    catalog = _catalog(population=4)
+    label = convert_heuristic_labor_label(catalog, _village(4), _diag(_herding(1, 20.0, 0.0, 5.0)))
+    assert label.specialty_valid
+    assert label.specialty_counts[1] == 3
+    assert label.action["laborSpecialtyAllocation"][1] == 0.75
+    assert label.action["laborActivityAllocation"][2][7] == 1.0
+    retained = _retained_action(label, catalog, torch.ones(1, 1, dtype=torch.bool))
+    actor = actor_action_features(retained.labor_sample, retained.nonlabor_sample, catalog)
+    np.testing.assert_allclose(actor.numpy(), action_features(label.action), rtol=0, atol=1e-7)
+    # Coverage/output differs from assigned worker-years; it must not rescale inputs.
+    better_tools = convert_heuristic_labor_label(
+        catalog, _village(4), _diag(_herding(1, 20.0, 0.0, 20.0))
+    )
+    np.testing.assert_array_equal(
+        action_features(label.action), action_features(better_tools.action)
+    )
+
+
+@pytest.mark.parametrize("share", [0.0, 1.0])
+def test_boundary_trade_shares_decode_with_declared_actor_transform(share):
+    catalog, action, retained = _fixture()
+    sample = dict(retained.nonlabor_sample)
+    # Large finite logit reaches the float32 sigmoid boundary exactly.
+    sample["trade_share_latent"] = torch.tensor([-100.0 if share == 0.0 else 100.0])
+    features = actor_action_features(retained.labor_sample, sample, catalog)
+    action["tradeShare"] = share
+    np.testing.assert_array_equal(features.numpy(), action_features(action))
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "counts", "masked", "category", "bool_category", "nan", "schema"]
+)
+def test_adapter_rejects_wrong_units_masks_missing_and_invalid_inputs(mutation):
+    catalog, action, _ = _fixture()
+    action = copy.deepcopy(action)
+    if mutation == "missing":
+        del action["tradeShare"]
+    elif mutation == "counts":
+        action["laborSpecialtyAllocation"] = [1.0, 3.0] + [0.0] * 12
+    elif mutation == "masked":
+        action["laborActivityAllocation"][0] = [0.0] * 22
+        action["laborActivityAllocation"][0][-1] = 1.0
+    elif mutation == "category":
+        action["tradeGate"][0] = 1.5
+    elif mutation == "bool_category":
+        action["tradeGate"][0] = True
+    elif mutation == "nan":
+        action["tradeValue"][0] = float("nan")
+    else:
+        action["schemaVersion"] = 99
+    with pytest.raises(ValueError):
+        canonical_action_features(action, catalog)
+
+
+def test_pretrained_layout_mismatch_fails_closed():
+    catalog, action, _ = _fixture()
+    layout = action_layout_state()
+    layout["tradeValueTransform"] = "unverified-multiply-by-two"
+    with pytest.raises(ValueError, match="pretrained action layout"):
+        canonical_action_features(action, catalog, expected_layout=layout)
+
+
+def test_actual_actor_sampler_batch_alignment_retry_and_gradient_rng_isolation():
+    from test_labor_model import _labor_tensors, _layout
+
+    catalog, _, _ = _fixture()
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(2)
+        actor = LaborActor(_layout(), width=16, token_width=16)
+        tensors = _labor_tensors(batch=3)
+        tensors["labor_specialty_mask"] = torch.tensor(catalog.masks.specialty).repeat(3, 1)
+        tensors["labor_activity_mask"] = torch.tensor(catalog.masks.activity).repeat(3, 1, 1)
+        output = actor(tensors)
+        generator = torch.Generator().manual_seed(71)
+        labor = sample_labor_policy(output, tensors, generator=generator)
+        nonlabor = sample_nonlabor_policy(output, generator=generator)
+        retry = sample_labor_policy(output, tensors, generator=generator)
+        # Real float32 samples can exceed the strict wire tolerance. The
+        # serializer's one-coordinate roundoff correction must remain usable.
+        assert any(
+            abs(math.fsum(row) - 1.0) > SIMPLEX_TOLERANCE
+            for row in labor["specialty_allocation"].detach().tolist()
+        )
+        global_rng, sample_rng = torch.random.get_rng_state().clone(), generator.get_state().clone()
+        originals = {
+            group: {k: v.detach().clone() for k, v in values.items()}
+            for group, values in (("labor", labor), ("nonlabor", nonlabor))
+        }
+        vectors = []
+        for index in range(3):
+            vector = actor_action_features(
+                labor, nonlabor, catalog, index=index, expected_layout=action_layout_state()
+            )
+            wire = schema12_initial_action(labor, nonlabor, index)
+            np.testing.assert_array_equal(vector.numpy(), action_features(wire))
+            assert torch.equal(vector, canonical_action_features(wire, catalog))
+            assert vector.shape == (349,) and vector.dtype == torch.float32
+            assert vector.device.type == "cpu" and not vector.requires_grad
+            vectors.append(vector)
+        assert not torch.equal(vectors[0], vectors[1])
+        retry_vector = actor_action_features(retry, nonlabor, catalog, index=1)
+        retry_wire = dict(
+            schema12_initial_action(labor, nonlabor, 1), **schema12_retry_action(retry, 1)
+        )
+        np.testing.assert_array_equal(retry_vector.numpy(), action_features(retry_wire))
+        assert torch.equal(retry_vector[300:], vectors[1][300:])
+        assert not torch.equal(retry_vector[:300], vectors[1][:300])
+        assert torch.equal(global_rng, torch.random.get_rng_state())
+        assert torch.equal(sample_rng, generator.get_state())
+        for group, values in (("labor", labor), ("nonlabor", nonlabor)):
+            assert all(torch.equal(v, originals[group][k]) for k, v in values.items())
+        assert all(p.grad is None for p in actor.parameters())
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "fractional_movement",
+        "fractional_fission",
+        "fractional_gate",
+        "boolean_gate",
+        "infinite_value",
+        "infinite_share",
+        "nan_allocation",
+        "infinite_labor_latent",
+        "raw_counts",
+        "bad_activity_mass",
+        "catalog_mask",
+        "movement_mask",
+        "movement_code",
+        "movement_index",
+        "gate_range",
+        "fission_range",
+        "batch_mismatch",
+        "value_width",
+        "missing",
+        "negative_index",
+        "bool_index",
+    ],
+)
+def test_actor_samples_are_validated_before_lossy_wire_decoding(mutation):
+    catalog, _, retained = _fixture()
+    labor = {k: v.clone() for k, v in retained.labor_sample.items()}
+    nonlabor = {k: v.clone() for k, v in retained.nonlabor_sample.items()}
+    index = 0
+    if mutation.startswith("fractional_"):
+        key = {"movement": "movement", "fission": "fission", "gate": "trade_gate"}[
+            mutation.split("_")[1]
+        ]
+        nonlabor[key] = torch.full_like(nonlabor[key], 1.5, dtype=torch.float32)
+    elif mutation == "boolean_gate":
+        nonlabor["trade_gate"] = nonlabor["trade_gate"].bool()
+    elif mutation == "infinite_value":
+        nonlabor["trade_value_latent"][0, 0] = float("inf")
+    elif mutation == "infinite_share":
+        nonlabor["trade_share_latent"][0] = -float("inf")
+    elif mutation == "nan_allocation":
+        labor["specialty_allocation"][0, 0] = float("nan")
+    elif mutation == "infinite_labor_latent":
+        labor["specialty_latent"][0, 0] = float("inf")
+    elif mutation == "raw_counts":
+        labor["specialty_allocation"][0, :2] = torch.tensor([1.0, 3.0])
+    elif mutation == "bad_activity_mass":
+        labor["activity_allocation"][0, 0] *= 2
+    elif mutation == "catalog_mask":
+        labor["specialty_mask"][0, 0] = False
+    elif mutation == "movement_mask":
+        nonlabor["movement_mask"][:] = False
+    elif mutation == "movement_code":
+        nonlabor["movement"][0] = 0
+    elif mutation == "movement_index":
+        nonlabor["movement_index"][0] = 999
+    elif mutation == "gate_range":
+        nonlabor["trade_gate"][0, 0] = 3
+    elif mutation == "fission_range":
+        nonlabor["fission"][0] = 3
+    elif mutation == "batch_mismatch":
+        nonlabor["fission"] = nonlabor["fission"].repeat(2)
+    elif mutation == "value_width":
+        nonlabor["trade_value_latent"] = nonlabor["trade_value_latent"][:, :6]
+    elif mutation == "missing":
+        del nonlabor["trade_share_latent"]
+    elif mutation == "negative_index":
+        index = -1
+    else:
+        index = True
+    with pytest.raises(ValueError):
+        actor_action_features(labor, nonlabor, catalog, index=index)
+
+
+@pytest.mark.parametrize("latent,wire_value", [(-100.0, 0.25), (100.0, 4.0)])
+def test_finite_actor_trade_extremes_use_pretrained_clamp(latent, wire_value):
+    catalog, action, retained = _fixture()
+    sample = dict(retained.nonlabor_sample)
+    sample["trade_value_latent"] = torch.full((1, 7), latent)
+    action["tradeValue"] = [wire_value] * 7
+    np.testing.assert_array_equal(
+        actor_action_features(retained.labor_sample, sample, catalog), action_features(action)
+    )
+
+
+def test_trade_group_stable_ids_restore_canonical_feature_order():
+    catalog, action, _ = _fixture()
+    action["tradeValue"] = [0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
+    action["tradeGate"] = [0, 1, 2, 0, 1, 2, 1]
+    groups = action_layout_state()["tradeGroups"]
+    order = [6, 2, 0, 5, 4, 1, 3]
+    reordered = dict(
+        action,
+        tradeGate=[action["tradeGate"][i] for i in order],
+        tradeValue=[action["tradeValue"][i] for i in order],
+    )
+    np.testing.assert_array_equal(
+        canonical_action_features(action, catalog).numpy(),
+        action_features(reordered, trade_groups=[groups[i] for i in order]),
+    )
