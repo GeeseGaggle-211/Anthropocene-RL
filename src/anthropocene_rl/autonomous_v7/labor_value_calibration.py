@@ -30,6 +30,7 @@ from .labor_model import (
     LABOR_MODEL_INPUT_CONTRACT,
     LABOR_OBJECTIVE_REFERENCE_SCALES,
     LABOR_OBJECTIVES,
+    critic_privileged_batch,
 )
 from .provenance import checkpoint_hash, digest
 from .value_calibration import CalibrationThresholds
@@ -230,6 +231,7 @@ class LaborRankingWitness:
     parent_digests: np.ndarray
     successor_digests: np.ndarray
     independent_unit_ids: np.ndarray
+    privileged_raw: dict[str, np.ndarray] | None = None
 
 
 @dataclass(frozen=True)
@@ -245,9 +247,35 @@ class LaborObservedReturnData:
     row_ids: np.ndarray
     independent_unit_ids: np.ndarray
     ranking: LaborRankingWitness | None
+    privileged_raw: dict[str, np.ndarray] | None = None
 
     def __len__(self) -> int:
         return len(self.row_ids)
+
+
+def _anchor_privileged(arrays, prefix, rows, source):
+    from .labor_privileged import LABOR_PRIVILEGED_LAYOUT_V1, shard_keys, validate_raw
+
+    keys = shard_keys()
+    present = {key: arrays[prefix + key] for key in keys if prefix + key in arrays}
+    if not present:
+        if source.get("privilegedNormalizerDigest") is not None:
+            raise ValueError("privileged anchor is missing raw arrays")
+        return None
+    validate_raw(present, LABOR_PRIVILEGED_LAYOUT_V1, context="labor anchor")
+    if any(len(value) != rows for value in present.values()):
+        raise ValueError("privileged anchor arrays are row-misaligned")
+    if not _valid_sha256(source.get("privilegedNormalizerDigest")):
+        raise ValueError("privileged anchor requires a pinned normalizer digest")
+    return present
+
+
+def _anchor_critic_batch(critic, raw, source, rows=None):
+    if getattr(critic, "privileged_layout", None) is not None:
+        normalizer = getattr(critic, "privileged_normalizer", None)
+        if normalizer is None or normalizer.digest() != source.get("privilegedNormalizerDigest"):
+            raise ValueError("anchor privileged normalization binding differs from critic")
+    return critic_privileged_batch(critic, raw or {}, rows)
 
 
 def load_labor_anchor(path: Path, role: str) -> LaborObservedReturnData:
@@ -318,6 +346,7 @@ def load_labor_anchor(path: Path, role: str) -> LaborObservedReturnData:
             or bool((~masks[head] & (methods[head] != "unavailable")).any())
         ):
             raise ValueError(f"labor anchor target contract is invalid for {head}")
+    privileged_raw = _anchor_privileged(arrays, "", n, source)
     ranking = None
     rank_semantics = metadata.get("rankSemantics", "absent")
     if rank_semantics != "absent":
@@ -389,6 +418,7 @@ def load_labor_anchor(path: Path, role: str) -> LaborObservedReturnData:
             parents,
             successors,
             rank_units,
+            _anchor_privileged(arrays, "rank_", r, source),
         )
         if (
             not np.isfinite(ranking.discount).all()
@@ -409,6 +439,7 @@ def load_labor_anchor(path: Path, role: str) -> LaborObservedReturnData:
         rows,
         units,
         ranking,
+        privileged_raw,
     )
 
 
@@ -440,8 +471,12 @@ def labor_anchor_loss(
     ):
         raise ValueError("labor anchor rows must be a non-empty valid index vector")
     tensors = _torch_rows(data.tensors, selected)
-    task_logits = task_critic(tensors)
-    costs = cost_critics(tensors)
+    source = getattr(data, "metadata", {}).get("source", {})
+    raw = getattr(data, "privileged_raw", None)
+    task_priv = _anchor_critic_batch(task_critic, raw, source, selected)
+    cost_priv = _anchor_critic_batch(cost_critics, raw, source, selected)
+    task_logits = task_critic(tensors) if task_priv is None else task_critic(tensors, task_priv)
+    costs = cost_critics(tensors) if cost_priv is None else cost_critics(tensors, cost_priv)
     if set(task_logits) != set(LABOR_OBJECTIVES) or set(costs) != set(LABOR_COSTS):
         raise ValueError("labor critic heads differ from the four-head contract")
     selected_units = data.independent_unit_ids[selected]
@@ -513,16 +548,14 @@ def _predict(
     task_critic: torch.nn.Module,
     cost_critics: torch.nn.Module,
     tensors: Mapping[str, np.ndarray],
+    privileged_raw=None, source=None,
 ) -> dict[str, np.ndarray]:
     packed = _torch_rows(tensors)
-    if getattr(task_critic, "privileged_layout", None) is not None:
-        raise ValueError(
-            "labor anchors carry no critic-only privileged arrays; score privileged critics "
-            "with labor_pretrain_eval critic-calibration on privileged teacher shards"
-        )
+    task_priv = _anchor_critic_batch(task_critic, privileged_raw, source or {})
+    cost_priv = _anchor_critic_batch(cost_critics, privileged_raw, source or {})
     with torch.no_grad():
-        task_logits = task_critic(packed)
-        costs = cost_critics(packed)
+        task_logits = task_critic(packed) if task_priv is None else task_critic(packed, task_priv)
+        costs = cost_critics(packed) if cost_priv is None else cost_critics(packed, cost_priv)
         if set(task_logits) != set(LABOR_OBJECTIVES) or set(costs) != set(LABOR_COSTS):
             raise ValueError("labor critic heads differ from the four-head contract")
         result = {
@@ -558,10 +591,13 @@ def labor_calibration_report(
     thresholds = CalibrationThresholds() if thresholds is None else thresholds
     source = data.metadata["source"]
     scales = _reference_scales(source)
-    predictions = _predict(task_critic, cost_critics, data.tensors)
+    predictions = _predict(task_critic, cost_critics, data.tensors, data.privileged_raw, source)
     rank_scores = None
     if data.ranking is not None:
-        successor = _predict(task_critic, cost_critics, data.ranking.successor_tensors)
+        successor = _predict(
+            task_critic, cost_critics, data.ranking.successor_tensors,
+            data.ranking.privileged_raw, source,
+        )
         rank_scores = {
             head: data.ranking.immediate_raw[head]
             + data.ranking.discount * np.where(data.ranking.terminal, 0.0, successor[head])
