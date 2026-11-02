@@ -365,6 +365,17 @@ def test_warmup_cli_roundtrip_keeps_actor_and_requires_new_gate(monkeypatch, tmp
             str(rollout),
         ]
     )
+    from anthropocene_rl.autonomous_v7.labor_action_adapter import action_adapter_digest
+
+    recorded = torch.load(rollout, weights_only=True)
+    assert recorded["metadata"]["actionAdapterDigest"] == action_adapter_digest()
+    training._load_rollout(rollout)
+    stale = copy.deepcopy(recorded)
+    stale["metadata"]["actionAdapterDigest"] = "0" * 64
+    stale_path = tmp_path / "stale-adapter.pt"
+    torch.save(stale, stale_path)
+    with pytest.raises(ValueError, match="action adapter binding"):
+        training._load_rollout(stale_path)
     source = {
         "sourcePolicyDigest": behavior_policy_digest(
             actor, training.labor_behavior_configuration(LaborPersonality())

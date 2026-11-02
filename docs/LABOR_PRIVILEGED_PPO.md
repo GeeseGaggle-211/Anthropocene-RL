@@ -51,6 +51,22 @@ not relabeled as the sampled action. Latents, masks and behavior log-probabiliti
 remain the likelihood source. The new action vectors are diagnostic inputs;
 they are not currently used in value fitting or PPO advantages.
 
+`labor_action_adapter` validates the submitted request against the catalog and
+uses the existing fixed semantic encoder. Identical schema-12 requests from
+actor, heuristic or search producers give identical features. The production
+heuristic converter maps resident counts to population shares and worker-years
+to fractions of assigned resident time; the actor serializer decodes masked
+labor samples, exponentiates trade-value latents and applies sigmoid to trade
+share. For example, actor latent `log(3)` and heuristic trade request `3` agree.
+Wire trade requests `1.5` and `3` are different actions and are not multiplied
+to match. Different requested shares that happen to compile to the same physical
+result can also remain different inputs under this existing request-based
+contract. No batch-statistic fitting or normalization change is introduced.
+
+New collection artifacts include the full adapter contract and its digest;
+replay rejects mismatches. The existing 349-feature layout remains unchanged,
+and older rollouts without the additional adapter metadata remain readable.
+
 Independent-return anchors now store separate raw privilege for parent and
 ranking-successor rows, bound to the same normalizer digest. Anchor training
 and calibration normalize those rows with that binding. Older unprivileged
@@ -112,13 +128,23 @@ CPU fixtures cover privilege alignment through initial/retry/bootstrap and
 serialization, masks and stale normalizers, finite action vectors, nine-decision
 counting, anchor loading/loss/calibration, actor isolation during critic fitting,
 fresh collection followed by a synthetically gated actor update, and independent
-checkpoint storage. Model checkpoint tests use synthetic current/legacy schemas;
-no production pretrained checkpoint was available for artifact-level verification.
+checkpoint storage. Model checkpoint tests use synthetic current/legacy schemas.
+The cached production `scaleout-gnfull/critic/privileged-e4/seed-0/critic.pt`
+also strict-loads with its fitted privileged normalizer (SHA-256
+`fbe69fe4ec0d2e6466c9497d56fea3bf1fa946e41f36ea076ff5238f1bc6e5c8`).
+Its metadata declares 50 decisions, randomized teacher continuation, a 400-year
+discount time constant and QoL TD-lambda 0.8. It contains state-value critic
+weights, with no action-conditioned head. The intended pretrained state-action
+artifact has not been identified; no fresh action head is silently initialized
+in its place. Fitted state-action values driving detached PPO advantages remain
+the requested behavior, not a behavior completed by this adapter-only change.
 The actor and critics here are feed-forward: there is no recurrent hidden state.
 
 The real-actor update fixture exposed an existing masked categorical entropy
 gradient bug (`0 * -inf` computed before `where`). Masking the log probability
 before multiplication preserves finite entropy and gradients, including when
 the entropy coefficient is zero. This is required for a subsequent PPO step.
-Native bridge end-to-end validation remains unavailable without the bridge DLL.
+The cached native bridge passes the one-world, one-turn normalizer/initialization
+smoke (`test_fit_normalizer_cli_and_initialize_e2e`) when selected through
+`ANTHROPOCENE_MODEL9_BRIDGE`. Full native PPO/state-action training was not run.
 Local tests are diagnostic only and establish no training readiness.

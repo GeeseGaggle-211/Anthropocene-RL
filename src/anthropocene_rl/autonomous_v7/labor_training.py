@@ -486,15 +486,15 @@ def _execute_single_step_detailed(
         row = row_by_camp[camp]
         retry = retry_rows.get(camp)
         outcome = outcomes[camp]
-        from .labor_advantage import action_features
+        from .labor_action_adapter import canonical_action_features
 
-        initial_features = torch.from_numpy(action_features(retained[camp].payload))[None]
+        initial_features = canonical_action_features(retained[camp].payload, catalogs[camp])[None]
         retry_features = None
         if retry is not None:
             # Non-labor posture is retained from the initial action, not resampled.
             retry_payload = dict(retained[camp].payload)
             retry_payload.update(execution.retry[camp].payload)
-            retry_features = {"features": torch.from_numpy(action_features(retry_payload))[None]}
+            retry_features = {"features": canonical_action_features(retry_payload, catalogs[camp])[None]}
         rows.append(
             LaborRolloutRow(
                 world_seed=world_seed,
@@ -995,6 +995,14 @@ def _load_rollout(path: Path) -> tuple[
     batch_state = state.get("batch")
     if not isinstance(metadata, dict) or not isinstance(batch_state, dict):
         raise ValueError("labor rollout metadata/batch is missing")
+    if "actionAdapterDigest" in metadata or "actionAdapterContract" in metadata:
+        from .labor_action_adapter import action_adapter_contract, action_adapter_digest
+
+        if (
+            metadata.get("actionAdapterDigest") != action_adapter_digest()
+            or metadata.get("actionAdapterContract") != action_adapter_contract()
+        ):
+            raise ValueError("labor rollout action adapter binding differs")
     batch = LaborAttemptPolicyBatch(**batch_state)
     task = state.get("task_targets")
     costs = state.get("cost_targets")
@@ -2166,8 +2174,12 @@ def _command_collect(args: argparse.Namespace) -> None:
         normalization_sha256=norm_sha,
         lam=args.lam,
     )
+    from .labor_action_adapter import action_adapter_contract, action_adapter_digest
+
     metadata = {
         "schemaVersion": 1,
+        "actionAdapterContract": action_adapter_contract(),
+        "actionAdapterDigest": action_adapter_digest(),
         "sourceCheckpointSha256": checkpoint_hash(args.checkpoint),
         "worldSeeds": worlds,
         "turns": args.turns,
