@@ -151,7 +151,11 @@ from .labor_privileged import (
 ADVANTAGE_ARTIFACT_KIND = "model9-labor-advantage-head"
 ADVANTAGE_ARCHITECTURE = "labor-dueling-advantage-mlp-v1"
 CANDIDATE_PAYLOAD_SCHEMA = "labor-advantage-candidates-v1"
-ACTION_LAYOUT_VERSION = "labor-action-semantic-vector-v1"
+# v2: specialty block after native apportionment, unstaffed roles idle (A spec, 4 Nov 2026).
+# A head bound to v1 (raw requested shares) is refused on load.
+ACTION_LAYOUT_VERSION = "labor-action-semantic-vector-v2"
+SPECIALTY_ENCODING = "post-native-largest-remainder-apportionment"
+UNSTAFFED_ACTIVITY = "idle"
 RETURNS_UNITS = "raw-discounted-component-return"
 COMPONENTS = (*LABOR_OBJECTIVES, *LABOR_COSTS)
 REFERENCE_SCALES = {**LABOR_OBJECTIVE_REFERENCE_SCALES, **LABOR_COST_REFERENCE_SCALES}
@@ -241,6 +245,8 @@ def action_layout_state() -> dict[str, Any]:
         "tradeGroups": list(contracts.TRADE_GROUPS),
         "movementUnionCodes": list(MOVEMENT_UNION_CODES),
         "tradeValueTransform": "log(clamp(v, 0.25, 4)) / log(4)",
+        "specialtyEncoding": SPECIALTY_ENCODING,
+        "unstaffedActivity": UNSTAFFED_ACTIVITY,
     }
 
 

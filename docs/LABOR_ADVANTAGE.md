@@ -19,7 +19,12 @@ so an untrained head gives `Q = V`.
 Default widths (task 256/128, cost 128/128): action encoder 123,008 parameters; each task head 131,585; each
 cost head 98,817; total 583,812.
 
-## Action vector (`labor-action-semantic-vector-v1`, 349 floats)
+## Action vector (`labor-action-semantic-vector-v2`, 349 floats)
+
+v2 (4 Nov 2026) keeps the v1 layout and changes two encodings: with the root `population`, the specialty
+block is the share of residents after native largest-remainder apportionment, and the activity row of a role
+with no apportioned residents is all idle. `action_layout_state()` records both (`specialtyEncoding`,
+`unstaffedActivity`), so `load_advantage_head` refuses a head bound to the v1 encoding.
 
 14 specialty shares, 13×22 activity shares, movement-union one-hot (17: stay, seven sites, keep, eight
 regions; native −2 is rejected), fission one-hot (3), seven trade gates one-hot (21), seven trade values as
