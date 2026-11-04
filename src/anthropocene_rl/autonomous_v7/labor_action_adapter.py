@@ -1,8 +1,8 @@
 """Pinned actor/heuristic/search action semantics for the existing critic encoder.
 
-Normalize by decoding to the actual schema-12 request, never by matching head
-statistics. The pretrained layout consumes shares, categories and a declared
-trade-value transform; compiled resident/worker-year arrays are not its input.
+Decode the retained schema-12 request, then apply the encoder's population-aware
+native apportionment. No producer-statistic matching or duplicate allocation
+algorithm is used here.
 """
 
 from __future__ import annotations
@@ -23,10 +23,13 @@ from .provenance import digest
 
 def action_adapter_contract() -> dict[str, Any]:
     return {
-        "kind": "labor-canonical-actor-action-adapter-v1",
+        "kind": "labor-canonical-actor-action-adapter-v2",
         "actionSchema": 12,
         "criticLayout": action_layout_state(),
         "labor": "retained-masked-ALR-sample-to-canonical-simplex-request",
+        "population": "selected-root-catalog-nonnegative-integer-required",
+        "specialty": "post-native-largest-remainder-apportionment",
+        "unstaffedActivity": "idle",
         "tradeValue": "retained-log-latent-to-clamped-exp-request",
         "tradeShare": "retained-logit-to-sigmoid-request",
         "categories": "retained-native-action-codes",
@@ -44,18 +47,38 @@ def canonical_action_features(
     catalog: LaborCatalog,
     *,
     expected_layout: Mapping[str, Any] | None = None,
+    expected_adapter_digest: str | None = None,
 ) -> torch.Tensor:
     """Encode a submitted request using exactly the search-training layout.
 
     Inputs must already use wire units; resident counts, worker-years, logits,
     or arbitrary scores are rejected where shares are required. The catalog
     validates legal specialty/activity masks. Nonlabor categories and the
-    frozen trade transform are checked by the existing feature encoder.
+    frozen trade transform are checked by the existing feature encoder. The
+    selected root catalog supplies population, including zero; omission never
+    selects the encoder's legacy raw-share path. Checkpoint consumers must bind
+    the adapter digest as well as layout, which alone does not identify these
+    population semantics.
     """
     if expected_layout is not None and dict(expected_layout) != action_layout_state():
         raise ValueError("pretrained action layout differs from the canonical actor adapter")
+    if expected_layout is not None and expected_adapter_digest is None:
+        raise ValueError(
+            "checkpoint action layout requires a population-aware action adapter digest"
+        )
+    if expected_adapter_digest is not None and expected_adapter_digest != action_adapter_digest():
+        raise ValueError(
+            "pretrained action adapter digest differs from the population-aware contract"
+        )
+    population = getattr(catalog, "population", None)
+    if (
+        isinstance(population, (bool, np.bool_))
+        or not isinstance(population, (int, np.integer))
+        or population < 0
+    ):
+        raise ValueError("catalog population must be a nonnegative integer")
     validate_schema12_action(action, catalog, retry=False)
-    vector = action_features(action)
+    vector = action_features(action, population=int(population))
     if not np.isfinite(vector).all():
         raise ValueError("canonical action features must be finite")
     return torch.from_numpy(vector).detach()
@@ -68,15 +91,23 @@ def actor_action_features(
     *,
     index: int = 0,
     expected_layout: Mapping[str, Any] | None = None,
+    expected_adapter_digest: str | None = None,
 ) -> torch.Tensor:
     """Decode retained actor samples before applying pretrained input transforms.
 
     For a retry, pass the retry labor sample and the retained initial nonlabor
-    sample for that parent. Do not draw a new action or feed head means/logits.
+    sample and decision-boundary catalog for that parent. In a batch, supply
+    the catalog belonging to ``index``; its population is not a batch aggregate.
+    Do not draw a new action or feed head means/logits.
     """
     _validate_retained_samples(labor_sample, nonlabor_sample, catalog, index)
     action = schema12_initial_action(labor_sample, nonlabor_sample, index)
-    return canonical_action_features(action, catalog, expected_layout=expected_layout)
+    return canonical_action_features(
+        action,
+        catalog,
+        expected_layout=expected_layout,
+        expected_adapter_digest=expected_adapter_digest,
+    )
 
 
 def _validate_retained_samples(labor, nonlabor, catalog, index):

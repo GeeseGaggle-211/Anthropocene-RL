@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import math
+from dataclasses import replace
 from types import SimpleNamespace
 
 import numpy as np
@@ -17,7 +18,12 @@ from anthropocene_rl.autonomous_v7.labor_action_adapter import (
     actor_action_features,
     canonical_action_features,
 )
-from anthropocene_rl.autonomous_v7.labor_advantage import action_features, action_layout_state
+from anthropocene_rl.autonomous_v7.labor_advantage import (
+    action_features,
+    action_layout_state,
+    parse_candidate_shard,
+    synthetic_candidate_shard,
+)
 from anthropocene_rl.autonomous_v7.labor_advantage_eval import _reordered
 from anthropocene_rl.autonomous_v7.labor_bc import _retained_action, convert_heuristic_labor_label
 from anthropocene_rl.autonomous_v7.labor_bridge import SIMPLEX_TOLERANCE, LaborCatalog
@@ -28,11 +34,13 @@ from anthropocene_rl.autonomous_v7.labor_model import (
     schema12_initial_action,
     schema12_retry_action,
 )
+from anthropocene_rl.autonomous_v7.labor_search import compose_payload, labor_state
 from anthropocene_rl.autonomous_v7.labor_search_payload import compiled_action
+from anthropocene_rl.autonomous_v7.provenance import digest
 
 
-def _fixture(value=3.0, share=0.5):
-    catalog = LaborCatalog.from_payload(_catalog_payload())
+def _fixture(value=3.0, share=0.5, population=4):
+    catalog = replace(LaborCatalog.from_payload(_catalog_payload()), population=population)
     action = {
         "schemaVersion": 12,
         **_payload(catalog.masks),
@@ -56,9 +64,10 @@ def test_actor_latents_and_heuristic_search_wire_units_have_same_features(value)
         retained.nonlabor_sample,
         catalog,
         expected_layout=action_layout_state(),
+        expected_adapter_digest=action_adapter_digest(),
     )
     # Search training's parser invokes this same historical encoder on the wire action.
-    search = action_features(action)
+    search = action_features(action, population=catalog.population)
     np.testing.assert_allclose(actor.numpy(), search, rtol=0, atol=1e-7)
     assert not actor.requires_grad
     # Native counts/worker-years are explanatory export fields, not encoder inputs.
@@ -67,7 +76,13 @@ def test_actor_latents_and_heuristic_search_wire_units_have_same_features(value)
     assert actor[1] == 0.75  # three out of four residents, not the raw number three
     reordered, specialties, activities = _reordered(action)
     np.testing.assert_array_equal(
-        search, action_features(reordered, specialty_ids=specialties, activity_ids=activities)
+        search,
+        action_features(
+            reordered,
+            specialty_ids=specialties,
+            activity_ids=activities,
+            population=catalog.population,
+        ),
     )
 
 
@@ -94,13 +109,19 @@ def test_production_heuristic_count_and_worker_year_converter_matches_actor_unit
     assert label.action["laborActivityAllocation"][2][7] == 1.0
     retained = _retained_action(label, catalog, torch.ones(1, 1, dtype=torch.bool))
     actor = actor_action_features(retained.labor_sample, retained.nonlabor_sample, catalog)
-    np.testing.assert_allclose(actor.numpy(), action_features(label.action), rtol=0, atol=1e-7)
+    np.testing.assert_allclose(
+        actor.numpy(),
+        action_features(label.action, population=catalog.population),
+        rtol=0,
+        atol=1e-7,
+    )
     # Coverage/output differs from assigned worker-years; it must not rescale inputs.
     better_tools = convert_heuristic_labor_label(
         catalog, _village(4), _diag(_herding(1, 20.0, 0.0, 20.0))
     )
     np.testing.assert_array_equal(
-        action_features(label.action), action_features(better_tools.action)
+        action_features(label.action, population=catalog.population),
+        action_features(better_tools.action, population=catalog.population),
     )
 
 
@@ -112,7 +133,9 @@ def test_boundary_trade_shares_decode_with_declared_actor_transform(share):
     sample["trade_share_latent"] = torch.tensor([-100.0 if share == 0.0 else 100.0])
     features = actor_action_features(retained.labor_sample, sample, catalog)
     action["tradeShare"] = share
-    np.testing.assert_array_equal(features.numpy(), action_features(action))
+    np.testing.assert_array_equal(
+        features.numpy(), action_features(action, population=catalog.population)
+    )
 
 
 @pytest.mark.parametrize(
@@ -176,21 +199,32 @@ def test_actual_actor_sampler_batch_alignment_retry_and_gradient_rng_isolation()
         }
         vectors = []
         for index in range(3):
+            selected_catalog = replace(catalog, population=(1, 7, 23)[index])
             vector = actor_action_features(
-                labor, nonlabor, catalog, index=index, expected_layout=action_layout_state()
+                labor,
+                nonlabor,
+                selected_catalog,
+                index=index,
+                expected_layout=action_layout_state(),
+                expected_adapter_digest=action_adapter_digest(),
             )
             wire = schema12_initial_action(labor, nonlabor, index)
-            np.testing.assert_array_equal(vector.numpy(), action_features(wire))
-            assert torch.equal(vector, canonical_action_features(wire, catalog))
+            np.testing.assert_array_equal(
+                vector.numpy(), action_features(wire, population=selected_catalog.population)
+            )
+            assert torch.equal(vector, canonical_action_features(wire, selected_catalog))
             assert vector.shape == (349,) and vector.dtype == torch.float32
             assert vector.device.type == "cpu" and not vector.requires_grad
             vectors.append(vector)
         assert not torch.equal(vectors[0], vectors[1])
-        retry_vector = actor_action_features(retry, nonlabor, catalog, index=1)
+        retry_catalog = replace(catalog, population=7)
+        retry_vector = actor_action_features(retry, nonlabor, retry_catalog, index=1)
         retry_wire = dict(
             schema12_initial_action(labor, nonlabor, 1), **schema12_retry_action(retry, 1)
         )
-        np.testing.assert_array_equal(retry_vector.numpy(), action_features(retry_wire))
+        np.testing.assert_array_equal(
+            retry_vector.numpy(), action_features(retry_wire, population=retry_catalog.population)
+        )
         assert torch.equal(retry_vector[300:], vectors[1][300:])
         assert not torch.equal(retry_vector[:300], vectors[1][:300])
         assert torch.equal(global_rng, torch.random.get_rng_state())
@@ -283,7 +317,8 @@ def test_finite_actor_trade_extremes_use_pretrained_clamp(latent, wire_value):
     sample["trade_value_latent"] = torch.full((1, 7), latent)
     action["tradeValue"] = [wire_value] * 7
     np.testing.assert_array_equal(
-        actor_action_features(retained.labor_sample, sample, catalog), action_features(action)
+        actor_action_features(retained.labor_sample, sample, catalog),
+        action_features(action, population=catalog.population),
     )
 
 
@@ -300,5 +335,108 @@ def test_trade_group_stable_ids_restore_canonical_feature_order():
     )
     np.testing.assert_array_equal(
         canonical_action_features(action, catalog).numpy(),
-        action_features(reordered, trade_groups=[groups[i] for i in order]),
+        action_features(
+            reordered, trade_groups=[groups[i] for i in order], population=catalog.population
+        ),
+    )
+
+
+@pytest.mark.parametrize("population_source", ["root", "compiled"])
+def test_h12_nonintegral_staffing_matches_actual_search_reader_bitwise(population_source):
+    catalog, h12, retained = _fixture(population=23, value=1.0)
+    h12["laborActivityAllocation"][0] = [0.25, 0.75] + [0.0] * 20
+    retained = _retained_action(
+        SimpleNamespace(action=h12), catalog, torch.ones(1, 1, dtype=torch.bool)
+    )
+    # These are valid requested shares, not multiples of one resident at P=23.
+    assert h12["laborSpecialtyAllocation"][1] * catalog.population == 17.25
+    counts, _ = labor_state(h12, catalog)
+    twin = compose_payload(h12, catalog)
+    shard = synthetic_candidate_shard(
+        worlds=(90100,), roots_per_world=1, candidates=2, horizons=(1,), streams=0
+    )
+    root = shard["roots"][0]
+    root["candidates"] = root["candidates"][:2]
+    if population_source == "root":
+        root["population"] = catalog.population
+    for candidate, action in zip(root["candidates"], (h12, twin), strict=True):
+        candidate["action"] = action
+        candidate["bookkeeping_twin"] = None
+        candidate["compiled"] = compiled_action(action, counts, catalog.turn_years)
+    parsed = parse_candidate_shard(shard).roots[0]
+    assert parsed.population == catalog.population
+    search = parsed.candidates[0].features
+    adapted = canonical_action_features(h12, catalog)
+    np.testing.assert_array_equal(adapted.numpy(), search)
+    np.testing.assert_array_equal(search, parsed.candidates[1].features)
+    np.testing.assert_array_equal(
+        actor_action_features(retained.labor_sample, retained.nonlabor_sample, catalog), search
+    )
+    assert not np.array_equal(search, action_features(h12))  # regression: omitted population
+    np.testing.assert_array_equal(search[:14], (counts / catalog.population).astype(np.float32))
+    activity = search[14:300].reshape(13, 22)
+    for row, residents in zip(activity, counts[1:], strict=True):
+        if residents == 0:
+            np.testing.assert_array_equal(row, [1.0] + [0.0] * 21)
+
+
+def test_zero_population_is_explicit_and_matches_reader_neutral_activity():
+    catalog, action, retained = _fixture(population=0)
+    result = canonical_action_features(action, catalog)
+    np.testing.assert_array_equal(result.numpy(), action_features(action, population=0))
+    assert torch.count_nonzero(result[:14]) == 0
+    expected_idle = torch.zeros(13, 22)
+    expected_idle[:, 0] = 1
+    assert torch.equal(result[14:300].reshape(13, 22), expected_idle)
+    assert torch.equal(
+        result, actor_action_features(retained.labor_sample, retained.nonlabor_sample, catalog)
+    )
+    assert not torch.equal(
+        result, canonical_action_features(action, replace(catalog, population=1))
+    )
+
+
+@pytest.mark.parametrize(
+    "population", [None, -1, True, np.bool_(False), 1.5, 3.0, float("inf"), float("nan"), "23"]
+)
+def test_invalid_population_cannot_silently_select_or_coerce_legacy_path(population):
+    catalog, action, retained = _fixture(population=population)
+    with pytest.raises(ValueError, match="population must be a nonnegative integer"):
+        canonical_action_features(action, catalog)
+    with pytest.raises(ValueError, match="population must be a nonnegative integer"):
+        actor_action_features(retained.labor_sample, retained.nonlabor_sample, catalog)
+
+
+def test_old_or_missing_checkpoint_binding_rejected_despite_identical_layout():
+    catalog, action, retained = _fixture()
+    old = action_adapter_contract()
+    old["kind"] = "labor-canonical-actor-action-adapter-v1"
+    for key in ("population", "specialty", "unstaffedActivity"):
+        del old[key]
+    assert old["criticLayout"] == action_layout_state()
+    assert digest(old) != action_adapter_digest()
+    for binding in (None, digest(old)):
+        with pytest.raises(ValueError, match="adapter digest"):
+            canonical_action_features(
+                action,
+                catalog,
+                expected_layout=old["criticLayout"],
+                expected_adapter_digest=binding,
+            )
+        with pytest.raises(ValueError, match="adapter digest"):
+            actor_action_features(
+                retained.labor_sample,
+                retained.nonlabor_sample,
+                catalog,
+                expected_layout=old["criticLayout"],
+                expected_adapter_digest=binding,
+            )
+    assert torch.equal(
+        canonical_action_features(action, catalog),
+        canonical_action_features(
+            action,
+            catalog,
+            expected_layout=action_layout_state(),
+            expected_adapter_digest=action_adapter_digest(),
+        ),
     )
