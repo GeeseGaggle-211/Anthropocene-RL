@@ -1,7 +1,7 @@
-"""Paired-branch runner on the synthetic stand-in (no simulator binary is used).
+"""Paired-branch runner over the synthetic stand-in (no simulator binary is used).
 
-The real ``NativeSearch.extend`` needs the simulator bridge and is NOT exercised here;
-the synthetic ``extend`` mirrors its structure and calls the real ``record_boundary``.
+The unmodified ``NativeSearch.extend`` runs; only the simulator primitives (fork/restore,
+resolve, H12 labels, catalogs, dither) are stubbed in ``labor_branches_synthetic``.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from anthropocene_rl.autonomous_v7 import labor_horizon_check as lhc
-from anthropocene_rl.autonomous_v7.labor_search import Branch
+from anthropocene_rl.autonomous_v7.labor_search import Branch, NativeSearch
 from anthropocene_rl.autonomous_v7.labor_branches import (
     KeyedActorContinuation,
     cumulative_returns,
@@ -51,6 +51,10 @@ def _bits(pair):
         for s in pair.streams[name]:
             out.append(np.asarray(s["step_rewards"]).tobytes())
     return out
+
+
+def test_real_extend_runs_over_the_synthetic_primitives():
+    assert type(SyntheticNative()).extend is NativeSearch.extend
 
 
 def test_identical_actions_are_bitwise_identical_branches():
