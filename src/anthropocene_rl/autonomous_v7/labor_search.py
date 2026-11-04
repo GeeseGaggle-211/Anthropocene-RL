@@ -1370,6 +1370,9 @@ class NativeSearch:
         # the focal camp's critic-input row at a successor state. Read-only.
         self.successor_view: Any | None = None
         self.successor_seconds = 0.0
+        # Paired-branch runner (labor_branches): export a row at EVERY decision, not only
+        # at config.successor_decisions. Off for the search itself.
+        self.successor_every_decision = False
 
     def record_boundary(
         self, branch: Branch, step: Mapping[str, Any], focal: int, *, terminal: bool, live: bool
@@ -1385,7 +1388,8 @@ class NativeSearch:
             "status": status,
             "row": None,
         }
-        if status == "live" and decision in self.config.successor_decisions:
+        exported = self.successor_every_decision or decision in self.config.successor_decisions
+        if status == "live" and exported:
             village = next(v for v in _live(step) if int(v["camp"]) == focal)
             entry["row"] = self.successor_view(village)
         branch.boundaries.append(entry)
