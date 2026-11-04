@@ -442,6 +442,17 @@ def test_synthetic_smoke_fit_and_preregistered_evaluation(tmp_path) -> None:
     other_task, other_costs = _plain_critics(seed=99)
     with pytest.raises(ValueError, match="different critic"):
         la.load_advantage_head(state, other_task, other_costs)
+    # A head fitted on the v1 (pre-apportionment, raw unstaffed rows) encoding is refused.
+    v1_layout = {
+        k: v
+        for k, v in state["action_layout"].items()
+        if k not in ("specialtyEncoding", "unstaffedActivity")
+    }
+    v1_layout["version"] = "labor-action-semantic-vector-v1"
+    with pytest.raises(ValueError, match="action layout differs"):
+        la.load_advantage_head(dict(state, action_layout=v1_layout), task, costs)
+    assert state["action_layout"]["specialtyEncoding"] == la.SPECIALTY_ENCODING
+    assert state["action_layout"]["unstaffedActivity"] == "idle"
 
 
 def test_untrained_head_fails_the_ranking_gates() -> None:
