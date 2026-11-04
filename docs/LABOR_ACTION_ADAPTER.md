@@ -170,49 +170,35 @@ That is an encoder design choice, not a counterfactual inconsistency.
 
 ## Parity with the reparameterized path
 
-`labor_advantage.reparameterized_action_features` cannot take an injected draw,
-but its generator consumption can be replayed: specialty then activity ALR noise
-(identical to `sample_labor_policy`), Gumbel uniforms for movement, fission and
-gates, then trade-value and trade-share noise. The parity test runs it, replays
-the same generator state to build the retained sample of the same draw with the
-categoricals made hard (argmax of the perturbed logits), confirms alignment
-(relaxed categoricals bitwise equal), and compares block by block with
-`actor_action_features_batch` (96 rows, populations 0 to 100, trade values
-pushed into both clamps):
+Since `feature/r5-a-fit` 6780203, `labor_advantage.reparameterized_action_features`
+forwards the executed action: every block is `action_features()` of the actor's
+serialized wire action (`schema12_initial_action`), bitwise, with
+straight-through soft gradients. The categoricals execute
+`argmax(logits + g)` (movement mask applied first). It accepts injected noises
+(`draws=`, keys `REPARAMETERIZED_DRAW_KEYS`) and returns a draw record
+(`return_draw=True`: noises, retained samples, wire actions).
 
-| block | forward value vs executed encoding |
-|---|---|
-| specialty | bitwise equal on this draw; differs at constructed near-ties (below) |
-| activity | unstaffed rows bitwise; staffed rows differ in at most one coordinate per row (the serializer's re-derived reference), at most 2.5e-7 |
-| trade value | clamped coordinates bitwise; others within one float32 ulp (6e-8): `log(clamp(exp(x)))` vs `clamp(x)` |
-| trade share | within 4e-9: batched vs 0-d float32 sigmoid kernel |
-| movement, fission, gates | **soft**: the forward value is the Gumbel-softmax relaxation at temperature 1, not a one-hot; only its argmax equals the executed one-hot |
+Three tests pin the parity:
 
-Defects for PPO, recorded as strict `xfail` tests:
+* Block by block, on a shared draw. 96 rows, populations 0 to 100, with trade
+  values pushed into both clamps. The test replays the generator to build the
+  retained sample of the same draw and confirms alignment: the forward
+  categorical blocks are the one-hots of the replayed perturbed argmax. The
+  whole forward vector then equals `actor_action_features_batch` of the
+  executed sample bitwise: specialty, activity, movement, fission, gates, trade
+  value and trade share.
+* Categorical columns equal the executed one-hots.
+* The draw record round-trips. The adapter's encoding of the recorded samples
+  equals the forward vector, each recorded wire action encodes to the same row,
+  and re-injecting the recorded noises reproduces the vector without the
+  generator.
 
-1. Categorical blocks forward relaxed values (max abs difference from the
-   executed one-hot about 0.9 in the test draw). An A(s,a) evaluated on this
-   vector is evaluated off the executed-action support it was fit on.
-2. Specialty apportionment can differ. Float32 shares are typically 1e-7 off the
-   simplex: outside the wire tolerance (1e-8), inside the actor's (1e-6). The
-   reparameterized path renormalizes every coordinate; the executed wire corrects
-   only the last nonzero one. At near-ties the largest-remainder ranking flips
-   (fixture: three shares near 1/7, 3/7, 3/7 at population 1). In a constructed
-   near-tie search, 7,503 of 191,233 off-tolerance vectors flipped; in 40,960
-   real actor rows at populations 7, 23 and 100, none did.
-3. Activity, trade value and trade share differ only by roundoff (sizes above).
-   They are not bitwise equal.
-
-All three need changes in `labor_advantage.py`, which this PR does not edit:
-straight-through hard categoricals (`hard + (soft - soft.detach())`, hard being
-the argmax one-hot), so the forward value is the executed one-hot; apportioning
-and encoding the specialty and activity blocks from the serialized wire shares
-(for example `LaborPolicySample(...).payload()`, as the executed action does)
-rather than the renormalized float32 share; computing the trade value as
-`log(clamp(exp(latent)))` and the share with the same per-row sigmoid as the
-serializer, or building the forward value from the adapter's encoding; and an
-optional injected-draw argument (or a returned draw record) so a parity test
-does not depend on replaying the generator order.
+The specialty near-tie case (float32 shares about 1e-7 off the simplex, where
+renormalizing every coordinate and correcting only the last one can apportion
+differently) is tested against the wire in `test_labor_advantage.py`. Before
+6780203 the forward value was the Gumbel-softmax relaxation for categoricals
+and a renormalized share for specialty. This PR recorded both as strict
+`xfail` tests, and both are now resolved.
 
 ## Regression coverage
 

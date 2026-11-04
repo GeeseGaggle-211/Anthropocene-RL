@@ -746,63 +746,25 @@ def test_reparameterized_forward_matches_executed_encoding_block_by_block_on_a_s
         output, tensors, populations, seed=11
     )
     blocks = block_slices()
-    # The replay is aligned: identical relaxed categoricals (and labor latents below).
+    # The replay is aligned: the forward categoricals are the hard one-hots of the
+    # replayed perturbed argmax (straight-through; executed forward value).
     for name, relaxed in zip(
         ("movement_onehot", "fission_onehot", "trade_gate_onehot"), soft, strict=True
     ):
-        assert torch.equal(vector[:, blocks[name]], relaxed.reshape(batch, -1))
-    executed = actor_action_features_batch(labor, nonlabor, catalogs, **BIND)
-
-    # Specialty: post-apportionment shares agree bitwise on this draw.
-    spec = blocks["specialty_share"]
-    assert torch.equal(executed[:, spec], vector[:, spec])
-    # Activity: unstaffed rows are bitwise neutral on both sides; staffed rows
-    # differ only where the wire serializer re-derived its reference coordinate
-    # (1 - fsum(others)): at most one coordinate per row, within 2.5e-7.
-    a = executed[:, blocks["activity_share"]].reshape(batch, 13, 22)
-    r = vector[:, blocks["activity_share"]].reshape(batch, 13, 22)
-    staffed = torch.stack(
-        [
-            torch.as_tensor(labor_advantage.apportion_specialty_counts(row, p)[1:] > 0)
-            for row, p in zip(
-                labor["specialty_allocation"].double().numpy(), populations, strict=True
-            )
-        ]
-    )
-    assert bool((~staffed).any())
-    assert torch.equal(a[~staffed], r[~staffed])
-    assert float((a - r).abs().max()) <= 2.5e-7
-    assert int(((a != r).sum(dim=-1) > 1).sum()) == 0
-    # Trade value: log(clamp(exp(x))) vs clamp(x) agree within one float32 ulp;
-    # clamped coordinates agree bitwise.
-    value = blocks["trade_value_log"]
-    value_a, value_r = executed[:, value], vector[:, value]
-    latent = nonlabor["trade_value_latent"]
-    clamped = (latent <= labor_advantage._LOG_TRADE_LOW) | (
-        latent >= labor_advantage._LOG_TRADE_HIGH
-    )
-    assert bool(clamped.any()) and bool((~clamped).any())
-    assert torch.equal(value_a[clamped], value_r[clamped])
-    assert float((value_a - value_r).abs().max()) <= 1.2e-7
-    # Trade share: the serializer's 0-d sigmoid vs the batched sigmoid kernel.
-    share_a, share_r = executed[:, -1], vector[:, -1]
-    assert float((share_a - share_r).abs().max()) <= 4e-9
-    assert torch.equal(
-        share_a, torch.stack([torch.sigmoid(x) for x in nonlabor["trade_share_latent"]])
-    )
-    # Categoricals: hard(argmax) of the relaxation is the executed one-hot.
-    for name, width in (("movement_onehot", 0), ("fission_onehot", 0), ("trade_gate_onehot", 3)):
-        relaxed = vector[:, blocks[name]]
-        relaxed = relaxed.reshape(batch, -1, width) if width else relaxed.unsqueeze(1)
         hard = torch.nn.functional.one_hot(relaxed.argmax(-1), relaxed.shape[-1]).float()
-        assert torch.equal(hard.reshape(batch, -1), executed[:, blocks[name]])
+        assert torch.equal(vector[:, blocks[name]], hard.reshape(batch, -1))
+    executed = actor_action_features_batch(labor, nonlabor, catalogs, **BIND)
+    # Every block (specialty, activity, movement, fission, gates, trade value,
+    # trade share) is the adapter's encoding of the executed wire action, bitwise.
+    assert vector.dtype == executed.dtype
+    assert torch.equal(vector.detach(), executed)
+    # The draw exercised both trade-value clamps and an unstaffed population.
+    latent = nonlabor["trade_value_latent"]
+    assert bool((latent <= labor_advantage._LOG_TRADE_LOW).any())
+    assert bool((latent >= labor_advantage._LOG_TRADE_HIGH).any())
+    assert 0 in populations
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="defect: reparameterized categoricals forward soft Gumbel-softmax values",
-)
 def test_reparameterized_categorical_forward_value_is_the_executed_one_hot():
     populations = [7] * 16
     catalogs, _, _, output, tensors = _actor_batch(16, populations)
@@ -813,21 +775,34 @@ def test_reparameterized_categorical_forward_value_is_the_executed_one_hot():
     assert torch.equal(vector[:, columns], executed[:, columns])
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="defect: reparameterized specialty renormalizes off-tolerance float32 shares",
-)
-def test_reparameterized_specialty_apportionment_matches_executed_wire_at_near_ties():
-    # Float32 shares 1.2e-7 off the simplex (inside the actor's 1e-6, outside the
-    # wire's 1e-8): the reparameterized path renormalizes every coordinate, the
-    # executed wire corrects only the last, and a one-resident apportionment flips.
-    raw = torch.zeros(1, 14)
-    raw[0, :3] = torch.tensor([0.14285710453987122, 0.42857152223587036, 0.42857155203819275])
-    catalog, _, retained = _fixture(population=1)
-    labor = dict(retained.labor_sample, specialty_allocation=raw)
-    executed = actor_action_features_batch(labor, retained.nonlabor_sample, [catalog], **BIND)
-    # reparameterized_action_features forwards apportioned_specialty of its
-    # continuous float32 share (its own composition, called directly here).
-    reparameterized = labor_advantage.apportioned_specialty(raw[0].double().numpy(), 1)
-    np.testing.assert_array_equal(executed[0, :14].numpy(), reparameterized.astype(np.float32))
+def test_reparameterized_draw_record_round_trips_through_the_adapter():
+    # return_draw=True records the noises and the executed samples. The adapter's
+    # encoding of the recorded samples is the forward vector bitwise, every recorded
+    # wire action encodes to the same row, and injecting the recorded noises
+    # reproduces the vector without the generator. (The specialty near-tie case is
+    # covered against the wire in test_labor_advantage.py.)
+    populations = [0, 1, 7, 23, 64, 100] * 4
+    batch = len(populations)
+    catalogs, _, _, output, tensors = _actor_batch(batch, populations, value_std_shift=2.5)
+    vector, draw = reparameterized_action_features(
+        output,
+        tensors,
+        generator=torch.Generator().manual_seed(5),
+        population=populations,
+        return_draw=True,
+    )
+    executed = actor_action_features_batch(
+        draw.labor_sample, draw.nonlabor_sample, catalogs, **BIND
+    )
+    assert torch.equal(vector.detach(), executed)
+    for index in range(batch):
+        wire = canonical_action_features(draw.actions[index], catalogs[index], **BIND)
+        assert torch.equal(wire, executed[index])
+    replayed = reparameterized_action_features(
+        output,
+        tensors,
+        generator=torch.Generator().manual_seed(999),
+        population=populations,
+        draws=draw.noises,
+    )
+    assert torch.equal(replayed, vector)
