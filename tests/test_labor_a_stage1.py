@@ -621,3 +621,102 @@ def test_command_line_fits_seeds_and_writes_the_gate_report(tmp_path) -> None:
                 "0",
             ]
         )
+
+
+# --- review round 2: unstaffed roles, signal rules, provisional constants -----------------
+
+
+def _h12_with_unstaffed_role(population: int):
+    rng = np.random.default_rng(21)
+    counts = np.zeros(len(SPECIALTIES), dtype=np.int64)
+    counts[0], counts[1], counts[3] = 5, 12, population - 17  # role rows 1 and 3 staffed
+    action = la._synthetic_action(rng)
+    action["laborSpecialtyAllocation"] = (counts / population).tolist()
+    unstaffed = SPECIALTIES.index("Farmer") - 1  # role row of Farmer (zero residents)
+    assert counts[unstaffed + 1] == 0
+    return action, unstaffed
+
+
+def test_control_twin_of_h12_encodes_bitwise_equal_and_has_zero_advantage() -> None:
+    population = 23
+    h12, role = _h12_with_unstaffed_role(population)
+    twin = copy.deepcopy(h12)
+    activity = np.asarray(twin["laborActivityAllocation"], dtype=np.float64)
+    activity[role] = np.roll(activity[role], 3)  # unstaffed role: bookkeeping only
+    twin["laborActivityAllocation"] = activity.tolist()
+    shares = np.asarray(twin["laborSpecialtyAllocation"])
+    shares[1] -= 0.25 / population  # a quarter resident: same apportioned residents
+    shares[3] += 0.25 / population
+    twin["laborSpecialtyAllocation"] = shares.tolist()
+    assert not np.array_equal(la.action_features(h12), la.action_features(twin))  # raw differs
+    shard = s1.synthetic_stage1_shard(worlds=(90100,), roots_per_world=1, population=population)
+    root = shard["roots"][0]
+    root["candidates"][0]["action"] = h12
+    root["candidates"][1]["action"] = twin
+    root["candidates"][1]["family"] = "control-twin"
+    parsed = la.parse_candidate_shard(shard).roots[0]
+    f_h12, f_twin = parsed.candidates[0].features, parsed.candidates[1].features
+    assert np.array_equal(f_h12, f_twin)
+    sl = la.block_slices()["activity_share"]
+    rows = f_h12[sl].reshape(-1, len(la.ACTIVITIES))
+    assert rows[role].tolist() == [1.0] + [0.0] * (len(la.ACTIVITIES) - 1)
+    assert np.array_equal(la.encode_actions([h12, twin], population), np.stack([f_h12, f_twin]))
+    task, costs = _plain_critics()
+    head = la.LaborAdvantageHead.for_critics(task, costs, embedding=16, hidden=16)
+    torch.manual_seed(2)
+    for module in head.heads.values():
+        torch.nn.init.normal_(module[2].weight, std=1.0)
+    tensors, priv = la.parse_candidate_shard(shard).root_tensors()
+    contexts = la.critic_contexts(task, costs, tensors, priv)
+    pred = s1.anchored_predictions(head, contexts, [parsed])
+    for name in la.COMPONENTS:
+        assert pred[name][0][1] == 0.0
+        assert np.any(pred[name][0] != 0.0)
+    plan = la.AdvantageRanker(task, costs, head, full_fraction=0.0).plan(
+        _labor_tensors(batch=1), [h12, twin], population=population
+    )
+    assert all(plan.advantage[n][0] == plan.advantage[n][1] for n in la.COMPONENTS)
+    # Reparameterized forward: H12-concentrated output gives the same specialty and
+    # activity blocks, the unstaffed row exactly neutral.
+    torch.manual_seed(0)
+    actor = LaborActor(_layout(False), width=16, token_width=16)
+    tensors1 = _labor_tensors(batch=1)
+    output = dict(actor(tensors1))
+    spec_t = torch.tensor([h12["laborSpecialtyAllocation"]], dtype=torch.float32)
+    output["specialty_logits"] = torch.log(spec_t.clamp_min(1e-12))
+    output["specialty_log_std"] = torch.full_like(spec_t, -30.0)
+    vector = la.reparameterized_action_features(
+        output, tensors1, generator=torch.Generator().manual_seed(1), population=[population]
+    )
+    spec = la.block_slices()["specialty_share"]
+    assert torch.equal(vector[0, spec], torch.as_tensor(f_h12[spec]))
+    act = vector[0, sl].reshape(-1, len(la.ACTIVITIES))
+    assert torch.equal(act[role], torch.as_tensor(rows[role], dtype=torch.float32))
+
+
+def test_task_objectives_without_signal_fail_and_cost_heads_may_have_none() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data()
+    head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, _config(epochs=3), targets=targets, stability=None
+    )
+    reserved, rt = _fit_data(worlds=tuple(la.RESERVED_HELDOUT_WORLDS), seed=7, roots=3)
+    for j in (la.COMPONENTS.index("qol_years"), la.COMPONENTS.index("feasibility")):
+        rt.y[:, j] = 0.0
+    report = s1.stage1_gate_report([head], task, costs, reserved.candidates, rt, [summary])
+    gates = report["gates"]
+    for g in ("calibration", "ordering", "no_single_path"):
+        assert gates[f"{g}:qol_years"]["status"] == "FAIL"
+        assert gates[f"{g}:qol_years"]["no_signal"] is True
+        assert f"{g}:qol_years" in report["failed"]
+        assert gates[f"{g}:feasibility"]["status"] == "NO_SIGNAL"
+        assert f"{g}:feasibility" in report["no_signal"]
+        assert f"{g}:feasibility" not in report["failed"]
+    assert report["status"] == "FAIL"
+    assert report["provisional_constants"] == {
+        "block_support_floor_rows": 30,
+        "variance_floor_fraction_of_pooled": 0.25,
+        "se_abs_floor_head_units": 1e-3,
+        "huber_se_multiplier": 1.345,
+        "status": "provisional",
+    }

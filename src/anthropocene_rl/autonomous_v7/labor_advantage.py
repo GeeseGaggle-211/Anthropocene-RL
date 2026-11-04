@@ -27,6 +27,11 @@ What lives here:
 * bounded-QoL-head helpers: TD(lambda) targets through the head and the
   saturation monitor.
 
+Encoding note: with a root population (every search export declares one) the reader
+encodes specialties after native apportionment and unstaffed roles' activity as
+neutral, so legacy pair-fit and ``labor_advantage_eval`` numbers from before that
+change are not directly comparable (``labor_a_stage1`` module docstring).
+
 Nothing here writes an actor loss, a PPO advantage, a critic outcome label or a
 G2C V criterion. See ``docs/LABOR_ADVANTAGE.md``.
 
@@ -173,6 +178,9 @@ _LOG_TRADE_LOW = math.log(contracts.TRADE_VALUE_RANGE[0])
 _LOG_TRADE_HIGH = math.log(contracts.TRADE_VALUE_RANGE[1])
 _LOG_TRADE_SCALE = max(abs(_LOG_TRADE_LOW), abs(_LOG_TRADE_HIGH))
 
+# Canonical neutral activity of an unstaffed role: all worker time idle.
+NEUTRAL_ACTIVITY = ACTIVITIES.index("idle")
+
 # Fixed action layout: (block, width) in vector order.
 ACTION_BLOCKS: tuple[tuple[str, int], ...] = (
     ("specialty_share", len(SPECIALTIES)),
@@ -290,6 +298,23 @@ def apportion_specialty_counts(shares: Sequence[float], population: int) -> np.n
     return np.asarray(apportion_largest_remainder(canonical, population), dtype=np.int64)
 
 
+def neutral_unstaffed_activity(activity: np.ndarray, counts: Sequence[int]) -> np.ndarray:
+    """Canonical-order activity rows with every role the apportionment leaves unstaffed
+    (zero residents) set to the canonical neutral value, all worker time ``idle``
+    (``labor_search.transfer`` / ``compose_payload`` convention). An unstaffed role's
+    activity simplex has no physical effect, so two actions with the same residents and
+    the same staffed-role activities (H12 and its control twin) encode identically."""
+    out = np.array(activity, dtype=np.float64, copy=True)
+    counts = np.asarray(counts).reshape(-1)
+    if counts.shape != (len(SPECIALTIES),) or out.shape != (ROLE_ROWS, len(ACTIVITIES)):
+        raise ValueError("unstaffed-role canonicalization needs catalog-shaped inputs")
+    for role in range(ROLE_ROWS):
+        if int(counts[role + 1]) == 0:
+            out[role] = 0.0
+            out[role, NEUTRAL_ACTIVITY] = 1.0
+    return out
+
+
 def apportioned_specialty(shares: Sequence[float], population: int) -> np.ndarray:
     """Post-apportionment specialty shares: native residents / population (float64)."""
     population = int(population)
@@ -320,7 +345,9 @@ def action_features(
     (:func:`apportioned_specialty`, in canonical order): the share of residents
     the native actually staffs. Two payloads that apportion to the same
     residents (an actor sample and the search's composed action, or H12 and its
-    bookkeeping twin) then encode identically. Without it the raw requested
+    bookkeeping twin) then encode identically. The activity rows of roles that
+    apportion to zero residents are set to the neutral value (all idle,
+    :func:`neutral_unstaffed_activity`). Without it the raw requested
     shares are encoded (the historical layout; used only for payloads that do
     not declare a population).
     """
@@ -343,9 +370,11 @@ def action_features(
     if (specialty_ids or SPECIALTIES)[0] != "idle":
         raise ValueError("the declared specialty order must start with idle")
     canonical_specialty = specialty[spec_pos]
-    if population is not None:
-        canonical_specialty = apportioned_specialty(canonical_specialty, population)
     canonical_activity = activity[role_pos][:, act_pos]
+    if population is not None:
+        counts = apportion_specialty_counts(canonical_specialty, population)
+        canonical_specialty = apportioned_specialty(canonical_specialty, population)
+        canonical_activity = neutral_unstaffed_activity(canonical_activity, counts)
     movement = np.zeros(MOVEMENT_UNION)
     movement[movement_union_index(action["movement"])] = 1.0
     fission_code = action["fission"]
@@ -515,7 +544,9 @@ def reparameterized_action_features(
     apportionment is piecewise constant, so it has no useful gradient: the block
     is a straight-through estimator ``hard + (soft - soft.detach())`` whose
     forward value is exactly the apportioned share and whose gradient is the
-    gradient of the continuous share (gradient-only; never used as a value).
+    gradient of the continuous share (gradient-only; never used as a value). The
+    activity rows of roles apportioned zero residents forward the neutral row (all
+    idle) exactly, with the same straight-through gradient.
     Without ``population`` the block is the continuous requested share: use
     that only on the gradient path, never to evaluate or encode an action.
     """
@@ -559,6 +590,22 @@ def reparameterized_action_features(
         # Forward value exactly ``hard`` (x - x == 0); gradient of the continuous share.
         specialty = hard + (specialty - specialty.detach())
     activity = draw(output["activity_logits"], output["activity_log_std"], activity_mask)
+    if population is not None:
+        # Unstaffed roles (zero apportioned residents) forward the neutral activity row
+        # exactly; straight-through gradient of the continuous row (gradient-only).
+        staffed = torch.as_tensor(
+            np.stack(
+                [
+                    apportion_specialty_counts(row, p)[1:] > 0
+                    for row, p in zip(soft, counts, strict=True)
+                ]
+            ),
+            device=activity.device,
+        )
+        neutral = torch.zeros_like(activity)
+        neutral[..., NEUTRAL_ACTIVITY] = 1.0
+        hard_activity = torch.where(staffed.unsqueeze(-1), activity.detach(), neutral)
+        activity = hard_activity + (activity - activity.detach())
     movement_logits = output["movement_union_logits"]
     movement_mask = output["movement_union_mask"]
     if not torch.equal(

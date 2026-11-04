@@ -88,8 +88,25 @@ rows whose block differs from H12's at their root; a block below
 ``support_floor`` (default ``BLOCK_SUPPORT_FLOOR`` = 30 rows) is masked too, held at
 zero and reported.
 
+Unstaffed roles. With the root population, the activity row of every role that
+apportions to zero residents is encoded as the neutral value (all idle) on every path
+(search parse, ``encode_actions``, ranker, reparameterized forward), so a control twin
+of H12 with identical physics encodes bitwise equal to H12 and its predicted A is
+exactly 0.
+
+Comparability. The candidate-payload reader (``labor_advantage.parse_candidate_shard``)
+now apportions specialties and neutralizes unstaffed roles whenever a root declares a
+population, which every search export does. This also changes the action features the
+legacy pair fit (``fit_advantage_head`` with the pair source) and
+``labor_advantage_eval`` see: numbers from those tools before this change are not
+directly comparable with numbers after it.
+
 Gates (:func:`stage1_gate_report`): thresholds are the approved values below; see the
-report's ``definitions``.
+report's ``definitions``. Per-objective gates may be ``NO_SIGNAL`` (excluded from the
+verdict) only for the cost heads; for qol_years and population_years no signal FAILS.
+The provisional constants (support floor 30 rows, variance floor 0.25 x pooled, SE
+floor 1e-3 head units, Huber c = 1.345) are written into every report under
+``provisional_constants``.
 """
 
 from __future__ import annotations
@@ -1168,6 +1185,30 @@ def _gate(value_pass: bool | None, **detail: Any) -> dict[str, Any]:
     return {"status": status, **detail}
 
 
+# Task objectives must have signal on every per-objective gate; cost heads may not.
+SIGNAL_REQUIRED = ("qol_years", "population_years")
+
+
+def _objective_gate(name: str, value_pass: bool | None, **detail: Any) -> dict[str, Any]:
+    """Per-objective gate: NO_SIGNAL is allowed (and excluded from the verdict) only for
+    the cost heads; for qol_years and population_years it FAILS."""
+    gate = _gate(value_pass, **detail)
+    if value_pass is None and name in SIGNAL_REQUIRED:
+        gate.update(status="FAIL", no_signal=True, reason="task objective without signal")
+    return gate
+
+
+def provisional_constants() -> dict[str, Any]:
+    """Provisional constants accepted with the stage-1 review (4 Nov 2026)."""
+    return {
+        "block_support_floor_rows": la.BLOCK_SUPPORT_FLOOR,
+        "variance_floor_fraction_of_pooled": la.VARIANCE_FLOOR_FRACTION,
+        "se_abs_floor_head_units": la.SE_ABS_FLOOR,
+        "huber_se_multiplier": la.HUBER_SE_MULTIPLIER,
+        "status": "provisional",
+    }
+
+
 def stage1_gate_report(
     heads: Sequence[LaborAdvantageHead],
     task_critic: nn.Module,
@@ -1225,7 +1266,8 @@ def stage1_gate_report(
                 CALIBRATION_SLOPE_RANGE[0] <= wb["slope"] <= CALIBRATION_SLOPE_RANGE[1]
                 and wb["abs_bias_over_spread"] < CALIBRATION_BIAS_FRACTION
             )
-        gates[f"calibration:{name}"] = _gate(
+        gates[f"calibration:{name}"] = _objective_gate(
+            name,
             ok,
             slope=wb["slope"],
             mae=wb["mae"],
@@ -1234,7 +1276,8 @@ def stage1_gate_report(
             abs_bias_over_spread=wb["abs_bias_over_spread"],
         )
         order = ordering[name]["all"]["no_controls"]
-        gates[f"ordering:{name}"] = _gate(
+        gates[f"ordering:{name}"] = _objective_gate(
+            name,
             None if order["accuracy"] is None else order["accuracy"] >= ORDERING_SIGN_ACCURACY,
             value=order["accuracy"],
             pairs=order["pairs"],
@@ -1242,7 +1285,8 @@ def stage1_gate_report(
         per_world = {w: v["accuracy"] for w, v in order["per_world"].items()}
         per_family = {f: v["accuracy"] for f, v in order["per_family"].items()}
         worst = [v for v in (*per_world.values(), *per_family.values())]
-        gates[f"no_single_path:{name}"] = _gate(
+        gates[f"no_single_path:{name}"] = _objective_gate(
+            name,
             None if not worst else min(worst) >= PATH_SIGN_ACCURACY_FLOOR,
             worst_world=order["worst_world"],
             worst_world_accuracy=None if not per_world else min(per_world.values()),
@@ -1338,6 +1382,7 @@ def stage1_gate_report(
             "reserved_worlds_only": bool(worlds) and set(worlds) <= reserved,
             "roots": len(candidates.roots),
             "targets": targets.summary(),
+            "provisional_constants": provisional_constants(),
             "thresholds": {
                 "calibration_slope_range": list(CALIBRATION_SLOPE_RANGE),
                 "calibration_abs_bias_over_spread": CALIBRATION_BIAS_FRACTION,
