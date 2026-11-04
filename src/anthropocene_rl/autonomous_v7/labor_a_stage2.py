@@ -16,16 +16,93 @@ Contents (spec item -> functions):
 
 1. Adaptive branch selection (D6): ``head_distance``, ``calibrate_thresholds``,
    ``branch_probabilities``, ``select_branches``.
-2. Paired targets: ``folded_lambda_return``, ``paired_target`` (k = 1..3, folded lambda
-   return difference under CRN, weight 1/p), ``one_step_paired_signal`` (warm-up, k = 1),
-   ``paired_policy_advantages``, ``single_action_target`` (G - V(s)).
+2. Paired targets: ``lambda_return`` (exact recursion when successor rows exist at every
+   decision, ``exact_lambda_return``; else the 0.05/0.95 fold, ``folded_lambda_return``),
+   ``paired_target`` (k = 1..3, lambda-return difference under CRN, weight 1/p),
+   ``one_step_paired_signal`` (warm-up, k = 1), ``paired_policy_advantages``,
+   ``single_action_target`` (G - V(s)).
 3. Stage-2 fit: ``stage2_loss``/``stage2_fit_step`` (Huber on A(s,a) - A(s,b), weighted;
    optional single-action rows on the actor-centred A), ``actor_centred_advantage``.
 4. Q-Prop-style per-head control variate: ``control_variate_advantages``,
    ``control_variate_correction``, ``per_head_surrogate``, ``categorical_expectation``.
 5. Per-head gradient variance and D7: ``per_sample_gradients``, ``gradient_variance``,
    ``measure_head_variance``.
-6. Warm-up switch: ``WarmupThresholds``, ``WarmupSwitch``, ``per_world_td``.
+6. Warm-up switch: ``WarmupThresholds``, ``WarmupSwitch`` (one-way; ``alarm`` after the
+   switch), ``per_world_td``.
+
+Rulings recorded (architect review of d8f1e86): the D6 target 0.25 is the overall expected
+branch rate INCLUDING the 1/16 floor; A's row weights are 1/p times the inverse noise
+variance, multiplied by the caller into ``PairBatch.weight``/``SingleBatch.weight``; the
+control variate subtracts the state-only Abar(s) and adds the per-head E_h correction;
+the warm-up switch is one-way and raises an alarm instead of reverting.
+
+INTEGRATION (for the PPO loop; this module never calls ``labor_ppo``)
+---------------------------------------------------------------------
+
+Units. Three units appear and must not be mixed:
+
+* raw per-objective (``SuccStream.rewards``, ``v_succ``/``v_root`` as raw V predictions,
+  paired targets, GAE from ``labor_ppo.two_attempt_gae``);
+* head units = raw / ``labor_advantage.REFERENCE_SCALES`` (what ``LaborAdvantageHead``
+  predicts and what ``stage2_loss`` regresses: pass ``to_head_units(target)``);
+* the combined policy unit of ``labor_ppo.combine_labor_advantages`` (personality-weighted
+  task terms / reference scales minus cost multipliers x costs). GAE, A(s,a), Abar(s) and
+  every E_h enter the control variate in this unit: per objective, A goes through
+  ``to_raw_units`` and then ``combine_labor_advantages`` with the SAME personality /
+  row weights and cost multipliers as the GAE it is subtracted from.
+
+Call order per PPO iteration:
+
+1. Rollout with the actor. At each initial-edge decision keep the actor's sampled action,
+   a second independent sample (same state, the fork's action b), and H12's action.
+2. Branch selection: ``head_distance`` per policy head (actor vs H12, on the encoded
+   action after largest-remainder apportionment) -> ``calibrate_thresholds`` (on the
+   previous iteration's distances, so this iteration's draw does not depend on itself;
+   or on a fixed calibration batch) -> ``branch_probabilities`` -> ``select_branches``
+   keyed by (world, turn, camp, decision). Fork the selected states (``labor_search``
+   fork/restore/CRN; ``labor_branches`` runner), run a and b for k = 2-3 turns.
+3. V on root and successor rows (current V, online). ``paired_target`` per branched
+   state (``one_step_paired_signal`` during warm-up); optional single-action rows via
+   ``single_action_target`` on unbranched rollouts.
+4. A fit: build ``PairBatch`` (targets in head units, weight = 1/p x inverse noise
+   variance), optional ``SingleBatch`` + ``AnchorBatch`` (the actor's samples per state),
+   ``stage2_fit_step(head, opt_over_head_params, contexts, ..., frozen=(task, costs))``.
+   Contexts from ``labor_advantage.critic_contexts`` (detached; stop-gradient).
+5. Policy update:
+   * ``WarmupSwitch.phase == "warmup"``: per-objective ``paired_policy_advantages`` ->
+     ``combine_labor_advantages`` -> advantages for BOTH sampled actions at each branched
+     state, row weight 1/p, small KL-capped steps (``WARMUP_KL_CAP``, TODO). No GAE, never
+     the single-path TD error.
+   * ``"gae"``: GAE as today. Then A for the executed action and Abar(s) (mean of A over
+     the actor's samples at s, i.e. the anchor; ~0 after centring), both combined ->
+     ``control_variate_advantages(gae, a_exec, a_bar, connection_eta(mask))`` -> per-head
+     coefficients -> ``per_head_surrogate(current_logp, behaviour_logp, coefficients,
+     clip)`` (maximise, mean over parents) + ``control_variate_correction(E, eta)``.
+     E_h per connected head, differentiable through head h's distribution only: exact for
+     categorical heads with ``categorical_expectation`` (A evaluated at every category with
+     the other heads at their sampled values, detached); for continuous heads (ALR
+     simplex, trade value/share) a reparameterised draw through head h's mean/log-std
+     (unbiased, not exact). Heads with eta = 0 cost nothing extra. Retry edges: eta = 0.
+6. D7, periodically on HELD-OUT actor rows: ``per_sample_gradients`` of log pi_h (score)
+   and of E_h (correction) per head, same projection key for both ->
+   ``measure_head_variance`` -> mask -> ``connection_eta``.
+7. ``WarmupSwitch.update(WarmupReport(...))`` with V calibration on actor-visited states,
+   per-world TD split (``per_world_td``) and the K-epoch dry-run approx-KL.
+
+What ``labor_ppo`` must newly expose (it does not change here):
+
+* per-head log-probs instead of the joints, for current and behaviour policies:
+  ``labor_log_prob`` already returns ``specialty``/``activity`` and ``nonlabor_log_prob``
+  returns ``movement``/``fission``/``trade_value``/``trade_gate``/``trade_share``, but
+  ``attempt_policy_terms`` and ``LaborAttemptPolicyBatch`` carry only
+  ``*_initial_labor_logp`` and ``*_initial_nonlabor_logp`` joints (``RetainedLaborAction``
+  stores scalar ``behavior_labor_logp``/``behavior_nonlabor_logp``). The behaviour
+  per-head split must be retained at rollout time (or rescored with a snapshot of the
+  behaviour actor); it cannot be recovered from the joint.
+* a per-head-advantage variant of ``attempt_policy_terms`` (parent-summed
+  ``per_head_surrogate`` on the initial edge; retry edge unchanged);
+* the actor output (distribution parameters) per row, so E_h can be formed;
+* per-row personality weights and cost multipliers used for GAE, to combine A identically.
 """
 
 from __future__ import annotations
@@ -256,8 +333,8 @@ def folded_lambda_weights(k: int, lam: float = LAMBDA) -> tuple[float, float]:
     ``sum_{n<k} (1-lam) lam^(n-1) T_n + lam^(k-1) T_k`` is folded: 1 - lam on T_1 and the
     remaining lam on T_k (0.05 / 0.95 at lam = 0.95, as approved). k = 1 is T_1 alone.
     """
-    if not 1 <= int(k) <= MAX_PAIRED_HORIZON:
-        raise ValueError(f"k must be in 1..{MAX_PAIRED_HORIZON}")
+    if int(k) < 1:
+        raise ValueError("k must be at least 1")
     if not 0.0 <= lam <= 1.0:
         raise ValueError("lam must be in [0, 1]")
     return (1.0, 0.0) if int(k) == 1 else (1.0 - lam, lam)
@@ -290,6 +367,71 @@ def folded_lambda_return(
     return w1 * t1 + wk * tk
 
 
+_MISSING_ROW = object()
+
+
+def exact_lambda_return(
+    stream: sa.SuccStream,
+    k: int,
+    v_succ: Mapping[str, np.ndarray],
+    *,
+    lam: float = LAMBDA,
+    discount_years: float = DISCOUNT_YEARS,
+) -> Any:
+    """Exact truncated lambda-return [4] (raw) when successor rows exist at decisions 1..k.
+
+    ``G_t = r_t + g_t [(1 - lam) V(s_{t+1}) + lam G_{t+1}]``, ``G_k = V(s_k)``, with
+    ``g_t = exp(-years_t / discount_years)``. Semantics as ``successor_target``: a focal
+    camp terminated at decision j closes with zero future (``G_{j-1} = r_{j-1}``; rows
+    after it are not needed); inactive status or a missing step gives None. A live
+    decision without a row returns the module sentinel ``_MISSING_ROW`` (the caller may
+    fall back to the fold).
+    """
+    if int(k) < 1:
+        raise ValueError("k must be at least 1")
+    if not 0.0 <= lam <= 1.0:
+        raise ValueError("lam must be in [0, 1]")
+    steps: list[tuple[np.ndarray, float, np.ndarray | None]] = []
+    for j in range(int(k)):
+        if j >= len(stream.rewards):
+            return None
+        g = math.exp(-float(stream.years[j]) / discount_years)
+        status = stream.status.get(j + 1)
+        if status == "terminated":
+            steps.append((stream.rewards[j], g, None))
+            break
+        if status != "live":
+            return None
+        row = stream.row.get(j + 1)
+        if row is None:
+            return _MISSING_ROW
+        value = np.asarray([v_succ[h][row] for h in COMPONENTS], dtype=np.float64)
+        steps.append((stream.rewards[j], g, value))
+    reward, g, value = steps[-1]
+    ret = reward + (0.0 if value is None else g * value)  # G_{k-1} = r + g V(s_k)
+    for reward, g, value in reversed(steps[:-1]):
+        ret = reward + g * ((1.0 - lam) * value + lam * ret)
+    return np.asarray(ret, dtype=np.float64)
+
+
+def lambda_return(
+    stream: sa.SuccStream,
+    k: int,
+    v_succ: Mapping[str, np.ndarray],
+    *,
+    lam: float = LAMBDA,
+    discount_years: float = DISCOUNT_YEARS,
+) -> tuple[np.ndarray | None, bool]:
+    """(lambda-return [4] raw or None, exact?). Exact recursion when rows exist at every
+    decision 1..k (``labor_branches`` exports them); otherwise the 0.05/0.95 fold over
+    s_1 and s_k (export v2); None when neither is available."""
+    exact = exact_lambda_return(stream, k, v_succ, lam=lam, discount_years=discount_years)
+    if exact is not _MISSING_ROW:
+        return exact, exact is not None
+    fold = folded_lambda_return(stream, k, v_succ, lam=lam, discount_years=discount_years)
+    return fold, False
+
+
 @dataclass(frozen=True)
 class PairedTarget:
     """``G(s, a) - G(s, b)`` for the actor's two sampled actions at one state."""
@@ -298,6 +440,7 @@ class PairedTarget:
     k: int
     streams: tuple[int, ...]
     weight: float  # 1 / selection probability
+    exact: bool = True  # every stream on both sides used the exact recursion (else fold)
 
 
 def _shared_streams(
@@ -320,26 +463,31 @@ def paired_target(
     lam: float = LAMBDA,
     discount_years: float = DISCOUNT_YEARS,
 ) -> PairedTarget | None:
-    """Folded lambda-return difference between two CRN branches of the same state.
+    """Lambda-return difference between two CRN branches of the same state.
 
-    Streams are paired by index (same stream = same common random numbers); the result is
-    the mean over shared streams of ``G_a - G_b``. None when no stream is shared or any
-    shared stream's target is unavailable on either side (strict: no partial averages).
+    Each side uses ``lambda_return`` (exact recursion when every successor row exists,
+    else the fold). Streams are paired by index (same stream = same common random
+    numbers); the result is the mean over shared streams of ``G_a - G_b``. None when no
+    stream is shared or any shared stream's target is unavailable on either side
+    (strict: no partial averages). ``exact`` reports whether every return was exact.
     """
     if not 0.0 < selection_probability <= 1.0:
         raise ValueError("selection probability must be in (0, 1]")
+    if not 1 <= int(k) <= MAX_PAIRED_HORIZON:
+        raise ValueError(f"k must be in 1..{MAX_PAIRED_HORIZON}")
     by_a, by_b, shared = _shared_streams(streams_a, streams_b)
     if not shared:
         return None
-    diffs = []
+    diffs, exact = [], True
     for s in shared:
-        ga = folded_lambda_return(by_a[s], k, v_succ, lam=lam, discount_years=discount_years)
-        gb = folded_lambda_return(by_b[s], k, v_succ, lam=lam, discount_years=discount_years)
+        ga, ea = lambda_return(by_a[s], k, v_succ, lam=lam, discount_years=discount_years)
+        gb, eb = lambda_return(by_b[s], k, v_succ, lam=lam, discount_years=discount_years)
         if ga is None or gb is None:
             return None
         diffs.append(ga - gb)
+        exact = exact and ea and eb
     return PairedTarget(
-        np.mean(diffs, axis=0), int(k), tuple(shared), 1.0 / float(selection_probability)
+        np.mean(diffs, axis=0), int(k), tuple(shared), 1.0 / float(selection_probability), exact
     )
 
 
@@ -391,7 +539,7 @@ def single_action_target(
         return None
     values = []
     for s in streams:
-        g = folded_lambda_return(s, k, v_succ, lam=lam, discount_years=discount_years)
+        g, _ = lambda_return(s, k, v_succ, lam=lam, discount_years=discount_years)
         if g is None:
             return None
         values.append(g)
@@ -426,7 +574,7 @@ class PairBatch:
     features_a: torch.Tensor  # [P, ACTION_FEATURE_WIDTH]
     features_b: torch.Tensor  # [P, ACTION_FEATURE_WIDTH]
     target: torch.Tensor  # [P, 4] head units: G_a - G_b
-    weight: torch.Tensor  # [P] (1/p, optionally times inverse noise variance)
+    weight: torch.Tensor  # [P] 1/p times inverse noise variance (combined by the caller)
 
 
 @dataclass
@@ -587,18 +735,36 @@ def stage2_fit_step(
 # 4. Control variate (Q-Prop style, per policy head)
 # ---------------------------------------------------------------------------
 #
-# Policy pi(a|s) = prod_h pi_h(a_h|s) (heads conditionally independent given s). For head h
-# with a connection coefficient eta_h in {0, 1}, the per-sample policy gradient is
+# Factorization of the labor actor (checked at 90eee94, ``labor_model.LaborActor``):
+# ``forward`` computes every head's distribution parameters from the state alone
+# (specialty/activity from the specialty and activity tokens, movement from the hidden
+# state and site/region rows, fission from the hidden state, trade value/gate from the
+# trade tokens, trade share from the hidden state); ``sample_labor_policy`` and
+# ``sample_nonlabor_policy`` draw each head with independent noise and no head's
+# parameters read another head's sample. So the initial-edge heads are CONDITIONALLY
+# INDEPENDENT given s: pi(a|s) = prod_h pi_h(a_h|s), and ``labor_log_prob`` /
+# ``nonlabor_log_prob`` already return the per-head terms (specialty, activity; movement,
+# fission, trade_value, trade_gate, trade_share). The one sequential element is the retry
+# edge: after a typed feasibility rejection labor is resampled on the retry state. That
+# is a separate decision edge with its own state, not a parent-child pair within one
+# action; keep it on V-only GAE (eta = 0) unless A is fitted on retry states.
 #
-#   g_h = grad log pi_h(a_h|s) * [GAE - eta_h (A(s,a) - Abar(s))] + eta_h grad_h E_h(s),
-#   E_h(s) = E_{a_h' ~ pi_h}[A(s, a_h', a_{-h})]   (a_{-h} the sampled other heads),
-#   Abar(s) = E_{a ~ pi}[A(s, a)]                    (state-only; ~0 for the actor-centred A),
+# General rule (chain rule, covers autoregressive actors too): with
+# pi(a|s) = prod_h pi_h(a_h | s, parents(h)) and a connection coefficient eta_h in {0, 1},
+# the per-sample policy gradient of head h is
 #
-# where grad_h differentiates only through head h's distribution. Since
-# E_{a_h}[grad log pi_h * A(s, a)] = grad_h E_h(s) and Abar(s) does not depend on a_h,
-# E[g_h] equals the V-only GAE gradient for ANY A and ANY state-only Abar: a stale or wrong
-# A only changes variance. Abar is subtracted (rather than E_h, also admissible) because
-# GAE - A(s,a) + Abar(s) is close to pure noise when A is right, whereas GAE - A + E_h
+#   g_h = grad log pi_h(a_h|s, pa_h) * [GAE - eta_h (A(s,a) - Abar(s))] + eta_h grad_h E_h,
+#   E_h = E_{a_h ~ pi_h(.|s, pa_h), desc(h) ~ pi(.|s, pa_h, a_h, ...)}[A(s, a)]
+#         with the parents pa_h and every non-descendant head held at their sampled values,
+#   Abar(s) = E_{a ~ pi}[A(s, a)]   (state-only; ~0 for the actor-centred A),
+#
+# where grad_h differentiates only through head h's own distribution. E_h integrates over
+# a_h AND its descendants (they move when a_h moves); for independent heads it reduces to
+# E_{a_h ~ pi_h}[A(s, a_h, a_{-h})]. Since E[grad log pi_h * A | s, pa_h, non-desc] =
+# grad_h E_h and Abar(s) depends on no action, E[g_h] equals the V-only GAE gradient for
+# ANY A and ANY state-only Abar: a stale or wrong A only changes variance. Abar is
+# subtracted (rather than E_h, also admissible as it is free of a_h and its descendants)
+# because GAE - A(s,a) + Abar(s) is close to pure noise when A is right, whereas GAE - A + E_h
 # keeps the other heads' advantage. With the stage-2 anchor (A centred on the actor's own
 # samples) Abar is the anchor mean, i.e. ~0. All quantities are in one combined unit
 # (per-objective GAE and A, after ``to_raw_units``, through
@@ -849,13 +1015,15 @@ class WarmupDecision:
     gates: dict[str, bool]
     reasons: list[str]
     streak: int
+    alarm: bool = False  # in ``gae``: the gates failed again (V degraded online)
 
 
 @dataclass
 class WarmupSwitch:
-    """Latching state machine: stays in ``warmup`` until ``consecutive`` reports in a row
+    """One-way state machine: stays in ``warmup`` until ``consecutive`` reports in a row
     pass all three gates (V calibration, per-world TD split, dry-run KL), then ``gae``
-    for good. An unset threshold fails its gate (fail closed)."""
+    for good. An unset threshold fails its gate (fail closed). After the switch a failing
+    report never reverts the phase; it raises ``alarm`` on the decision instead."""
 
     thresholds: WarmupThresholds = field(default_factory=WarmupThresholds)
     phase: str = "warmup"
@@ -907,6 +1075,7 @@ class WarmupSwitch:
             self.streak = self.streak + 1 if passed else 0
             if self.streak >= max(1, int(self.thresholds.consecutive)):
                 self.phase = "gae"
-        decision = WarmupDecision(self.phase, passed, gates, reasons, self.streak)
+        alarm = self.phase == "gae" and not passed
+        decision = WarmupDecision(self.phase, passed, gates, reasons, self.streak, alarm)
         self.history.append(decision)
         return decision

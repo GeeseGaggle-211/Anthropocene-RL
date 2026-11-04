@@ -14,6 +14,7 @@ from test_labor_privileged_model import _critics, _layout
 
 from anthropocene_rl.autonomous_v7 import labor_a_stage2 as s2
 from anthropocene_rl.autonomous_v7 import labor_advantage as la
+from anthropocene_rl.autonomous_v7 import labor_sa_advantage as sa
 from anthropocene_rl.autonomous_v7.labor_sa_advantage import SuccStream
 
 G20 = math.exp(-20.0 / 400.0)
@@ -485,3 +486,141 @@ def test_warmup_switch_fails_closed_and_latches() -> None:
     assert sw.update(_report(slope=2.0)).phase == "gae"  # latched
     td = s2.per_world_td([1, 1, 2], [0.1, 0.3, -0.2])
     assert td[1]["mean"] == pytest.approx(0.2) and td[2]["n"] == 1
+
+
+# --- follow-up: exact lambda-return ---------------------------------------------------------
+
+
+def test_exact_lambda_return_matches_hand_recursion_and_limits() -> None:
+    lam = 0.95
+    v = _v_succ({1: 10.0, 2: 15.0, 3: 20.0})
+    scale = np.arange(1, 5)
+    r = np.array([[1.0] * 4, [2.0] * 4, [3.0] * 4])
+    full = SuccStream(
+        0, r, np.full(3, 20.0), False, {1: "live", 2: "live", 3: "live"}, {1: 1, 2: 2, 3: 3}
+    )
+    g3 = r[2] + G20 * 20.0 * scale
+    g2 = r[1] + G20 * ((1 - lam) * 15.0 * scale + lam * g3)
+    g1 = r[0] + G20 * ((1 - lam) * 10.0 * scale + lam * g2)
+    value, exact = s2.lambda_return(full, 3, v, lam=lam)
+    assert exact and np.allclose(value, g1)
+    # lam = 1 is the plain k-step target, lam = 0 the one-step target.
+    one = s2.exact_lambda_return(full, 3, v, lam=1.0)
+    assert np.allclose(one, sa.successor_target(full, 3, v))
+    zero = s2.exact_lambda_return(full, 3, v, lam=0.0)
+    assert np.allclose(zero, sa.successor_target(full, 1, v))
+    # Terminated at decision 2: G_1 = r_1, no row needed after it.
+    dead = SuccStream(0, r[:2], np.full(2, 20.0), True, {1: "live", 2: "terminated"}, {1: 1})
+    want = r[0] + G20 * ((1 - lam) * 10.0 * scale + lam * r[1])
+    value, exact = s2.lambda_return(dead, 3, v, lam=lam)
+    assert exact and np.allclose(value, want)
+    # Inactive -> unavailable.
+    gone = SuccStream(0, r, np.full(3, 20.0), False, {1: "live", 2: "inactive"}, {1: 1})
+    assert s2.lambda_return(gone, 3, v) == (None, False)
+
+
+def test_lambda_return_falls_back_to_the_fold_without_intermediate_rows() -> None:
+    v = _v_succ({1: 10.0, 3: 20.0, 11: 5.0, 12: 6.0, 13: 7.0})
+    a = _stream(0, [[1] * 4, [2] * 4, [3] * 4], rows=(1, 3))  # export v2: s_1 and s_k only
+    value, exact = s2.lambda_return(a, 3, v)
+    assert not exact
+    assert np.allclose(value, s2.folded_lambda_return(a, 3, v))
+    b = SuccStream(
+        0,
+        np.zeros((3, 4)),
+        np.full(3, 20.0),
+        False,
+        {1: "live", 2: "live", 3: "live"},
+        {1: 11, 2: 12, 3: 13},
+    )
+    pt = s2.paired_target([a], [b], 3, v, selection_probability=0.5)
+    assert not pt.exact  # one side folded
+    assert np.allclose(pt.value, s2.folded_lambda_return(a, 3, v) - s2.exact_lambda_return(b, 3, v))
+    pt_b = s2.paired_target([b], [b], 3, v, selection_probability=0.5)
+    assert pt_b.exact and np.allclose(pt_b.value, 0.0)
+
+
+# --- follow-up: autoregressive two-head control variate -------------------------------------
+
+BETA = 0.8  # head 2 (Gaussian) mean = MU + BETA * a1: a child of head 1
+
+
+def _ar_true_gradient() -> np.ndarray:
+    pi = _pi()
+    k = np.arange(3)
+    m = MU + BETA * k
+    big_m = R_TAB + 2 * m - 0.5 * (m**2 + 1) + 0.7 * (k == 1) * m
+    j = pi @ big_m
+    dm = 2 - m + 0.7 * (k == 1)
+    return np.r_[pi * (big_m - j), pi @ dm, pi @ (dm * k)]
+
+
+def _ar_batch(n: int, seed: int, a_fn, *, integrate_children: bool = True):
+    rng = np.random.default_rng(seed)
+    pi = _pi()
+    a1 = rng.choice(3, size=n, p=pi)
+    mean2 = MU + BETA * a1
+    a2 = mean2 + rng.standard_normal(n)
+    reward = _reward_mean(a1, a2) + 0.5 * rng.standard_normal(n)
+    gae = reward - _ar_value()  # V-only, exact V
+    x, w = np.polynomial.hermite_e.hermegauss(12)
+    w = w / w.sum()
+    # n_k = E_{a2 ~ N(MU + BETA k)} A(k, a2): head 1's E integrates over its child.
+    n_k = np.array([a_fn(np.full(len(x), k), MU + BETA * k + x) @ w for k in range(3)])
+    if integrate_children:
+        a_all = np.broadcast_to(n_k, (n, 3))
+    else:  # wrong for this actor: child held at its sample
+        a_all = np.stack([a_fn(np.full(n, k), a2) for k in range(3)], axis=1)
+    e1 = a_all @ pi
+    grad_e1 = pi * (a_all - e1[:, None])
+    vals = np.stack([a_fn(a1, mean2 + p) for p in x], axis=1)  # [n, q]
+    stein = (vals * x) @ w  # d/dmean E_{N(mean,1)} A(a1, .)
+    grad_e2 = np.stack([stein, stein * a1], axis=1)  # wrt (MU, BETA), parent a1 fixed
+    score2 = (a2 - mean2)[:, None] * np.stack([np.ones(n), a1], axis=1)
+    t = lambda z: torch.as_tensor(z, dtype=torch.float64)  # noqa: E731
+    return {
+        "gae": t(gae),
+        "a_exec": t(a_fn(a1, a2)),
+        "a_mean": t(np.full(n, pi @ n_k)),
+        "score": {"cat": t(np.eye(3)[a1] - pi), "gauss": t(score2)},
+        "corr": {"cat": t(grad_e1), "gauss": t(grad_e2)},
+    }
+
+
+def _ar_value() -> float:
+    pi = _pi()
+    k = np.arange(3)
+    m = MU + BETA * k
+    return float(pi @ (R_TAB + 2 * m - 0.5 * (m**2 + 1) + 0.7 * (k == 1) * m))
+
+
+def test_control_variate_is_unbiased_for_an_autoregressive_two_head_policy() -> None:
+    """Head 2's mean depends on head 1's sample. Same 4-SE tolerance as the factorised
+    test. Head 1's E must integrate over its child head; holding the child at its sample
+    (the factorised formula) is biased here and the test detects it."""
+    true = _ar_true_gradient()
+    batch = _ar_batch(400_000, seed=2027, a_fn=_wrong_a)
+    for eta in ({"cat": 0.0, "gauss": 0.0}, {"cat": 1.0, "gauss": 1.0}, {"cat": 0.0, "gauss": 1.0}):
+        est = _estimates(batch, eta)
+        se = est.std(axis=0, ddof=1) / math.sqrt(len(est))
+        assert (np.abs(est.mean(axis=0) - true) < 4 * se).all(), (eta, est.mean(axis=0), true)
+    naive = _ar_batch(400_000, seed=2027, a_fn=_wrong_a, integrate_children=False)
+    est = _estimates(naive, {"cat": 1.0, "gauss": 1.0})
+    se = est.std(axis=0, ddof=1) / math.sqrt(len(est))
+    assert (np.abs(est.mean(axis=0)[:3] - true[:3]) > 4 * se[:3]).any()
+    # And a good A still cuts the variance of both heads by the D7 margin.
+    good = _ar_batch(20_000, seed=5, a_fn=_true_a)
+    _, mask = s2.measure_head_variance(
+        good["score"], good["gae"], good["a_exec"], good["a_mean"], good["corr"]
+    )
+    assert mask == {"cat": True, "gauss": True}
+
+
+def test_warmup_alarm_after_the_one_way_switch() -> None:
+    sw = s2.WarmupSwitch(s2.WarmupThresholds(td_split_fraction=0.1, kl_bound=0.05))
+    first = sw.update(_report())
+    assert first.phase == "gae" and not first.alarm
+    bad = sw.update(_report(slope=2.0))
+    assert bad.phase == "gae" and bad.alarm and not bad.passed
+    assert not sw.update(_report()).alarm
+    assert not s2.WarmupSwitch().update(_report()).alarm  # no alarm while warming up
