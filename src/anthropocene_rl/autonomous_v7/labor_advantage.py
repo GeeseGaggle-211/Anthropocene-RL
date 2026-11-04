@@ -512,50 +512,106 @@ def q_pi_enabled(gate: QPiGate | None) -> bool:
     return isinstance(gate, QPiGate) and gate.open
 
 
-def _gumbel_softmax(
-    logits: torch.Tensor, mask: torch.Tensor | None, temperature: float, generator: torch.Generator
-) -> torch.Tensor:
+# Noise keys of one reparameterized draw, in generator consumption order.
+REPARAMETERIZED_DRAW_KEYS: tuple[str, ...] = (
+    "specialty_noise",
+    "activity_noise",
+    "movement_gumbel",
+    "fission_gumbel",
+    "trade_gate_gumbel",
+    "trade_value_noise",
+    "trade_share_noise",
+)
+
+
+@dataclass(frozen=True)
+class ReparameterizedDraw:
+    """One reparameterized draw: its noises and the action the actor executes.
+
+    ``noises`` holds every key of :data:`REPARAMETERIZED_DRAW_KEYS` (detached) and
+    can be passed back as ``draws=`` to reproduce the vector without a generator.
+    ``labor_sample`` and ``nonlabor_sample`` have the field sets of
+    ``sample_labor_policy`` / ``sample_nonlabor_policy`` (detached), and
+    ``actions`` are their serialized schema-12 wire actions
+    (``schema12_initial_action``), one per row.
+    """
+
+    noises: dict[str, torch.Tensor]
+    labor_sample: dict[str, torch.Tensor]
+    nonlabor_sample: dict[str, torch.Tensor]
+    actions: list[dict[str, Any]]
+
+
+def _gumbel_noise(logits: torch.Tensor, generator: torch.Generator) -> torch.Tensor:
     uniform = torch.rand(
         logits.shape, dtype=logits.dtype, device=logits.device, generator=generator
     ).clamp(1e-10, 1.0 - 1e-10)
-    noisy = (logits - torch.log(-torch.log(uniform))) / temperature
+    return -torch.log(-torch.log(uniform))
+
+
+def _gumbel_relaxation(
+    logits: torch.Tensor, gumbel: torch.Tensor, mask: torch.Tensor | None, temperature: float
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """(soft Gumbel-softmax at ``temperature``, executed index ``argmax(logits + g)``)."""
+    noisy = logits + gumbel
     if mask is not None:
         noisy = noisy.masked_fill(~mask, -torch.inf)
-    return torch.softmax(noisy, dim=-1)
+    return torch.softmax(noisy / temperature, dim=-1), noisy.detach().argmax(dim=-1)
 
 
 def reparameterized_action_features(
     output: Mapping[str, torch.Tensor],
     tensors: Mapping[str, torch.Tensor],
     *,
-    generator: torch.Generator,
+    generator: torch.Generator | None = None,
     gate: QPiGate | None = None,
     temperature: float = 1.0,
     population: torch.Tensor | Sequence[int] | None = None,
-) -> torch.Tensor:
+    draws: Mapping[str, torch.Tensor] | None = None,
+    return_draw: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, ReparameterizedDraw]:
     """The action vector of a reparameterized sample from the actor's output heads.
 
-    Labor shares are the additive-log-ratio Gaussian draws the actor samples
-    (``mean + eps * std``, masked softmax); categorical heads (movement union,
-    fission, trade gates) use Gumbel-softmax relaxations; trade values and the
-    trade share use their Gaussian latents through the executed transforms.
+    One draw: labor shares are the additive-log-ratio Gaussian draws of
+    ``sample_labor_policy`` (``mean + eps * std``, masked softmax); each categorical
+    head (movement union under its legality mask, fission, every trade gate) draws
+    Gumbel noise ``g`` and executes ``argmax(logits + g)``; trade value and share
+    are the Gaussian latents of ``sample_nonlabor_policy``.
+
+    **Forward value = the executed action, bitwise.** The sampled heads are
+    serialized exactly as the actor submits them (``schema12_initial_action``,
+    whose labor simplexes go through ``LaborPolicySample.payload``) and encoded
+    with :func:`action_features` (``population=`` the root's residents), the
+    function the search reader and the action adapter use. So the specialty
+    block is the post-apportionment share of the *serialized* wire shares,
+    unstaffed roles' activity rows are exactly neutral, the categorical blocks
+    are the executed one-hots, the trade value is ``log(clamp(v, 0.25, 4)) / log 4``
+    of the executed ``v`` and the trade share is the serializer's per-row sigmoid.
+
+    **Gradient = the continuous relaxation.** Every block is
+    ``hard + (soft - soft.detach())`` (forward exactly ``hard``): ``soft`` is the
+    continuous labor share, the Gumbel-softmax at ``temperature`` for the
+    categoricals, ``clamp(latent) / log 4`` for the trade value and the batched
+    sigmoid for the share. The relaxation is gradient-only, never a value.
 
     With the gate closed (the default) every actor output is detached first:
     the vector is a sample of the actor's distribution but no gradient can reach
     an actor parameter. Only an open :class:`QPiGate` makes it differentiable.
 
-    ``population`` (one root camp population per row): the specialty block is
-    the **post-apportionment** share (:func:`apportioned_specialty`), exactly the
-    encoding of the executed action on the search side. Largest-remainder
-    apportionment is piecewise constant, so it has no useful gradient: the block
-    is a straight-through estimator ``hard + (soft - soft.detach())`` whose
-    forward value is exactly the apportioned share and whose gradient is the
-    gradient of the continuous share (gradient-only; never used as a value). The
-    activity rows of roles apportioned zero residents forward the neutral row (all
-    idle) exactly, with the same straight-through gradient.
-    Without ``population`` the block is the continuous requested share: use
-    that only on the gradient path, never to evaluate or encode an action.
+    Noise: ``generator`` draws, in :data:`REPARAMETERIZED_DRAW_KEYS` order,
+    specialty and activity ALR noise, Gumbel uniforms for movement, fission and
+    the trade gates, then trade-value and trade-share Gaussian noise (the order
+    before the executed-forward change). ``draws`` (every key, the heads' shapes;
+    Gumbel entries are ``g`` itself, not uniforms) replaces the generator, which
+    is then not consumed. ``return_draw=True`` also returns the
+    :class:`ReparameterizedDraw` (noises, retained samples and wire actions).
+
+    Without ``population`` the hard vector is :func:`action_features` of the wire
+    action without a population (raw serialized shares, the historical layout):
+    use that only on the gradient path, never to evaluate or encode an action.
     """
+    from .labor_model import schema12_initial_action
+
     assert_actor_batch(tensors)
     if not q_pi_enabled(gate):
         output = {
@@ -564,6 +620,8 @@ def reparameterized_action_features(
         }
     if not math.isfinite(temperature) or temperature <= 0:
         raise ValueError("Gumbel-softmax temperature must be positive")
+    if draws is None and generator is None:
+        raise ValueError("a reparameterized draw needs a generator or injected draws")
     specialty_logits = output["specialty_logits"]
     batch = specialty_logits.shape[0]
     specialty_mask, activity_mask = _masks(tensors, batch)
@@ -572,80 +630,132 @@ def reparameterized_action_features(
         len(ACTIVITIES),
     ):
         raise ValueError("actor output rows differ from the catalog registry")
-
-    def draw(logits: torch.Tensor, log_std: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        mean = logits - logits[..., :1]
-        other = mask.clone()
-        other[..., 0] = False
-        noise = torch.randn(
-            logits.shape, dtype=logits.dtype, device=logits.device, generator=generator
-        )
-        latent = torch.where(other, mean + noise * log_std.exp(), torch.zeros_like(mean))
-        return _masked_softmax(latent, mask)
-
-    specialty = draw(specialty_logits, output["specialty_log_std"], specialty_mask)
+    movement_logits = output["movement_union_logits"]
+    movement_mask = output["movement_union_mask"]
+    movement_codes = output["movement_codes"]
+    if not torch.equal(movement_codes.cpu(), torch.tensor(MOVEMENT_UNION_CODES, dtype=torch.long)):
+        raise ValueError("actor movement codes differ from the action-vector movement union")
+    counts: list[int] | None = None
     if population is not None:
         counts = [int(p) for p in torch.as_tensor(population).reshape(-1).tolist()]
         if len(counts) != batch:
             raise ValueError("one root population per reparameterized row")
-        soft = specialty.detach().double().cpu().numpy()
-        hard = torch.as_tensor(
-            np.stack([apportioned_specialty(row, p) for row, p in zip(soft, counts, strict=True)]),
-            dtype=torch.float64,
-        ).to(dtype=specialty.dtype, device=specialty.device)
-        # Forward value exactly ``hard`` (x - x == 0); gradient of the continuous share.
-        specialty = hard + (specialty - specialty.detach())
-    activity = draw(output["activity_logits"], output["activity_log_std"], activity_mask)
-    if population is not None:
-        # Unstaffed roles (zero apportioned residents) forward the neutral activity row
-        # exactly; straight-through gradient of the continuous row (gradient-only).
-        staffed = torch.as_tensor(
-            np.stack(
-                [
-                    apportion_specialty_counts(row, p)[1:] > 0
-                    for row, p in zip(soft, counts, strict=True)
-                ]
-            ),
-            device=activity.device,
-        )
-        neutral = torch.zeros_like(activity)
-        neutral[..., NEUTRAL_ACTIVITY] = 1.0
-        hard_activity = torch.where(staffed.unsqueeze(-1), activity.detach(), neutral)
-        activity = hard_activity + (activity - activity.detach())
-    movement_logits = output["movement_union_logits"]
-    movement_mask = output["movement_union_mask"]
-    if not torch.equal(
-        output["movement_codes"].cpu(), torch.tensor(MOVEMENT_UNION_CODES, dtype=torch.long)
-    ):
-        raise ValueError("actor movement codes differ from the action-vector movement union")
-    movement = _gumbel_softmax(movement_logits, movement_mask, temperature, generator)
-    fission = _gumbel_softmax(output["fission"], None, temperature, generator)
-    gate_rows = _gumbel_softmax(output["trade_gate"], None, temperature, generator)
-    value_mean, value_std = output["trade_value_mean"], output["trade_value_log_std"].exp()
-    value_noise = torch.randn(
-        value_mean.shape, dtype=value_mean.dtype, device=value_mean.device, generator=generator
+    value_mean, value_log_std = output["trade_value_mean"], output["trade_value_log_std"]
+    share_mean, share_log_std = output["trade_share_mean"], output["trade_share_log_std"]
+
+    heads = {
+        "specialty_noise": specialty_logits,
+        "activity_noise": output["activity_logits"],
+        "movement_gumbel": movement_logits,
+        "fission_gumbel": output["fission"],
+        "trade_gate_gumbel": output["trade_gate"],
+        "trade_value_noise": value_mean,
+        "trade_share_noise": share_mean,
+    }
+    noise: dict[str, torch.Tensor] = {}
+    if draws is not None:
+        if set(draws) != set(REPARAMETERIZED_DRAW_KEYS):
+            raise ValueError(f"injected draws must hold exactly {list(REPARAMETERIZED_DRAW_KEYS)}")
+        for key, like in heads.items():
+            value = draws[key]
+            if not isinstance(value, torch.Tensor) or value.shape != like.shape:
+                raise ValueError(f"injected draw {key} differs from its head's shape")
+            noise[key] = value.detach().to(dtype=like.dtype, device=like.device)
+    else:
+        # Fixed generator consumption order (REPARAMETERIZED_DRAW_KEYS).
+        for key in REPARAMETERIZED_DRAW_KEYS:
+            like = heads[key]
+            if key.endswith("_gumbel"):
+                noise[key] = _gumbel_noise(like, generator)
+            else:
+                noise[key] = torch.randn(
+                    like.shape, dtype=like.dtype, device=like.device, generator=generator
+                )
+
+    def alr(
+        logits: torch.Tensor, log_std: torch.Tensor, mask: torch.Tensor, eps: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # Same expressions as labor_model.sample_labor_policy.
+        mean = logits - logits[..., :1]
+        other = mask.clone()
+        other[..., 0] = False
+        latent = torch.where(other, mean + eps * log_std.exp(), torch.zeros_like(mean))
+        return latent, _masked_softmax(latent, mask)
+
+    specialty_latent, specialty = alr(
+        specialty_logits, output["specialty_log_std"], specialty_mask, noise["specialty_noise"]
     )
-    log_value = (value_mean + value_noise * value_std).clamp(_LOG_TRADE_LOW, _LOG_TRADE_HIGH)
-    share_mean, share_std = output["trade_share_mean"], output["trade_share_log_std"].exp()
-    share_noise = torch.randn(
-        share_mean.shape, dtype=share_mean.dtype, device=share_mean.device, generator=generator
+    activity_latent, activity = alr(
+        output["activity_logits"],
+        output["activity_log_std"],
+        activity_mask,
+        noise["activity_noise"],
     )
-    share = torch.sigmoid(share_mean + share_noise * share_std)
-    vector = torch.cat(
+    movement, movement_index = _gumbel_relaxation(
+        movement_logits, noise["movement_gumbel"], movement_mask, temperature
+    )
+    fission, fission_index = _gumbel_relaxation(
+        output["fission"], noise["fission_gumbel"], None, temperature
+    )
+    gate_rows, gate_index = _gumbel_relaxation(
+        output["trade_gate"], noise["trade_gate_gumbel"], None, temperature
+    )
+    # Same latent expressions as labor_model.sample_nonlabor_policy.
+    value_latent = value_mean + noise["trade_value_noise"] * value_log_std.exp()
+    share_latent = share_mean + noise["trade_share_noise"] * share_log_std.exp()
+    soft = torch.cat(
         [
             specialty,
             activity.reshape(batch, -1),
             movement,
             fission,
             gate_rows.reshape(batch, -1),
-            log_value / _LOG_TRADE_SCALE,
-            share.unsqueeze(-1),
+            value_latent.clamp(_LOG_TRADE_LOW, _LOG_TRADE_HIGH) / _LOG_TRADE_SCALE,
+            torch.sigmoid(share_latent).unsqueeze(-1),
         ],
         dim=-1,
     )
-    if vector.shape[-1] != ACTION_FEATURE_WIDTH:
+    if soft.shape[-1] != ACTION_FEATURE_WIDTH:
         raise ValueError("reparameterized action vector width differs from the fixed layout")
-    return vector
+
+    # The executed action: the retained samples, serialized by the actor's own wire path.
+    labor_sample = {
+        "specialty_allocation": specialty.detach(),
+        "activity_allocation": activity.detach(),
+        "specialty_latent": specialty_latent.detach(),
+        "activity_latent": activity_latent.detach(),
+        "specialty_mask": specialty_mask.clone(),
+        "activity_mask": activity_mask.clone(),
+    }
+    nonlabor_sample = {
+        "movement_index": movement_index,
+        "movement": movement_codes[movement_index],
+        "fission": fission_index,
+        "trade_value_latent": value_latent.detach(),
+        "trade_gate": gate_index,
+        "trade_share_latent": share_latent.detach(),
+        "movement_mask": movement_mask.clone(),
+        "movement_codes": movement_codes.clone(),
+    }
+    actions = [schema12_initial_action(labor_sample, nonlabor_sample, row) for row in range(batch)]
+    hard = torch.as_tensor(
+        np.stack(
+            [
+                action_features(action, population=None if counts is None else counts[row])
+                for row, action in enumerate(actions)
+            ]
+        )
+    ).to(dtype=soft.dtype, device=soft.device)
+    # Forward value exactly ``hard`` (x - x == 0); gradient of the continuous relaxation.
+    vector = hard + (soft - soft.detach())
+    if not return_draw:
+        return vector
+    return vector, ReparameterizedDraw(
+        noises={key: noise[key].detach() for key in REPARAMETERIZED_DRAW_KEYS},
+        labor_sample=labor_sample,
+        nonlabor_sample=nonlabor_sample,
+        actions=actions,
+    )
 
 
 # ---------------------------------------------------------------------------
