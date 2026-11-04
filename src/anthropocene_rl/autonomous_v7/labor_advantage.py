@@ -203,6 +203,17 @@ REGRESSION_WEIGHT = 0.1
 TOP_K = 4
 FULL_EVALUATION_FRACTION = 0.20
 EMBEDDING_WIDTH = 128
+# Target sources of the fit: "pairs" (historical same-root pairs, pairwise_loss) and
+# the stage-1 search-pretraining lambda-return targets (labor_a_stage1, anchored Huber).
+PAIR_TARGET_SOURCE = "pairs"
+LAMBDA_TARGET_SOURCE = "lambda-successor-v1"
+TARGET_SOURCES = (PAIR_TARGET_SOURCE, LAMBDA_TARGET_SOURCE)
+# Stage-1 loss/mask defaults (A(s,a) spec, approved 4 Nov 2026; see labor_a_stage1).
+HUBER_SE_MULTIPLIER = 1.345  # Huber delta = 1.345 x the row's target noise SE
+STAGE1_MASKED_BLOCKS = ("trade_value_log", "trade_share")  # never perturbed by search (D5)
+BLOCK_SUPPORT_FLOOR = 30  # fit rows whose block differs from H12's; fewer -> block held at 0
+VARIANCE_FLOOR_FRACTION = 0.25  # per-candidate variance >= 0.25 x pooled single-stream variance
+SE_ABS_FLOOR = 1e-3  # reference-scale units
 DEFAULT_OBJECTIVE_HORIZONS: dict[str, tuple[int, ...] | None] = {
     # QoL is predictable over 1-3 decisions and noise over 25 (qol-diag report).
     "qol_years": (1, 2, 3),
@@ -250,12 +261,51 @@ def movement_union_index(code: int) -> int:
         raise ValueError(f"movement code {code} is not in the actor movement union") from None
 
 
+def apportion_specialty_counts(shares: Sequence[float], population: int) -> np.ndarray:
+    """Native residents per specialty for canonical-order ``shares`` and ``population``.
+
+    The shares go through the native ingestion canonicalization
+    (``labor_bridge._simplex`` with every coordinate legal: a masked coordinate
+    carries zero mass, so the result equals the catalog-masked parse) and then
+    the native stable largest-remainder apportionment
+    (``labor_bridge.apportion_largest_remainder``) -- exactly
+    ``labor_search.labor_state``. Shares that miss the simplex by more than the
+    native tolerance (float32 softmax output of the reparameterized path) are
+    renormalized first; an exact simplex is never renormalized, so a serialized
+    action and its parsed copy apportion identically. A population of zero (or
+    an all-zero share vector) apportions to zero residents.
+    """
+    from .labor_bridge import SIMPLEX_TOLERANCE, _simplex, apportion_largest_remainder
+
+    values = [max(0.0, float(x)) for x in shares]
+    if len(values) != len(SPECIALTIES):
+        raise ValueError("specialty shares differ from the catalog registry")
+    population = int(population)
+    total = math.fsum(values)
+    if population <= 0 or not total > 0.0:
+        return np.zeros(len(values), dtype=np.int64)
+    if abs(total - 1.0) > SIMPLEX_TOLERANCE:
+        values = [min(1.0, v / total) for v in values]
+    canonical = _simplex(values, (True,) * len(values), "specialty shares")
+    return np.asarray(apportion_largest_remainder(canonical, population), dtype=np.int64)
+
+
+def apportioned_specialty(shares: Sequence[float], population: int) -> np.ndarray:
+    """Post-apportionment specialty shares: native residents / population (float64)."""
+    population = int(population)
+    counts = apportion_specialty_counts(shares, population)
+    if population <= 0:
+        return np.zeros(len(SPECIALTIES), dtype=np.float64)
+    return counts.astype(np.float64) / float(population)
+
+
 def action_features(
     action: Mapping[str, Any],
     *,
     specialty_ids: Sequence[str] | None = None,
     activity_ids: Sequence[str] | None = None,
     trade_groups: Sequence[str] | None = None,
+    population: int | None = None,
 ) -> np.ndarray:
     """The fixed-layout semantic vector of one executed schema-12 action.
 
@@ -264,6 +314,15 @@ def action_features(
     catalog order), and each value lands in its canonical slot. Only the seven
     semantic fields are read; every other key (schema version, descriptions,
     digests) is bookkeeping and cannot change the vector.
+
+    With ``population`` (the root camp's residents) the specialty block is
+    encoded **after** native largest-remainder apportionment
+    (:func:`apportioned_specialty`, in canonical order): the share of residents
+    the native actually staffs. Two payloads that apportion to the same
+    residents (an actor sample and the search's composed action, or H12 and its
+    bookkeeping twin) then encode identically. Without it the raw requested
+    shares are encoded (the historical layout; used only for payloads that do
+    not declare a population).
     """
     if not isinstance(action, Mapping) or any(name not in action for name in ACTION_FIELDS):
         raise ValueError(f"action must carry the schema-12 fields {list(ACTION_FIELDS)}")
@@ -284,6 +343,8 @@ def action_features(
     if (specialty_ids or SPECIALTIES)[0] != "idle":
         raise ValueError("the declared specialty order must start with idle")
     canonical_specialty = specialty[spec_pos]
+    if population is not None:
+        canonical_specialty = apportioned_specialty(canonical_specialty, population)
     canonical_activity = activity[role_pos][:, act_pos]
     movement = np.zeros(MOVEMENT_UNION)
     movement[movement_union_index(action["movement"])] = 1.0
@@ -322,6 +383,43 @@ def action_features(
     )
     assert vector.shape == (ACTION_FEATURE_WIDTH,)
     return vector.astype(np.float32)
+
+
+def encode_actions(
+    actions: Sequence[Mapping[str, Any]],
+    population: int | None,
+    *,
+    specialty_ids: Sequence[str] | None = None,
+    activity_ids: Sequence[str] | None = None,
+    trade_groups: Sequence[str] | None = None,
+) -> np.ndarray:
+    """Actor-side encoding of concrete schema-12 actions at one root, ``[n, width]``.
+
+    The same function the search payload reader uses (:func:`action_features`
+    with the root ``population``), so an action encodes identically whether it
+    came from the search export or from the actor.
+    """
+    return np.stack(
+        [
+            action_features(
+                a,
+                specialty_ids=specialty_ids,
+                activity_ids=activity_ids,
+                trade_groups=trade_groups,
+                population=population,
+            )
+            for a in actions
+        ]
+    )
+
+
+def block_slices() -> dict[str, slice]:
+    """Column range of every action block in the fixed layout."""
+    out, cursor = {}, 0
+    for name, width in ACTION_BLOCKS:
+        out[name] = slice(cursor, cursor + width)
+        cursor += width
+    return out
 
 
 @dataclass(frozen=True)
@@ -398,6 +496,7 @@ def reparameterized_action_features(
     generator: torch.Generator,
     gate: QPiGate | None = None,
     temperature: float = 1.0,
+    population: torch.Tensor | Sequence[int] | None = None,
 ) -> torch.Tensor:
     """The action vector of a reparameterized sample from the actor's output heads.
 
@@ -409,6 +508,16 @@ def reparameterized_action_features(
     With the gate closed (the default) every actor output is detached first:
     the vector is a sample of the actor's distribution but no gradient can reach
     an actor parameter. Only an open :class:`QPiGate` makes it differentiable.
+
+    ``population`` (one root camp population per row): the specialty block is
+    the **post-apportionment** share (:func:`apportioned_specialty`), exactly the
+    encoding of the executed action on the search side. Largest-remainder
+    apportionment is piecewise constant, so it has no useful gradient: the block
+    is a straight-through estimator ``hard + (soft - soft.detach())`` whose
+    forward value is exactly the apportioned share and whose gradient is the
+    gradient of the continuous share (gradient-only; never used as a value).
+    Without ``population`` the block is the continuous requested share: use
+    that only on the gradient path, never to evaluate or encode an action.
     """
     assert_actor_batch(tensors)
     if not q_pi_enabled(gate):
@@ -438,6 +547,17 @@ def reparameterized_action_features(
         return _masked_softmax(latent, mask)
 
     specialty = draw(specialty_logits, output["specialty_log_std"], specialty_mask)
+    if population is not None:
+        counts = [int(p) for p in torch.as_tensor(population).reshape(-1).tolist()]
+        if len(counts) != batch:
+            raise ValueError("one root population per reparameterized row")
+        soft = specialty.detach().double().cpu().numpy()
+        hard = torch.as_tensor(
+            np.stack([apportioned_specialty(row, p) for row, p in zip(soft, counts, strict=True)]),
+            dtype=torch.float64,
+        ).to(dtype=specialty.dtype, device=specialty.device)
+        # Forward value exactly ``hard`` (x - x == 0); gradient of the continuous share.
+        specialty = hard + (specialty - specialty.detach())
     activity = draw(output["activity_logits"], output["activity_log_std"], activity_mask)
     movement_logits = output["movement_union_logits"]
     movement_mask = output["movement_union_mask"]
@@ -555,6 +675,24 @@ class LaborAdvantageHead(nn.Module):
             nn.init.zeros_(head[2].weight)
             nn.init.zeros_(head[2].bias)
             self.heads[name] = head
+        # Masked action blocks (stage 1: trade value/share and unsupported blocks)
+        # are zeroed before the encoder, so A's response to them is exactly zero.
+        # Non-persistent: the state_dict (and every historical checkpoint) is
+        # unchanged; the mask travels as ``masked_blocks`` in the artifact.
+        self.register_buffer("feature_mask", torch.ones(ACTION_FEATURE_WIDTH), persistent=False)
+        self.masked_blocks: tuple[str, ...] = ()
+
+    def set_masked_blocks(self, blocks: Iterable[str]) -> None:
+        names = tuple(sorted(set(blocks)))
+        slices = block_slices()
+        unknown = [b for b in names if b not in slices]
+        if unknown:
+            raise ValueError(f"unknown action blocks {unknown}")
+        mask = torch.ones(ACTION_FEATURE_WIDTH, device=self.feature_mask.device)
+        for name in names:
+            mask[slices[name]] = 0.0
+        self.feature_mask = mask
+        self.masked_blocks = names
 
     @classmethod
     def for_critics(
@@ -583,6 +721,8 @@ class LaborAdvantageHead(nn.Module):
         """Raw (uncentred) A per objective, in reference-scale units, one per candidate."""
         if root_index.dtype != torch.long or root_index.shape != features.shape[:1]:
             raise ValueError("root_index must be a long vector aligned with the features")
+        if self.masked_blocks:
+            features = features * self.feature_mask.to(features.dtype)
         embedding = self.action_encoder(features)
         out = {}
         for name in COMPONENTS:
@@ -762,6 +902,8 @@ def advantage_checkpoint_payload(
         "state_dict": head.state_dict(),
         # Only for a separate-QoL-encoder critic: old payloads keep their bytes.
         **({} if task_context is None else {"task_context": str(task_context)}),
+        # Only for a head with masked action blocks (stage 1).
+        **({} if not head.masked_blocks else {"masked_blocks": list(head.masked_blocks)}),
     }
 
 
@@ -791,6 +933,8 @@ def load_advantage_head(
     if dict(head.widths.context) != dict(expected):
         raise ValueError("advantage head context widths differ from the critic")
     head.load_state_dict(state["state_dict"], strict=True)
+    if state.get("masked_blocks"):
+        head.set_masked_blocks(state["masked_blocks"])
     return head, AdvantageFitConfig.from_state(state["config"])
 
 
@@ -844,6 +988,10 @@ class Root:
     # Curated scenario families of the root (labor_scenarios via labor_search
     # --source scenario); empty for keyed h12/actor roots.
     families: tuple[str, ...] = ()
+    # Root camp residents (exporter ``population``, else the candidates' compiled
+    # population); None for a payload that declares neither. With it every
+    # candidate's specialty block is encoded after native apportionment.
+    population: int | None = None
 
     @property
     def h12(self) -> int:
@@ -901,6 +1049,49 @@ def _returns(value: Any, label: str) -> np.ndarray:
     return array
 
 
+def _root_population(
+    raw: Mapping[str, Any], raw_candidates: Sequence[Mapping[str, Any]], label: str
+) -> int | None:
+    """The root camp population: the exporter's root ``population``, else the one
+    population every candidate's ``compiled`` block declares, else None."""
+    if raw.get("population") is not None:
+        population = _int(raw["population"], f"{label} population")
+    else:
+        declared = {
+            _int(c["compiled"]["population"], f"{label} compiled population")
+            for c in raw_candidates
+            if isinstance(c.get("compiled"), Mapping)
+            and c["compiled"].get("population") is not None
+        }
+        if len(declared) > 1:
+            raise ValueError(f"{label} candidates declare different compiled populations")
+        population = next(iter(declared)) if declared else None
+    if population is not None and population < 0:
+        raise ValueError(f"{label} population must be nonnegative")
+    return population
+
+
+def _check_compiled_counts(
+    cand: Mapping[str, Any],
+    action: Mapping[str, Any],
+    spec_pos: Sequence[int],
+    population: int | None,
+    label: str,
+) -> None:
+    """The reader's apportionment must equal the exporter's native residents."""
+    compiled = cand.get("compiled")
+    if population is None or not isinstance(compiled, Mapping):
+        return
+    if compiled.get("specialty_counts") is None or compiled.get("population") is None:
+        return
+    if int(compiled["population"]) != int(population):
+        return  # compiled at another population (plan steps); nothing to compare
+    declared = np.asarray(compiled["specialty_counts"], dtype=np.int64)[list(spec_pos)]
+    shares = np.asarray(action["laborSpecialtyAllocation"], dtype=np.float64)[list(spec_pos)]
+    if not np.array_equal(apportion_specialty_counts(shares, population), declared):
+        raise ValueError(f"{label}: apportioned residents differ from the compiled residents")
+
+
 def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> CandidateSet:
     """Strictly parse one ``labor-advantage-candidates-v1`` shard."""
     if not isinstance(shard, Mapping) or shard.get("schema") != CANDIDATE_PAYLOAD_SCHEMA:
@@ -953,6 +1144,8 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
         candidates = []
         plans: list[CandidateRecord] = []
         raw_candidates = raw.get("candidates") or []
+        population = _root_population(raw, raw_candidates, label)
+        spec_pos = _binding(specialty_ids, SPECIALTIES, "specialty")
         for i, cand in enumerate(raw_candidates):
             clabel = f"{label} candidate {i}"
             if _int(cand["index"], f"{clabel} index") != i:
@@ -1002,11 +1195,13 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
                     specialty_ids=specialty_ids,
                     activity_ids=activity_ids,
                     trade_groups=trade_groups,
+                    population=population,
                 ),
                 control,
                 twin,
                 evaluations,
             )
+            _check_compiled_counts(cand, action, spec_pos, population, clabel)
             if plan_role is None:
                 candidates.append(record)
                 continue
@@ -1037,6 +1232,7 @@ def parse_candidate_shard(shard: Mapping[str, Any], *, shard_index: int = 0) -> 
                 shard_index,
                 plans,
                 tuple(str(f) for f in raw.get("scenario_family") or ()),
+                population,
             )
         )
     return CandidateSet(
@@ -1292,14 +1488,39 @@ class AdvantageFitConfig:
     seed: int = 0
     embedding: int = EMBEDDING_WIDTH
     hidden: int = 256
+    # Stage-1 (lambda target source) fields; recorded only when that source is used,
+    # so historical pair-fit configs keep their exact state dict. ``horizons``,
+    # ``se_multiplier`` and ``regression_weight`` belong to the pair source only.
+    target_source: str = PAIR_TARGET_SOURCE
+    huber_se_multiplier: float = HUBER_SE_MULTIPLIER
+    masked_blocks: tuple[str, ...] = STAGE1_MASKED_BLOCKS
+    support_floor: int = BLOCK_SUPPORT_FLOOR
 
     def __post_init__(self) -> None:
         if set(self.horizons) != set(COMPONENTS):
             raise ValueError(f"advantage horizons must name exactly {list(COMPONENTS)}")
         if not 0.0 <= self.holdout_fraction < 1.0:
             raise ValueError("holdout fraction must be in [0, 1)")
+        if self.target_source not in TARGET_SOURCES:
+            raise ValueError(f"advantage target source must be one of {TARGET_SOURCES}")
+        if not self.huber_se_multiplier > 0 or self.support_floor < 0:
+            raise ValueError("Huber multiplier must be positive and the support floor >= 0")
+        unknown = set(self.masked_blocks) - {name for name, _ in ACTION_BLOCKS}
+        if unknown:
+            raise ValueError(f"unknown masked action blocks {sorted(unknown)}")
 
     def state_dict(self) -> dict[str, Any]:
+        state = self._base_state()
+        if self.target_source != PAIR_TARGET_SOURCE:
+            state.update(
+                target_source=self.target_source,
+                huber_se_multiplier=self.huber_se_multiplier,
+                masked_blocks=list(self.masked_blocks),
+                support_floor=self.support_floor,
+            )
+        return state
+
+    def _base_state(self) -> dict[str, Any]:
         return {
             "epochs": self.epochs,
             "batch_roots": self.batch_roots,
@@ -1325,6 +1546,8 @@ class AdvantageFitConfig:
             name: None if value is None else tuple(int(h) for h in value)
             for name, value in data["horizons"].items()
         }
+        if "masked_blocks" in data:
+            data["masked_blocks"] = tuple(str(b) for b in data["masked_blocks"])
         return cls(**data)
 
     @staticmethod
@@ -1425,8 +1648,15 @@ def fit_advantage_head(
     *,
     stability: Any = "auto",
     frozen_actor: nn.Module | None = None,
+    targets: Any = None,
 ) -> tuple[LaborAdvantageHead, dict[str, Any]]:
     """Fit A on same-root pairs of fitting worlds; the critic stays frozen.
+
+    With ``config.target_source == LAMBDA_TARGET_SOURCE`` the fit is the stage-1
+    search pretraining instead (``labor_a_stage1.fit_stage1``): ``targets`` (a
+    ``labor_a_stage1.StageOneTargets`` built from export-v2 successor rows and a
+    critic V) are fitted with the anchored, inverse-noise-variance Huber loss
+    ``labor_a_stage1.anchored_huber_loss``; :func:`pairwise_loss` is then not used.
 
     Worlds are split (fit / held-out) before pairs are built; the held-out
     worlds' pairs are only scored. Reserved, calibration, development and
@@ -1443,6 +1673,22 @@ def fit_advantage_head(
     from .labor_value_calibration import labor_critic_digest
 
     config = config or AdvantageFitConfig()
+    if config.target_source == LAMBDA_TARGET_SOURCE:
+        from .labor_a_stage1 import fit_stage1
+
+        if targets is None:
+            raise ValueError("the lambda target source needs stage-1 targets")
+        return fit_stage1(
+            task_critic,
+            cost_critics,
+            candidates,
+            targets,
+            config,
+            stability=stability,
+            frozen_actor=frozen_actor,
+        )
+    if targets is not None:
+        raise ValueError("stage-1 targets need target_source=LAMBDA_TARGET_SOURCE")
     require_advantage_fit_worlds(candidates.worlds)
     device = module_device(task_critic)
     digest_before = labor_critic_digest(task_critic, cost_critics)
@@ -1704,7 +1950,10 @@ class AdvantageRanker:
         personalities: Sequence[Sequence[float]] = ((0.5, 0.5),),
         privileged_raw: Mapping[str, Any] | None = None,
         root_key: Sequence[int] = (),
+        population: int | None = None,
     ) -> RankerPlan:
+        """``population``: the root camp's residents; with it every candidate is encoded
+        after native apportionment (:func:`encode_actions`), as the payload reader does."""
         if int(root_tensors["core"].shape[0]) != 1:
             raise ValueError("the ranker scores one root at a time")
         if not 0 <= h12_index < len(actions) or len(actions) < 1:
@@ -1712,9 +1961,7 @@ class AdvantageRanker:
         contexts = critic_contexts(
             self.task_critic, self.cost_critics, root_tensors, privileged_raw
         )
-        features = torch.as_tensor(
-            np.stack([action_features(a) for a in actions]), dtype=torch.float32
-        )
+        features = torch.as_tensor(encode_actions(actions, population), dtype=torch.float32)
         root_index = torch.zeros(len(actions), dtype=torch.long)
         with torch.no_grad():
             raw = self.head(contexts, features, root_index)
