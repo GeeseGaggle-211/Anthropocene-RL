@@ -213,6 +213,288 @@ def test_reparameterized_sample_respects_masks_and_simplexes() -> None:
     assert torch.allclose(movement.sum(-1), torch.ones(3)) and (movement[:, 3] == 0).all()
 
 
+# --- Q-pi forward = executed action (bitwise), gradient = continuous relaxation ------------
+
+
+def _varied_output(actor, tensors, seed: int) -> dict:
+    """Actor outputs perturbed so categorical draws, labor shares and trade clamps vary."""
+    rng = torch.Generator().manual_seed(seed)
+    output = {k: v.detach().clone() for k, v in actor(tensors).items()}
+    for key, scale in (
+        ("specialty_logits", 2.0),
+        ("activity_logits", 2.0),
+        ("movement_union_logits", 3.0),
+        ("fission", 3.0),
+        ("trade_gate", 3.0),
+        ("trade_value_mean", 1.0),
+        ("trade_share_mean", 2.0),
+    ):
+        output[key] = output[key] + scale * torch.randn(output[key].shape, generator=rng)
+    output["trade_value_log_std"] = output["trade_value_log_std"] + 1.5  # some clamped values
+    output["movement_union_logits"] = output["movement_union_logits"].masked_fill(
+        ~output["movement_union_mask"], -1e9
+    )
+    return output
+
+
+def _independent_executed(output, tensors, draw, populations, generator_state):
+    """The executed action rebuilt outside the function under test: labor from the real
+    sampler on a replayed stream, categoricals/latents from the recorded noises, encoded
+    by the actor's serializer and the search-side ``action_features``."""
+    from anthropocene_rl.autonomous_v7.labor_model import (
+        sample_labor_policy,
+        schema12_initial_action,
+    )
+
+    replay = torch.Generator()
+    replay.set_state(generator_state)
+    labor = sample_labor_policy(output, tensors, generator=replay)
+    assert torch.equal(labor["specialty_allocation"], draw.labor_sample["specialty_allocation"])
+    assert torch.equal(labor["activity_allocation"], draw.labor_sample["activity_allocation"])
+    noise = draw.noises
+    movement = (output["movement_union_logits"] + noise["movement_gumbel"]).masked_fill(
+        ~output["movement_union_mask"], -torch.inf
+    )
+    movement_index = movement.argmax(-1)
+    nonlabor = {
+        "movement_index": movement_index,
+        "movement": output["movement_codes"][movement_index],
+        "fission": (output["fission"] + noise["fission_gumbel"]).argmax(-1),
+        "trade_gate": (output["trade_gate"] + noise["trade_gate_gumbel"]).argmax(-1),
+        "trade_value_latent": output["trade_value_mean"]
+        + noise["trade_value_noise"] * output["trade_value_log_std"].exp(),
+        "trade_share_latent": output["trade_share_mean"]
+        + noise["trade_share_noise"] * output["trade_share_log_std"].exp(),
+        "movement_mask": output["movement_union_mask"].clone(),
+        "movement_codes": output["movement_codes"].clone(),
+    }
+    assert bool(output["movement_union_mask"].gather(1, movement_index[:, None]).all())
+    rows = [
+        la.action_features(schema12_initial_action(labor, nonlabor, i), population=p)
+        for i, p in enumerate(populations)
+    ]
+    return torch.as_tensor(np.stack(rows)), nonlabor
+
+
+def test_reparameterized_forward_is_the_executed_encoding_bitwise_for_every_block() -> None:
+    actor, *_ = _actor_and_head(privileged=False)
+    populations = [1, 7, 23, 100] * 6
+    batch = len(populations)
+    tensors = _labor_tensors(batch=batch)
+    tensors["movement_mask"][::3, 2:5] = False  # movement legality must be respected
+    output = _varied_output(actor, tensors, seed=4)
+    generator = torch.Generator().manual_seed(17)
+    state = generator.get_state()
+    vector, draw = la.reparameterized_action_features(
+        output, tensors, generator=generator, population=populations, return_draw=True
+    )
+    executed, nonlabor = _independent_executed(output, tensors, draw, populations, state)
+    assert vector.dtype == torch.float32 and executed.dtype == torch.float32
+    for name, columns in la.block_slices().items():
+        assert torch.equal(vector[:, columns], executed[:, columns]), name
+    # The draw record's wire actions are those executed actions.
+    assert [d["movement"] for d in draw.actions] == nonlabor["movement"].tolist()
+    assert torch.equal(
+        torch.as_tensor(
+            np.stack(
+                [
+                    la.action_features(a, population=p)
+                    for a, p in zip(draw.actions, populations, strict=True)
+                ]
+            )
+        ),
+        vector,
+    )
+    # Non-trivial coverage: hard one-hots, several categories, clamped and free values.
+    blocks = la.block_slices()
+    for name in ("movement_onehot", "fission_onehot", "trade_gate_onehot"):
+        block = vector[:, blocks[name]]
+        assert set(block.unique().tolist()) == {0.0, 1.0}
+    assert len(set(nonlabor["movement"].tolist())) > 2
+    assert not bool(vector[::3, blocks["movement_onehot"]][:, 2:5].any())
+    latent = nonlabor["trade_value_latent"]
+    clamped = (latent <= la._LOG_TRADE_LOW) | (latent >= la._LOG_TRADE_HIGH)
+    assert bool(clamped.any()) and bool((~clamped).any())
+
+
+def test_reparameterized_specialty_near_tie_follows_the_serialized_wire(monkeypatch) -> None:
+    # Float32 shares 1.8e-7 off the simplex: renormalizing every coordinate apportions the
+    # single resident to coordinate 2; the wire corrects only the last nonzero coordinate
+    # and the executed action staffs coordinate 1.
+    raw = torch.zeros(1, 14)
+    raw[0, :3] = torch.tensor([0.14285710453987122, 0.42857152223587036, 0.42857155203819275])
+    original = la._masked_softmax
+
+    def pinned(latent, mask):
+        result = original(latent, mask)
+        return raw.clone() if result.shape == raw.shape else result
+
+    monkeypatch.setattr(la, "_masked_softmax", pinned)
+    actor, *_ = _actor_and_head(privileged=False)
+    tensors = _labor_tensors(batch=1)
+    vector, draw = la.reparameterized_action_features(
+        actor(tensors),
+        tensors,
+        generator=torch.Generator().manual_seed(2),
+        population=[1],
+        return_draw=True,
+    )
+    assert torch.equal(draw.labor_sample["specialty_allocation"], raw)
+    wire = draw.actions[0]["laborSpecialtyAllocation"]
+    executed = la.action_features(draw.actions[0], population=1)
+    spec = la.block_slices()["specialty_share"]
+    assert np.array_equal(vector[0, spec].numpy(), executed[spec])
+    assert executed[1] == 1.0 and np.array_equal(la.apportioned_specialty(wire, 1), executed[spec])
+    # The pre-fix composition (apportion the raw float32 share) staffs a different role.
+    assert la.apportioned_specialty(raw[0].double().numpy(), 1)[2] == 1.0
+
+
+def _soft_relaxation(output, tensors, noise, temperature: float = 1.0) -> torch.Tensor:
+    """The continuous relaxation, written out independently of the function under test."""
+    from anthropocene_rl.autonomous_v7.labor_model import _masked_softmax, _masks
+
+    batch = output["specialty_logits"].shape[0]
+    specialty_mask, activity_mask = _masks(tensors, batch)
+
+    def alr(logits, log_std, mask, eps):
+        other = mask.clone()
+        other[..., 0] = False
+        latent = torch.where(
+            other, logits - logits[..., :1] + eps * log_std.exp(), torch.zeros_like(logits)
+        )
+        return _masked_softmax(latent, mask)
+
+    def relaxed(logits, g, mask=None):
+        noisy = logits + g
+        if mask is not None:
+            noisy = noisy.masked_fill(~mask, -torch.inf)
+        return torch.softmax(noisy / temperature, dim=-1)
+
+    value = (
+        output["trade_value_mean"]
+        + noise["trade_value_noise"] * output["trade_value_log_std"].exp()
+    )
+    share = (
+        output["trade_share_mean"]
+        + noise["trade_share_noise"] * output["trade_share_log_std"].exp()
+    )
+    return torch.cat(
+        [
+            alr(
+                output["specialty_logits"],
+                output["specialty_log_std"],
+                specialty_mask,
+                noise["specialty_noise"],
+            ),
+            alr(
+                output["activity_logits"],
+                output["activity_log_std"],
+                activity_mask,
+                noise["activity_noise"],
+            ).reshape(batch, -1),
+            relaxed(
+                output["movement_union_logits"],
+                noise["movement_gumbel"],
+                output["movement_union_mask"],
+            ),
+            relaxed(output["fission"], noise["fission_gumbel"]),
+            relaxed(output["trade_gate"], noise["trade_gate_gumbel"]).reshape(batch, -1),
+            value.clamp(la._LOG_TRADE_LOW, la._LOG_TRADE_HIGH) / la._LOG_TRADE_SCALE,
+            torch.sigmoid(share).unsqueeze(-1),
+        ],
+        dim=-1,
+    )
+
+
+@pytest.mark.parametrize("temperature", [1.0, 0.5])
+def test_open_gate_gradient_is_the_soft_relaxation_gradient_and_closed_gate_has_none(
+    temperature,
+) -> None:
+    actor, *_ = _actor_and_head(privileged=False)
+    populations = [1, 7, 23, 100]
+    tensors = _labor_tensors(batch=4)
+    base = _varied_output(actor, tensors, seed=8)
+    keys = [k for k, v in base.items() if v.is_floating_point()]
+    weights = torch.randn(4, la.ACTION_FEATURE_WIDTH, generator=torch.Generator().manual_seed(5))
+
+    def leaves():
+        return {k: (v.clone().requires_grad_(True) if k in keys else v) for k, v in base.items()}
+
+    opened = leaves()
+    vector, draw = la.reparameterized_action_features(
+        opened,
+        tensors,
+        generator=torch.Generator().manual_seed(6),
+        gate=_open_gate(),
+        temperature=temperature,
+        population=populations,
+        return_draw=True,
+    )
+    (vector * weights).sum().backward()
+    soft_leaves = leaves()
+    (_soft_relaxation(soft_leaves, tensors, draw.noises, temperature) * weights).sum().backward()
+    reached = 0
+    for key in keys:
+        g_hard, g_soft = opened[key].grad, soft_leaves[key].grad
+        assert (g_hard is None) == (g_soft is None), key
+        if g_hard is not None:
+            assert torch.allclose(g_hard, g_soft, rtol=1e-6, atol=1e-9), key
+            reached += int(bool(g_hard.abs().sum() > 0))
+    assert reached >= 7  # every head the vector reads gets a gradient
+    # Closed gate: same forward value, and no gradient can reach the actor outputs.
+    closed = leaves()
+    closed_vector = la.reparameterized_action_features(
+        closed, tensors, temperature=temperature, population=populations, draws=draw.noises
+    )
+    assert torch.equal(closed_vector, vector.detach()) and not closed_vector.requires_grad
+
+
+def test_injected_draws_reproduce_the_generator_path_and_the_stream_order() -> None:
+    actor, *_ = _actor_and_head(privileged=False)
+    populations = [0, 1, 7, 23, 100]
+    tensors = _labor_tensors(batch=5)
+    output = _varied_output(actor, tensors, seed=12)
+    generator = torch.Generator().manual_seed(21)
+    vector, draw = la.reparameterized_action_features(
+        output, tensors, generator=generator, population=populations, return_draw=True
+    )
+    injected, again = la.reparameterized_action_features(
+        output, tensors, draws=draw.noises, population=populations, return_draw=True
+    )
+    assert torch.equal(injected, vector) and injected.dtype == vector.dtype
+    assert again.actions == draw.actions
+    plain = la.reparameterized_action_features(
+        output, tensors, generator=torch.Generator().manual_seed(21), population=populations
+    )
+    assert torch.equal(plain, vector)
+    # The generator stream is consumed in REPARAMETERIZED_DRAW_KEYS order: ALR Gaussians,
+    # Gumbel uniforms (clamped), then trade Gaussians -- and nothing else.
+    replay = torch.Generator().manual_seed(21)
+    heads = {
+        "specialty_noise": output["specialty_logits"],
+        "activity_noise": output["activity_logits"],
+        "movement_gumbel": output["movement_union_logits"],
+        "fission_gumbel": output["fission"],
+        "trade_gate_gumbel": output["trade_gate"],
+        "trade_value_noise": output["trade_value_mean"],
+        "trade_share_noise": output["trade_share_mean"],
+    }
+    for key in la.REPARAMETERIZED_DRAW_KEYS:
+        if key.endswith("_gumbel"):
+            u = torch.rand(heads[key].shape, generator=replay).clamp(1e-10, 1.0 - 1e-10)
+            expected = -torch.log(-torch.log(u))
+        else:
+            expected = torch.randn(heads[key].shape, generator=replay)
+        assert torch.equal(draw.noises[key], expected), key
+    assert torch.equal(replay.get_state(), generator.get_state())
+    with pytest.raises(ValueError, match="generator or injected draws"):
+        la.reparameterized_action_features(output, tensors)
+    with pytest.raises(ValueError, match="exactly"):
+        la.reparameterized_action_features(
+            output, tensors, draws={k: v for k, v in draw.noises.items() if k != "fission_gumbel"}
+        )
+
+
 # --- head, centring, Q = V + A, frozen critic ---------------------------------------------
 
 

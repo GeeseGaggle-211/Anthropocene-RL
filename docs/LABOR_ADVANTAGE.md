@@ -32,9 +32,17 @@ regions; native −2 is rejected), fission one-hot (3), seven trade gates one-ho
 declare `specialty_ids`, `activity_ids` and `trade_groups` in any order. Only the seven semantic fields are
 read, so bookkeeping keys cannot move the vector.
 
-`reparameterized_action_features` builds the same vector from the actor's output heads (ALR Gaussian draws
-for labor, Gumbel-softmax for categorical heads, Gaussian latents for trade values/share). It is the Q-π
-path and is closed: unless it receives an open `QPiGate` (an evaluator report on exactly the reserved worlds
+`reparameterized_action_features` builds the same vector from one draw of the actor's output heads (ALR
+Gaussian draws for labor, Gumbel noise for the categorical heads, Gaussian latents for trade values/share).
+Its forward value is bitwise the encoding of the executed action: the draw is serialized by the actor's own
+wire path (`schema12_initial_action`, labor simplexes canonicalized by `LaborPolicySample.payload`) and
+encoded with `action_features(..., population=)`, so the specialty block apportions the serialized wire
+shares, categoricals are the executed one-hots `argmax(logits + g)` (movement under its legality mask), and
+trade value/share are the serializer's values. Every block is `hard + (soft − soft.detach())`: the gradient
+is that of the continuous relaxation (ALR softmax, Gumbel-softmax at `temperature`, clamped log value,
+batched sigmoid), never its value. The generator is consumed in `REPARAMETERIZED_DRAW_KEYS` order (unchanged);
+`draws=` injects the noises instead and `return_draw=True` also returns them with the retained samples and
+wire actions (`ReparameterizedDraw`). It is the Q-π path and is closed: unless it receives an open `QPiGate` (an evaluator report on exactly the reserved worlds
 90154–90159 passing every gate, plus an explicit authorization), the actor outputs are detached and no
 gradient reaches an actor parameter. Nothing in the repository opens it.
 
