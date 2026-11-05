@@ -809,8 +809,21 @@ def _retained_action(
     catalog: LaborCatalog,
     movement_mask: torch.Tensor,
 ) -> RetainedLaborAction:
-    action = label.action
-    tv = [math.log(float(np.clip(float(x), 0.25, 4.0))) for x in action["tradeValue"]]
+    return _retained_payload_action(label.action, catalog, movement_mask)
+
+
+def _retained_payload_action(
+    action: Mapping[str, Any],
+    catalog: LaborCatalog,
+    movement_mask: torch.Tensor,
+) -> RetainedLaborAction:
+    """Retain an executable schema-12 ``action`` payload for submission.
+
+    ``action`` is a converted heuristic label's ``action`` (``_retained_action``) or
+    any complete schema-12 payload, e.g. a head-group merge of a heuristic and an
+    actor payload. The payload object itself is submitted; the retained samples are
+    derived from it exactly as for a heuristic label."""
+    tv =[math.log(float(np.clip(float(x), 0.25, 4.0))) for x in action["tradeValue"]]
     ts = float(np.clip(float(action["tradeShare"]), 1e-4, 1.0 - 1e-4))
     executed = LaborPolicySample.from_payload(
         {
