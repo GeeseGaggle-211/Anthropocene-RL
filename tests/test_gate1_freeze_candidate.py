@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,7 @@ import torch
 
 from anthropocene_rl.autonomous_v7 import contracts, evaluate, initialization_lineage
 from anthropocene_rl.autonomous_v7 import gate1_freeze_candidate as freeze
+from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE
 from anthropocene_rl.autonomous_v7.gate1_diagnostics import service_outcome_registry
 from anthropocene_rl.autonomous_v7.gate1_freeze_candidate import (
     _corpus,
@@ -834,6 +836,10 @@ def test_review_rejects_missing_or_unapproved_role_and_stale_digest(
         freeze._review(candidate, path)
 
 
+@pytest.mark.skipif(
+    not Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", str(DEFAULT_BRIDGE))).is_file(),
+    reason="model9 bridge is not built",
+)
 def test_fresh_world_null_metadata_turn_does_not_weaken_post_reset_turn_check():
     from anthropocene_rl.autonomous_v7.worker_contract import world
 
