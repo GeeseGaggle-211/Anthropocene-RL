@@ -555,12 +555,14 @@ def load_labor_dataset(
     quarantine: list[Any] = []
     digests = set()
     tails: set[Any] = set()
+    prefixes: list[Any] = []
     tail_records: dict[str, Any] = {}
     for entry in manifest["shards"].values():
         shard = Path(directory) / entry["path"]
         meta = json.loads((shard / "meta.json").read_text())
         digests.add(meta["normalizer_digest"])
         tails.add(meta.get("return_tail"))
+        prefixes.append(meta.get("prefix"))
         if meta.get("return_tail_record") is not None:
             tail_records[str(meta["world_seed"])] = meta["return_tail_record"]
         names = {name[: -len(".npy")] for name in meta["payload"]}
@@ -616,6 +618,18 @@ def load_labor_dataset(
         "reset_options": options["reset_options"],
         "sampling": "world-balanced-row-weights",
     }
+    if "prefix" in options:
+        # labor_dagger --prefix (recorded only for a non-default prefix): family tagging
+        # (labor_scenarios.row_family_tags) tracks actor-from-reset DAgger rows as episodes
+        # from the reset. Every shard meta must carry the same prefix.
+        if any(p != options["prefix"] for p in prefixes):
+            raise ProvenanceError(
+                f"labor dataset prefix {options['prefix']!r} differs from its shard metas "
+                f"{sorted({str(p) for p in prefixes})}"
+            )
+        dataset["collection"]["prefix"] = str(options["prefix"])
+    elif any(p is not None for p in prefixes):
+        raise ProvenanceError("labor dataset shards declare a prefix its source record lacks")
     if return_tail is not None:
         dataset["collection"]["return_tail"] = return_tail
     if tail_records:

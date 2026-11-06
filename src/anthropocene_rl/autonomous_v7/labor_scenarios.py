@@ -819,19 +819,131 @@ def _audit_scenario_rows(
             count.sources[label] += 1
 
 
+# DAgger rows (labor_dagger, row_source 1). Only ``--prefix actor-from-reset`` rows are
+# chronological episodes from the world reset; ``--prefix teacher`` branches start at keyed
+# decisions inside a teacher trajectory, so their history is not the tracker's.
+DAGGER_ROW_SOURCE = 1
+DAGGER_SOURCE_KIND = "learner_state_dagger"
+DAGGER_PREFIX_TEACHER = "teacher"
+DAGGER_PREFIX_ACTOR_FROM_RESET = "actor-from-reset"
+TAGGED_SOURCES_DESCRIPTION = (
+    "teacher trajectories (row_source 0) by the tracker, one per (world, trajectory); "
+    "actor-from-reset DAgger rollouts (row_source 1 of a dataset with prefix actor-from-reset) "
+    "by the same tracker and rules, one per (world, dataset, row_round, row_start_index) "
+    "rollout from the reset; curated scenario rows by their stored tags; teacher-prefix DAgger "
+    "branches and other sources untagged"
+)
+
+
+def dagger_row_prefixes(
+    dataset: Mapping[str, Any], sources: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """(prefix, component) per row for DAgger rows, from the loaded dataset's metadata.
+
+    ``prefix`` is ``""`` for non-DAgger rows, else the DAgger dataset's ``--prefix``
+    (``collection["prefix"]``, recorded by ``labor_teacher_data.load_labor_dataset``;
+    absent means ``teacher``, the only prefix before actor-from-reset existed).
+    ``component`` is the index of the row's dataset in an aggregate (0 for one dataset,
+    -1 for non-DAgger rows). Raises when DAgger rows cannot be attributed to a dataset with
+    known metadata: family tagging never guesses a DAgger row's history.
+    """
+    n = len(sources)
+    prefixes = np.full(n, "", dtype=object)
+    components = np.full(n, -1, dtype=np.int64)
+    dagger = sources == DAGGER_ROW_SOURCE
+    if not dagger.any():
+        return prefixes, components
+    collection = dataset.get("collection") if isinstance(dataset, Mapping) else None
+    collection = collection if isinstance(collection, Mapping) else {}
+    kind = collection.get("source_kind")
+    if kind == DAGGER_SOURCE_KIND:
+        parts = [(collection, n)]
+    elif kind == "aggregated":
+        parts = []
+        for part in collection.get("component_collections") or []:
+            if "rows" not in part:
+                raise ValueError(
+                    "family tagging: an aggregated component lacks its row count, so its DAgger "
+                    "rows cannot be attributed to a prefix"
+                )
+            parts.append((part, int(part["rows"])))
+        if sum(rows for _, rows in parts) != n:
+            raise ValueError(
+                f"family tagging: aggregated components hold {sum(r for _, r in parts)} rows, "
+                f"the dataset {n}; DAgger rows cannot be attributed to a prefix"
+            )
+    else:
+        raise ValueError(
+            f"family tagging: {int(dagger.sum())} DAgger rows without DAgger dataset metadata "
+            f"(collection source kind {kind!r}); their prefix (teacher / actor-from-reset) is "
+            "unknown"
+        )
+    start = 0
+    for index, (part, rows) in enumerate(parts):
+        span = slice(start, start + rows)
+        start += rows
+        in_part = dagger[span]
+        if part.get("source_kind") != DAGGER_SOURCE_KIND:
+            if in_part.any():
+                raise ValueError(
+                    f"family tagging: component {index} ({part.get('source_kind')!r}) holds "
+                    "DAgger rows"
+                )
+            continue
+        if not in_part.all():
+            raise ValueError(f"family tagging: DAgger component {index} holds non-DAgger rows")
+        prefix = str(part.get("prefix", DAGGER_PREFIX_TEACHER))
+        if prefix not in (DAGGER_PREFIX_TEACHER, DAGGER_PREFIX_ACTOR_FROM_RESET):
+            raise ValueError(
+                f"family tagging: unknown DAgger prefix {prefix!r} (component {index})"
+            )
+        prefixes[span] = prefix
+        components[span] = index
+    return prefixes, components
+
+
+def _check_rollout_from_reset(
+    key: tuple[int, ...],
+    rows: np.ndarray,
+    turns: np.ndarray,
+    starts: np.ndarray,
+    steps: np.ndarray,
+) -> None:
+    """An actor-from-reset rollout: start 0 and branch steps 0, 1, ... in turn order."""
+    if not bool((starts[rows] == 0).all()):
+        raise ValueError(f"family tagging: actor-from-reset rollout {key} has row_start != 0")
+    for decision, turn in enumerate(np.unique(turns[rows]).tolist()):
+        at = steps[rows[turns[rows] == turn]]
+        if not bool((at == decision).all()):
+            raise ValueError(
+                f"family tagging: actor-from-reset rollout {key} is not consecutive from the "
+                f"reset (turn {turn}: row_branch_step {sorted(set(at.tolist()))}, expected "
+                f"{decision})"
+            )
+
+
 def row_family_tags(
     dataset: Mapping[str, Any],
     rules: DetectionRules | None = None,
     tracked_sources: Sequence[int] = (0,),
     normalizer: Any = None,
+    *,
+    dagger_from_reset: bool = True,
 ) -> np.ndarray | None:
     """Per-row family bitmask of a loaded labor dataset (torch or numpy arrays).
 
     Curated scenario rows use their stored ``row_scenario_tags``; teacher
     trajectories (``tracked_sources``, default ``row_source`` 0: chronological
     (world, trajectory) episodes) are tracked in turn order with the harvest's
-    rules. Rows of other sources (DAgger branches, search labels, continuations)
-    are untagged (0). ``None`` when the dataset lacks the specialty mask.
+    rules. With ``dagger_from_reset`` (default) DAgger rows of an ``actor-from-reset``
+    dataset -- the actor's own closed-loop episodes from the world reset -- are tracked
+    the same way, one tracker per rollout (world, dataset, ``row_round``,
+    ``row_start_index``), after checking that each rollout starts at decision 0 and is
+    consecutive. Teacher-prefix DAgger branches (history not from the reset) and rows of
+    other sources (search labels, continuations) are untagged (0). The prefix comes from
+    the dataset metadata (:func:`dagger_row_prefixes`); DAgger rows without it raise.
+    Datasets without DAgger rows are tagged exactly as before. ``None`` when the dataset
+    lacks the specialty mask.
     """
     rules = rules or DetectionRules()
 
@@ -855,10 +967,36 @@ def row_family_tags(
     scenario = sources == ROW_SOURCE
     if scenario.any() and "row_scenario_tags" in arrays:
         out[scenario] = arrays["row_scenario_tags"].reshape(-1)[scenario]
-    groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
+    groups: dict[tuple[int, ...], list[int]] = defaultdict(list)
     tracked = np.isin(sources, np.asarray(list(tracked_sources), dtype=sources.dtype))
     for r in np.flatnonzero(~scenario & tracked).tolist():
         groups[(int(worlds[r]), int(sources[r]), int(trajectories[r]))].append(r)
+    if dagger_from_reset and DAGGER_ROW_SOURCE not in {int(s) for s in tracked_sources}:
+        prefixes, components = dagger_row_prefixes(dataset, sources)
+        from_reset = np.flatnonzero(prefixes == DAGGER_PREFIX_ACTOR_FROM_RESET)
+        if len(from_reset):
+            needed = ("row_round", "row_start", "row_start_index", "row_branch_step")
+            extra = {key: array(key) for key in needed}
+            missing = [key for key, value in extra.items() if value is None]
+            if missing:
+                raise ValueError(f"family tagging: actor-from-reset DAgger rows lack {missing}")
+            rounds, starts, indices, steps = (extra[key].reshape(-1) for key in needed)
+            rollouts: dict[tuple[int, ...], list[int]] = defaultdict(list)
+            for r in from_reset.tolist():
+                # A 5-tuple key: never equal to a teacher (world, source, trajectory) key.
+                key = (
+                    int(worlds[r]),
+                    int(sources[r]),
+                    int(components[r]),
+                    int(rounds[r]),
+                    int(indices[r]),
+                )
+                rollouts[key].append(r)
+            for key, rows in rollouts.items():
+                _check_rollout_from_reset(
+                    key, np.asarray(rows, dtype=np.int64), turns, starts, steps
+                )
+            groups.update(rollouts)
     for rows in groups.values():
         rows_np = np.asarray(rows, dtype=np.int64)
         rows_np = rows_np[np.lexsort((camps[rows_np], turns[rows_np]))]
@@ -1164,11 +1302,24 @@ def reweight_dataset(
         "status": FAMILY_WEIGHTS_STATUS,
         "rule": FAMILY_WEIGHTING_RULE,
         "rules": (rules or DetectionRules()).state_dict(),
-        "tagged_sources": "teacher trajectories (row_source 0) by the tracker; curated scenario "
-        "rows by their stored tags; other sources untagged",
+        "tagged_sources": TAGGED_SOURCES_DESCRIPTION,
         "shares": family_share_report(base, new, tags, keep),
         "food_trade_tagging": food_trade_tagging(dataset, normalizer),
     }
+    codes = sorted({int(s) for s in sources.tolist()})
+    if len(codes) > 1:
+        # Several sources (e.g. teacher + DAgger): shares within each source (whose mass the
+        # rescaling keeps) and the tagged-row counts behind them. Single-source records are
+        # unchanged.
+        record["shares_by_source"] = {
+            str(code): {
+                "rows": int((sources == code).sum()),
+                "kept_rows": int(((sources == code) & keep).sum()),
+                "tagged_kept_rows": int(((sources == code) & keep & (tags != 0)).sum()),
+                "shares": family_share_report(base, new, tags, keep & (sources == code)),
+            }
+            for code in codes
+        }
     collection = dataset.setdefault("collection", {})
     collection["family_weighting"] = record
     return record

@@ -534,7 +534,9 @@ def test_teacher_batches_plus_dagger_get_equal_source_mass(tmp_path) -> None:
             mass = float(w[(src == code) & (worlds == seed)].sum())
             assert math.isclose(mass, total / 8, rel_tol=1e-6)
     assert len(w) == 2 * 10 + 2 * 14 + 4 * 5  # BC iterates every row (steps = ceil(N / batch))
-    # Family multipliers never touch untagged (DAgger) rows; mass is kept per (source, world).
+    # Family multipliers never touch untagged rows (teacher-prefix DAgger rows stay untagged;
+    # actor-from-reset rollouts are tracked, tests/test_labor_family_dagger.py); mass is kept
+    # per (source, world).
     from anthropocene_rl.autonomous_v7.labor_scenarios import (
         FAMILY_BITS,
         apply_family_weights,
@@ -547,4 +549,5 @@ def test_teacher_batches_plus_dagger_get_equal_source_mass(tmp_path) -> None:
     out = apply_family_weights(base, tags, sources, np.full(6, 5000), {"under-clothed": 2.0})
     assert out[0] == pytest.approx(1.5) and out[1] == pytest.approx(0.75)
     assert out[:3].sum() == pytest.approx(3.0) and list(out[3:]) == [1.0, 1.0, 1.0]
-    assert row_family_tags.__defaults__[1] == (0,)  # tracked sources: teacher trajectories only
+    # tracked_sources: teacher trajectories; DAgger rows only via the actor-from-reset prefix
+    assert row_family_tags.__defaults__[1] == (0,)
