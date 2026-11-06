@@ -75,6 +75,7 @@ def synthetic_worker():
 def native_proof(seed=1000):
     import tempfile
 
+    Path("work").mkdir(exist_ok=True)  # gitignored; absent on a fresh checkout (CI)
     root = Path(tempfile.mkdtemp(prefix="synthetic-teacher-", dir="work"))
     path = publish(root, seed)
     proof = {}
@@ -143,6 +144,7 @@ def root_state(seed=0):
         "protocol_digest": protocol_doc["digest"],
         "cohort_digest": prov.digest(promotion.cohort_config(state)),
     }
+    Path("work").mkdir(exist_ok=True)  # gitignored; absent on a fresh checkout (CI)
     path = Path("work") / ("synthetic-clone-cohort-" + plan["cohort_digest"] + ".json")
     if not path.exists():
         path.write_text(json.dumps(plan, sort_keys=True))
