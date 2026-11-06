@@ -294,6 +294,20 @@ Rerunning the same launch command is always the resume step: finished outputs ar
 | OOM-killed worker | treated as a failed attempt and retried once with `--resume` | lower `MAX_SLOTS` or raise `MIN_FREE_GB` |
 | Wrong config discovered mid-run | search refuses to resume a chunk whose source record (code, bridge, options) differs | new `WORK` (or move the affected `search/<stage>` dir aside) |
 
+### 7.1 Successor-row tasks (4 Nov 2026, approved option A)
+
+The stage-1 A fit needs search export-v2 shards (`labor_search --successor-rows`). `cpu_sched.py`
+appends `--successor-rows` to every task named in `WORK/SUCC_TASKS` (one key per line, e.g.
+`search:fit-h12/t25-50/w90116`) and runs it with `PYTHONPATH` from `WORK/SUCC_PYTHONPATH`, a
+`src` directory whose `labor_search.py` must accept the flag. Without `SUCC_TASKS` nothing changes.
+The live run listed the 38 fit tasks that had not started (`succ_tasks_20261104.txt`) and used
+code 801b02b. The earlier fit tasks remain v1, and stage-1 refuses them.
+
+Run the patched scheduler from a copy outside the learner checkout (on trainer-60:
+`~/r5/scaleout-ops-succ/`). `cpu_queue.sh` refuses a dirty checkout, and its EXIT trap then
+shuts the VM down. The `@reboot` line that `cpu_queue.sh` installs points at whichever copy
+launched it; do not remove it while the queue runs, because only a fresh queue start reinstalls it.
+
 ## 8. Expected outputs (`gs://anthropocene-rl-datasets-508912/model9/r5/scaleout/`)
 
 | Path | Content |
