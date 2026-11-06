@@ -1219,7 +1219,8 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-dirty",
         action="store_true",
-        help="development only: permit a dirty learner/simulator identity (recorded as non-production)",
+        help="development only: permit a dirty learner/simulator identity (recorded as "
+        "non-production)",
     )
     parser.add_argument(
         "--resume",
@@ -1287,7 +1288,7 @@ def _resume_preflight(out: Path, source: Mapping[str, Any], worlds: Sequence[int
 def _published_shards(
     out: Path, source: Mapping[str, Any], worlds: Sequence[int]
 ) -> dict[int, dict]:
-    """Verified published shards of this run; unpublished or invalid shard directories are removed."""
+    """Verified published shards of this run; unpublished or invalid shard directories are removed."""  # noqa: E501 - docstring/prose line kept verbatim
     import shutil
 
     done = {}
@@ -1317,7 +1318,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("turns, jobs and checkpoint-keep must be positive")
     if args.out.exists() and not args.resume:
         raise ProvenanceError(
-            "labor teacher output exists; pass --resume to continue it or regenerate into a new directory"
+            "labor teacher output exists; pass --resume to continue it or regenerate into "
+            "a new directory"
         )
     reset = LaborResetOptions(
         players=args.players,

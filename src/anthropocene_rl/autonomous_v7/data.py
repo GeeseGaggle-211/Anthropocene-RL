@@ -1,4 +1,4 @@
-"""Teacher shards (``--model9-teacher``) -> training arrays, lineage rewards and scale-free value targets."""
+"""Teacher shards (``--model9-teacher``) -> training arrays, lineage rewards and scale-free value targets."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -79,7 +79,8 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
     from .protocol import scan
 
     scan(meta, "dataset metadata")
-    # Sets and masks added after a shard was written (contracts 10-12) are optional: to_tensors treats them as absent.
+    # Sets and masks added after a shard was written (contracts 10-12) are optional: to_tensors
+    # treats them as absent.
     arrays = {
         key: np.load(directory / f"{key}.npy")
         for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS
@@ -94,15 +95,18 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
     # Source family identity is independent of sequence IDs, which branch loaders rebase.
     arrays["source_seed"] = np.full(len(arrays["camp"]), int(meta["seed"]), np.int64)
     arrays["source_snapshot"] = np.full(len(arrays["camp"]), str(meta.get("snapshot_hash") or ""))
-    # Search branch shards (branch_shards.py) carry a unique world id per (seed, decision point, alternative), each
-    # row's personality, alternative kind and founding turn, and a bootstrap index into their own bootstrap block.
+    # Search branch shards (branch_shards.py) carry a unique world id per (seed, decision point,
+    # alternative), each
+    # row's personality, alternative kind and founding turn, and a bootstrap index into their own
+    # bootstrap block.
     for key in BRANCH_KEYS:
         if (directory / f"{key}.npy").exists():
             arrays[key] = np.load(directory / f"{key}.npy")
     return arrays
 
 
-# Optional per-row arrays of search branch shards; "world" replaces the meta seed as the sequence key.
+# Optional per-row arrays of search branch shards; "world" replaces the meta seed as the sequence
+# key.
 BRANCH_KEYS = ("world", "personality", "alt_kind", "founded_turn", "bootstrap_index", "calibration")
 
 
@@ -181,12 +185,13 @@ def load(
 
 def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray:
     """Population-weighted lineage sharing (decision D4): each settlement earns P_i x Q_lineage x dt, where the
-    lineage is a parent and any daughter founded in the last ``LINEAGE_TURNS`` turns; rewards sum to realized welfare."""
+    lineage is a parent and any daughter founded in the last ``LINEAGE_TURNS`` turns; rewards sum to realized welfare."""  # noqa: E501 - docstring/prose line kept verbatim
     reward = np.zeros(len(data["camp"]), dtype=np.float64)
     first_turn: dict[tuple[int, int], int] = {}
     for i in np.argsort(data["turn"], kind="stable"):
         key = (int(data["world"][i]), int(data["camp"][i]))
-        # Branch shards start mid-episode, so their settlements carry the turn they were founded on the full path.
+        # Branch shards start mid-episode, so their settlements carry the turn they were founded on
+        # the full path.
         first_turn.setdefault(
             key, int(data["founded_turn"][i]) if "founded_turn" in data else int(data["turn"][i])
         )
@@ -214,14 +219,15 @@ def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray
 def reward_components(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """Per-decision rewards for each objective in ``contracts.OBJECTIVES``: lineage welfare (P x Q_lineage x dt),
     lineage population-years (P x dt for living settlements) and (contract 11) the village's own realised trade
-    utility, in person-QoL-years on true valuations; self-interested: a partner's gain is never credited."""
+    utility, in person-QoL-years on true valuations; self-interested: a partner's gain is never credited."""  # noqa: E501 - docstring/prose line kept verbatim
     n = len(data["camp"])
     trade = (
         np.asarray(data["trade_utility"], dtype=np.float64)
         if "trade_utility" in data
         else np.zeros(n)
     )
-    # qol_years: the lineage QoL over the interval regardless of headcount (living settlements); welfare is P times it.
+    # qol_years: the lineage QoL over the interval regardless of headcount (living settlements);
+    # welfare is P times it.
     welfare = lineage_rewards(data)
     p = np.maximum(1.0, np.asarray(data["prior_population"], dtype=np.float64))
     alive = ~np.asarray(data["terminated"], dtype=bool)
@@ -256,7 +262,7 @@ def lambda_returns(
     """TD(lambda) returns in raw welfare units. ``value`` (raw units, per row) bootstraps truncated sequences and the
     lambda mixture; without it the truncated tail bootstraps from a stationary geometric continuation. ``bootstrap``
     (raw units, per row; NaN where absent) is the value of the observation after a truncated sequence's last row
-    (search branch shards); it replaces the row's own value there whenever ``value`` is given."""
+    (search branch shards); it replaces the row's own value there whenever ``value`` is given."""  # noqa: E501 - docstring/prose line kept verbatim
     target = np.zeros(len(reward), dtype=np.float64)
     for rows in sequences(data):
         g_next = 0.0
@@ -266,7 +272,8 @@ def lambda_returns(
             if data["terminated"][i]:
                 g = reward[i]
             elif position == len(rows) - 1:
-                # Truncated: continue at this turn's reward rate (or the critic's estimate) for the remaining horizon.
+                # Truncated: continue at this turn's reward rate (or the critic's estimate) for the
+                # remaining horizon.
                 tail = value[i] if value is not None else reward[i] / max(1e-9, 1 - gamma)
                 if value is not None and bootstrap is not None and np.isfinite(bootstrap[i]):
                     tail = bootstrap[i]
@@ -281,7 +288,7 @@ def lambda_returns(
 
 
 def scale_free(target: np.ndarray, data: dict[str, np.ndarray]) -> np.ndarray:
-    """u = G / P: return per resident at the decision, so 20- and 800-person villages train alike."""
+    """u = G / P: return per resident at the decision, so 20- and 800-person villages train alike."""  # noqa: E501 - docstring/prose line kept verbatim
     return target / np.maximum(1.0, data["prior_population"].astype(np.float64))
 
 

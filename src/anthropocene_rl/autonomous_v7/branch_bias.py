@@ -17,7 +17,7 @@ alternative kind and objective head, as relative bias (prediction - realised) / 
   discounted bootstrap after the last tail turn (lambda = 1). With a 4-turn tail most of that target is the
   bootstrap, so it measures consistency, not calibration. ``entry`` is one number per branch (lineage sums at the
   first tail turn), ``rows`` every tail row.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -36,7 +36,8 @@ from .upgrade import upgrade
 TARGET = 0.10
 GATED = (NATIVE, REGION, MIX)
 CALIBRATION_TURNS = 8
-# Coverage minimums (review 5.5(3)): calibration branches per kind x objective cell, and per kind x population band.
+# Coverage minimums (review 5.5(3)): calibration branches per kind x objective cell, and per kind x
+# population band.
 MIN_CELL = 20
 MIN_BAND = 5
 # Lineage population at the fork's first tail turn: [lower, upper) bounds of each band.
@@ -109,7 +110,7 @@ from .calibration import calibration, coverage, held_out, manifest, verdict
 
 def saturation(u: dict[str, np.ndarray], edge: float = SATURATION_EDGE) -> dict[str, float]:
     """Per head, the share of value expectations (in the head's own two-hot units: per resident, qol_years raw) whose
-    symlog lies within ``edge`` of the bin range's ends."""
+    symlog lies within ``edge`` of the bin range's ends."""  # noqa: E501 - docstring/prose line kept verbatim
     from .model import BIN_HIGH, BIN_LOW
 
     margin = edge * (BIN_HIGH - BIN_LOW)
@@ -179,7 +180,8 @@ def main() -> int:
             or not checkpoint_evidence(state, held)["verified"]
         ):
             raise ProvenanceError(
-                "one-shot Round-3 calibration requires an already-promoted four-head candidate and no waivers"
+                "one-shot Round-3 calibration requires an already-promoted four-head "
+                "candidate and no waivers"
             )
         if args.provenance != "reject" or args.out is None:
             raise ProvenanceError(

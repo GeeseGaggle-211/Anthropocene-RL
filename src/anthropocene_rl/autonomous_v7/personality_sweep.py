@@ -3,7 +3,7 @@ personalities on the same worlds, reporting each point's population, QoL, welfar
 checked for monotonicity (more QoL weight never lowers QoL).
 
     python -m anthropocene_rl.autonomous_v7.personality_sweep --checkpoint <pt> --seeds 2000-2019 --out <json>
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -42,7 +42,8 @@ def main() -> int:
     parser.add_argument(
         "--focal",
         action="store_true",
-        help="only alternate founding lineages take the sweep point; the rest draw Dirichlet(1) as in "
+        help="only alternate founding lineages take the sweep point; the rest draw Dirichlet(1) "
+        "as in "
         "training, and the focal lineages' outcomes are reported",
     )
     parser.add_argument("--out", type=Path, required=True)

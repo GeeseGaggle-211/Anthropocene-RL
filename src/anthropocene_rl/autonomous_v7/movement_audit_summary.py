@@ -4,7 +4,7 @@
 
 Physical move: a camp's tile differs between consecutive inspects. Directive: a learned keep-intent (-3) or a region row
 other than the current tile (101-107). Tenure: consecutive turns at the tile, counting the turn of arrival as 1.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -83,7 +83,8 @@ def world(path: Path) -> dict[str, Any]:
             out["camp_turns"].append(1)
             out["moved"].append(int(moved))
             out["moved_settled" if settled else "moved_nomadic"].append(int(moved))
-            # Relocation episodes (learned policies): from the first directive to arrival at its target.
+            # Relocation episodes (learned policies): from the first directive to arrival at its
+            # target.
             if code is not None and is_directive(code):
                 target = a["intentTile"] if a["hasIntent"] else (a["tile"] if moved else -1)
                 if camp not in episode or (
@@ -192,7 +193,8 @@ def world(path: Path) -> dict[str, Any]:
                 }
             )
         out["migrations"].append(post_all.get("migrations", 0))
-    # After arrival: physical moves at index i versus same-turn incumbents (tenure >= 3, did not move at i).
+    # After arrival: physical moves at index i versus same-turn incumbents (tenure >= 3, did not
+    # move at i).
     final = rows[-1]["pre"]["camps"]
     people = sum(c["population"] for c in final)
     aquatic = sum(
@@ -232,7 +234,7 @@ def world(path: Path) -> dict[str, Any]:
 def after_arrival(worlds: list[dict[str, Any]]) -> dict[str, Any]:
     """QoL, expectation-neutral QoL (E = 1) and population at arrival (k=0) and k=1..3 turns later, relative to the turn
     before the move. Movers are compared with matched non-movers: same world, same turn, same log2 population bucket,
-    settled at their tile for the two turns before. Reported: mover mean, matched-control mean and their difference."""
+    settled at their tile for the two turns before. Reported: mover mean, matched-control mean and their difference."""  # noqa: E501 - docstring/prose line kept verbatim
     import math
 
     events: list[tuple[str, int, int, int, list[tuple[float, float, float]]]] = []

@@ -1,4 +1,4 @@
-"""New-run bounded normalization contract; historical normalizers remain on their exact legacy path."""
+"""New-run bounded normalization contract; historical normalizers remain on their exact legacy path."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 

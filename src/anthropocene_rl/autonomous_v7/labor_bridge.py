@@ -1980,7 +1980,7 @@ class LaborModel9Bridge:
         return self._bridge.schema
 
     def capture_transient(self) -> dict[str, Any] | None:
-        """Live-only world state SaveCodec does not persist (bridge resumeContinuation >= 3), else None."""
+        """Live-only world state SaveCodec does not persist (bridge resumeContinuation >= 3), else None."""  # noqa: E501 - docstring/prose line kept verbatim
         if int(self._bridge.schema_response.get("resumeContinuation") or 0) < 3:
             return None
         return dict(self._bridge.request({"op": "capture_transient"})["transient"])

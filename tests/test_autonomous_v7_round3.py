@@ -1,5 +1,5 @@
 """Round 3 (docs/MODEL9_M7.md): stable personality scales, the daughter-start bank and specialist-share reporting.
-Bridge tests are skipped unless the model9 bridge is built."""
+Bridge tests are skipped unless the model9 bridge is built."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -35,7 +35,8 @@ def update_input(
     return ppo.balance(combined, regimes, 4.0)
 
 
-# --------------------------------------------------------------------------------------------- stable scales
+# ---------------------------------------------------------------------------------------------
+# stable scales
 def test_reference_scales_are_measured_and_positive() -> None:
     assert set(contracts.OBJECTIVE_REFERENCE_SCALES) == set(contracts.OBJECTIVES)
     assert all(s > 0 for s in contracts.OBJECTIVE_REFERENCE_SCALES.values())
@@ -63,7 +64,8 @@ def test_reference_combine_uses_fixed_exchange_rates() -> None:
         0.5 * adv["welfare"] / s["welfare"] + 0.5 * adv["population_years"] / s["population_years"]
     )
     assert np.allclose(ppo.combine_personal(adv, p, "reference"), expected)
-    # Batch content does not move the exchange rate: doubling one component's spread doubles its share exactly.
+    # Batch content does not move the exchange rate: doubling one component's spread doubles its
+    # share exactly.
     doubled = dict(adv)
     doubled["population_years"] = 2 * adv["population_years"]
     expected2 = (
@@ -94,7 +96,8 @@ def test_clip_stops_an_untrained_head_from_dominating() -> None:
     assert (
         abs(np.corrcoef(unclipped, signal)[0, 1]) < 0.1
     )  # without the clip the noise is the advantage
-    # With it the welfare signal survives: a saturated head adds at most +/- p_k * clip (here 1.25 against a signal
+    # With it the welfare signal survives: a saturated head adds at most +/- p_k * clip (here 1.25
+    # against a signal
     # spread of 0.75), so it is bounded, not removed.
     assert np.corrcoef(clipped, signal)[0, 1] > 0.4
     assert (
@@ -148,7 +151,8 @@ def test_scale_reference_returns_are_discounted_per_sequence() -> None:
     assert report["objectives"]["qol_years"]["mean"] > 0
 
 
-# --------------------------------------------------------------------------------------------- daughter bank
+# ---------------------------------------------------------------------------------------------
+# daughter bank
 def test_bank_index_rotation_and_held_out_slice(tmp_path) -> None:
     bank = DaughterBank(tmp_path / "bank", cap=3)
     for i in range(5):
@@ -173,7 +177,8 @@ def test_bank_index_rotation_and_held_out_slice(tmp_path) -> None:
         reopened.add("AAEC", seed=1, mask=2, turn=3, society=4, camp=5, parent_society=6)["id"] == 5
     )  # base64 input
     assert reopened.snapshot(reopened.get(5)) == bytes([0, 1, 2])
-    # Same-world, same-turn captures share one file, which survives until its last entry rotates out.
+    # Same-world, same-turn captures share one file, which survives until its last entry rotates
+    # out.
     shared = DaughterBank(tmp_path / "shared", cap=2)
     a = shared.add(b"world", seed=1, mask=0, turn=3, society=4, camp=5, parent_society=6)
     b = shared.add(b"world", seed=1, mask=0, turn=3, society=7, camp=8, parent_society=6)
@@ -194,7 +199,8 @@ def test_bank_index_rotation_and_held_out_slice(tmp_path) -> None:
             camp=i,
             parent_society=1,
         )
-    # The held-out family is whole world seeds (seed % 10 == 0): both of seed 1000's and of 1010's daughters.
+    # The held-out family is whole world seeds (seed % 10 == 0): both of seed 1000's and of 1010's
+    # daughters.
     assert [e["seed"] for e in big.evaluation_entries()] == [1000, 1000, 1010, 1010]
     assert all(held_out(e) for e in big.evaluation_entries())
     train_files = {e["file"] for e in big.training_entries()}
@@ -325,7 +331,8 @@ def test_search_picks_one_young_daughter_when_present() -> None:
     assert search_teacher.SearchConfig().daughter_search is True
 
 
-# --------------------------------------------------------------------------------------------- specialist share
+# ---------------------------------------------------------------------------------------------
+# specialist share
 def test_specialist_share_defaults_to_zero_and_is_population_weighted(monkeypatch) -> None:
     villages = [{"population": 30}, {"population": 10}]
     assert evaluate.specialist_share(villages) == 0.0  # bridges without the field
@@ -380,7 +387,8 @@ def test_daughter_eval_pairs_outcomes() -> None:
     assert report["qol_both_alive"] == {"entries": 1, "difference": pytest.approx(0.1)}
 
 
-# --------------------------------------------------------------------------------------------- bridge smokes
+# ---------------------------------------------------------------------------------------------
+# bridge smokes
 @needs_bridge
 def test_bridge_capture_and_reset_from_snapshot_continue_identically() -> None:
     with Model9Bridge() as a, Model9Bridge() as b:
@@ -440,7 +448,8 @@ def test_collect_banks_founded_daughters_and_replays_them_with_inherited_persona
     daughter = batch["camp"] == entry["camp"]
     parent = batch["society"] == entry["parent_society"]
     assert daughter.any() and parent.any()
-    # The banked daughter inherits its parent's personality (an exact copy here), founders draw fresh ones.
+    # The banked daughter inherits its parent's personality (an exact copy here), founders draw
+    # fresh ones.
     assert np.allclose(batch["personality"][daughter][0], batch["personality"][parent][0])
     assert len({tuple(p) for p in batch["personality"].round(6).tolist()}) > 1
     # The daughter evaluation runs from the same snapshot.
@@ -448,7 +457,8 @@ def test_collect_banks_founded_daughters_and_replays_them_with_inherited_persona
     assert out["initial_population"] > 0 and out["alive"] in (0.0, 1.0)
 
 
-# --------------------------------------------------------------------------------------------- one utility
+# --------------------------------------------------------------------------------------------- one
+# utility
 def test_search_scores_on_ppos_reference_utility_and_rescores_old_labels(tmp_path) -> None:
     from test_autonomous_v7 import batch
 
@@ -463,7 +473,8 @@ def test_search_scores_on_ppos_reference_utility_and_rescores_old_labels(tmp_pat
     # The same personality ranks alternatives as PPO's combine_personal would weight their returns.
     adv = {k: returns[:, i] - returns[0, i] for i, k in enumerate(contracts.OBJECTIVES)}
     assert np.allclose(ppo.combine_personal(adv, np.tile(p, (3, 1)), "reference"), u - u[0])
-    # A version-1 file (relative scores) with return vectors is rescored; its label (the old argmax, alternative 1)
+    # A version-1 file (relative scores) with return vectors is rescored; its label (the old argmax,
+    # alternative 1)
     # stays only where it is still the version-2 best.
     b = batch(2)
     n = 2

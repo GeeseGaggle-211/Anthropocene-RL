@@ -826,7 +826,8 @@ def test_stage1_saves_frozen_lineage_and_phase_resume_preserves_head(tmp_path, m
         return copy.deepcopy(proof["run_manifest"])
 
     monkeypatch.setattr(ck, "run_manifest", freeze)
-    # Loader/resume fitting and queue authority are mocked; entrypoint boundaries have separate regressions.
+    # Loader/resume fitting and queue authority are mocked; entrypoint boundaries have separate
+    # regressions.
     from anthropocene_rl.autonomous_v7 import protocol
 
     monkeypatch.setattr(
@@ -1065,7 +1066,8 @@ def test_live_latent_physical_sidecar_authorizes_zero_and_fork_restore_preserves
         }
         main = bridge.step(actions)
         receipts = copy.deepcopy(bridge.raw_material_diagnostics)
-        # Native fallback owns every residual worker. Positive kernel receipts are not a normal-turn claim.
+        # Native fallback owns every residual worker. Positive kernel receipts are not a normal-turn
+        # claim.
         assert all(r["acceptedUnits"] == 0 and r["realisedUnits"] == 0 for r in receipts.values())
         assert all(
             r["decisionTurn"] == start["turn"] and r["schemaVersion"] == 2

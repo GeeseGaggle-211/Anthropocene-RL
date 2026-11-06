@@ -413,8 +413,10 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
                 and np.isfinite(before_guard)
                 and abs(float(before_guard)) > float(normalizer.guard)
             ),
-            # Registered physical coordinates bypass the fitted dead mask. History may instead be zeroed by its
-            # explicit closed-loop support mask; movement 144 remains live even when constant in the fit corpus.
+            # Registered physical coordinates bypass the fitted dead mask. History may instead be
+            # zeroed by its
+            # explicit closed-loop support mask; movement 144 remains live even when constant in the
+            # fit corpus.
             "zeroedByDeadMask": (
                 False if feature is not None else bool(is_dead) if is_dead is not None else None
             ),

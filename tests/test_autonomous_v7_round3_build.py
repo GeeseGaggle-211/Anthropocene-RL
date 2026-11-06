@@ -1,4 +1,4 @@
-"""Round-3 build (docs/MODEL9_M7.md, *Round 3 build: heads, diagnostics, provenance*); no native bridge required."""
+"""Round-3 build (docs/MODEL9_M7.md, *Round 3 build: heads, diagnostics, provenance*); no native bridge required."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -26,7 +26,8 @@ def setup(region_head: str | None = None, all_legal: bool = True, token: bool = 
     return actor, to_tensors(b, normalizer)
 
 
-# ------------------------------------------------------------------------------------------- 1. hierarchical head
+# ------------------------------------------------------------------------------------------- 1.
+# hierarchical head
 def test_hierarchical_head_is_the_default_and_equals_the_flat_distribution_at_a_zero_offset() -> (
     None
 ):
@@ -60,7 +61,8 @@ def test_the_group_offset_moves_group_mass_but_not_the_odds_within_a_group() -> 
 
 
 def test_hierarchical_mode_chooses_the_group_first() -> None:
-    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: a flat argmax picks native, the head moves to the best row.
+    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: a flat argmax picks native, the head
+    # moves to the best row.
     p = torch.tensor([[0.30, 1e-9, 0.05, 0.20, 0.15, 0.10, 0.08, 0.06, 0.04, 0.02]])
     region = torch.log(p)
     legal = torch.ones_like(region, dtype=torch.bool)
@@ -131,7 +133,8 @@ def test_ppo_samples_and_scores_the_heads_joint_distribution(head: str, token: b
         expected = out["region_logp"].gather(1, draw["region"].unsqueeze(1)).squeeze(1)
         p = out["region_logp"].exp()
     assert torch.all(torch.isfinite(lp)) and torch.all(torch.isfinite(entropy))
-    # The mix offset is zero-initialised, so the region part is exactly the head's joint log-probability of the draw.
+    # The mix offset is zero-initialised, so the region part is exactly the head's joint
+    # log-probability of the draw.
     assert torch.allclose(lp - lp0, expected, atol=1e-4)
     if head == "hierarchical":  # the offset raised the go group's share above the flat one
         go = model.region_group_index() == model.REGION_GROUP_GO
@@ -166,7 +169,8 @@ def test_search_labels_supervise_both_levels() -> None:
         )
 
 
-# ------------------------------------------------------------------------------------------- 3. cost bootstrap
+# ------------------------------------------------------------------------------------------- 3.
+# cost bootstrap
 def test_guard_cost_critic_bootstraps_truncated_living_villages() -> None:
     b = batch()
     normalizer = Normalizer.fit(b)
@@ -177,7 +181,8 @@ def test_guard_cost_critic_bootstraps_truncated_living_villages() -> None:
         cost_critic.head.weight.zero_()  # V_cost = 0.5 everywhere
     roll = ppo.Rollout()
     roll.bootstrap_obs.append({k: v[:2] for k, v in b.items()})
-    # Two villages, two turns each; village 7 is truncated alive at the horizon, village 8 terminated.
+    # Two villages, two turns each; village 7 is truncated alive at the horizon, village 8
+    # terminated.
     rows = {
         "world": np.array([0, 0, 0, 0]),
         "camp": np.array([7, 8, 7, 8]),

@@ -6,7 +6,7 @@ Every policy in the report ran on the same worlds. Per regime, the effect is the
 welfare, each arm's welfare being its mean over training seeds summed over worlds. The interval resamples training
 seeds (within each arm) and worlds (shared by both arms, so world difficulty cancels) together, so it covers both
 seed noise and world sampling. ``--reference`` adds each arm's ratio against one further policy (e.g. their init).
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def difference_interval(
     a: np.ndarray, b: np.ndarray, draws: int, rng: np.random.Generator
 ) -> dict[str, float]:
     """Arm B minus arm A in mean extinct settlements per world (E3: a rate with an interval, pooled over seeds),
-    resampling seeds within each arm and the shared worlds."""
+    resampling seeds within each arm and the shared worlds."""  # noqa: E501 - docstring/prose line kept verbatim
     point = b.mean() - a.mean()
     worlds = a.shape[1]
     samples = np.empty(draws)
@@ -107,7 +107,7 @@ def compare(
 
 
 def merge(reports: list[dict]) -> dict:
-    """stage_eval reports over the same worlds (e.g. candidate shards run in parallel) as one report."""
+    """stage_eval reports over the same worlds (e.g. candidate shards run in parallel) as one report."""  # noqa: E501 - docstring/prose line kept verbatim
     out = json.loads(json.dumps(reports[0]))
     for other in reports[1:]:
         for name, row in other.items():
@@ -147,8 +147,10 @@ def main() -> int:
         r = e["b_vs_a"]
         x = e["extinctions_b_minus_a"]
         line = (
-            f"{name:10s} worlds {e['worlds']:3d}  B/A {r['ratio']:.4f} [{r['lo']:.4f}, {r['hi']:.4f}]"
-            f"  extinct/world A {x['a_rate']:.3f} B {x['b_rate']:.3f} diff [{x['lo']:+.3f}, {x['hi']:+.3f}]"
+            f"{name:10s} worlds {e['worlds']:3d}  B/A {r['ratio']:.4f} [{r['lo']:.4f}, "
+            f"{r['hi']:.4f}]"
+            f"  extinct/world A {x['a_rate']:.3f} B {x['b_rate']:.3f} diff "
+            f"[{x['lo']:+.3f}, {x['hi']:+.3f}]"
         )
         for key in ("a_vs_reference", "b_vs_reference"):
             if key in e:

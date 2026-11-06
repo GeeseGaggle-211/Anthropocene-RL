@@ -326,7 +326,7 @@ def collect_learner_world(
     the branch's last actor decision; ``all-visited``: after each) also gets
     one teacher continuation (:func:`teacher_continuation`), appended to
     ``continuations``; the actor rows are unchanged by it.
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
     from .bridge import Model9Bridge
     from .labor_bridge import LaborModel9Bridge
     from .labor_model import labor_policy_tensors

@@ -166,7 +166,8 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     "td_unavailable_max": {
         "value": 0.05,
         "status": "proposed",
-        "source": "windows ending at a living cutoff without a declared tail are excluded; above this share HOLD",
+        "source": "windows ending at a living cutoff without a declared tail are excluded; above "
+        "this share HOLD",
     },
     "td_nstep_k": {
         "value": 5,

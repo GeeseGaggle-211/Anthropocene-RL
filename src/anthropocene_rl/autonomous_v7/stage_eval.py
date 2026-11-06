@@ -5,7 +5,7 @@
 Categories are ordinary DEVELOPMENT worlds and the three capability fixtures (same seeds, withheld-technology
 masks), and optionally grassland-rich openings. Each candidate is compared with the init policy and the native
 teacher on the same worlds.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -47,7 +47,8 @@ def main() -> int:
         "--valley",
         type=Path,
         default=None,
-        help="contract-10 valley fixtures: lines 'seed,warmup' (the heuristic plays warmup turns first)",
+        help="contract-10 valley fixtures: lines 'seed,warmup' (the heuristic plays warmup "
+        "turns first)",
     )
     parser.add_argument(
         "--valley-strict",
@@ -70,7 +71,8 @@ def main() -> int:
     parser.add_argument(
         "--grouped-region",
         action="store_true",
-        help="candidates choose their region slot hierarchically (native / stay / go first, then where)",
+        help="candidates choose their region slot hierarchically (native / stay / go first, "
+        "then where)",
     )
     parser.add_argument(
         "--regime-tolerance",
@@ -156,7 +158,8 @@ def main() -> int:
             ),
             flush=True,
         )
-    # Gate: default welfare at least the init's, no regime more than the tolerance below the init, and no more
+    # Gate: default welfare at least the init's, no regime more than the tolerance below the init,
+    # and no more
     # extinctions than the init in any regime.
     gate = {}
     for candidate in args.candidates.split(","):

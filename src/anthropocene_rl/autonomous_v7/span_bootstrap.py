@@ -6,7 +6,7 @@ The init checkpoint is upgraded to contract 9; the teacher shards are extended w
 commitment features the simulator would show (``span_labels.extend``). The whole actor is then fine-tuned with the
 stage-1 behaviour-cloning loss plus a span cross-entropy, so the existing heads keep their teacher fit while the
 encoder learns to read the commitment block. The critic is carried over unchanged.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 

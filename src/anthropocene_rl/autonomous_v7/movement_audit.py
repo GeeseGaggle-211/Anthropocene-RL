@@ -8,7 +8,7 @@ Policies: ``grouped`` (learned region movement, hierarchical choice), ``argmax``
 argmax), ``native`` (the checkpoint's levers with the heuristic's movement), ``stay`` (learned levers, region slot
 forced to the current tile: never moves). Rollouts match evaluate.rollout exactly;
 ``inspect`` asserts the world fingerprint is unchanged, and the post-step fingerprints are recorded for a paired check.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -42,7 +42,8 @@ def audit_rollout(
     movement = policy in ("grouped", "argmax", "stay")
     actor.region_movement = movement
     actor.grouped_region = policy == "grouped"
-    # Selection counterfactuals preserve the saved/explicit head and its authoritative joint distribution.
+    # Selection counterfactuals preserve the saved/explicit head and its authoritative joint
+    # distribution.
     actor.region_selection = policy if policy in ("argmax", "stay") else None
     abandoned: list[int] = []
     rows: list[dict[str, Any]] = []

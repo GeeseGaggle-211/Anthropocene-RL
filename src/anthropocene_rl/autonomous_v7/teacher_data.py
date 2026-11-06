@@ -1,4 +1,4 @@
-"""Native teacher collection through the exact production bridge; immutable publish-last datasets, never migration."""
+"""Native teacher collection through the exact production bridge; immutable publish-last datasets, never migration."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 

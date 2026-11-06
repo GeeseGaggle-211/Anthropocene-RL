@@ -139,7 +139,9 @@ result = dict(
         maturity_nonzero_values=int((x[:, 117:120] != 0).sum()),
         ema_short_medium_max_abs_difference=float((ema[:, :, 0] - ema[:, :, 1]).abs().max()),
         ema_short_long_max_abs_difference=float((ema[:, :, 0] - ema[:, :, 2]).abs().max()),
-        note="Probe verifies observed rows; source control-flow establishes why this is not persisted history. Snapshot nil scan is binary-format marker inspection, not a new native restore.",
+        note="Probe verifies observed rows; source control-flow establishes why this is not "
+        "persisted history. Snapshot nil scan is binary-format marker inspection, not a "
+        "new native restore.",
     ),
     bank_memory_markers=memory,
     bank_partitions={
@@ -160,7 +162,8 @@ result = dict(
         )
         for h in [100, 400]
     },
-    limits="Descriptive static audit only. No causal intervention. Worlds, samplers and model variants are not independent replications of each other.",
+    limits="Descriptive static audit only. No causal intervention. Worlds, samplers and model "
+    "variants are not independent replications of each other.",
 )
 OUT.write_text(json.dumps(result, indent=2) + "\n")
 print(OUT)

@@ -5,7 +5,7 @@ The failure mode reproduced here is the one found in the stage-1 token clones: a
 teacher data (the movement-legal flag, 1 in every ``--model9-teacher`` row) takes another value in closed-loop
 evaluation (0: ``evaluate.py`` runs with movement disabled). The 1e-3 std floor turns that into |z| = 693 on the
 village token, through a weight column that never received a gradient, so the evaluated policy depends on the
-random initialisation (the seed), not on what was cloned."""
+random initialisation (the seed), not on what was cloned."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -70,7 +70,8 @@ def test_unguarded_constant_input_shift_makes_the_policy_a_seed_lottery() -> Non
         moves.append(
             service_means(actor, shifted(b), normalizer) - service_means(actor, b, normalizer)
         )
-    # The shift moves every seed's output far more than the in-distribution spread of inputs does, in a direction set
+    # The shift moves every seed's output far more than the in-distribution spread of inputs does,
+    # in a direction set
     # by that seed's initialisation.
     assert all(float(m.abs().mean()) > 0.2 for m in moves)
     directions = torch.stack([m.mean(dim=0) for m in moves])
@@ -117,7 +118,7 @@ def test_guard_round_trips_and_unguarded_states_are_unchanged() -> None:
 
 
 def test_constant_input_receives_no_gradient() -> None:
-    """Why the column stays at its random initialisation: the normalized constant is ~0 in every training row."""
+    """Why the column stays at its random initialisation: the normalized constant is ~0 in every training row."""  # noqa: E501 - docstring/prose line kept verbatim
     b = batch()
     normalizer = Normalizer.fit(b, guard=10.0)
     torch.manual_seed(0)
@@ -181,8 +182,10 @@ def write_shard(directory: Path, seed: int, n: int = 30, core: int = 24) -> None
 
 
 def run_main(monkeypatch, tmp_path: Path, *extra: str) -> list[dict]:
-    # These historical optimizer/normalizer tests use deliberately tiny synthetic, unattributed arrays.
-    # Strict production sources are tested separately; keep this fixture from masquerading as production evidence.
+    # These historical optimizer/normalizer tests use deliberately tiny synthetic, unattributed
+    # arrays.
+    # Strict production sources are tested separately; keep this fixture from masquerading as
+    # production evidence.
     import copy
 
     from test_autonomous_v7_round3_contracts import checkpoint_proof_fixture
@@ -261,7 +264,8 @@ def test_token_defaults_turn_the_fix_on_and_the_phase_checkpoint_resumes(
     assert len(bc) == 2 and "dev_mode" in bc[0] and bc[-1]["lr"] == pytest.approx(3e-4 * 0.05)
     phase = torch.load(tmp_path / "runs" / "stage1.bc.pt", map_location="cpu", weights_only=False)
     assert phase["normalizer"] == state["normalizer"] and phase["bc_config"] == state["bc_config"]
-    # A rerun with the same --out skips cloning and keeps the phase's actor and normalizer, whatever the flags say.
+    # A rerun with the same --out skips cloning and keeps the phase's actor and normalizer, whatever
+    # the flags say.
     again = run_main(monkeypatch, tmp_path, "--token", "--input-guard", "0")
     assert again["normalizer"] == state["normalizer"]
     assert all(torch.equal(again["actor"][k], state["actor"][k]) for k in state["actor"])
@@ -314,7 +318,7 @@ def test_bounded_normalization_cli_persists_contract_and_rejects_legacy_resume(
 
 
 def test_default_train_actor_is_bitwise_the_original_loop() -> None:
-    """Pooling runs (and any run with the schedule off) reproduce: the defaults step exactly as the original code."""
+    """Pooling runs (and any run with the schedule off) reproduce: the defaults step exactly as the original code."""  # noqa: E501 - docstring/prose line kept verbatim
     b = batch(48, 3)
     rng = np.random.default_rng(5)
     n = len(b["core"])

@@ -5,7 +5,7 @@
 Behaviour cloning maximizes the teacher's action likelihood on every head (posture/mixed routes included here for
 initialisation; PPO later carries no teacher anchor on them). The factored critic predicts u = G / P from TD(lambda)
 targets, refitted for a few rounds with its own bootstrap. No actor update depends on the critic in this stage.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -56,7 +56,8 @@ def bc_loss(
         )
         * sm
     ).sum() / sm.sum().clamp(min=1)
-    # Economy mix: the teacher's split is a label wherever its field or fishing share is (development > 0).
+    # Economy mix: the teacher's split is a label wherever its field or fishing share is
+    # (development > 0).
     mix_loss, carried = mix_soft_cross_entropy(
         out["mix_logits"], mix_target(labels["strategic"]), t["economy_mix_mask"]
     )
@@ -103,7 +104,7 @@ def mode_agreement(
     """Fast fidelity proxy: the deterministic (closed-loop evaluation) action against the teacher's, per head: mean
     absolute error of each service level and of the unit strategic controls (after the 0/1 snapping), and agreement
     of the routes. The logistic-normal NLL weights boundary labels by 1 / std^2, so it can move by nats while the mode
-    the evaluation plays is unchanged, or the reverse."""
+    the evaluation plays is unchanged, or the reverse."""  # noqa: E501 - docstring/prose line kept verbatim
     mode = act_deterministic(out)
     result: dict[str, float] = {}
     vm = labels["service_mask"].numpy().astype(bool)
@@ -128,7 +129,7 @@ def mode_agreement(
 
 def lr_factor(step: int, total: int, warmup: float, final: float | None) -> float:
     """Learning-rate multiplier: linear warm-up over the first ``warmup`` share of steps, then cosine decay to
-    ``final`` of the peak at the last step; ``final`` None keeps the peak after warm-up (the original flat rate)."""
+    ``final`` of the peak at the last step; ``final`` None keeps the peak after warm-up (the original flat rate)."""  # noqa: E501 - docstring/prose line kept verbatim
     warm = int(round(warmup * total))
     if step < warm:
         return (step + 1) / warm
@@ -154,7 +155,7 @@ def train_actor(
 ) -> None:
     """Behaviour cloning. The defaults are the original optimiser (Adam at a flat ``lr``, gradient clip 1.0); ``main``
     turns the schedule on for ``--token`` (docs/MODEL9_TOKENS.md, "Cloning stability"). ``encoder_lr_scale`` sets the
-    encoder's peak rate relative to the heads' rate."""
+    encoder's peak rate relative to the heads' rate."""  # noqa: E501 - docstring/prose line kept verbatim
     if encoder_lr_scale == 1.0:
         groups = [
             {"params": list(actor.parameters()), "peak": lr}
@@ -251,7 +252,8 @@ def train_critic(
     reward_train, reward_dev = data.lineage_rewards(train), data.lineage_rewards(dev)
     value_train = value_dev = None
     if warm:
-        # A resumed critic bootstraps its first targets from its own predictions rather than restarting from MC.
+        # A resumed critic bootstraps its first targets from its own predictions rather than
+        # restarting from MC.
         value_train = predict(critic, train, normalizer) * np.maximum(
             1.0, train["prior_population"]
         )
@@ -333,7 +335,7 @@ def train_critic_heads(
     contracts.OBJECTIVES from data.reward_components (each in ppo.head_scale units: qol_years raw, the others per
     resident); a scalar Critic learns welfare. Branch rows (critic only) join the training rows with their own
     lambda-returns, bootstrapped by the critic after each branch's last tail turn. Rounds refit the targets with the
-    critic's own values, as ``train_critic``."""
+    critic's own values, as ``train_critic``."""  # noqa: E501 - docstring/prose line kept verbatim
     from . import branch_shards
     from .ppo import head_scale
 
@@ -465,9 +467,11 @@ def main() -> int:
     parser.add_argument(
         "--vector-critic",
         action="store_true",
-        help="pretrain a VectorCritic: one head per contracts.OBJECTIVES (saved vector_critic: True)",
+        help="pretrain a VectorCritic: one head per contracts.OBJECTIVES (saved vector_critic: "
+        "True)",
     )
-    # Cloning stability (docs/MODEL9_TOKENS.md): each defaults on for --token and to the original behaviour otherwise.
+    # Cloning stability (docs/MODEL9_TOKENS.md): each defaults on for --token and to the original
+    # behaviour otherwise.
     parser.add_argument(
         "--lr-warmup",
         type=float,
@@ -478,7 +482,8 @@ def main() -> int:
         "--lr-final",
         type=float,
         default=None,
-        help="cosine-decay BC to this share of the peak lr (token 0.05); negative keeps the flat lr (else)",
+        help="cosine-decay BC to this share of the peak lr (token 0.05); negative keeps the "
+        "flat lr (else)",
     )
     parser.add_argument(
         "--encoder-lr-scale",
@@ -491,7 +496,8 @@ def main() -> int:
         "--input-guard",
         type=float,
         default=None,
-        help="normalizer guard: drop inputs constant in TRAIN, clip the rest to +-this (token 10, else 0 = off)",
+        help="normalizer guard: drop inputs constant in TRAIN, clip the rest to +-this (token "
+        "10, else 0 = off)",
     )
     parser.add_argument(
         "--normalization-contract",
@@ -503,7 +509,8 @@ def main() -> int:
         "--provenance",
         choices=("reject", "flag", "allow"),
         default="reject",
-        help="branch shards that mix sources or hold shards of unknown source: reject, flag or allow",
+        help="branch shards that mix sources or hold shards of unknown source: reject, flag or "
+        "allow",
     )
     parser.add_argument(
         "--branch-shards",
@@ -589,8 +596,10 @@ def main() -> int:
         bc_config["normalization_contract"] = "bounded-v2"
     core_width = train["core"].shape[1]
     privileged_width = train["privileged"].shape[1] if "privileged" in train else 0
-    # Round 3: the hierarchical region head by default (model.Actor; saved in the actor state); --region-head flat keeps
-    # the earlier flat head. Teacher shards carry no region label, so cloning never trains the region head either way.
+    # Round 3: the hierarchical region head by default (model.Actor; saved in the actor state);
+    # --region-head flat keeps
+    # the earlier flat head. Teacher shards carry no region label, so cloning never trains the
+    # region head either way.
     actor = Actor(core_width, token=args.token, region_head=args.region_head)
     critic = (VectorCritic if args.vector_critic else Critic)(
         core_width, privileged_width=privileged_width, token=args.token
@@ -718,13 +727,15 @@ def main() -> int:
             ],
             teacher_inputs=teacher_inputs,
         )
-    # Phase checkpoint: cloning is the long phase, so it is saved on its own (atomically) and a rerun with the same
+    # Phase checkpoint: cloning is the long phase, so it is saved on its own (atomically) and a
+    # rerun with the same
     # --out skips it. A preempted VM then loses at most the critic pretraining.
     if args.resume is None and phase.exists():
         saved = loading
         restore_actor(actor, saved, args.region_head, resume=True)
         log = list(saved["log"])
-        # The actor was cloned against this normalizer (phase files written before the guard carry none: refit).
+        # The actor was cloned against this normalizer (phase files written before the guard carry
+        # none: refit).
         if "normalizer" in saved:
             expected_contract = (
                 BOUNDED_FEATURE_CONTRACT

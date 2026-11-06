@@ -185,7 +185,8 @@ def load_search_resume_point(
             continue
         if state.get("schema") != SEARCH_CHECKPOINT_SCHEMA:
             raise CheckpointIdentityError(
-                f"{path}: search checkpoint schema {state.get('schema')!r} != {SEARCH_CHECKPOINT_SCHEMA}"
+                f"{path}: search checkpoint schema {state.get('schema')!r} != "
+                f"{SEARCH_CHECKPOINT_SCHEMA}"
             )
         if state.get("identity") != dict(identity):
             saved = state.get("identity") or {}

@@ -1,4 +1,4 @@
-"""Deterministic, non-resumable clone promotion; every candidate and report is evidence, not just the winner."""
+"""Deterministic, non-resumable clone promotion; every candidate and report is evidence, not just the winner."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 

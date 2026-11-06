@@ -66,7 +66,7 @@ def restore_actor(
 
 
 def actor_parameters(actor, state: dict | None = None):
-    """Keep pre-head Adam parameter ordering exactly; dormant offsets have no flat-mode optimizer slots."""
+    """Keep pre-head Adam parameter ordering exactly; dormant offsets have no flat-mode optimizer slots."""  # noqa: E501 - docstring/prose line kept verbatim
     legacy = state is not None and (
         state.get("legacy_actor_optimizer", False)
         or "region_group.weight" not in state.get("actor", state)

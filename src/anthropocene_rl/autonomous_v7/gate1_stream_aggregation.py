@@ -716,7 +716,8 @@ def aggregate(candidate_path: Path, evaluation_paths: Iterable[Path]) -> dict[st
                                 "interval": None,
                                 "reason": (
                                     "world bootstrap does not estimate optimizer uncertainty; "
-                                    "historical arm seeds are disjoint and no paired arm contrast is valid"
+                                    "historical arm seeds are disjoint and no paired arm "
+                                    "contrast is valid"
                                 ),
                             },
                         }
@@ -826,8 +827,10 @@ def aggregate(candidate_path: Path, evaluation_paths: Iterable[Path]) -> dict[st
                 "all_regime_unit": "world seed cluster containing all four regimes",
                 "all_regime_independent_units": 16,
                 "optimizer_design": "historical T3 optimizer seeds are disjoint and unpaired",
-                "hierarchical_structure": "optimizer runs are nested within arms; arms are unpaired",
-                "optimizer_uncertainty": "separately unestimated; never supplied by world bootstrap",
+                "hierarchical_structure": "optimizer runs are nested within arms; arms are "
+                "unpaired",
+                "optimizer_uncertainty": "separately unestimated; never supplied by world "
+                "bootstrap",
                 "between_arm_inference": "not estimated; descriptive arm means only",
             },
             "raw_worlds": sorted(
@@ -855,8 +858,10 @@ def aggregate(candidate_path: Path, evaluation_paths: Iterable[Path]) -> dict[st
                 "unmeasured_service_equivalence": unmeasured_service_equivalence,
                 "full_physical_equivalence_claim": False,
                 "scope": (
-                    "fresh-current captured finite mandatory outcomes plus canonical trajectory digest; "
-                    "declared-unavailable services and historical BC-time behavior are not claimed equivalent"
+                    "fresh-current captured finite mandatory outcomes plus canonical "
+                    "trajectory digest; "
+                    "declared-unavailable services and historical BC-time behavior are not "
+                    "claimed equivalent"
                 ),
             },
         }

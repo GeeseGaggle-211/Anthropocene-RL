@@ -25,7 +25,7 @@ def protocol_digest(document):
 
     Approval is external, never embedded (embedding its SHA would create a cryptographic cycle).
     Every other field, including unknown future fields, participates in the immutable decision-rule identity.
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
     if document.get("protocol_digest_version") != 1:
         raise ProvenanceError("unsupported protocol digest projection")
     return digest(
@@ -179,14 +179,16 @@ def execution_design(design: dict) -> dict:
             or len(set(s for group in arms.values() for s in group)) > 3
         ):
             raise ProvenanceError(
-                "local training is limited to three diagnostic seeds and cannot select or establish readiness"
+                "local training is limited to three diagnostic seeds and cannot select or "
+                "establish readiness"
             )
     elif design["purpose"] == "readiness":
         if set(arms) != {"R3def", "R3per", "R3lo"} or any(
             group != list(range(170, 175)) for group in arms.values()
         ):
             raise ProvenanceError(
-                "readiness requires three matched arms and five paired seeds; alternate designs require reviewed preregistration"
+                "readiness requires three matched arms and five paired seeds; alternate "
+                "designs require reviewed preregistration"
             )
     return {
         **design,
@@ -199,7 +201,8 @@ def enforce_execution(args):
     if getattr(args, "arm", None) is None:
         if not getattr(args, "nonqualifying", False):
             raise ProvenanceError(
-                "training requires frozen VM execution authority or explicit --nonqualifying diagnostic mode"
+                "training requires frozen VM execution authority or explicit "
+                "--nonqualifying diagnostic mode"
             )
         if any(
             getattr(args, name, None)
@@ -313,7 +316,7 @@ def enforce_clone_execution(args):
 
 
 def enforce_qualification_execution(args, module):
-    """Publishing clone-selection/promotion evidence is a qualification phase, not a local selection probe."""
+    """Publishing clone-selection/promotion evidence is a qualification phase, not a local selection probe."""  # noqa: E501 - docstring/prose line kept verbatim
     import os
     import shlex
     import sys
@@ -353,7 +356,7 @@ def enforce_qualification_execution(args, module):
 
 
 def require_vm_authority(execution):
-    """Read only the current machine's fixed GCP metadata identity; environment prose is not VM authority."""
+    """Read only the current machine's fixed GCP metadata identity; environment prose is not VM authority."""  # noqa: E501 - docstring/prose line kept verbatim
     import urllib.request
 
     expected = execution.get("vm")
@@ -471,7 +474,7 @@ def search_cohort(path: Path, bank, config, held: dict) -> tuple[dict, list[tupl
 
 
 def inventory(spec: dict, *, base: Path | None = None) -> dict:
-    """Inventory explicitly enumerated prior-use artifacts; unknown evidence never proves absence of exposure."""
+    """Inventory explicitly enumerated prior-use artifacts; unknown evidence never proves absence of exposure."""  # noqa: E501 - docstring/prose line kept verbatim
     base = base or Path.cwd()
     if spec.get("schema") != 1 or not spec.get("artifacts") or not spec.get("scope_roots"):
         raise ProvenanceError("prior-use inventory needs explicit artifact and scope-root coverage")
@@ -545,7 +548,8 @@ def inventory(spec: dict, *, base: Path | None = None) -> dict:
         directory = directory if directory.is_absolute() else base / directory
         if not directory.is_dir():
             raise ProvenanceError("inventory scope root missing")
-        # An explicit ignore list is hash-bound to the inventory specification; no silent omission of possible evidence.
+        # An explicit ignore list is hash-bound to the inventory specification; no silent omission
+        # of possible evidence.
         if spec.get("ignored_files"):
             raise ProvenanceError("prior-use evidence cannot be silently ignored")
         unlisted = [p for p in directory.rglob("*") if p.is_file() and p.resolve() not in paths]

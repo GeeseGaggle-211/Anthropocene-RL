@@ -1,4 +1,4 @@
-"""Content-bound final-budget and best-selection evidence; filenames do not establish checkpoint forms."""
+"""Content-bound final-budget and best-selection evidence; filenames do not establish checkpoint forms."""  # noqa: E501 - docstring/prose line kept verbatim
 
 import json
 import math

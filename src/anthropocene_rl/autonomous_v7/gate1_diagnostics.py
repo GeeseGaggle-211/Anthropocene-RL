@@ -1516,7 +1516,8 @@ def trajectory_evidence(
     surface = {
         "schema": 2,
         "kind": "gate1_canonical_trajectory",
-        "ordering": "step-order; boundary/action/economic identities canonicalized by registered key",
+        "ordering": "step-order; boundary/action/economic identities canonicalized by registered "
+        "key",
         "reset": reset,
         "bounds": copy.deepcopy(bounds),
         "opening": _canonical_semantic(opening),

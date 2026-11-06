@@ -512,9 +512,13 @@ def _t2m_inventory(root: Path) -> dict[str, Any]:
             "file_count": len(files),
             "guarded_bc_seeds": sorted(seeds),
             "selected_actor_seed": 6,
-            "selection_basis": "same initialization seed as recovered historical T3 initialization; not outcome selection",
+            "selection_basis": "same initialization seed as recovered historical T3 "
+            "initialization; "
+            "not "
+            "outcome selection",
             "completed_guarded_critic_checkpoint_recovered": False,
-            "scope_limit": "absence in this archive is not proof of global historical non-production",
+            "scope_limit": "absence in this archive is not proof of global historical "
+            "non-production",
         }
     )
 
@@ -1032,7 +1036,8 @@ def _implementation_identity(
             "materialization": materialization,
             "note": (
                 "Exact executing source hashes and the repository dirty-state proof are bound. "
-                "The generated package excludes only its own output path; cleanliness is not a gate."
+                "The generated package excludes only its own output path; cleanliness is "
+                "not a gate."
             ),
         }
     )
@@ -1112,7 +1117,9 @@ def _build_dag(
                 "role": "learned-bc-phase",
                 "status": "present",
                 "artifact": bc,
-                "contract": "actor-only; current diagnostic composite uses unguarded T3 initialization support after identity proof",
+                "contract": "actor-only; current diagnostic composite uses unguarded T3 "
+                "initialization "
+                "support after identity proof",
                 "historical_semantics": _semantics(experts=False, token=True),
                 "historical_producer_status": "unresolved",
                 "run_identity": {
@@ -1174,7 +1181,9 @@ def _build_dag(
                     "protocol": guarded_adapter_ref,
                 },
                 "critic_status": "absent-in-actor-only-bc-phase",
-                "selection_basis": "seed identity 6 matches historical T3 initialization; no outcome selection",
+                "selection_basis": "seed identity 6 matches historical T3 initialization; no "
+                "outcome "
+                "selection",
             },
             {
                 "id": "t3-init-guard-only-intervention",
@@ -1318,7 +1327,8 @@ def _build_dag(
                         "producer/t2.sh",
                         "producer/src/anthropocene_rl/autonomous_v7/train.py",
                     ],
-                    "reason": "recovered code constructs a fresh token actor and fits BC; no prior conversion artifact",
+                    "reason": "recovered code constructs a fresh token actor and fits BC; no prior "
+                    "conversion artifact",
                 },
                 "learned-bc-phase": ["bc-phase"],
                 "t3-initialization-clone": ["t3-initialization-clone"],
@@ -1356,7 +1366,8 @@ def _build_dag(
                 "epochs": 12,
                 "historical_conversion_claim": False,
             },
-            "best_checkpoint_policy": "selection-evidence-only; never substitutes for latest endpoint",
+            "best_checkpoint_policy": "selection-evidence-only; never substitutes for latest "
+            "endpoint",
             "lineage_conflict": (
                 "Recovered T3 scripts/checkpoints expose an unguarded stage1-token-s6 "
                 "initialization. The independent T2m seed-6 BC phase supplies a guarded actor "
@@ -1397,7 +1408,8 @@ def _verification_protocol(runtime: dict[str, Any], worlds: list[dict[str, Any]]
             "metric": "throughput-ratio",
             "baseline": "same binary/fixture with pre-Gate1 rollout path",
             "treatment": "same binary/fixture with diagnostic capture disabled",
-            "ratio_definition": "treatment completed-steps-per-second / paired baseline completed-steps-per-second",
+            "ratio_definition": "treatment completed-steps-per-second / paired baseline "
+            "completed-steps-per-second",
             "rule": {"direction": ">=", "limit": 0.98},
         },
         {
@@ -1427,9 +1439,12 @@ def _verification_protocol(runtime: dict[str, Any], worlds: list[dict[str, Any]]
             },
             "workers": 8,
             "metric": "throughput-ratio",
-            "baseline": "same eight worlds, eight workers and binary with diagnostic capture disabled",
-            "treatment": "same eight worlds, eight workers and binary with full Gate1 diagnostic capture enabled",
-            "ratio_definition": "treatment completed-worlds-per-second / paired baseline completed-worlds-per-second",
+            "baseline": "same eight worlds, eight workers and binary with diagnostic capture "
+            "disabled",
+            "treatment": "same eight worlds, eight workers and binary with full Gate1 diagnostic "
+            "capture enabled",
+            "ratio_definition": "treatment completed-worlds-per-second / paired baseline "
+            "completed-worlds-per-second",
             "scaling_efficiency_claim": False,
             "rule": {"direction": ">=", "limit": 0.80},
         },
@@ -1818,7 +1833,9 @@ def build_candidate(
             "support_checkpoint_sha256": initialization["sha256"],
             "bc_actor_identity": bc_actor,
             "support_actor_identity": initialization_actor,
-            "metadata_and_normalizer_source": "hash-bound unguarded T3 initialization checkpoint for current diagnostic composite",
+            "metadata_and_normalizer_source": (
+                "hash-bound unguarded T3 initialization checkpoint for current diagnostic composite"
+            ),
             "support_normalizer_semantics": "unguarded",
             "support_proof": [
                 "recovered .bc.pt contains actor/log only",
@@ -1981,7 +1998,9 @@ def build_candidate(
             ),
             "mask_semantics": {
                 "technology_masks": [{"id": name, "withheld": value} for name, value in MASKS],
-                "action_masks": "captured from each source observation and validated against the exact decoder receipt; never overridden",
+                "action_masks": "captured from each source observation and validated against the "
+                "exact "
+                "decoder receipt; never overridden",
             },
             "personality": [contracts.OBJECTIVE_WEIGHTS[name] for name in contracts.OBJECTIVES],
             "capture_bounds": {
@@ -2095,7 +2114,8 @@ def build_candidate(
                 "the original BC-time fitted-normalizer identity remains unproved",
                 "stage1-token-s6 and recovered T3 normalizers are unguarded",
                 "no completed T2m guarded critic checkpoint was recovered",
-                "the guard-only node is a prospective diagnostic composition, not a historical artifact",
+                "the guard-only node is a prospective diagnostic composition, not a "
+                "historical artifact",
                 "no BC-to-initialization behavioral-equivalence claim",
                 "recovered T3 optimizer seeds are disjoint and unpaired",
                 "producer source variants do not cryptographically bind every historical iteration",
@@ -2106,20 +2126,30 @@ def build_candidate(
     readme = output / "README.md"
     readme.write_text(
         "# Model9 Gate 1 production freeze candidate\n\n"
-        "Status: **HOLD pending VM materialization and Astra High review**. This portable staging package "
+        "Status: **HOLD pending VM materialization and Astra High review**. This portable "
+        "staging package "
         "contains no checkpoint evaluation, simulator run, "
-        "performance treatment measurement, training or selection result. `latest.pt` is the endpoint; `best.pt` is "
+        "performance treatment measurement, training or selection result. `latest.pt` is "
+        "the endpoint; `best.pt` is "
         "selection evidence only. The historical T3 arms remain disjoint and unpaired.\n\n"
-        "The contract-8 prior is an evaluation reference, not the learned clone's parameter/data parent. The BC phase "
-        "is a learned 12-epoch actor checkpoint. Recovered teacher arrays are inventoried, but their exact linkage to "
+        "The contract-8 prior is an evaluation reference, not the learned clone's "
+        "parameter/data parent. The BC phase "
+        "is a learned 12-epoch actor checkpoint. Recovered teacher arrays are inventoried, "
+        "but their exact linkage to "
         "the original BC fit and BC-time normalizer remains unresolved. Its only registered "
-        "equivalence is literal actor-tensor identity with the recovered unguarded T3 initialization checkpoint. "
-        "No completed T2m guarded critic checkpoint was recovered: the available T2m record stops during critic fitting. "
-        "Its seed-6 actor-only BC checkpoint and original guarded normalizer are a factual independent evaluation node, "
-        "not a T3 ancestor. One additional prospective node places those exact guard/dead settings on the bitwise T3-init "
-        "actor after proving every affine moment identical; it is not a fabricated historical artifact. Completed-clone "
+        "equivalence is literal actor-tensor identity with the recovered unguarded T3 "
+        "initialization checkpoint. "
+        "No completed T2m guarded critic checkpoint was recovered: the available T2m "
+        "record stops during critic fitting. "
+        "Its seed-6 actor-only BC checkpoint and original guarded normalizer are a factual "
+        "independent evaluation node, "
+        "not a T3 ancestor. One additional prospective node places those exact guard/dead "
+        "settings on the bitwise T3-init "
+        "actor after proving every affine moment identical; it is not a fabricated "
+        "historical artifact. Completed-clone "
         "critic provenance remains an explicit HOLD. The final candidate must be "
-        "materialized on the VM to bind its Python/.NET runtime, exact source bytes, rebuilt bridge dependency "
+        "materialized on the VM to bind its Python/.NET runtime, exact source bytes, "
+        "rebuilt bridge dependency "
         "set, retrieval location and runnable commands before review.\n",
         encoding="utf-8",
     )
@@ -2662,7 +2692,8 @@ def validate_candidate(candidate_path: Path) -> dict[str, Any]:
         or sum(row["role"] == "trained-t3" for row in nodes) != 15
     ):
         _fail(
-            "artifact DAG does not contain the five reviewed initialization surfaces and 15 T3 endpoints"
+            "artifact DAG does not contain the five reviewed initialization surfaces and "
+            "15 T3 endpoints"
         )
     trained = [row for row in nodes if row["role"] == "trained-t3"]
     guarded = [row for row in nodes if row["id"] == "t2m-guarded-bc-seed6"]

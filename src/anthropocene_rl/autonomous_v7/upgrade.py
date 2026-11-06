@@ -9,7 +9,7 @@ contract-8 outputs are unchanged, and its deterministic span is "this turn only"
 Contract 10 appends the ``regions`` entity set. Its pooled block enters each encoder's trunk through new zero
 columns, so every earlier output is unchanged; the set encoder itself gets a fixed-seed default initialisation, the
 normalizer identity moments, and the actor the region movement heads (native-biased, zero mix offset).
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ _TRADE = next(s for s in contracts.SETS if s[0] == "trade")
 
 def _add_trade(net: dict[str, torch.Tensor], seed: int, actor: bool) -> dict[str, torch.Tensor]:
     """Contract 11: the trade set's pooled block enters the trunk through zero columns; the actor gets the trade heads
-    at their native start; a vector critic gets a zero trade_utility head."""
+    at their native start; a vector critic gets a zero trade_utility head."""  # noqa: E501 - docstring/prose line kept verbatim
     net = dict(net)
     if "encoder.sets.trade.row.0.weight" not in net:
         hidden = net["encoder.sets.sites.row.2.weight"].shape[0]
@@ -167,7 +167,7 @@ def _to_11(state: dict[str, Any]) -> dict[str, Any]:
 
 def _append_set(net: dict[str, torch.Tensor], name: str, seed: int) -> dict[str, torch.Tensor]:
     """A set appended to a per-set-pooling (pre-token) encoder: zero trunk columns for its pooled block and a
-    fixed-seed default set encoder, so every earlier output is unchanged."""
+    fixed-seed default set encoder, so every earlier output is unchanged."""  # noqa: E501 - docstring/prose line kept verbatim
     net = dict(net)
     if f"encoder.sets.{name}.row.0.weight" in net:
         return net
@@ -188,7 +188,8 @@ def _to_12(state: dict[str, Any]) -> dict[str, Any]:
     for seed, key in enumerate(("actor", "teacher_actor", "critic", "cost_critic")):
         if key in state:
             state[key] = _append_set(state[key], "activities", 12_000 + seed)
-    # A saved vector critic gets a zero head for every objective it lacks (qol_years from contract 12).
+    # A saved vector critic gets a zero head for every objective it lacks (qol_years from contract
+    # 12).
     if "critic" in state and "heads.welfare.weight" in state["critic"]:
         critic = dict(state["critic"])
         for name in contracts.OBJECTIVES:
@@ -207,7 +208,7 @@ def _to_12(state: dict[str, Any]) -> dict[str, Any]:
 
 def upgrade(state: dict[str, Any]) -> dict[str, Any]:
     """Return a current-contract checkpoint state; current states pass through unchanged. Token-model checkpoints are
-    contract 12 from stage-1 cloning; the exact upgrades apply to the per-set-pooling network only."""
+    contract 12 from stage-1 cloning; the exact upgrades apply to the per-set-pooling network only."""  # noqa: E501 - docstring/prose line kept verbatim
     contract = int(state.get("contract", 8))
     if contract >= contracts.NATIVE_CONTRACT:
         return state

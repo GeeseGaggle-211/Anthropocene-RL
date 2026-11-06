@@ -205,7 +205,8 @@ def validate_search_producer(source, summary, cohort, base=None):
 
 
 def validate_training_cohorts(cohorts):
-    # Role, personality and their consequent digest differ; every other declaration must match exactly.
+    # Role, personality and their consequent digest differ; every other declaration must match
+    # exactly.
     projections = [
         {
             key: value
@@ -232,7 +233,8 @@ def comparator(ref, base):
         if comparison.get("status") == "insufficient":
             if not comparison.get("reason") or not comparison.get("inputs"):
                 raise ProvenanceError(
-                    "insufficient comparator must identify its missing evidence and actual available inputs"
+                    "insufficient comparator must identify its missing evidence and actual "
+                    "available inputs"
                 )
             for source in comparison["inputs"]:
                 artifact(source, path.parent)
@@ -468,7 +470,8 @@ def gate(gate_name, body, expected, held, state, base, spec):
             )
         return protocol["digest"]
     if gate_name == "submission":
-        # Exact job/argv/config validation is performed by qualification.validate_runs, not a self-attested gate.
+        # Exact job/argv/config validation is performed by qualification.validate_runs, not a
+        # self-attested gate.
         if evidence.get("queue_job") != spec.get("queue_job"):
             raise ProvenanceError("submission gate names another queue manifest")
         artifact(evidence["queue_job"], base)

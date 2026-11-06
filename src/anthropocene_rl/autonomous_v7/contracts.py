@@ -2,7 +2,7 @@
 
 The native side is authoritative (``ElderModel9Contract`` in the simulator). ``verify_schema`` checks a bridge's
 schema response against this registry so a learner never trains against a mismatched layout.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -14,13 +14,17 @@ NATIVE_CONTRACT = 12
 ACTION_SCHEMA = 11
 OBSERVATION_SCHEMA = 12
 ENVIRONMENT_SCHEMA = 12
-# Contract 9 capital commitments: the span head's categories (0 holds the active commitment, 1 decides this turn
-# only, 2-6 commit the capital controls for that many turns) and the commitment block appended to the core.
+# Contract 9 capital commitments: the span head's categories (0 holds the active commitment, 1
+# decides this turn
+# only, 2-6 commit the capital controls for that many turns) and the commitment block appended to
+# the core.
 SPANS: tuple[int, ...] = (0, 1, 2, 3, 4, 6)
 SPAN_HOLD, SPAN_SINGLE = 0, 1
 COMMITMENT_FEATURES = 11
-# Objective components (Docs/ElderCapitalCommitmentsDesign.md, Part 4). Lineage welfare is the interim reward; each
-# component gets its own value head and the advantage is a weighted sum. The default weights reproduce welfare.
+# Objective components (Docs/ElderCapitalCommitmentsDesign.md, Part 4). Lineage welfare is the
+# interim reward; each
+# component gets its own value head and the advantage is a weighted sum. The default weights
+# reproduce welfare.
 OBJECTIVES: tuple[str, ...] = ("welfare", "population_years", "trade_utility", "qol_years")
 OBJECTIVE_WEIGHTS: dict[str, float] = {
     "welfare": 1.0,
@@ -28,24 +32,36 @@ OBJECTIVE_WEIGHTS: dict[str, float] = {
     "trade_utility": 0.0,
     "qol_years": 0.0,
 }
-# Elder personality (docs/MODEL9_PERSONALITY.md): a weighting over OBJECTIVES, an input to the token model's village
-# token and critics. The default personality is OBJECTIVE_WEIGHTS (welfare only), which reproduces non-personality runs.
+# Elder personality (docs/MODEL9_PERSONALITY.md): a weighting over OBJECTIVES, an input to the token
+# model's village
+# token and critics. The default personality is OBJECTIVE_WEIGHTS (welfare only), which reproduces
+# non-personality runs.
 PERSONALITY_WIDTH = len(OBJECTIVES)
-# Round 3 stable personality scales (ppo.combine_personal, --personality-scales reference): each objective's reference
-# spread s_k_ref, the standard deviation of its discounted (HORIZON_YEARS) return per decision under the native
-# heuristic. Measured by scale_reference.py: heuristic (no actions), TRAIN seeds 1000-1059, 45-turn rollouts, keeping
-# only rows with at least 20 later turns (the first 25 turns, 37,085 decision rows), so every return covers a full
-# 400-year-equivalent window; Small world, model9 bridge on native contract 12 (simulator f06e3be, 21 October 2026).
-# The first build's values (25-turn rollouts, all rows, late returns truncated) were welfare 37864, population_years
-# 50391, trade_utility 17.55, qol_years 64.0. Re-measure when the reward components or the simulator's economy change.
+# Round 3 stable personality scales (ppo.combine_personal, --personality-scales reference): each
+# objective's reference
+# spread s_k_ref, the standard deviation of its discounted (HORIZON_YEARS) return per decision under
+# the native
+# heuristic. Measured by scale_reference.py: heuristic (no actions), TRAIN seeds 1000-1059, 45-turn
+# rollouts, keeping
+# only rows with at least 20 later turns (the first 25 turns, 37,085 decision rows), so every return
+# covers a full
+# 400-year-equivalent window; Small world, model9 bridge on native contract 12 (simulator f06e3be,
+# 21 October 2026).
+# The first build's values (25-turn rollouts, all rows, late returns truncated) were welfare 37864,
+# population_years
+# 50391, trade_utility 17.55, qol_years 64.0. Re-measure when the reward components or the
+# simulator's economy change.
 OBJECTIVE_REFERENCE_SCALES: dict[str, float] = {
     "welfare": 59318.99,  # person-QoL-years (mean return 136573)
     "population_years": 85133.98,  # person-years (mean 172285)
-    "trade_utility": 26.684,  # person-QoL-years of realised trade gain (mean 6.35; the heuristic trades little)
+    # person-QoL-years of realised trade gain (mean 6.35; the heuristic trades little)
+    "trade_utility": 26.684,
     "qol_years": 43.152,  # QoL-years (mean 259.0)
 }
-# Contract 11: the trade_utility weight a --learned-trade run uses unless --objective-weights sets it. Trade gains already
-# reach welfare through the goods; this small extra credit speeds learning for economies whose output they cannot use.
+# Contract 11: the trade_utility weight a --learned-trade run uses unless --objective-weights sets
+# it. Trade gains already
+# reach welfare through the goods; this small extra credit speeds learning for economies whose
+# output they cannot use.
 TRADE_UTILITY_WEIGHT = 0.1
 
 SETS: tuple[tuple[str, int, int], ...] = (
@@ -54,14 +70,17 @@ SETS: tuple[tuple[str, int, int], ...] = (
     ("herds", 8, 8),
     ("commodities", 11, 8),
     ("contacts", 8, 9),
-    # Contract 10: regional movement candidates (simulator ElderMovement); row 0 is the current tile.
+    # Contract 10: regional movement candidates (simulator ElderMovement); row 0 is the current
+    # tile.
     ("regions", 8, 24),
     # Contract 11: one row per trade group (simulator ElderTrade).
     ("trade", 7, 10),
-    # Contract 12: activity tokens in ECONOMY_MIX order (cultivation, herding, fishing); later kinds append rows.
+    # Contract 12: activity tokens in ECONOMY_MIX order (cultivation, herding, fishing); later kinds
+    # append rows.
     ("activities", 3, 12),
 )
-# Contract 11 trade posture per group: relative value (log-scale Gaussian, clamped to TRADE_VALUE_RANGE), offer gate
+# Contract 11 trade posture per group: relative value (log-scale Gaussian, clamped to
+# TRADE_VALUE_RANGE), offer gate
 # (0 withhold, 1 offer stock, 2 offer and make to order), and one export labour share in [0, 1].
 TRADE_GROUPS: tuple[str, ...] = (
     "clothing",
@@ -75,7 +94,8 @@ TRADE_GROUPS: tuple[str, ...] = (
 TRADE_VALUE_RANGE = (0.25, 4.0)
 TRADE_GATES = 3
 TRADE_MAKE = 2
-# Contract 10 movement head: native (the heuristic's orders), keep the destination intent, then region rows 0-7.
+# Contract 10 movement head: native (the heuristic's orders), keep the destination intent, then
+# region rows 0-7.
 # Bridge codes: native -2, keep -3, region r is REGION_BASE + r (row 0 is stay).
 REGION_ROWS = 8
 REGION_MOVEMENT_SLOTS = 2 + REGION_ROWS
@@ -89,12 +109,14 @@ STRATEGIC: tuple[str, ...] = (
     "field-development-share",
     "fishing-development-share",
 )
-# The first three strategic controls are unit-interval levels; the last two are the economy mix, which the actor
+# The first three strategic controls are unit-interval levels; the last two are the economy mix,
+# which the actor
 # emits as one masked softmax over (cultivation, herding, fishing) = ((1 - f) s, (1 - f)(1 - s), f).
 UNIT_STRATEGIC = 3
 ECONOMY_MIX: tuple[str, ...] = ("cultivation", "herding", "fishing")
 MOVEMENT_SLOTS = 8  # stay + seven site rows
-# Technology bits (Anthropocene.Simulation.Technology) for SimulationConfig.TrainingWithheldTechnologies.
+# Technology bits (Anthropocene.Simulation.Technology) for
+# SimulationConfig.TrainingWithheldTechnologies.
 HUSBANDRY, CULTIVATION, WATERCRAFT = 1 << 1, 1 << 2, 1 << 3
 # Capability fixtures: the mask withholds every technology but the named one.
 CAPABILITY_MASKS = {
@@ -108,7 +130,8 @@ FISSION_POLICIES = 3  # Neutral, Discourage, Encourage
 # Physical discounting: one decision per 20-year turn, value horizon of 400 years.
 TURN_YEARS = 20.0
 HORIZON_YEARS = 400.0
-# Lineage sharing window (decision D4): daughters founded within this many turns share the parent's QoL.
+# Lineage sharing window (decision D4): daughters founded within this many turns share the parent's
+# QoL.
 LINEAGE_TURNS = 3
 
 

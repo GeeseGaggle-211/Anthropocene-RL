@@ -4,7 +4,7 @@ Every 25 optimizer steps it prints timing to stderr. Every SAVE_EVERY steps it w
 the input checkpoint with the models being trained replaced by their current parameters, plus
 "g0_partial" metadata. This format is a valid --checkpoint for resuming after a Spot preemption
 (the Adam moments restart). It changes no computation of the run itself.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 import os
 import sys

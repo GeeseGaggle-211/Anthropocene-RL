@@ -274,7 +274,8 @@ def evaluate(spec: dict, base: Path) -> dict:
         "qualification": spec["qualification"],
         "submission_digest": qualified["submission_digest"],
         "lo_vs_per_role": "report-only; not an additional registered pass gate",
-        "scope": "personality/default-world gates only; global regime/reference guards require their own verified receipts",
+        "scope": "personality/default-world gates only; global regime/reference guards require "
+        "their own verified receipts",
     }
 
 

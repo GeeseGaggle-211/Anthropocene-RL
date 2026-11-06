@@ -95,7 +95,8 @@ def validate_runs(spec, base, state, expected, frozen_runs=None):
             or argv[1:3] != ["-m", "anthropocene_rl.autonomous_v7.ppo"]
         ):
             raise ProvenanceError(
-                "launch requires direct fully expanded PPO argv, not a shell/script self-attestation"
+                "launch requires direct fully expanded PPO argv, not a shell/script "
+                "self-attestation"
             )
         phase = phases.get(run.get("phase"))
         if phase is None or run["phase"] in used or phase["run"] != shlex.join(argv):
@@ -201,7 +202,8 @@ def validate_runs(spec, base, state, expected, frozen_runs=None):
         image = verify_image(image_path)
         bank_digests.add(image["digest"])
         config, _ = read(run["resolved_config"], base)
-        # Exact complete argparse expansion and effective counts are reproducible, not handwritten summaries.
+        # Exact complete argparse expansion and effective counts are reproducible, not handwritten
+        # summaries.
         if config != {
             "schema": 1,
             "argv": argv,
@@ -238,7 +240,8 @@ def validate_runs(spec, base, state, expected, frozen_runs=None):
         cohorts.setdefault(args.arm, set()).add(run["search_cohort_digest"])
         if not args.search_labels or not args.branch_shards:
             raise ProvenanceError("actual run omits frozen search labels/branches")
-        # Treatment/identity/output/input paths may differ; every other expanded default must be identical.
+        # Treatment/identity/output/input paths may differ; every other expanded default must be
+        # identical.
         excluded = {
             "arm",
             "seed",
@@ -282,7 +285,7 @@ def validate_search_bindings(spec, search_receipt, receipt_base):
 
 
 def validate_qualified_submission(spec: dict, base: Path, *, check_live=True) -> dict:
-    """One shared non-training truth validator for initial qualification and later formal reporting."""
+    """One shared non-training truth validator for initial qualification and later formal reporting."""  # noqa: E501 - docstring/prose line kept verbatim
     scan(spec)
     if spec.get("schema") != 1 or spec.get("digest") != digest(
         {k: v for k, v in spec.items() if k != "digest"}

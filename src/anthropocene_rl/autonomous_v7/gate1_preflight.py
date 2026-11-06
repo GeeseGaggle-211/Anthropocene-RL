@@ -1608,7 +1608,8 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
 def _conversion(value: Any, base: Path) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("status") not in {"missing", "not-applicable"}:
         _fail(
-            "conversion must be explicit missing/not-applicable until a reviewed present schema exists"
+            "conversion must be explicit missing/not-applicable until a reviewed present "
+            "schema exists"
         )
     return _missing_slot(value, "conversion", "conversion", base)
 

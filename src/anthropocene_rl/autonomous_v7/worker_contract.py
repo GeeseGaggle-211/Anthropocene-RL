@@ -1,4 +1,4 @@
-"""Immutable pre-execution producer/world contracts. Metadata reads never Reset, generate, observe or act."""
+"""Immutable pre-execution producer/world contracts. Metadata reads never Reset, generate, observe or act."""  # noqa: E501 - docstring/prose line kept verbatim
 
 import base64
 import copy
@@ -162,7 +162,8 @@ def validate(bridge, expected, descriptor, *, snapshot=None, head=None):
         raise ProvenanceError(
             "worker snapshot/root/turn/feature flags/full configuration/players differ before reset"
         )
-    # Re-read the disk SHA after metadata validation; a swapped process image cannot be excused by a later report.
+    # Re-read the disk SHA after metadata validation; a swapped process image cannot be excused by a
+    # later report.
     if observe(bridge) != actual:
         raise ProvenanceError("worker binary/flags changed before reset")
     bridge._expected_worker_contract = copy.deepcopy(expected or actual)

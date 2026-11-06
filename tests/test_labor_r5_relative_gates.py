@@ -295,7 +295,8 @@ def test_td0_residual_is_zero_for_the_exact_critic_and_excludes_the_living_end()
     assert ref["bias"] == pytest.approx((100.0 * (1 - GAMMA) - 10.0) / 43.152)
 
 
-# --- 1b. acceptance: relative-v1 verdicts; old evidence keeps gate v2 ------------------------------
+# --- 1b. acceptance: relative-v1 verdicts; old evidence keeps gate v2
+# ------------------------------
 
 
 def _relative(acc_a=0.75, acc_b=0.70, pairs=5000, worlds=8):
@@ -756,7 +757,8 @@ def test_check_support_tolerates_gpu_roundoff_only() -> None:
         task.check_support()
 
 
-# --- 6. false terminals -----------------------------------------------------------------------------
+# --- 6. false terminals
+# -----------------------------------------------------------------------------
 
 
 def test_false_terminal_with_a_gap_masks_the_rows_through_it() -> None:

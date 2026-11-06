@@ -1,4 +1,4 @@
-"""Auditable closure of initialization, training and selection families for calibration checkpoints."""
+"""Auditable closure of initialization, training and selection families for calibration checkpoints."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ def teacher_families(record: dict) -> dict:
 
 
 def checkpoint_evidence(state: dict, held: dict) -> dict:
-    """A clean shard manifest cannot establish that the evaluated model (or its ancestors) was held out."""
+    """A clean shard manifest cannot establish that the evaluated model (or its ancestors) was held out."""  # noqa: E501 - docstring/prose line kept verbatim
     failures = []
     if state.get("nonqualifying") or state.get("run_manifest", {}).get("options", {}).get(
         "nonqualifying"
@@ -244,7 +244,7 @@ def checkpoint_evidence(state: dict, held: dict) -> dict:
 def build(
     held: dict | None, training: dict, selection: dict, parents=(), *, teacher_inputs=None
 ) -> dict:
-    """Parents are (full checkpoint hash, saved state) pairs; missing history remains explicitly unverified."""
+    """Parents are (full checkpoint hash, saved state) pairs; missing history remains explicitly unverified."""  # noqa: E501 - docstring/prose line kept verbatim
     parent_proofs, reasons = [], []
     teacher_inputs = teacher_inputs or {}
     if not parents and (

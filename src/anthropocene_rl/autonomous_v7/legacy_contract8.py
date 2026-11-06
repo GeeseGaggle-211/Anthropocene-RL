@@ -223,7 +223,8 @@ def load(state: dict[str, Any]) -> tuple[Contract8Actor, Contract8Normalizer]:
     actual = set(actor_state)
     if expected != actual:
         raise ValueError(
-            f"contract-8 raw actor keys differ (missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)})"
+            f"contract-8 raw actor keys differ (missing={sorted(expected - actual)}, "
+            f"unexpected={sorted(actual - expected)})"
         )
     expected_state = actor.state_dict()
     for name in sorted(expected):

@@ -104,7 +104,7 @@ class Model9Bridge:
         the first step after it reports no ``founded`` villages and every commitment starts free.
         continuation: collection resume only (``labor_collect_resume``), with ``snapshot``: {startTurn, trajectoryId}
         of the interrupted episode and optionally the live-only state from ``capture_transient`` (``transient``), so the successor of a replayed decision is byte-identical to the
-        uninterrupted one. The reset step's own observation is not a faithful boundary."""
+        uninterrupted one. The reset step's own observation is not a faithful boundary."""  # noqa: E501 - docstring/prose line kept verbatim
         from .protocol import seeds
 
         seeds([seed], "bridge reset")
@@ -194,7 +194,7 @@ class Model9Bridge:
         return step
 
     def capture(self) -> str:
-        """The live world as a base64 snapshot (op capture), restartable with ``reset(snapshot=...)``."""
+        """The live world as a base64 snapshot (op capture), restartable with ``reset(snapshot=...)``."""  # noqa: E501 - docstring/prose line kept verbatim
         self._check_expected_producer()
         return str(self.request({"op": "capture"})["snapshot"])
 
@@ -220,7 +220,7 @@ class Model9Bridge:
         return step
 
     def fork(self) -> tuple[int, dict[str, Any]]:
-        """A search branch point: its id and the decision step. Every restore replays from it exactly."""
+        """A search branch point: its id and the decision step. Every restore replays from it exactly."""  # noqa: E501 - docstring/prose line kept verbatim
         self._check_expected_producer()
         response = self.request({"op": "fork"})
         self._check_alignment(response["step"], self._last_step)
@@ -228,7 +228,8 @@ class Model9Bridge:
             "step": response["step"],
             "public": copy.deepcopy(self.decision_diagnostics),
         }
-        # The returned sidecar belongs to the saved main path; the next action begins a branch trajectory.
+        # The returned sidecar belongs to the saved main path; the next action begins a branch
+        # trajectory.
         self._trajectory = None
         return int(response["fork"]), response["step"]
 
@@ -239,9 +240,11 @@ class Model9Bridge:
         self._turn = int(step["turn"])
         self._trajectory = None
         self._last_step = step
-        # Public diagnostics refer to exactly the submitted action set, not implicit/native decisions at other camps.
+        # Public diagnostics refer to exactly the submitted action set, not implicit/native
+        # decisions at other camps.
         self.decision_diagnostics = copy.deepcopy(self._fork_diagnostics[fork]["public"])
-        # Native-teacher actions can have physical receipts without any submitted-decision head sidecars.
+        # Native-teacher actions can have physical receipts without any submitted-decision head
+        # sidecars.
         self._read_physical_diagnostics(step, initial=step.get("diagnosticSchemaVersion", 0) == 0)
         return step
 

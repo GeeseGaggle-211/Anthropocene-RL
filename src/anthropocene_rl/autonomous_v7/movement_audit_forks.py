@@ -7,7 +7,7 @@ played for ``horizon`` turns: MOVE (the policy's own actions) and STAY (identica
 which is the current-tile row, so no camp relocates). Reported per pair: welfare, expectation-neutral welfare (QoL with
 the settled expectation E = 1, from the read-only inspect op), residents, settlements, gross births and deaths, fissions,
 physical moves, and food produced by source.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 

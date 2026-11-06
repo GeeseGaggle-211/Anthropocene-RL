@@ -13,7 +13,7 @@ measured values are stored in
 
 The stored values are the ``full_window_std`` of that run: only rows with at least 20 later turns (the first 25 turns),
 so no return is cut short by the rollout end. The first measurement (25 turns, all rows) truncated late returns.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ ROW_KEYS = (
 
 def heuristic_rows(seed: int, turns: int, withheld: int = 0) -> dict[str, list]:
     """One heuristic rollout: a row per village decision (a live village with an observation before the step), with
-    the outcome the step reported for it (the layout ``ppo.collect`` records)."""
+    the outcome the step reported for it (the layout ``ppo.collect`` records)."""  # noqa: E501 - docstring/prose line kept verbatim
     rows: dict[str, list] = {k: [] for k in ROW_KEYS}
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld)
@@ -78,7 +78,7 @@ def heuristic_rows(seed: int, turns: int, withheld: int = 0) -> dict[str, list]:
 
 
 def discounted_returns(batch: dict[str, np.ndarray], reward: np.ndarray) -> np.ndarray:
-    """G_i = r_i + gamma_i G_{i+1} per (world, camp) sequence; zero after termination and at the rollout end."""
+    """G_i = r_i + gamma_i G_{i+1} per (world, camp) sequence; zero after termination and at the rollout end."""  # noqa: E501 - docstring/prose line kept verbatim
     out = np.zeros(len(reward), dtype=np.float64)
     for rows in data.sequences(batch):
         g = 0.0
@@ -93,7 +93,7 @@ def discounted_returns(batch: dict[str, np.ndarray], reward: np.ndarray) -> np.n
 def later_turns(batch: dict[str, np.ndarray]) -> np.ndarray:
     """Decision turns left in each row's world rollout after the row (the world's last decision turn minus the row's).
     A row with ``n`` later turns has a return covering ``n + 1`` turns unless its village ended first, and then the
-    return is complete anyway."""
+    return is complete anyway."""  # noqa: E501 - docstring/prose line kept verbatim
     world = np.asarray(batch["world"])
     turn = np.asarray(batch["turn"])
     last = {w: int(turn[world == w].max()) for w in np.unique(world)}
@@ -103,7 +103,7 @@ def later_turns(batch: dict[str, np.ndarray]) -> np.ndarray:
 def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict[str, Any]:
     """Each objective's return std and mean over every decision row; ``full_window`` > 0 also reports the rows with at
     least that many later turns in their world's rollout (``later_turns``): with 20, every such return covers a full
-    400-year-equivalent window (the stored reference scales, round 3 revision)."""
+    400-year-equivalent window (the stored reference scales, round 3 revision)."""  # noqa: E501 - docstring/prose line kept verbatim
     components = data.reward_components(batch)
     report: dict[str, Any] = {"rows": len(batch["camp"]), "objectives": {}}
     remaining = later_turns(batch)

@@ -16,7 +16,7 @@ frozen copy of the stage-1 actor anchors the strategic and service heads with a 
 and routes carry no teacher anchor. The guard on settlements below 30 residents (young daughters exempt) is a
 constraint: a separate cost critic and a Lagrange multiplier, not a reward bonus, so being small is never rewarded or
 punished beyond the guard.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -61,25 +61,34 @@ class Stage:
     movement: bool  # the policy chooses movement (else native)
     routes: bool  # the policy chooses clothing/shelter routes (else native)
     description: str
-    # Teacher KL on retained field/herd and development levels (service levels always). Freeing them in stage 3 drove the
-    # development budget up ~30% and closed-loop welfare down 12% within 20 iterations, so every stage keeps the
+    # Teacher KL on retained field/herd and development levels (service levels always). Freeing them
+    # in stage 3 drove the
+    # development budget up ~30% and closed-loop welfare down 12% within 20 iterations, so every
+    # stage keeps the
     # anchor; the economy mix (posture) and routes stay unanchored.
     anchor_strategic: bool = True
     # Teacher KL on the clothing and shelter route categoricals (stage-3 regression isolation).
     anchor_routes: bool = False
-    # Contract 9: the policy chooses a capital commitment span (--commitments); otherwise every turn decides for
+    # Contract 9: the policy chooses a capital commitment span (--commitments); otherwise every turn
+    # decides for
     # itself (span 1), exactly as contract 8.
     commitments: bool = False
-    # Contract 10 (--learned-movement): the policy moves over region rows with destination intents and chooses the
+    # Contract 10 (--learned-movement): the policy moves over region rows with destination intents
+    # and chooses the
     # economy mix given the destination; the contract-8 site pointer is not used.
     region_movement: bool = False
-    # Contract 10 (--observe-movement): the bridge enables movement, so the policy sees the same movement masks as a
-    # learned-movement arm, but every decision stays native (the untrained region head argmaxes to native).
+    # Contract 10 (--observe-movement): the bridge enables movement, so the policy sees the same
+    # movement masks as a
+    # learned-movement arm, but every decision stays native (the untrained region head argmaxes to
+    # native).
     observe_movement: bool = False
-    # Learned fission timing (--learned-fission): the policy chooses the fission policy (Neutral, Discourage,
-    # Encourage: the split threshold and daughter share); the destination stays native. Anchored to the teacher.
+    # Learned fission timing (--learned-fission): the policy chooses the fission policy (Neutral,
+    # Discourage,
+    # Encourage: the split threshold and daughter share); the destination stays native. Anchored to
+    # the teacher.
     fission: bool = False
-    # Contract 11 (--learned-trade): the policy sets the trade posture (relative values, offer gates, export share),
+    # Contract 11 (--learned-trade): the policy sets the trade posture (relative values, offer
+    # gates, export share),
     # capital controls anchored to the teacher's native posture.
     trade: bool = False
 
@@ -93,7 +102,8 @@ STAGES = {
         "capability",
         movement=False,
         routes=False,
-        description="stage 2: single-capability worlds; economy levels and mix, native routes and movement",
+        description="stage 2: single-capability worlds; economy levels and mix, native routes and "
+        "movement",
     ),
     "mixed": Stage(
         "mixed",
@@ -102,7 +112,8 @@ STAGES = {
         anchor_strategic=True,
         description="stage 3: mixed-use worlds; routes and posture, no teacher anchor on either",
     ),
-    # Stage-3 regression isolation: the mixed-use curriculum with native routes (route heads untrained), and with
+    # Stage-3 regression isolation: the mixed-use curriculum with native routes (route heads
+    # untrained), and with
     # learned routes anchored to the teacher.
     "mixed-native-routes": Stage(
         "mixed-native-routes",
@@ -127,7 +138,8 @@ STAGES = {
 }
 
 
-# --------------------------------------------------------------------------------------------- distributions
+# ---------------------------------------------------------------------------------------------
+# distributions
 def _normal_logp(z: torch.Tensor, mean: torch.Tensor, log_std: torch.Tensor) -> torch.Tensor:
     return -0.5 * ((z - mean) / log_std.exp()) ** 2 - log_std - 0.5 * math.log(2 * math.pi)
 
@@ -150,7 +162,7 @@ def _mix_parts(
 
 def explore(out: dict[str, torch.Tensor], floor: float) -> dict[str, torch.Tensor]:
     """Behaviour cloning drives the logistic-normal scales toward the clamp (the teacher is near-deterministic).
-    PPO samples, recomputes and anchors with the same floored scales, so ratios stay bounded."""
+    PPO samples, recomputes and anchors with the same floored scales, so ratios stay bounded."""  # noqa: E501 - docstring/prose line kept verbatim
     out = dict(out)
     for key in (
         "strategic_log_std",
@@ -187,7 +199,8 @@ def sample(
 
     mask = t["economy_mix_mask"]
     # Contract 10: the region slot is drawn first and the mix given it.
-    # Round 3: the region slot is drawn from the head's joint distribution (hierarchical by default: group, then slot).
+    # Round 3: the region slot is drawn from the head's joint distribution (hierarchical by default:
+    # group, then slot).
     region = (
         (
             torch.multinomial(out["region_probs"], 1, generator=generator).squeeze(1)
@@ -249,7 +262,7 @@ def _log_prob_with_components(
 
     Contract 9: on a hold row (span 0) the capital controls (strategic levels, economy mix and routes) are the
     committed ones, so they are not part of this turn's action: their draws contribute no log-probability or entropy.
-    Service levels and movement are per-turn in every row; the span head counts whenever the stage learns it."""
+    Service levels and movement are per-turn in every row; the span head counts whenever the stage learns it."""  # noqa: E501 - docstring/prose line kept verbatim
     half_log_2pie = 0.5 * math.log(2 * math.pi * math.e)
     if stage.region_movement:
         out = condition_mix(out, draw["region"])
@@ -433,7 +446,7 @@ def log_prob_coordinate_components(
 
 def region_key(out: dict[str, torch.Tensor]) -> str:
     """The region head's distribution: the joint log-probabilities (hierarchical or flat, model.Actor) when present,
-    else the raw flat logits (outputs built before round 3)."""
+    else the raw flat logits (outputs built before round 3)."""  # noqa: E501 - docstring/prose line kept verbatim
     return "region_logp" if "region_logp" in out else "region"
 
 
@@ -447,7 +460,7 @@ def teacher_kl(
 ) -> torch.Tensor:
     """KL(policy || teacher) on the anchored heads: service levels, and (stage 2 only) the unit strategic controls.
     The economy mix and routes are never anchored; from stage 3 the retained field/herd levels are free too, so
-    pastoral and mixed postures can depart from the field-leaning teacher."""
+    pastoral and mixed postures can depart from the field-leaning teacher."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def gauss_kl(m1, s1, m2, s2):
         return (s2 - s1) + (torch.exp(2 * s1) + (m1 - m2) ** 2) / (2 * torch.exp(2 * s2)) - 0.5
@@ -501,7 +514,8 @@ def to_bridge_actions(
     actions = []
     for i in range(len(strategic)):
         movement = int(draw["movement"][i])
-        # A contract-8 site draw (stage 4) wins; otherwise the contract-10 region slot (native unless learned).
+        # A contract-8 site draw (stage 4) wins; otherwise the contract-10 region slot (native
+        # unless learned).
         code = (
             movement - 1
             if movement >= 0
@@ -558,10 +572,11 @@ def actor_policy_active_mask(action: dict[str, Any], stage: Stage) -> dict[str, 
     }
 
 
-# --------------------------------------------------------------------------------------------- rollouts
+# ---------------------------------------------------------------------------------------------
+# rollouts
 @dataclass
 class Rollout:
-    """One decision per row, in the shard layout data.py reads, plus the sampled draw and behaviour log-prob."""
+    """One decision per row, in the shard layout data.py reads, plus the sampled draw and behaviour log-prob."""  # noqa: E501 - docstring/prose line kept verbatim
 
     obs: list[dict[str, np.ndarray]] = field(default_factory=list)
     draws: list[dict[str, torch.Tensor]] = field(default_factory=list)
@@ -625,7 +640,7 @@ def collect(
     id): a daughter-bank world, reset from that entry's snapshot. ``personality``: a sampler of Elder personalities,
     drawn per (world, lineage) and inherited by daughters; None keeps the default personality (no input). ``inherit``:
     a daughter's personality from its parent's (None: an exact copy). ``bank``: capture the world when a daughter is
-    first seen founded (at most daughter_bank.CAPTURES_PER_WORLD per world) and resolve bank worlds."""
+    first seen founded (at most daughter_bank.CAPTURES_PER_WORLD per world) and resolve bank worlds."""  # noqa: E501 - docstring/prose line kept verbatim
     full = [
         (s, 0, 0, -1)
         if isinstance(s, int)
@@ -654,8 +669,10 @@ def collect(
     ]
     roll = Rollout()
     traits: list[dict[int, np.ndarray]] = [{} for _ in seeds]
-    # Bank captures: per world, a reservoir sample of CAPTURES_PER_WORLD over all founded daughters (keyed by the
-    # world), so captures spread over the episode. Kept daughters are captured on founding; evicted ones are deleted.
+    # Bank captures: per world, a reservoir sample of CAPTURES_PER_WORLD over all founded daughters
+    # (keyed by the
+    # world), so captures spread over the episode. Kept daughters are captured on founding; evicted
+    # ones are deleted.
     reservoirs = [
         Reservoir(CAPTURES_PER_WORLD, np.random.default_rng([s, m, w, b + 1, 0xDA]))
         for s, m, w, b in full
@@ -666,7 +683,8 @@ def collect(
     ) -> dict[str, np.ndarray]:
         if personality is None:
             return batch
-        # Founders first (societies whose parent is neither known nor present), so a daughter seen together with its
+        # Founders first (societies whose parent is neither known nor present), so a daughter seen
+        # together with its
         # parent (the first step of a bank world) inherits with drift whatever the village order.
         present = [{int(v["society"]) for w2, v in villages if w2 == w} for w in range(len(seeds))]
         for w, v in villages:
@@ -810,7 +828,8 @@ def collect(
                             and v.get("founded")
                             and not v.get("terminated")
                         ):
-                            # A daughter's first sight: if the reservoir keeps it, its world (before it decides)
+                            # A daughter's first sight: if the reservoir keeps it, its world (before
+                            # it decides)
                             # joins the bank, and the daughter it displaces leaves.
                             slot, evicted = reservoirs[w].offer(None)
                             if slot is not None:
@@ -872,7 +891,8 @@ def collect(
                             if roll.economic_bytes > 256 * 1024 * 1024:
                                 raise ValueError("economic rollout capture exceeds 256 MiB bound")
                         o = roll.outcome
-                        # "world" is this iteration's world index: a seed drawn twice (say as a default world and a
+                        # "world" is this iteration's world index: a seed drawn twice (say as a
+                        # default world and a
                         # fixture) must not merge sequences.
                         o["world"].append(w)
                         o["seed"].append(seeds[w])
@@ -929,7 +949,8 @@ def flatten(roll: Rollout) -> tuple[dict[str, np.ndarray], dict[str, torch.Tenso
     return obs, draws, np.concatenate(roll.logp)
 
 
-# --------------------------------------------------------------------------------------------- advantages
+# ---------------------------------------------------------------------------------------------
+# advantages
 def values(critic: Critic, batch: dict[str, np.ndarray], normalizer: Normalizer) -> np.ndarray:
     """Raw-unit state values V = u x P, P the residents at the decision."""
     with torch.no_grad():
@@ -937,8 +958,10 @@ def values(critic: Critic, batch: dict[str, np.ndarray], normalizer: Normalizer)
     return u * np.maximum(1.0, batch["prior_population"].astype(np.float64))
 
 
-# Objective components that scale with the settlement's residents: their value heads learn a per-resident return
-# (u = G / P). qol_years is QoL x years regardless of headcount, so its head learns the raw return; dividing it by P
+# Objective components that scale with the settlement's residents: their value heads learn a
+# per-resident return
+# (u = G / P). qol_years is QoL x years regardless of headcount, so its head learns the raw return;
+# dividing it by P
 # would make its target fall as 1/P and blur it across village sizes.
 PER_RESIDENT = frozenset({"welfare", "population_years", "trade_utility"})
 
@@ -975,7 +998,7 @@ def region_groups(draws: dict[str, torch.Tensor]) -> dict[str, np.ndarray]:
 
 
 def combine(advantages: dict[str, np.ndarray], weights: dict[str, float]) -> np.ndarray:
-    """The policy's advantage: the weighted sum of component advantages (Part 4 of the commitments design)."""
+    """The policy's advantage: the weighted sum of component advantages (Part 4 of the commitments design)."""  # noqa: E501 - docstring/prose line kept verbatim
     return sum(float(weights.get(name, 0.0)) * value for name, value in advantages.items())
 
 
@@ -983,7 +1006,7 @@ def shape_components(components: dict[str, np.ndarray], share: np.ndarray) -> di
     """Personality runs charge the shaping costs (``share`` of each decision's reward) on every component in its own
     units, so an Elder with no welfare weight still pays for churn (docs/MODEL9_PERSONALITY.md, welfare leakage).
     ``welfare`` is returned unchanged: its costs are already charged. Default-personality runs keep the costs on
-    welfare only, which keeps earlier runs reproducible."""
+    welfare only, which keeps earlier runs reproducible."""  # noqa: E501 - docstring/prose line kept verbatim
     return {
         name: value if name == "welfare" else value - share * np.maximum(0.0, value)
         for name, value in components.items()
@@ -1004,7 +1027,7 @@ def combine_personal(
     component's batch std and rescales to the welfare component's spread. ``update`` standardises the result, so the
     overall scale does not matter and a welfare-only personality updates identically under either rule (exactly with
     ``clip`` 0). ``clip`` > 0 (reference rule only) clips each normalised component A_k / s_k_ref to +/- clip before
-    weighting, so one component's critic noise (an untrained head's) cannot dominate the sum."""
+    weighting, so one component's critic noise (an untrained head's) cannot dominate the sum."""  # noqa: E501 - docstring/prose line kept verbatim
     if scales == "reference":
         scale = {name: float(contracts.OBJECTIVE_REFERENCE_SCALES[name]) for name in advantages}
     elif scales == "batch":
@@ -1022,7 +1045,7 @@ def combine_personal(
 
 
 def clip_fractions(advantages: dict[str, np.ndarray], clip: float) -> dict[str, float]:
-    """Each objective's share of rows whose normalised advantage A_k / s_k_ref lies beyond +/- clip (0 when off)."""
+    """Each objective's share of rows whose normalised advantage A_k / s_k_ref lies beyond +/- clip (0 when off)."""  # noqa: E501 - docstring/prose line kept verbatim
     return {
         name: float(np.mean(np.abs(a / float(contracts.OBJECTIVE_REFERENCE_SCALES[name])) > clip))
         if clip > 0
@@ -1034,7 +1057,7 @@ def clip_fractions(advantages: dict[str, np.ndarray], clip: float) -> dict[str, 
 
 def scale_drift(advantages: dict[str, np.ndarray]) -> dict[str, float]:
     """Each objective's batch advantage spread over its reference spread: how far the batch rule's exchange rates
-    would have moved this iteration (1 everywhere is no drift)."""
+    would have moved this iteration (1 everywhere is no drift)."""  # noqa: E501 - docstring/prose line kept verbatim
     return {
         name: float(np.std(a)) / float(contracts.OBJECTIVE_REFERENCE_SCALES[name])
         for name, a in advantages.items()
@@ -1050,7 +1073,7 @@ def gae(
     lam: float = 0.95,
 ) -> tuple[np.ndarray, np.ndarray]:
     """GAE(lambda) per (world, camp) sequence with the physical per-turn discount. ``bootstrap`` is the value of
-    the observation after each row's decision when a sequence is truncated (0 elsewhere)."""
+    the observation after each row's decision when a sequence is truncated (0 elsewhere)."""  # noqa: E501 - docstring/prose line kept verbatim
     advantage = np.zeros(len(reward))
     target = np.zeros(len(reward))
     for rows in data.sequences(batch):
@@ -1072,7 +1095,7 @@ def gae(
 
 
 class CostCritic(nn.Module):
-    """Discounted guard cost (settlement-turns below 30 residents) per decision; plain regression."""
+    """Discounted guard cost (settlement-turns below 30 residents) per decision; plain regression."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, core_width: int, width: int = 128, token: bool = False) -> None:
         super().__init__()
@@ -1094,7 +1117,7 @@ def cost_bootstrap(
     rows: np.ndarray,
 ) -> np.ndarray:
     """The guard cost critic's value of each truncated living village's next observation (0 elsewhere): the GAE
-    bootstrap of the cost sequence. Guard cost is a per-settlement indicator, so the value is not scaled by residents."""
+    bootstrap of the cost sequence. Guard cost is a per-settlement indicator, so the value is not scaled by residents."""  # noqa: E501 - docstring/prose line kept verbatim
     boot = np.zeros(len(batch["cost"]))
     if roll.bootstrap_obs and len(rows):
         with torch.no_grad():
@@ -1107,7 +1130,8 @@ def cost_bootstrap(
     return boot
 
 
-# --------------------------------------------------------------------------------------------- update
+# ---------------------------------------------------------------------------------------------
+# update
 @dataclass
 class Hyper:
     clip: float = 0.2
@@ -1134,46 +1158,66 @@ class Hyper:
     )
     # as a share of the village's welfare that turn
     objective_weights: dict = field(default_factory=lambda: dict(contracts.OBJECTIVE_WEIGHTS))
-    # Elder personality distribution (docs/MODEL9_PERSONALITY.md): "default", "fixed:w,w,w,w" or "dirichlet:alpha";
-    # drawn per (world, lineage), inherited by daughters. Non-default personalities weight scale-normalised component
+    # Elder personality distribution (docs/MODEL9_PERSONALITY.md): "default", "fixed:w,w,w,w" or
+    # "dirichlet:alpha";
+    # drawn per (world, lineage), inherited by daughters. Non-default personalities weight
+    # scale-normalised component
     # advantages per row.
     personality: str = "default"
-    # Daughters inherit the parent's personality with a small Dirichlet shift (personality_drift); 0 copies exactly.
+    # Daughters inherit the parent's personality with a small Dirichlet shift (personality_drift); 0
+    # copies exactly.
     personality_drift: float = 200.0
-    # How personality weights exchange objectives (combine_personal): "reference" divides each component advantage by
-    # its fixed contracts.OBJECTIVE_REFERENCE_SCALES entry (round 3); "batch" by its batch std (earlier runs).
+    # How personality weights exchange objectives (combine_personal): "reference" divides each
+    # component advantage by
+    # its fixed contracts.OBJECTIVE_REFERENCE_SCALES entry (round 3); "batch" by its batch std
+    # (earlier runs).
     personality_scales: str = "reference"
-    # Reference rule: clip each normalised component advantage A_k / s_k_ref to +/- this before weighting; 0 off.
+    # Reference rule: clip each normalised component advantage A_k / s_k_ref to +/- this before
+    # weighting; 0 off.
     personality_clip: float = 5.0
-    # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner labels, the
+    # Search teacher (docs/MODEL9_SEARCH_TEACHER.md): weight of the imitation loss on search-winner
+    # labels, the
     # relative gain a label must clear, and label rows per minibatch. 0 turns it off.
     search_weight: float = 0.0
-    search_margin: float = 0.004  # search utility v2: U_p gain in reference spreads (about the old 0.5% at a mean village)
+    # search utility v2: U_p gain in reference spreads (about the old 0.5% at a mean village)
+    search_margin: float = 0.004
     search_batch: int = 256
-    # Critic warm-up: when a run starts by converting a scalar critic into the vector critic, its population, QoL and
-    # trade heads are new (only welfare is copied). This many extra iterations first train only the critics, so
+    # Critic warm-up: when a run starts by converting a scalar critic into the vector critic, its
+    # population, QoL and
+    # trade heads are new (only welfare is copied). This many extra iterations first train only the
+    # critics, so
     # personality advantages are not built on untrained heads. 0 turns it off.
     critic_warmup: int = 5
-    # Round 3 (docs/MODEL9_M7.md, *Round 3 build*): critic-only iterations at the start of every run (a resume past them
+    # Round 3 (docs/MODEL9_M7.md, *Round 3 build*): critic-only iterations at the start of every run
+    # (a resume past them
     # does not repeat them; with a fresh-heads warm-up the larger count applies, once).
     round_start_warmup: int = 0
-    # Share of each critic minibatch drawn from search branch shards (ppo --branch-shards); their targets are
+    # Share of each critic minibatch drawn from search branch shards (ppo --branch-shards); their
+    # targets are
     # lambda-returns over each branch sequence, recomputed every iteration with the current critic.
     branch_share: float = 0.25
-    # One extra critic-only epoch on an iteration's batch when its approximate KL exceeded target_kl (the actor stopped
-    # early, so the critic would otherwise see fewer epochs). Off here so programmatic runs reproduce; the CLI turns it
+    # One extra critic-only epoch on an iteration's batch when its approximate KL exceeded target_kl
+    # (the actor stopped
+    # early, so the critic would otherwise see fewer epochs). Off here so programmatic runs
+    # reproduce; the CLI turns it
     # on for new runs (--kl-refit, default on; --no-kl-refit).
     kl_refit: bool = False
-    # Round 3 (review 5.5(1)): the guard cost critic's GAE bootstraps every living village truncated at the rollout
-    # horizon from the cost critic's value of its next observation, as the value critics do. Off is the earlier
-    # return-only target (truncated villages counted as if the guard cost stopped at the horizon). The CLI keeps a resumed
+    # Round 3 (review 5.5(1)): the guard cost critic's GAE bootstraps every living village truncated
+    # at the rollout
+    # horizon from the cost critic's value of its next observation, as the value critics do. Off is
+    # the earlier
+    # return-only target (truncated villages counted as if the guard cost stopped at the horizon).
+    # The CLI keeps a resumed
     # run's own setting (off for runs saved before the flag).
     cost_bootstrap: bool = True
-    # Opt-in optimizer trace: audit at most this many rows from only the first actor minibatch of an iteration.
+    # Opt-in optimizer trace: audit at most this many rows from only the first actor minibatch of an
+    # iteration.
     # Zero is the production/default path. The CLI requires --economic-trace when this is nonzero.
     optimizer_audit_rows: int = 0
-    # Reviewed Stage-1 learner fixes are opt-in. ``legacy`` preserves the historical batching, warm-up and
-    # pre-step KL behavior exactly; observed-anchor-v1 uses independent returns and post-step rollback.
+    # Reviewed Stage-1 learner fixes are opt-in. ``legacy`` preserves the historical batching,
+    # warm-up and
+    # pre-step KL behavior exactly; observed-anchor-v1 uses independent returns and post-step
+    # rollback.
     learner_contract: str = "legacy"
     observed_anchor_weight: float = 1.0
     post_update_kl_rows: int = 128
@@ -1243,12 +1287,12 @@ def warmup_iterations(
     fresh_heads: bool, critic_warmup: int, round_start_warmup: int, *, promoted_init=False
 ) -> int:
     """Critic-only iterations at the head of a run: the fresh-heads warm-up and the round-start warm-up overlap (the
-    larger count, once). The loop runs iterations ``[0, warmup)`` critic-only, so a resume past them repeats none."""
+    larger count, once). The loop runs iterations ``[0, warmup)`` critic-only, so a resume past them repeats none."""  # noqa: E501 - docstring/prose line kept verbatim
     return max(critic_warmup if fresh_heads or promoted_init else 0, round_start_warmup)
 
 
 def resolve_configuration(args, state, resume_state=None):
-    """Pure, shared CLI/default expansion for training and read-only launch qualification; consumes no RNG."""
+    """Pure, shared CLI/default expansion for training and read-only launch qualification; consumes no RNG."""  # noqa: E501 - docstring/prose line kept verbatim
     from .checkpoint import resume_setting
 
     hyper = Hyper()
@@ -1340,7 +1384,7 @@ def personality_drift(
 ) -> np.ndarray:
     """A daughter's personality: a small random shift of its parent's, Dirichlet(concentration x parent) (mean the
     parent; spread about sqrt(p (1 - p) / concentration)). Concentration 0 copies the parent exactly. Drift makes
-    lineages diverge, so a population of Elders is not a set of clones (resilience under self-play)."""
+    lineages diverge, so a population of Elders is not a set of clones (resilience under self-play)."""  # noqa: E501 - docstring/prose line kept verbatim
     if concentration <= 0:
         return parent
     return rng.dirichlet(np.maximum(np.asarray(parent, np.float64), 1e-4) * concentration).astype(
@@ -1380,7 +1424,7 @@ def load_search_labels(
     spreads, the units of PPO's advantage); version-1 files are rescored from their return vectors, and rows whose
     label is no longer the best are dropped. Files too old to rescore keep the relative rule against
     ``legacy_margin``. ``provenance`` (provenance.check: reject, flag or allow) applies to the rows' (source checkpoint,
-    code commit), files written before provenance counting as unknown; ``report`` receives the provenance report."""
+    code commit), files written before provenance counting as unknown; ``report`` receives the provenance report."""  # noqa: E501 - docstring/prose line kept verbatim
     from . import provenance as prov
     from .search_teacher import POLICY, label_gain, rescore
 
@@ -1497,7 +1541,8 @@ def load_search_labels(
             p[k] = np.full((len(p["label_kind"]),) + template.shape[1:], fill, dtype=dtype)
 
     def stack(k: str) -> np.ndarray:
-        # Per-alternative arrays are padded to their file's MAX_ALTERNATIVES; pad to the widest before stacking.
+        # Per-alternative arrays are padded to their file's MAX_ALTERNATIVES; pad to the widest
+        # before stacking.
         arrays = [p[k] for p in parts]
         if k.startswith("alt_") and len({a.shape[1] for a in arrays}) > 1:
             width = max(a.shape[1] for a in arrays)
@@ -1543,14 +1588,15 @@ def search_loss(
     the groups and components the winning probe changed (``trade_mask`` bits: 1 value, 2 gate), a Gaussian negative
     log-likelihood pulling the trade value mean toward log(label) (its scale detached, so imitation never narrows the
     head's exploration) and cross-entropy of that group's gate. Every other trade component is untouched: probes inform
-    the heads and never restrict them. Each label row counts once in the average."""
+    the heads and never restrict them. Each label row counts once in the average."""  # noqa: E501 - docstring/prose line kept verbatim
     from .search_teacher import NATIVE, REGION, TRADE_GATE_BIT, TRADE_VALUE_BIT
 
     zero = out["mix_logits"].sum() * 0.0
     loss, count = zero, 0
     on_slot = (kind == REGION) | (kind == NATIVE)
     if on_slot.any() and "region" in out:
-        # Round 3: the hierarchical head's joint log-probability is log p(group) + log p(slot | group), so one
+        # Round 3: the hierarchical head's joint log-probability is log p(group) + log p(slot |
+        # group), so one
         # cross-entropy supervises both levels (a native label teaches the group only).
         logq = (
             out["region_logp"] if "region_logp" in out else torch.log_softmax(out["region"], dim=1)
@@ -1625,7 +1671,7 @@ def update(
 ) -> dict[str, float]:
     """One PPO update. ``train_actor`` False updates only the critics (critic warm-up). ``branch``: search branch rows
     and their critic targets (branch_shards.targets); each critic minibatch then draws ``hyper.branch_share`` of its
-    rows from them. With ``hyper.kl_refit``, an update stopped early on approximate KL gets one extra critic-only epoch."""
+    rows from them. With ``hyper.kl_refit``, an update stopped early on approximate KL gets one extra critic-only epoch."""  # noqa: E501 - docstring/prose line kept verbatim
     actor_opt, critic_opt, cost_opt = optimizers
     n = len(advantage)
     trace_metrics = {}
@@ -1652,7 +1698,7 @@ def update(
 
         These masks are descriptive, not likelihood masks: in particular the service mask records a positive
         post-request allocation and is therefore action-dependent.
-        """
+        """  # noqa: E501 - docstring/prose line kept verbatim
         roll = trace_context[0] if trace_context else None
         captured_rows = getattr(roll, "economic_rows", None)
         output = {group: {name: [] for name in values} for group, values in coordinates.items()}
@@ -1691,8 +1737,10 @@ def update(
 
         audit_count_value = min(audit_rows, len(index)) if audit else 0
         if audit and isinstance(target_u, dict):
-            # Build and restore each probe before the real critic graph exists: restoring a module after a graph has
-            # been built would invalidate autograd version counters. Branch rows are excluded from this bounded,
+            # Build and restore each probe before the real critic graph exists: restoring a module
+            # after a graph has
+            # been built would invalidate autograd version counters. Branch rows are excluded from
+            # this bounded,
             # explicitly on-policy row sample.
             from .optimizer_direction_audit import capture_component_gradients
             from .optimizer_update_debug import geometry_record
@@ -1885,7 +1933,8 @@ def update(
                         "criticAudit": expensive_critic_audit,
                     },
                     "attributionScope": (
-                        "component gradients are local sampled-row geometry; they are not additive attribution of "
+                        "component gradients are local sampled-row geometry; they are not "
+                        "additive attribution of "
                         "gradient clipping or the nonlinear Adam update"
                     ),
                 }
@@ -1933,7 +1982,8 @@ def update(
                 else None
             )
             if expensive_actor_audit:
-                # The component probes finish and restore state before constructing the real actor graph below.
+                # The component probes finish and restore state before constructing the real actor
+                # graph below.
                 from .optimizer_direction_audit import capture_component_gradients
                 from .optimizer_update_debug import (
                     frozen_branch_policy_terms,
@@ -2243,7 +2293,8 @@ def update(
                     "logRatioP90": float(quantiles[2]),
                     "logRatioMax": float(log_ratio.max()),
                     "interpretation": (
-                        "diagnostic sampled-action policy shift only; the historical signed approximate-KL "
+                        "diagnostic sampled-action policy shift only; the historical "
+                        "signed approximate-KL "
                         "early-stop rule and optimizer update are unchanged"
                     ),
                 }
@@ -2267,9 +2318,12 @@ def update(
                     "lagrange": float(lagrange),
                     "objectiveAdvantageScale": float(objective_scale),
                     "costAdvantageScale": float(constraint_scale),
-                    "clipBranch": "selected-by-actual-combined-advantage-and-frozen-for-component-probes",
+                    "clipBranch": (
+                        "selected-by-actual-combined-advantage-and-frozen-for-component-probes"
+                    ),
                     "interpretation": (
-                        "objective and guard-cost terms partition the actual combined PPO branch; a positive GAE "
+                        "objective and guard-cost terms partition the actual combined PPO "
+                        "branch; a positive GAE "
                         "is training context, not an independently established beneficial effect"
                     ),
                 }
@@ -2623,7 +2677,8 @@ def iteration(
         if stage.commitments
         else np.zeros(len(reward), bool)
     )
-    # Shaping costs as a share of the decision's reward that turn: the mix-change and voluntary-break costs.
+    # Shaping costs as a share of the decision's reward that turn: the mix-change and
+    # voluntary-break costs.
     change = mix_changes(batch, draws)
     share = hyper.mix_change_cost * change + hyper.break_cost * voluntary_break
     welfare_now = np.maximum(0.0, batch["welfare"].astype(np.float64))
@@ -2635,7 +2690,8 @@ def iteration(
     rows = np.flatnonzero(batch["bootstrap_index"] >= 0)
     drift = clipped = saturated = None
     if isinstance(critic, VectorCritic):
-        # Each objective component: its own reward, value, bootstrap and GAE; the policy follows their weighted sum.
+        # Each objective component: its own reward, value, bootstrap and GAE; the policy follows
+        # their weighted sum.
         components = data.reward_components(batch)
         components["welfare"] = reward
         if "personality" in batch:
@@ -2673,7 +2729,8 @@ def iteration(
             )
         )
         drift = scale_drift(advantages)
-        # Value-bin saturation per objective head (review 5.5(3)): the share of this batch's values at the bin range's ends.
+        # Value-bin saturation per objective head (review 5.5(3)): the share of this batch's values
+        # at the bin range's ends.
         from .branch_bias import saturation
 
         saturated = saturation(
@@ -2697,7 +2754,8 @@ def iteration(
                 u_tail = critic.expectation(
                     critic(to_tensors(roll.bootstrap_obs[0], normalizer))
                 ).numpy()
-            # The next observation's value per resident times the residents it was taken at (this row's end population).
+            # The next observation's value per resident times the residents it was taken at (this
+            # row's end population).
             bootstrap[rows] = u_tail[batch["bootstrap_index"][rows]] * np.maximum(
                 1.0, batch["population"][rows]
             )
@@ -2723,7 +2781,8 @@ def iteration(
     cost_adv, cost_target = gae(batch, batch["cost"].astype(np.float64), cost_value, cost_boot)
     branch_targets = None
     if branch is not None:
-        # Search branch rows (critic only): lambda-returns over each branch sequence, bootstrapped by the current
+        # Search branch rows (critic only): lambda-returns over each branch sequence, bootstrapped
+        # by the current
         # critic after the last tail turn, recomputed every iteration.
         from . import branch_shards
 
@@ -2788,7 +2847,8 @@ def iteration(
     stats["decision_diagnostics"] = aggregate(roll.diagnostics)
     stats["worker_contracts"] = roll.worker_contracts
     stats["world_contracts"] = roll.world_contracts
-    # Guard cost bootstrap (round 3): whether it is on and the mean bootstrapped cost value of truncated villages.
+    # Guard cost bootstrap (round 3): whether it is on and the mean bootstrapped cost value of
+    # truncated villages.
     stats["cost_bootstrap"] = bool(hyper.cost_bootstrap)
     stats["cost_bootstrap_mean"] = float(cost_boot[rows].mean()) if len(rows) else 0.0
     mean_cost = float(batch["cost"].mean())
@@ -2804,8 +2864,10 @@ def iteration(
             "span_shares": {
                 str(s): float((span == i).mean()) for i, s in enumerate(contracts.SPANS)
             },
-            # Contract 10 movement diagnostics: sampled slot shares (native, keep, row 0 stay, rows 1-7 move) and
-            # each group's mean advantage, so "never moves" can be told apart from "moved and it did not pay".
+            # Contract 10 movement diagnostics: sampled slot shares (native, keep, row 0 stay, rows
+            # 1-7 move) and
+            # each group's mean advantage, so "never moves" can be told apart from "moved and it did
+            # not pay".
             "region_shares": {name: float(m.mean()) for name, m in region_groups(draws).items()},
             "region_advantage": {
                 name: float(advantage[m].mean())
@@ -2827,7 +2889,7 @@ REGIMES = ("default", "grassland", "herding", "farming", "fishing")
 
 def regime(seed: int, mask: int, grassland: frozenset) -> str:
     """The world regime of a decision: a capability fixture by its withheld mask, else a grassland-rich opening or an
-    ordinary world. These are the stage-gate categories."""
+    ordinary world. These are the stage-gate categories."""  # noqa: E501 - docstring/prose line kept verbatim
     for name, m in contracts.CAPABILITY_MASKS.items():
         if mask == m:
             return name
@@ -2839,7 +2901,7 @@ def balance(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-regime advantage balancing: standardize within each regime and weight every present regime equally (each
     decision's weight n / (K n_r), clipped to [1 / cap, cap] and renormalized to mean 1). Without regimes, the
-    previous global standardization with unit weights."""
+    previous global standardization with unit weights."""  # noqa: E501 - docstring/prose line kept verbatim
     if regimes is None or len(set(regimes.tolist())) <= 1:
         out = (combined - combined.mean()) / max(1e-8, combined.std())
         return out, np.ones(len(combined))
@@ -2857,7 +2919,7 @@ def balance(
 
 def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) -> np.ndarray:
     """Total-variation distance between each decision's sampled economy mix and the same village's previous one
-    (0 at a village's first decision)."""
+    (0 at a village's first decision)."""  # noqa: E501 - docstring/prose line kept verbatim
     mix = mix_from_ratios(
         draws["mix_z"], torch.as_tensor(batch["economy_mix_mask"], dtype=torch.bool)
     ).numpy()
@@ -2882,7 +2944,7 @@ def world_sampler(
     openings (where herding competes with farming) and a quarter rehearsed capability fixtures. With learned movement
     and a valley bank, a quarter of worlds (any stage) are valley fixture states, where moving can pay. With a
     non-empty daughter bank, slot i % 4 == 0 is a banked daughter start (stage 2: only capability-fixture entries);
-    an empty bank (or no eligible entry) leaves that slot as before."""
+    an empty bank (or no eligible entry) leaves that slot as before."""  # noqa: E501 - docstring/prose line kept verbatim
     if schedule == "r3-balanced-v1":
         from .curriculum import BalancedSampler
 
@@ -2912,7 +2974,8 @@ def world_sampler(
             elif i % 4 == 1 and len(grassland) > 0:
                 worlds.append((int(rng.choice(grassland)), 0))
             elif i % 4 == 3:
-                # Rehearsal: a quarter of stage 3-4 worlds are the stage-2 capability fixtures, so single-capability
+                # Rehearsal: a quarter of stage 3-4 worlds are the stage-2 capability fixtures, so
+                # single-capability
                 # skills (the fishing regression seen after stage 2) are not forgotten.
                 worlds.append((int(rng.choice(train)), int(masks[(i // 4) % len(masks)])))
             else:
@@ -2939,7 +3002,7 @@ def evaluate_closed_loop(
     """Deterministic closed-loop rollouts (evaluate.rollout) summed over held-out worlds. ``commitments`` overrides
     the checkpoint's own setting (the baseline of a single-turn run evaluates its init single-turn). A world is
     (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns). ``personality`` evaluates every village
-    at that Elder personality (None: the default)."""
+    at that Elder personality (None: the default)."""  # noqa: E501 - docstring/prose line kept verbatim
     from concurrent.futures import ProcessPoolExecutor
 
     from .evaluate import rollout
@@ -3027,7 +3090,8 @@ def evaluate_closed_loop(
     }
 
 
-# Spread selection (docs/MODEL9_PERSONALITY.md, welfare leakage): the personalities a personality run's checkpoints are
+# Spread selection (docs/MODEL9_PERSONALITY.md, welfare leakage): the personalities a personality
+# run's checkpoints are
 # judged at, over contracts.OBJECTIVES (welfare, population_years, trade_utility, qol_years).
 SELECTION_POINTS: dict[str, list[float]] = {
     "welfare": [1, 0, 0, 0],
@@ -3042,7 +3106,7 @@ def spread_selection(points: dict[str, dict], baseline: dict) -> dict[str, Any]:
     per-regime results). Eligible only when every point keeps extinctions at or below the init's and the welfare
     point keeps every regime's welfare ratio at or above SELECTION_REGIME_FLOOR. The score is the smaller of two log
     separations, so both directions must move: QoL at the QoL point over QoL at the population point, and population
-    at the population point over population at the QoL point. A score of 0 is no separation."""
+    at the population point over population at the QoL point. A score of 0 is no separation."""  # noqa: E501 - docstring/prose line kept verbatim
     eps = 1e-9
     qol_gap = float(np.log(max(eps, points["qol"]["qol"]) / max(eps, points["population"]["qol"])))
     pop_gap = float(
@@ -3073,7 +3137,8 @@ def argument_parser():
         "--learner-contract",
         choices=("legacy", "observed-anchor-v1"),
         default="legacy",
-        help="opt in to independently anchored values, exact epoch coverage and post-step KL rollback",
+        help="opt in to independently anchored values, exact epoch coverage and post-step KL "
+        "rollback",
     )
     parser.add_argument(
         "--observed-train-anchor",
@@ -3109,7 +3174,8 @@ def argument_parser():
         "--optimizer-audit-rows",
         type=int,
         default=0,
-        help="with --economic-trace, audit first N rows of only the first PPO minibatch (0 off, max 64)",
+        help="with --economic-trace, audit first N rows of only the first PPO minibatch (0 off, "
+        "max 64)",
     )
     parser.add_argument(
         "--init", type=Path, required=True, help="stage-1 or earlier-stage checkpoint"
@@ -3132,7 +3198,8 @@ def argument_parser():
     parser.add_argument(
         "--eval-seeds",
         default="2020-2025",
-        help="DEVELOPMENT selection seeds for periodic evaluation (disjoint from the stage gate's 2000-2019)",
+        help="DEVELOPMENT selection seeds for periodic evaluation (disjoint from the stage "
+        "gate's 2000-2019)",
     )
     parser.add_argument(
         "--no-balance", action="store_true", help="global advantage standardization (pre-pilot)"
@@ -3144,13 +3211,15 @@ def argument_parser():
     parser.add_argument(
         "--learned-movement",
         action="store_true",
-        help="contract 10: the policy moves over region rows with destination intents (mix given the destination)",
+        help="contract 10: the policy moves over region rows with destination intents (mix "
+        "given the destination)",
     )
     parser.add_argument(
         "--valley-seeds",
         type=Path,
         default=None,
-        help="valley fixture bank (lines 'seed,warmup'); with --learned-movement a quarter of training worlds",
+        help="valley fixture bank (lines 'seed,warmup'); with --learned-movement a quarter of "
+        "training worlds",
     )
     parser.add_argument(
         "--native-start",
@@ -3161,44 +3230,51 @@ def argument_parser():
     parser.add_argument(
         "--personality",
         default="default",
-        help="Elder personalities for training: default | fixed:w,w,w,w | dirichlet:alpha (token model only)",
+        help="Elder personalities for training: default | fixed:w,w,w,w | dirichlet:alpha "
+        "(token model only)",
     )
     parser.add_argument(
         "--personality-scales",
         choices=("reference", "batch"),
         default="reference",
-        help="personality exchange rates: fixed contracts.OBJECTIVE_REFERENCE_SCALES (round 3) or each "
+        help="personality exchange rates: fixed contracts.OBJECTIVE_REFERENCE_SCALES (round 3) "
+        "or each "
         "component's batch std (earlier runs)",
     )
     parser.add_argument(
         "--personality-clip",
         type=float,
         default=5.0,
-        help="clip each normalised component advantage A_k / s_k_ref to +/- this (reference scales; 0 off)",
+        help="clip each normalised component advantage A_k / s_k_ref to +/- this (reference "
+        "scales; 0 off)",
     )
     parser.add_argument(
         "--daughter-bank",
         type=Path,
         default=None,
-        help="daughter-start bank directory: capture founding daughters and draw a quarter of worlds from it",
+        help="daughter-start bank directory: capture founding daughters and draw a quarter of "
+        "worlds from it",
     )
     parser.add_argument(
         "--search-labels",
         default=None,
-        help="comma-separated search_teacher labels.npz files: imitate search winners (expert iteration)",
+        help="comma-separated search_teacher labels.npz files: imitate search winners (expert "
+        "iteration)",
     )
     parser.add_argument("--search-weight", type=float, default=0.5)
     parser.add_argument(
         "--critic-warmup",
         type=int,
         default=None,
-        help="critic-only iterations before PPO when the vector critic's heads are new (default 5; 0 off)",
+        help="critic-only iterations before PPO when the vector critic's heads are new (default "
+        "5; 0 off)",
     )
     parser.add_argument("--search-margin", type=float, default=None)
     parser.add_argument(
         "--branch-shards",
         default=None,
-        help="comma-separated search branch-shard directories (search_teacher <out>/branch_shards): "
+        help="comma-separated search branch-shard directories (search_teacher "
+        "<out>/branch_shards): "
         "critic-only rows mixed into every critic minibatch",
     )
     parser.add_argument(
@@ -3211,28 +3287,32 @@ def argument_parser():
         "--round-start-warmup",
         type=int,
         default=None,
-        help="critic-only iterations at the start of every run (not repeated on --resume past them; "
+        help="critic-only iterations at the start of every run (not repeated on --resume past "
+        "them; "
         "overlaps the fresh-heads warm-up: the larger count, once)",
     )
     parser.add_argument(
         "--kl-refit",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="one extra critic-only epoch after an update stopped on target_kl (default on for new runs; "
+        help="one extra critic-only epoch after an update stopped on target_kl (default on for "
+        "new runs; "
         "a resumed run keeps its own setting, off for runs saved before the flag)",
     )
     parser.add_argument(
         "--provenance",
         choices=("reject", "flag", "allow"),
         default="reject",
-        help="search labels and branch shards that mix source checkpoints or code commits, or hold rows "
+        help="search labels and branch shards that mix source checkpoints or code commits, or "
+        "hold rows "
         "of unknown source: reject (default), flag (warn and log) or allow",
     )
     parser.add_argument(
         "--cost-bootstrap",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="bootstrap truncated living villages in the guard cost critic from its own value (round 3; "
+        help="bootstrap truncated living villages in the guard cost critic from its own value "
+        "(round 3; "
         "default on for new runs, a resumed run keeps its own setting, off for runs saved before)",
     )
     parser.add_argument(
@@ -3243,18 +3323,21 @@ def argument_parser():
     parser.add_argument(
         "--learned-trade",
         action="store_true",
-        help="contract 11: the policy sets its trade posture; adds the trade_utility critic component "
+        help="contract 11: the policy sets its trade posture; adds the trade_utility critic "
+        "component "
         "(weight contracts.TRADE_UTILITY_WEIGHT unless --objective-weights sets it)",
     )
     parser.add_argument(
         "--learned-fission",
         action="store_true",
-        help="the policy chooses the fission policy (split timing and daughter share), anchored to the teacher",
+        help="the policy chooses the fission policy (split timing and daughter share), anchored "
+        "to the teacher",
     )
     parser.add_argument(
         "--observe-movement",
         action="store_true",
-        help="contract 10 control: movement is enabled in the bridge (same observations) but every decision is native",
+        help="contract 10 control: movement is enabled in the bridge (same observations) but "
+        "every decision is native",
     )
     parser.add_argument(
         "--vector-critic",
@@ -3283,7 +3366,8 @@ def argument_parser():
         "--film-bound",
         type=float,
         default=None,
-        help="bound the FiLM scale and shift to +/- this with tanh (off by default: it also dampens FiLM; "
+        help="bound the FiLM scale and shift to +/- this with tanh (off by default: it also "
+        "dampens FiLM; "
         "use only if film_max shows instability)",
     )
     parser.add_argument("--seed", type=int, default=0)
@@ -3396,7 +3480,8 @@ def main() -> int:
         raise ValueError(
             f"checkpoint does not match the actor: missing {missing}, unexpected {unexpected}"
         )
-    # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised trade utility).
+    # Contract 11: learned trade needs the trade_utility value head (approved credit: own realised
+    # trade utility).
     fresh_heads = False
     if (
         args.vector_critic
@@ -3594,7 +3679,8 @@ def main() -> int:
         private_bank(bank, args.bank_image, args.out, resume=resume_state is not None)
     draw = world_sampler(stage, train, grassland, rng, valley, bank, args.curriculum)
     ea, eb = (int(x) for x in args.eval_seeds.split("-"))
-    # Selection: default worlds plus two of each capability fixture in every stage; best.pt maximizes the geometric
+    # Selection: default worlds plus two of each capability fixture in every stage; best.pt
+    # maximizes the geometric
     # mean of the per-regime welfare ratios, so no regime can be traded away for the majority.
     eval_worlds = [(s, 0) for s in range(ea, eb + 1)]
     eval_worlds += [
@@ -3839,7 +3925,8 @@ def main() -> int:
         total["producer"] = actor.run_producer
         return total
 
-    # Resume (--resume): everything an iteration depends on, written atomically after each iteration's trajectory line.
+    # Resume (--resume): everything an iteration depends on, written atomically after each
+    # iteration's trajectory line.
     resume_path = args.out / "resume.pt"
     start = 0
     if args.resume and resume_path.exists():
@@ -3866,8 +3953,10 @@ def main() -> int:
                 from .curriculum import restore_bank
 
                 restore_bank(bank, r["bank_state"])
-        # Keep the trajectory consistent with the resumed state: the baseline and iterations up to the saved one.
-        # A preempted VM can leave a partial or zero-filled last line: unreadable lines are dropped, never fatal.
+        # Keep the trajectory consistent with the resumed state: the baseline and iterations up to
+        # the saved one.
+        # A preempted VM can leave a partial or zero-filled last line: unreadable lines are dropped,
+        # never fatal.
         lines = trajectory.read_text(errors="replace").splitlines() if trajectory.exists() else []
         parsed = []
         for line in lines:
@@ -3985,7 +4074,8 @@ def main() -> int:
             )
             eligible = ev["extinctions"] <= baseline["extinctions"]
             if hyper.personality != "default":
-                # Personality runs select on how far personalities separate, not on default welfare (the default
+                # Personality runs select on how far personalities separate, not on default welfare
+                # (the default
                 # point is ev itself, the Elder at [1, 0, 0, 0]).
                 points = {
                     "welfare": ev,

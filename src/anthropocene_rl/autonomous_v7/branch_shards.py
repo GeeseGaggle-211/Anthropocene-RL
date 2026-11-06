@@ -12,7 +12,7 @@ branch's unique world id (``world.npy``; sequences never collide across branches
 (``alt_kind.npy``), the turn each settlement was founded on the full path (``founded_turn.npy``, for the lineage
 sharing window) and a bootstrap index into the branch's ``bootstrap/`` block: the observation after the last tail turn
 of each living settlement. Label arrays are present with every mask false: the actor never trains on these rows.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -28,7 +28,8 @@ from . import contracts, data
 from .bridge import observation_batch
 from .model import VectorCritic, to_tensors
 
-# World ids of branch rows live far above any seed, so branch and teacher rows never share a sequence key.
+# World ids of branch rows live far above any seed, so branch and teacher rows never share a
+# sequence key.
 BRANCH_WORLD_BASE = 1 << 56
 TRAJECTORY_FIELDS = (
     "seed",
@@ -91,7 +92,7 @@ def _dummy_labels(n: int) -> dict[str, np.ndarray]:
 
 
 def write(directory: Path, tail: dict[str, Any], meta: dict[str, Any]) -> int:
-    """Write one branch's tail (``search_teacher.branch`` returns it as ``tail``) as a shard; returns its rows."""
+    """Write one branch's tail (``search_teacher.branch`` returns it as ``tail``) as a shard; returns its rows."""  # noqa: E501 - docstring/prose line kept verbatim
     rows = tail["rows"]
     if not rows:
         return 0
@@ -122,7 +123,8 @@ def write(directory: Path, tail: dict[str, Any], meta: dict[str, Any]) -> int:
             "alt_kind": np.full(n, int(meta["kind"]), np.int32),
             "founded_turn": np.asarray([r["founded_turn"] for r in rows], np.int32),
             "bootstrap_index": np.asarray([r.get("bootstrap_index", -1) for r in rows], np.int32),
-            # 1 on a calibration tail (SearchConfig.calibration_tail turns), checked by branch_bias against realised turns.
+            # 1 on a calibration tail (SearchConfig.calibration_tail turns), checked by branch_bias
+            # against realised turns.
             "calibration": np.full(n, int(meta.get("calibration", 0)), np.int8),
         }
     )
@@ -172,7 +174,7 @@ def write(directory: Path, tail: dict[str, Any], meta: dict[str, Any]) -> int:
 
 
 def directories(roots: Iterable[Path]) -> list[Path]:
-    """Branch directories under each root (``<search out>/branch_shards``), or a root that is itself one."""
+    """Branch directories under each root (``<search out>/branch_shards``), or a root that is itself one."""  # noqa: E501 - docstring/prose line kept verbatim
     out: list[Path] = []
     for root in roots:
         root = Path(root)
@@ -194,7 +196,7 @@ def load(
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray] | None]:
     """All branch rows under ``roots`` and their bootstrap observations; ``bootstrap_index`` is rebased onto the
     concatenated bootstrap block (-1: none). ``provenance`` (provenance.check: reject, flag or allow) applies to the
-    shards' (source checkpoint, code commit); ``report`` receives the provenance report."""
+    shards' (source checkpoint, code commit); ``report`` receives the provenance report."""  # noqa: E501 - docstring/prose line kept verbatim
     from . import provenance as prov
 
     worlds, boots, offset = [], [], 0
@@ -241,7 +243,8 @@ def load(
             continue
         sources.append(prov.key(meta))
         counts.append(len(w["camp"]))
-        # A directory is one branch. Allocate fresh sequence keys even when independent runs reused saved IDs.
+        # A directory is one branch. Allocate fresh sequence keys even when independent runs reused
+        # saved IDs.
         w["world"] = np.full(len(w["camp"]), BRANCH_WORLD_BASE + len(worlds), np.int64)
         w.setdefault(
             "calibration", np.zeros(len(w["camp"]), np.int8)
@@ -284,7 +287,7 @@ def load(
 def _head_values(
     critic, batch: dict[str, np.ndarray], normalizer, batch_size: int = 4096
 ) -> dict[str, np.ndarray]:
-    """The critic's per-resident (or raw, for qol_years) expectation per head; a scalar critic as ``welfare``."""
+    """The critic's per-resident (or raw, for qol_years) expectation per head; a scalar critic as ``welfare``."""  # noqa: E501 - docstring/prose line kept verbatim
     parts: dict[str, list[np.ndarray]] = {}
     n = len(batch["core"])
     with torch.no_grad():
@@ -327,7 +330,7 @@ def endpoint_values(critic, boot, normalizer) -> dict:
 def values(
     critic, rows: dict[str, np.ndarray], boot: dict[str, np.ndarray] | None, normalizer
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-    """Raw-unit values per head of every row, and of each row's bootstrap observation (NaN where it has none)."""
+    """Raw-unit values per head of every row, and of each row's bootstrap observation (NaN where it has none)."""  # noqa: E501 - docstring/prose line kept verbatim
     u = _head_values(critic, rows, normalizer)
     value = {name: x * head_scale(name, rows["prior_population"]) for name, x in u.items()}
     bootstrap = {name: np.full(len(rows["camp"]), np.nan) for name in u}
@@ -350,7 +353,7 @@ def targets(
 ) -> dict[str, np.ndarray] | np.ndarray:
     """Critic targets for branch rows: lambda-returns over each branch sequence with the current critic's values and
     its bootstrap after the last tail turn, in the critic's own units (per resident, qol_years raw). A vector critic
-    gets one target per head (a dict); a scalar critic its welfare target (an array)."""
+    gets one target per head (a dict); a scalar critic its welfare target (an array)."""  # noqa: E501 - docstring/prose line kept verbatim
     value, bootstrap = values(critic, rows, boot, normalizer)
     components = data.reward_components(rows)
     out = {

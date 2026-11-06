@@ -1,4 +1,4 @@
-"""Round 3: fission and trade probes, policy tails, critic branch shards, critic mixing and warm-up (no bridge)."""
+"""Round 3: fission and trade probes, policy tails, critic branch shards, critic mixing and warm-up (no bridge)."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ GROUPS = len(contracts.TRADE_GROUPS)
 
 
 def observation(seed: int = 0, trade_rows=(0, 3), held=(5.0, 40.0)) -> dict:
-    """A bridge-shaped observation (lists, as the JSON bridge sends) with trade rows present at ``trade_rows``."""
+    """A bridge-shaped observation (lists, as the JSON bridge sends) with trade rows present at ``trade_rows``."""  # noqa: E501 - docstring/prose line kept verbatim
     b = batch(1, seed)
     sets, present = [], []
     for name, rows, width in contracts.SETS:
@@ -79,7 +79,8 @@ BASE = {
 }
 
 
-# ------------------------------------------------------------------------------------------------ probes
+# ------------------------------------------------------------------------------------------------
+# probes
 def test_fission_and_trade_probes_join_the_alternatives() -> None:
     alts = st.alternatives(village(), BASE, st.SearchConfig())
     kinds = [a["kind"] for a in alts]
@@ -152,7 +153,8 @@ def test_override_holds_fission_and_a_full_trade_posture_every_turn() -> None:
     assert "tradeValue" not in actions[7] and actions[7]["fission"] == -1  # inputs unchanged
 
 
-# ------------------------------------------------------------------------------------------------ labels
+# ------------------------------------------------------------------------------------------------
+# labels
 def test_label_arrays_store_fission_and_trade_labels() -> None:
     v = village()
     alts = st.alternatives(v, BASE, st.SearchConfig(regions=False, mixes=False, native=False))
@@ -257,7 +259,8 @@ def test_search_loss_learns_fission_and_only_the_masked_trade_components() -> No
     mask[4:, 0] = st.TRADE_GATE_BIT
     extra = dict(fission=fission, trade_value=value, trade_gate=gate, trade_mask=mask)
 
-    # Gradients reach exactly the labelled components: no other value mean, no log-std, no other group's gate.
+    # Gradients reach exactly the labelled components: no other value mean, no log-std, no other
+    # group's gate.
     out = {k: v.detach().requires_grad_(True) for k, v in actor(t).items()}
     ppo.search_loss(out, t, kind, slot, mix, **extra).backward()
     gv, gg = out["trade_value_mean"].grad, out["trade_gate"].grad
@@ -289,7 +292,8 @@ def test_search_loss_learns_fission_and_only_the_masked_trade_components() -> No
     assert (o["trade_gate"][4:, 0].argmax(dim=1) == 0).all()
 
 
-# ------------------------------------------------------------------------------------------------ shards
+# ------------------------------------------------------------------------------------------------
+# shards
 def fake_tail(seed: int, camps=(7, 11), turns=(4, 5), boot=True, terminate_last=False) -> dict:
     rows = []
     for i, turn in enumerate(turns):
@@ -410,7 +414,8 @@ def test_lambda_returns_bootstrap_after_the_last_tail_turn(tmp_path) -> None:
     assert data.lambda_returns(d, reward, value, 0.5)[1] == pytest.approx(
         2 + g * 11
     )  # unchanged without it
-    # Branch targets: the same equations through the current critic, per head, in the head's own units.
+    # Branch targets: the same equations through the current critic, per head, in the head's own
+    # units.
     rows, bootstrap = branch_shards.load([write_two(tmp_path)])
     normalizer = Normalizer.fit(rows)
     torch.manual_seed(0)
@@ -428,7 +433,8 @@ def test_lambda_returns_bootstrap_after_the_last_tail_turn(tmp_path) -> None:
         Critic(rows["core"].shape[1], privileged_width=3), rows, bootstrap, normalizer
     )
     assert isinstance(scalar, np.ndarray) and scalar.shape == (8,)
-    # Validation tool: per kind and head, relative bias of prediction against realised return plus bootstrap.
+    # Validation tool: per kind and head, relative bias of prediction against realised return plus
+    # bootstrap.
     pred, real = branch_bias.realised(critic, rows, bootstrap, normalizer)
     report = branch_bias.report(pred, real, rows)
     assert (
@@ -436,7 +442,8 @@ def test_lambda_returns_bootstrap_after_the_last_tail_turn(tmp_path) -> None:
         and report["kinds"]["region"]["welfare"]["branches"] == 1
     )
     full = branch_bias.evaluate(pred, real, rows)
-    # The calibration shard's 2-turn tail ends with its lineage alive: too short for an 8-turn check, so no pass.
+    # The calibration shard's 2-turn tail ends with its lineage alive: too short for an 8-turn
+    # check, so no pass.
     assert (
         full["calibration"]["short"] == 1
         and full["calibration"]["branches"] == 0
@@ -446,7 +453,7 @@ def test_lambda_returns_bootstrap_after_the_last_tail_turn(tmp_path) -> None:
 
 
 def calibration_rows(turns: int = 10, die_at: int | None = None) -> dict[str, np.ndarray]:
-    """One calibration branch, one settlement, reward 100 per turn (welfare = P x Q x dt = 10 x 0.5 x 20)."""
+    """One calibration branch, one settlement, reward 100 per turn (welfare = P x Q x dt = 10 x 0.5 x 20)."""  # noqa: E501 - docstring/prose line kept verbatim
     t = np.arange(turns)
     terminated = np.zeros(turns, bool)
     if die_at is not None:
@@ -486,10 +493,12 @@ def test_calibration_compares_the_implied_8_turn_value_with_8_realised_turns() -
     biased = branch_bias.calibration({"welfare": pred["welfare"] * 1.2}, rows)
     assert np.isclose(biased["kinds"]["native"]["welfare"]["median"], 0.2)
     real = {"welfare": np.zeros(len(rows["camp"]))}
-    # One native branch proves the formula, not mandatory native/region/mix coverage or held-out provenance.
+    # One native branch proves the formula, not mandatory native/region/mix coverage or held-out
+    # provenance.
     assert branch_bias.evaluate(pred, real, rows)["pass"] is False
     assert branch_bias.evaluate({"welfare": pred["welfare"] * 1.2}, real, rows)["pass"] is False
-    # A lineage that dies before turn 8: its whole realised return against V0 (nothing left to subtract).
+    # A lineage that dies before turn 8: its whole realised return against V0 (nothing left to
+    # subtract).
     dead = calibration_rows(die_at=3)
     dead["welfare"][-1] = 0.0
     cal = branch_bias.calibration({"welfare": np.full(4, 100.0 * (1 + g + g * g))}, dead)
@@ -558,13 +567,15 @@ def test_trade_probes_run_only_for_villages_with_recent_trade() -> None:
     assert st.TRADE not in kinds and st.FISSION in kinds
 
 
-# ------------------------------------------------------------------------------------------------ PPO critic
+# ------------------------------------------------------------------------------------------------
+# PPO critic
 def test_warmup_scheduling() -> None:
     assert ppo.warmup_iterations(False, 5, 0) == 0
     assert ppo.warmup_iterations(True, 5, 0) == 5
     assert ppo.warmup_iterations(False, 5, 3) == 3
     assert ppo.warmup_iterations(True, 5, 8) == 8 and ppo.warmup_iterations(True, 5, 2) == 5
-    # The loop trains the actor from iteration `warmup`; a resume at or past it runs no further critic-only iteration.
+    # The loop trains the actor from iteration `warmup`; a resume at or past it runs no further
+    # critic-only iteration.
     warm = ppo.warmup_iterations(True, 5, 8)
     assert [it >= warm for it in range(9, 12)] == [True] * 3
 

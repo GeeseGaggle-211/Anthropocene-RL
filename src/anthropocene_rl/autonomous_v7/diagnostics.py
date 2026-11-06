@@ -1,4 +1,4 @@
-"""Authoritative decision sidecars. Deliberately never imported by observation tensor construction."""
+"""Authoritative decision sidecars. Deliberately never imported by observation tensor construction."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -130,7 +130,7 @@ def validate_raw_materials(
     initial: bool = False,
     raw_enabled: bool | None = None,
 ) -> dict:
-    """Physical receipt sidecar, keyed by camp/material; never reconstructed from head controls or grant alone."""
+    """Physical receipt sidecar, keyed by camp/material; never reconstructed from head controls or grant alone."""  # noqa: E501 - docstring/prose line kept verbatim
     if "rawMaterialDiagnostics" not in step or "diagnosticSchemaVersion" not in step:
         if required:
             raise ValueError("missing physical diagnostic sidecar/schema")

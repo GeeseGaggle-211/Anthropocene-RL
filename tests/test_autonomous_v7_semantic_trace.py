@@ -354,7 +354,8 @@ def test_compatibility_requires_same_experiment_before_either_replay(
         "live_fingerprint": b["transitions"][0]["successor"]["fingerprint"],
     }
     if mutation in ("same", "compensating-actions", "reset-players", "reset-movement"):
-        # Each trace independently replays successfully, including compensating different interventions.
+        # Each trace independently replays successfully, including compensating different
+        # interventions.
         for trace, side in ((a, "source"), (b, "live")):
             verify(trace, tmp_path, trace["simulator"], FLAGS, row, side, outputs)
         calls.clear()

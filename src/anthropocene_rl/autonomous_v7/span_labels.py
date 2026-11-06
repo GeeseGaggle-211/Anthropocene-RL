@@ -7,7 +7,7 @@ the commitment features and hold masks the simulator would have shown, so clonin
 
 Capital controls compared: the three unit strategic levels, the economy-mix shares and the clothing and shelter
 routes, each only where both decisions carry a label for it, within ``tolerance``.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def matches(batch: dict[str, np.ndarray], i: int, j: int, tolerance: float) -> b
 
 
 def derive(batch: dict[str, np.ndarray], tolerance: float = 0.05) -> dict[str, np.ndarray]:
-    """Span label index (into contracts.SPANS), hold mask before the decision, and the 11 commitment features."""
+    """Span label index (into contracts.SPANS), hold mask before the decision, and the 11 commitment features."""  # noqa: E501 - docstring/prose line kept verbatim
     n = len(batch["camp"])
     span_label = np.full(n, contracts.SPAN_SINGLE, np.int64)
     hold_mask = np.zeros(n, bool)

@@ -616,7 +616,8 @@ def _lineage_inventory(document: dict, base: Path) -> tuple[dict, str]:
                 row["node_ids"] or row["edge_ids"]
             ):
                 _fail(
-                    "conversion slot must name expected artifacts or supported not-applicable history"
+                    "conversion slot must name expected artifacts or supported "
+                    "not-applicable history"
                 )
             if row["status"] == "missing":
                 if not str(row.get("reason", "")).strip() or not isinstance(
@@ -1441,7 +1442,8 @@ def _equivalence_output(
         or len(values) != len(contract["components"])
     ):
         _fail(
-            "equivalence raw output differs from its reviewed dtype/shape/component/context contract"
+            "equivalence raw output differs from its reviewed "
+            "dtype/shape/component/context contract"
         )
     output["values"] = [_normalized_numeric(value, contract["dtype"]) for value in values]
     width = math.prod(shape) if shape else 1
@@ -1604,7 +1606,8 @@ def _validate_equivalence(
             result["status"] = "FAIL"
         if "result" in claim:
             _fail(
-                f"edge {edge['id']} exact tensor result is computed from raw artifacts, not accepted by assertion"
+                f"edge {edge['id']} exact tensor result is computed from raw artifacts, "
+                "not accepted by assertion"
             )
         return result
     if not claim["mapped_outputs"]:
@@ -1957,7 +1960,8 @@ def _validate_pane(pane: dict, nodes: dict[str, dict], base: Path) -> dict:
             != expected_world_ids
         ):
             _fail(
-                f"pane {pane_id} policy RNG schedule world coverage differs from the reviewed cohort"
+                f"pane {pane_id} policy RNG schedule world coverage differs from the "
+                "reviewed cohort"
             )
         for scheduled_world in scheduled_worlds:
             scheduled_nodes = scheduled_world.get("nodes")
@@ -1968,13 +1972,15 @@ def _validate_pane(pane: dict, nodes: dict[str, dict], base: Path) -> dict:
                 != set(selected)
             ):
                 _fail(
-                    f"pane {pane_id} policy RNG schedule node coverage differs from the reviewed executions"
+                    f"pane {pane_id} policy RNG schedule node coverage differs from the "
+                    "reviewed executions"
                 )
         for world_record in worlds:
             for node_id in selected:
                 if "semantics" not in nodes[node_id]:
                     _fail(
-                        f"pane {pane_id} cannot schedule stochastic execution for an unavailable node"
+                        f"pane {pane_id} cannot schedule stochastic execution for an "
+                        "unavailable node"
                     )
                 semantics = dict(nodes[node_id]["semantics"])
                 if pane["kind"] == "standardized-flags-intervention":
@@ -2227,7 +2233,8 @@ def validate_manifest(document: dict, base: Path | str = ".") -> dict:
         )
     ):
         _fail(
-            "evaluation surface needs unique panes and a historical or approved fresh common-producer pane"
+            "evaluation surface needs unique panes and a historical or approved fresh "
+            "common-producer pane"
         )
     comparison_order = document.get("comparison_order")
     if (
@@ -3065,7 +3072,8 @@ def _evaluation_index(
             or report.get("capture_bounds") != pane.get("capture_bounds")
         ):
             _fail(
-                "evaluation report node/checkpoint/evidence/metric/personality/background scope differs from request"
+                "evaluation report node/checkpoint/evidence/metric/personality/background "
+                "scope differs from request"
             )
         if pane["kind"] == "fresh-common-producer-diagnostic" and (
             report.get("producer_scope") != "fresh-common-producer-diagnostic"

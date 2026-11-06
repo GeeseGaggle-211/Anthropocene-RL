@@ -10,7 +10,7 @@ Held-out partition: whole root worlds, never single entries. Entries whose world
 (``held_out``) are reserved for ``daughter_eval`` and never drawn for training. Daughters of one world and turn share a
 content-addressed snapshot, so an id-based split would put identical states on both sides; a seed split cannot, and
 ``check_partition`` asserts that no snapshot file appears in both partitions.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ HOLDOUT_EVERY = (
 
 def held_out(entry: dict[str, Any]) -> bool:
     """The held-out family: the entry's root world seed (bank starts keep their root seed, so a capture made inside a
-    bank world stays in its root's partition)."""
+    bank world stays in its root's partition)."""  # noqa: E501 - docstring/prose line kept verbatim
     return int(entry["seed"]) % HOLDOUT_EVERY == 0
 
 
@@ -50,7 +50,7 @@ def check_partition(entries: list[dict[str, Any]]) -> None:
 class Reservoir:
     """Reservoir sample (algorithm R) of ``size`` items over a stream of founded daughters, so a world's captures
     spread over the whole episode instead of its first foundings. ``offer`` returns the slot the new item takes (or
-    None: not kept) and the item it evicts (or None). The keyed generator makes it deterministic."""
+    None: not kept) and the item it evicts (or None). The keyed generator makes it deterministic."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, size: int, rng: np.random.Generator) -> None:
         self.size, self.rng, self.seen, self.items = size, rng, 0, []
@@ -104,7 +104,7 @@ class DaughterBank:
         parent_society: int,
         movement: bool = False,
     ) -> dict[str, Any]:
-        """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""
+        """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""  # noqa: E501 - docstring/prose line kept verbatim
         from .protocol import seeds
 
         seeds([seed], "daughter capture")
@@ -145,7 +145,7 @@ class DaughterBank:
         return entry
 
     def remove(self, entry_id: int) -> None:
-        """Drop one entry (a reservoir eviction) and its file unless another entry shares it. Absent ids are ignored."""
+        """Drop one entry (a reservoir eviction) and its file unless another entry shares it. Absent ids are ignored."""  # noqa: E501 - docstring/prose line kept verbatim
         entries = self.entries()
         gone = [e for e in entries if int(e["id"]) == int(entry_id)]
         if not gone:
@@ -172,7 +172,7 @@ class DaughterBank:
     def sample(
         self, rng: np.random.Generator, masks: set[int] | None = None
     ) -> dict[str, Any] | None:
-        """A uniformly drawn training entry (``masks``: only those withheld masks), or None when there is none."""
+        """A uniformly drawn training entry (``masks``: only those withheld masks), or None when there is none."""  # noqa: E501 - docstring/prose line kept verbatim
         pool = [e for e in self.training_entries() if masks is None or int(e["mask"]) in masks]
         return pool[int(rng.integers(len(pool)))] if pool else None
 

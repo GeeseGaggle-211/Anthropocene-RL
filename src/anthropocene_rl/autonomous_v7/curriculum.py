@@ -191,7 +191,7 @@ def verify_image(image: Path) -> dict:
 
 
 def private_bank(bank, image: Path, owner: Path, *, resume=False) -> dict:
-    """Mutable bank is owned by one run; immutable snapshot blobs are retained for exact crash recovery."""
+    """Mutable bank is owned by one run; immutable snapshot blobs are retained for exact crash recovery."""  # noqa: E501 - docstring/prose line kept verbatim
     if not bank.directory.resolve().is_relative_to(owner.resolve()):
         raise ProvenanceError("daughter bank must be private inside this run's output directory")
     obj = verify_image(image)

@@ -11,7 +11,7 @@ observation at the fork, the best alternative, and every alternative's score; PP
 margin (``ppo --search-labels``).
 
     python -m anthropocene_rl.autonomous_v7.search_teacher --checkpoint <pt> --seeds 1000-1011 --out <dir>
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -34,13 +34,15 @@ from .model import Critic, VectorCritic, mix_shares, to_tensors
 from .ppo import head_scale, personality_sampler, village_batch
 from .upgrade import upgrade
 
-# Alternative kinds (label_kind): the policy's own action, the heuristic, a region move, a pure economy mix, a fission
+# Alternative kinds (label_kind): the policy's own action, the heuristic, a region move, a pure
+# economy mix, a fission
 # policy held for the horizon, a trade posture held for the horizon.
 POLICY, NATIVE, REGION, MIX, FISSION, TRADE = 0, 1, 2, 3, 4, 5
 KINDS = ("policy", "native", "region", "mix", "fission", "trade")
 # Fission probes: the bridge's fission codes (Neutral 0, Discourage 1, Encourage 2).
 FISSION_PROBES = (2, 1)
-# Trade probes (slot = probe id): every gate withheld, offered from stock, made to order; the value of the group with
+# Trade probes (slot = probe id): every gate withheld, offered from stock, made to order; the value
+# of the group with
 # the largest holdings halved and doubled.
 TRADE_PROBES = ("withhold", "stock", "make", "value_half", "value_double")
 TRADE_SET = [name for name, _, _ in contracts.SETS].index("trade")
@@ -67,32 +69,48 @@ class SearchConfig:
     regions: bool = True
     mixes: bool = True
     native: bool = True
-    # Add the critic's end-of-horizon lineage value to the score. Off by default: the first labels (20 October 2026)
-    # showed the critic, trained on Elder-acting states, scores native and moved states off-distribution (native
-    # branches lost 15% on the bootstrap at equal returns). The bootstrap is always recorded as a diagnostic.
+    # Add the critic's end-of-horizon lineage value to the score. Off by default: the first labels
+    # (20 October 2026)
+    # showed the critic, trained on Elder-acting states, scores native and moved states
+    # off-distribution (native
+    # branches lost 15% on the bootstrap at equal returns). The bootstrap is always recorded as a
+    # diagnostic.
     bootstrap: bool = False
-    # Personalities (docs/MODEL9_PERSONALITY.md): each society is drawn from this distribution ("default", "fixed:..."
-    # or "dirichlet:a", as in ppo --personality) and daughters inherit their parent's draw. Every alternative returns
-    # its lineage's discounted return per objective (contracts.OBJECTIVES), and a decision point's label is scored for
-    # its society's personality: 1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|. The policy, the critic and
+    # Personalities (docs/MODEL9_PERSONALITY.md): each society is drawn from this distribution
+    # ("default", "fixed:..."
+    # or "dirichlet:a", as in ppo --personality) and daughters inherit their parent's draw. Every
+    # alternative returns
+    # its lineage's discounted return per objective (contracts.OBJECTIVES), and a decision point's
+    # label is scored for
+    # its society's personality: 1 + sum_k p_k (R_k(alt) - R_k(policy)) / |R_k(policy)|. The policy,
+    # the critic and
     # the imitation loss all read that personality, through the same FiLM-conditioned encoder.
     personality: str = "default"
-    # Round 3: when a decision point has a young daughter (parentSociety > 0 and first seen within YOUNG_TURNS turns,
-    # or the daughter of a bank start), one of the searched villages is a young daughter. 0 keeps the uniform draw.
+    # Round 3: when a decision point has a young daughter (parentSociety > 0 and first seen within
+    # YOUNG_TURNS turns,
+    # or the daughter of a bank start), one of the searched villages is a young daughter. 0 keeps
+    # the uniform draw.
     daughter_search: bool = True
-    # Round 3 (docs/MODEL9_SEARCH_TEACHER.md, *Probes*): fission probes (Encourage and Discourage submitted every turn of
-    # the horizon) and trade-posture probes (TRADE_PROBES, a full posture every turn of the horizon).
+    # Round 3 (docs/MODEL9_SEARCH_TEACHER.md, *Probes*): fission probes (Encourage and Discourage
+    # submitted every turn of
+    # the horizon) and trade-posture probes (TRADE_PROBES, a full posture every turn of the
+    # horizon).
     fission: bool = True
     trade: bool = True
-    # Pure-policy turns after each branch's horizon, written as critic branch shards (<out>/branch_shards); 0 off.
+    # Pure-policy turns after each branch's horizon, written as critic branch shards
+    # (<out>/branch_shards); 0 off.
     tail: int = 4
-    # Calibration tails: this share of branches (a keyed draw per branch, calibration_branch) plays calibration_tail
-    # turns instead, and its shard rows are marked calibration = 1, so branch_bias can test the critic against 8
+    # Calibration tails: this share of branches (a keyed draw per branch, calibration_branch) plays
+    # calibration_tail
+    # turns instead, and its shard rows are marked calibration = 1, so branch_bias can test the
+    # critic against 8
     # realised turns rather than against its own bootstrap. Only when tail > 0.
     calibration_share: float = 0.1
     calibration_tail: int = 12
-    # Round 3 (review 5.5(3)): coverage. Each world calibrates at least this many branches of every alternative kind it
-    # searches (from a keyed decision point per kind on, one of that kind's alternatives by a keyed draw), on top of
+    # Round 3 (review 5.5(3)): coverage. Each world calibrates at least this many branches of every
+    # alternative kind it
+    # searches (from a keyed decision point per kind on, one of that kind's alternatives by a keyed
+    # draw), on top of
     # the keyed share, so rare kinds (fission, trade) are never absent from calibration. 0 off.
     calibration_min_per_kind: int = 1
     calibration_manifest: str = ""
@@ -124,7 +142,7 @@ def lineage_values(
     personalities: dict[int, Any] | None = None,
 ) -> np.ndarray:
     """The critic's value of the lineage's living settlements per objective (contracts.OBJECTIVES; a scalar critic
-    fills welfare only, the rest NaN), each head unscaled as ppo.head_scale says, at each settlement's personality."""
+    fills welfare only, the rest NaN), each head unscaled as ppo.head_scale says, at each settlement's personality."""  # noqa: E501 - docstring/prose line kept verbatim
     out_values = np.full(len(contracts.OBJECTIVES), np.nan)
     out_values[0] = 0.0
     rows = [
@@ -160,7 +178,7 @@ def component_rewards(villages: list[dict[str, Any]], lineage: set[int]) -> np.n
     """This step's lineage reward per objective (contracts.OBJECTIVES order): welfare P x Q x dt and
     population-years P x dt summed over living settlements, realised trade utility, and QoL-years as the lineage's
     population-weighted QoL x dt. That last one is one number per lineage, so splitting into more settlements is not
-    rewarded as more QoL."""
+    rewarded as more QoL."""  # noqa: E501 - docstring/prose line kept verbatim
     out = np.zeros(len(contracts.OBJECTIVES))
     people = weighted = years = 0.0
     for v in villages:
@@ -179,18 +197,23 @@ def component_rewards(villages: list[dict[str, Any]], lineage: set[int]) -> np.n
     return out
 
 
-# Search utility versions (docs/MODEL9_PERSONALITY.md, *One utility for PPO and search*). Version 1 (labels before
-# 22 October 2026): 1 + sum_k p_k (G_k - G_k(policy)) / |G_k(policy)|, a relative change against the policy's own
-# return. Version 2: the utility PPO's advantage uses, U_p = sum_k p_k G_k / s_k_ref (contracts.OBJECTIVE_REFERENCE_
-# SCALES); an alternative scores U_p(alt) - U_p(policy), so the policy scores 0 and a gain is in reference spreads (for
-# the welfare personality, a fraction of s_welfare_ref). Label files keep every alternative's return vector
+# Search utility versions (docs/MODEL9_PERSONALITY.md, *One utility for PPO and search*). Version 1
+# (labels before
+# 22 October 2026): 1 + sum_k p_k (G_k - G_k(policy)) / |G_k(policy)|, a relative change against the
+# policy's own
+# return. Version 2: the utility PPO's advantage uses, U_p = sum_k p_k G_k / s_k_ref
+# (contracts.OBJECTIVE_REFERENCE_
+# SCALES); an alternative scores U_p(alt) - U_p(policy), so the policy scores 0 and a gain is in
+# reference spreads (for
+# the welfare personality, a fraction of s_welfare_ref). Label files keep every alternative's return
+# vector
 # (alt_returns), so version-1 labels are rescored (``rescore``).
 UTILITY_VERSION = 2
 
 
 def personality_utility(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
     """U_p = sum_k p_k G_k / s_k_ref per row of ``returns`` (objectives in contracts.OBJECTIVES order). A component
-    missing (NaN) for any alternative gets no weight, so every alternative is scored on the same components."""
+    missing (NaN) for any alternative gets no weight, so every alternative is scored on the same components."""  # noqa: E501 - docstring/prose line kept verbatim
     scale = np.asarray(
         [contracts.OBJECTIVE_REFERENCE_SCALES[k] for k in contracts.OBJECTIVES], np.float64
     )
@@ -200,7 +223,7 @@ def personality_utility(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
 
 def personality_score(returns: np.ndarray, p: np.ndarray) -> np.ndarray:
     """Version-2 scores of a decision point's alternatives (rows of ``returns``, the policy first) for personality
-    ``p``: U_p(alt) - U_p(policy). The policy scores 0."""
+    ``p``: U_p(alt) - U_p(policy). The policy scores 0."""  # noqa: E501 - docstring/prose line kept verbatim
     u = personality_utility(returns, p)
     return u - u[0]
 
@@ -209,7 +232,7 @@ def rescore(labels: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """Label arrays on the version-2 utility. Version-2 files pass through. Version-1 files with per-alternative
     return vectors (alt_returns, personality) are rescored: alt_score, score_policy (0) and score_best (the stored
     label's alternative, the version-1 argmax); label_is_best marks rows whose label is still the version-2 argmax.
-    Files without return vectors keep version 1 (utility_version 1) and are judged by the legacy relative margin."""
+    Files without return vectors keep version 1 (utility_version 1) and are judged by the legacy relative margin."""  # noqa: E501 - docstring/prose line kept verbatim
     n = len(labels["label_kind"])
     if (
         "utility_version" in labels
@@ -245,7 +268,7 @@ def rescore(labels: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
 def base_posture(action: dict[str, Any] | None, teacher: dict[str, Any] | None) -> dict[str, Any]:
     """The trade posture probes perturb: the policy's own when it learns trade (its action carries one), else the
     heuristic's teacher label (the main-path step whose observation is the fork's), else the native posture (values
-    1, every gate make-to-order, the configuration's export share: tradeShare -1)."""
+    1, every gate make-to-order, the configuration's export share: tradeShare -1)."""  # noqa: E501 - docstring/prose line kept verbatim
     groups = len(contracts.TRADE_GROUPS)
     for source in (action, teacher):
         if source and source.get("tradeValue") is not None and source.get("tradeGate") is not None:
@@ -262,7 +285,7 @@ def trade_probes(village: dict[str, Any], posture: dict[str, Any]) -> list[dict[
     """TRADE alternatives for one village: each a full posture (every group's value and gate, and the share) and the
     mask of the groups and components it changes from ``posture`` (TRADE_VALUE_BIT, TRADE_GATE_BIT). Only groups
     present in the village's trade-set observation count as changed; a village with no trade row gets no probe, and a
-    probe that changes nothing (say make-to-order on the native posture) is skipped."""
+    probe that changes nothing (say make-to-order on the native posture) is skipped."""  # noqa: E501 - docstring/prose line kept verbatim
     obs = village.get("observation") or {}
     sets, present = obs.get("sets"), obs.get("rowPresent")
     if not sets or not present or len(sets) <= TRADE_SET:
@@ -330,7 +353,7 @@ def trade_active(village: dict[str, Any], recent: list[float] | None) -> bool:
     """Whether trade probes are worth running for this village: it traded in the last TRADE_RECENT_TURNS main-path
     turns (non-zero tradeUtility), or its observation shows a known trading contact (a present contacts row with
     recent trade utility or flow) or last turn's trade in a present trade-set row (imported, exported or realised
-    utility). A present trade row alone is not enough: nearly every eligible village has one."""
+    utility). A present trade row alone is not enough: nearly every eligible village has one."""  # noqa: E501 - docstring/prose line kept verbatim
     if recent and any(abs(float(x)) > 0 for x in recent[-TRADE_RECENT_TURNS:]):
         return True
     obs = village.get("observation") or {}
@@ -361,7 +384,7 @@ def calibration_branch(
 
 
 def force_from_points(seed: int, withheld: int, warmup: int, points: list[int]) -> dict[int, int]:
-    """Per alternative kind, the keyed decision point from which a world forces that kind's calibration coverage."""
+    """Per alternative kind, the keyed decision point from which a world forces that kind's calibration coverage."""  # noqa: E501 - docstring/prose line kept verbatim
     if not points:
         return {}
     return {
@@ -381,7 +404,7 @@ def ensure_kind_coverage(
 ) -> list[bool]:
     """Calibration flags with coverage forced: a kind present among ``alts`` whose world count (``counts``) is still
     below ``minimum``, at or after its forcing point, and with no calibrated alternative here, gets one (a keyed draw
-    among its alternatives). Pure; the caller updates ``counts``."""
+    among its alternatives). Pure; the caller updates ``counts``."""  # noqa: E501 - docstring/prose line kept verbatim
     out = list(calibrated)
     if minimum <= 0:
         return out
@@ -397,7 +420,7 @@ def ensure_kind_coverage(
 def calibration_coverage(worlds: list[dict[str, Any]]) -> dict[str, Any]:
     """Calibration branches per alternative kind, and per kind and objective the branches whose horizon return on that
     objective is non-zero (a zero return cannot calibrate its head). The full kind x objective x population-band check
-    on the written shards is branch_bias.coverage."""
+    on the written shards is branch_bias.coverage."""  # noqa: E501 - docstring/prose line kept verbatim
     branches = {name: 0 for name in KINDS}
     by_objective = {name: {o: 0 for o in contracts.OBJECTIVES} for name in KINDS}
     for world in worlds:
@@ -426,7 +449,7 @@ def alternatives(
 ) -> list[dict[str, Any]]:
     """The alternatives searched for one village at a fork, the policy first. ``posture``: the trade posture probes
     perturb (base_posture; None takes the policy's own or the native one). ``trade_ok`` False (trade_active) skips
-    the trade probes."""
+    the trade probes."""  # noqa: E501 - docstring/prose line kept verbatim
     obs = village["observation"]
     out = [{"kind": POLICY, "slot": -1, "mix": None}]
     if config.native:
@@ -489,7 +512,8 @@ def override(
     elif alt["kind"] == FISSION:  # every turn of the horizon
         action["fission"] = int(alt["fission"])
     elif alt["kind"] == TRADE:
-        # Always a full posture (every group's value and gate): ElderTrade.From fills an absent vector with the native
+        # Always a full posture (every group's value and gate): ElderTrade.From fills an absent
+        # vector with the native
         # values or gates, so a partial posture would silently mix the probe with native trade.
         posture = alt["trade"]
         action["tradeValue"] = [float(x) for x in posture["value"]]
@@ -501,7 +525,7 @@ def override(
 
 def inherit(personalities: dict[int, Any] | None, villages: list[dict[str, Any]]) -> None:
     """Daughters founded in a branch take their parent's personality exactly, so every branch of a fork scores under
-    the same personalities (training adds drift; search keeps branches paired)."""
+    the same personalities (training adds drift; search keeps branches paired)."""  # noqa: E501 - docstring/prose line kept verbatim
     if personalities is None:
         return
     for v in villages:
@@ -511,7 +535,7 @@ def inherit(personalities: dict[int, Any] | None, villages: list[dict[str, Any]]
 
 
 def note_founded(founded: dict[int, int] | None, step: dict[str, Any]) -> None:
-    """Each settlement's founding turn: the turn of the step it first appears in (its first decision turn)."""
+    """Each settlement's founding turn: the turn of the step it first appears in (its first decision turn)."""  # noqa: E501 - docstring/prose line kept verbatim
     if founded is not None:
         for v in step["villages"]:
             founded.setdefault(int(v["camp"]), int(step["turn"]))
@@ -535,7 +559,7 @@ def policy_tail(
     """``turns`` more turns of pure policy after a branch's horizon. Rows: every lineage settlement's tail decision
     (observation at the decision, outcome after it, the personality it acted at, its founding turn), plus each living
     settlement's observation after the last tail turn as its bootstrap. Daughters founded in the tail join the
-    lineage (they appear as rows from their first decision)."""
+    lineage (they appear as rows from their first decision)."""  # noqa: E501 - docstring/prose line kept verbatim
     rows: list[dict[str, Any]] = []
     final_turn = None
     for _ in range(turns):
@@ -609,7 +633,7 @@ def branch(
     """Roll one alternative out from the fork: its lineage's discounted return per objective (and the critic's
     per-objective bootstrap, added when ``use_bootstrap``), the whole world's discounted welfare (to tell a lineage
     gain that only takes from neighbours), and the heuristic's mix on a native branch. ``tail`` > 0 then plays that
-    many turns of pure policy and returns them as ``tail`` (policy_tail; never part of the score)."""
+    many turns of pure policy and returns them as ``tail`` (policy_tail; never part of the score)."""  # noqa: E501 - docstring/prose line kept verbatim
     step = bridge.restore(fork)
     personalities = None if personalities is None else dict(personalities)
     founded = dict(founded or {})
@@ -678,7 +702,7 @@ def choose_villages(
     """The villages searched at a decision point: a uniform draw of ``count``, except that with ``daughter_search``
     and a young daughter present, one is a uniformly drawn young daughter and the rest a uniform draw of the others.
     Young: parentSociety > 0 and first seen at most YOUNG_TURNS turns ago, or a ``known`` (bank) daughter camp.
-    Without a young daughter the draw is the uniform one, so earlier searches reproduce."""
+    Without a young daughter the draw is the uniform one, so earlier searches reproduce."""  # noqa: E501 - docstring/prose line kept verbatim
     young = [
         i
         for i, v in enumerate(live)
@@ -707,7 +731,7 @@ def search_world(
     world_contract=None,
 ) -> dict[str, Any]:
     """One world's main path with the policy, searching at sampled decision points. ``bank`` and ``entry``: start from
-    that daughter-bank snapshot instead of ``seed``'s opening (its daughter counts as young for selection)."""
+    that daughter-bank snapshot instead of ``seed``'s opening (its daughter counts as young for selection)."""  # noqa: E501 - docstring/prose line kept verbatim
     torch.set_num_threads(1)
     actor, normalizer = load(Path(checkpoint))
     critic = load_critic(Path(checkpoint))
@@ -792,7 +816,8 @@ def search_world(
                 first_seen.setdefault(int(v["camp"]), turn)
             assign(step["villages"])
             if turn in turns:
-                # The heuristic's trade labels on the main-path step whose observation the fork restores (a restored
+                # The heuristic's trade labels on the main-path step whose observation the fork
+                # restores (a restored
                 # step carries none).
                 teachers = {int(v["camp"]): v.get("teacher") for v in step["villages"]}
                 fork, decision = bridge.fork()
@@ -936,7 +961,7 @@ def label_arrays(
 
     Round 3 provenance (provenance.py): every row also carries its world (seed, withheld, warmup), the source
     checkpoint hash and code commit (``source``, provenance.source; absent: unknown), the provenance version, and each
-    alternative's calibration flag (alt_calibration). The turn, kinds and personality are already per row."""
+    alternative's calibration flag (alt_calibration). The turn, kinds and personality are already per row."""  # noqa: E501 - docstring/prose line kept verbatim
     from .provenance import UNKNOWN
 
     source = source or {}
@@ -1010,7 +1035,8 @@ def label_arrays(
             extra["label_mix"].append(
                 np.full(3, np.nan) if mix is None else np.asarray(mix, dtype=np.float64)
             )
-            # Fission and trade labels: the winning probe's code, or its full posture and the mask of what it changed.
+            # Fission and trade labels: the winning probe's code, or its full posture and the mask
+            # of what it changed.
             extra["label_fission"].append(int(alt["fission"]) if alt["kind"] == FISSION else -1)
             trade = alt.get("trade") if alt["kind"] == TRADE else None
             extra["label_trade_value"].append(
@@ -1033,7 +1059,8 @@ def label_arrays(
             extra["alt_return"].append([r["return"] for r in row["results"]] + [np.nan] * pad)
             extra["alt_bootstrap"].append([r["bootstrap"] for r in row["results"]] + [np.nan] * pad)
             extra["alt_world"].append([r["world"] for r in row["results"]] + [np.nan] * pad)
-            # The value vector of every alternative, so labels can be rescored for any personality later.
+            # The value vector of every alternative, so labels can be rescored for any personality
+            # later.
             extra["personality"].append(p.astype(np.float32))
             extra["alt_returns"].append(np.vstack([returns, np.full((pad, width), np.nan)]))
             extra["alt_bootstraps"].append(
@@ -1091,7 +1118,7 @@ def write_branch_shards(
 ) -> dict[str, Any]:
     """Every branch's policy tail as one critic shard (branch_shards.write), keyed by (seed, decision point,
     alternative); returns shard and row counts per alternative kind. ``source`` (provenance.source) is recorded in
-    every shard's meta with the searched village's personality."""
+    every shard's meta with the searched village's personality."""  # noqa: E501 - docstring/prose line kept verbatim
     from . import branch_shards
 
     counts = {name: 0 for name in KINDS}
@@ -1145,7 +1172,7 @@ def label_gain(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Each label row's gain over the policy and whether it clears its margin. Version-2 rows: score_best -
     score_policy in reference spreads against ``margin``, and only while the label is the version-2 argmax. Version-1
-    rows that could not be rescored: the relative score gain against ``legacy_margin``."""
+    rows that could not be rescored: the relative score gain against ``legacy_margin``."""  # noqa: E501 - docstring/prose line kept verbatim
     n = len(labels["score_best"])
     version = np.asarray(labels.get("utility_version", np.ones(n)))
     absolute = labels["score_best"] - labels["score_policy"]
@@ -1159,7 +1186,7 @@ def label_gain(
 
 def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
     """How often and by how much search beats the policy, by winning kind. Version-2 gains are in reference spreads
-    (U_p units), and ``margin`` is in the same units."""
+    (U_p units), and ``margin`` is in the same units."""  # noqa: E501 - docstring/prose line kept verbatim
     if not labels:
         return {"rows": 0}
     labels = rescore(labels)
@@ -1177,16 +1204,19 @@ def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
         out[f"wins_{name}"] = int(sel.sum())
 
     # Per alternative kind: mean relative score against the policy (paired).
-    # Per alternative kind: mean relative score against the policy (paired), and the same for the horizon return alone
+    # Per alternative kind: mean relative score against the policy (paired), and the same for the
+    # horizon return alone
     # (no critic bootstrap), so a gain the critic invents shows as a gap between the two.
     def relative(key: str) -> np.ndarray:
         base = labels[key][:, :1]
         return (labels[key] - base) / np.maximum(1e-9, np.abs(base))
 
-    # alt_score is already a difference from the policy in U_p units (version 2); alt_return stays relative.
+    # alt_score is already a difference from the policy in U_p units (version 2); alt_return stays
+    # relative.
     rel, ret = labels["alt_score"] - labels["alt_score"][:, :1], relative("alt_return")
     if "alt_world" in labels:
-        # The winners' effect on the whole world: a lineage gain with a world loss takes from neighbours.
+        # The winners' effect on the whole world: a lineage gain with a world loss takes from
+        # neighbours.
         best = np.nanargmax(np.where(labels["alt_kind"] >= 0, labels["alt_score"], -np.inf), axis=1)
         world = labels["alt_world"]
         world_gain = (world[np.arange(len(best)), best] - world[:, 0]) / np.maximum(
@@ -1225,14 +1255,16 @@ def main() -> int:
         "--bank-worlds",
         type=int,
         default=0,
-        help="also search this many training entries of --daughter-bank (newest first), from their snapshots",
+        help="also search this many training entries of --daughter-bank (newest first), from "
+        "their snapshots",
     )
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument(
         "--margin",
         type=float,
         default=0.004,
-        help="U_p gain a label must clear, in reference spreads (a fraction of s_welfare_ref for the "
+        help="U_p gain a label must clear, in reference spreads (a fraction of s_welfare_ref "
+        "for the "
         "welfare personality; summary only)",
     )
     parser.add_argument("--out", type=Path, required=True)

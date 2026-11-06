@@ -180,7 +180,8 @@ def test_mix_log_prob_is_a_density_on_the_simplex() -> None:
     logits = torch.tensor([[0.3, -0.2, 0.1]])
     log_std = torch.full((1, 3), -0.5)
     mask = torch.ones(1, 3, dtype=torch.bool)
-    # Monte Carlo: sampling log-ratios and mapping them to the simplex reproduces the density's normalisation.
+    # Monte Carlo: sampling log-ratios and mapping them to the simplex reproduces the density's
+    # normalisation.
     grid = torch.linspace(0.005, 0.995, 200)
     a, b2 = torch.meshgrid(grid, grid, indexing="ij")
     keep = (a + b2) < 0.995

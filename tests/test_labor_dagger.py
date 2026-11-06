@@ -33,7 +33,8 @@ def test_start_turns_are_keyed_stratified_and_in_range() -> None:
 
 
 def test_source_world_weights_give_equal_source_then_world_mass() -> None:
-    # Source 0: worlds 1 (4 rows) and 2 (2 rows); source 1: worlds 1 (1 row), 3 (3 rows), one quarantined.
+    # Source 0: worlds 1 (4 rows) and 2 (2 rows); source 1: worlds 1 (1 row), 3 (3 rows), one
+    # quarantined.
     sources = torch.tensor([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
     worlds = torch.tensor([1, 1, 1, 1, 2, 2, 1, 3, 3, 3, 3])
     keep = torch.tensor([True] * 10 + [False])
@@ -165,7 +166,7 @@ def bounded_normalizer():
 
 
 def test_live_dagger_round_feeds_aggregated_bc(tmp_path, bounded_normalizer) -> None:
-    """Teacher data, one learner-state round, aggregated pretrain-bc; critic refuses actor-only data."""
+    """Teacher data, one learner-state round, aggregated pretrain-bc; critic refuses actor-only data."""  # noqa: E501 - docstring/prose line kept verbatim
     from anthropocene_rl.autonomous_v7 import labor_dagger
     from anthropocene_rl.autonomous_v7.labor_model import BOUNDED_FEATURE_CONTRACT
     from anthropocene_rl.autonomous_v7.labor_training import main as labor_training_main

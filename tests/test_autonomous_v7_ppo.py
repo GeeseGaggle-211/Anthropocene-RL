@@ -256,7 +256,8 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     assert torch.equal(w[:, :-pooled], state9["actor"]["encoder.trunk.0.weight"]) and torch.all(
         w[:, -pooled:] == 0
     )
-    # Region rows, present or absent, change nothing an upgraded policy outputs; its region argmax is native.
+    # Region rows, present or absent, change nothing an upgraded policy outputs; its region argmax
+    # is native.
     t = to_tensors(b, Normalizer.from_state(up["normalizer"]))
     absent = dict(t)
     absent["regions_present"] = torch.zeros_like(t["regions_present"])
@@ -281,7 +282,8 @@ def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
     assert torch.all(a["mix_offset"] == 0) and torch.all(
         a["region"].argmax(dim=1) == contracts.REGION_NATIVE
     )
-    # The trade heads start at the native posture: values 1, every gate Make, export share 0 (the shipped share).
+    # The trade heads start at the native posture: values 1, every gate Make, export share 0 (the
+    # shipped share).
     from anthropocene_rl.autonomous_v7.model import act_deterministic
 
     mode = act_deterministic(a)
@@ -457,7 +459,8 @@ def test_film_is_exact_at_init_inert_at_default_and_conditions_otherwise() -> No
 def test_grouped_region_slot_moves_when_moving_is_the_likelier_decision() -> None:
     from anthropocene_rl.autonomous_v7.model import grouped_region_slot
 
-    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: argmax is native, the grouped choice moves to the best row.
+    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: argmax is native, the grouped choice
+    # moves to the best row.
     p = torch.tensor([[0.30, 0.0, 0.05, 0.15, 0.10, 0.10, 0.10, 0.10, 0.05, 0.05]])
     logits = torch.log(p.clamp(min=1e-9))
     assert int(logits.argmax(dim=1)) == 0 and int(grouped_region_slot(logits)) == 3
@@ -647,7 +650,8 @@ def test_learned_movement_draws_recompute_their_log_probability_with_the_conditi
         draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(9))
         lp1, entropy = ppo.log_prob(out, t, draw, stage)
         lp2, _ = ppo.log_prob(actor(t), t, draw, stage)
-        # The mix density depends on the drawn slot: scoring the same draw under another slot changes it.
+        # The mix density depends on the drawn slot: scoring the same draw under another slot
+        # changes it.
         other = dict(draw)
         other["region"] = (draw["region"] + 1) % contracts.REGION_MOVEMENT_SLOTS
         lp3, _ = ppo.log_prob(out, t, other, stage)
@@ -859,7 +863,8 @@ def test_span_labels_follow_the_heuristics_own_persistence() -> None:
     }
     d = span_labels.derive(b, 0.05)
     spans = [contracts.SPANS[i] for i in d["span_label"]]
-    # Turns 0-3 repeat: a 4-turn commitment then three holds; turns 4-6 repeat the new budget: a 3-turn commitment.
+    # Turns 0-3 repeat: a 4-turn commitment then three holds; turns 4-6 repeat the new budget: a
+    # 3-turn commitment.
     assert spans == [4, 0, 0, 0, 3, 0, 0]
     assert d["commit_hold_mask"].tolist() == [False, True, True, True, False, True, True]
     assert d["commitment_features"][1, :3].tolist() == [1.0, 3.0, 1.0]

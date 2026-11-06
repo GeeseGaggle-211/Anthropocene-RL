@@ -3,7 +3,7 @@
 For each final small settlement: founding turn (age at the end), lineage, population / nutrition / QoL path and the
 service levels the policy requested. Distinguishes young daughters (exempt from the guard), starving camps and
 camps that stay small while fully fed (possible throttling).
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 

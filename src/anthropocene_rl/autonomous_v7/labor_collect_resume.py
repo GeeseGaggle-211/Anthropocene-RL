@@ -225,7 +225,8 @@ class ResumePoint:
         actual = step_digest(step)
         if actual != replay["step_digest"]:
             raise ContinuationMismatch(
-                f"world {self.state['world_seed']} checkpoint {self.boundary}: replayed boundary digest "
+                f"world {self.state['world_seed']} checkpoint {self.boundary}: replayed "
+                "boundary digest "
                 f"{actual} != recorded {replay['step_digest']}"
             )
         return step

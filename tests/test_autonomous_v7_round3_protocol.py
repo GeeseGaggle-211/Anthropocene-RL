@@ -1,4 +1,4 @@
-"""Adversarial qualification-contract tests; fixture sources are synthetic, never production data."""
+"""Adversarial qualification-contract tests; fixture sources are synthetic, never production data."""  # noqa: E501 - docstring/prose line kept verbatim
 
 import copy
 import json
@@ -1115,7 +1115,8 @@ def test_search_bindings_accept_actual_qualified_labels_and_complete_branch_meta
         np.savez_compressed(labels, **st.label_arrays(worlds, source))
         branches = directory / "branch_shards"
         st.write_branch_shards(worlds, branches, source)
-        # These are real writer outputs that also pass strict source/payload loaders, not arbitrary hashed shells.
+        # These are real writer outputs that also pass strict source/payload loaders, not arbitrary
+        # hashed shells.
         ppo.load_search_labels([labels], 0.0, provenance="reject", calibration_manifest=held)
         branch_shards.load([branches], "reject", calibration_manifest=held)
         evidence[role] = {
@@ -1181,7 +1182,8 @@ def test_real_search_summary_normalizes_manifest_before_binding_config(tmp_path,
             validate_search_producer(source, summary, cohort, tmp_path)
     else:
         validate_search_producer(source, summary, cohort, tmp_path)
-        # Newly published summaries use the canonical embedded form; both vintages resolve identically.
+        # Newly published summaries use the canonical embedded form; both vintages resolve
+        # identically.
         validate_search_producer(
             source, {"config": dict(config, calibration_manifest=held)}, cohort, tmp_path
         )
@@ -1628,8 +1630,10 @@ def formal_fixture(tmp_path, monkeypatch):
                         json_ref(directory / f"{form}-{mode}.json", report)
                     )
     spec["qualification"] = json_ref(tmp_path / "qualified.json", qualified)
-    # Synthetic statistical/cohort fixtures are not production-qualified. Isolate only upstream semantic gates;
-    # full 15-run configurations, completion artifacts, hashes and membership are checked by real report code.
+    # Synthetic statistical/cohort fixtures are not production-qualified. Isolate only upstream
+    # semantic gates;
+    # full 15-run configurations, completion artifacts, hashes and membership are checked by real
+    # report code.
     from anthropocene_rl.autonomous_v7 import qualification
 
     monkeypatch.setattr(
@@ -1716,7 +1720,8 @@ def test_formal_report_rejects_self_consistent_run_outside_one_qualified_cohort(
         else:
             run["code"] = "f" * 40
         torch.save(state, path)
-    # Rebuild each run's own completion and sweep hashes so only the global qualification binding rejects it.
+    # Rebuild each run's own completion and sweep hashes so only the global qualification binding
+    # rejects it.
     latest = torch.load(directory / "latest.pt", weights_only=False)
     done_ref = json_ref(
         directory / "completion.json", completion.build(directory, latest["run_manifest"])

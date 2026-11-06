@@ -5,7 +5,7 @@
 Each held-out world runs twice from the same opening: the native heuristic for every village (teacher) and the
 cloned policy for every village. Stages 1-3 keep movement and fission native. Welfare is realized population x
 QoL x years summed over every settlement (lineage welfare summed over lineages), zero after extinction.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -215,7 +215,7 @@ def load(
     The compatibility loader remains available to existing callers.  ``strict`` is a separate diagnostic surface:
     it uses the weights-only deserializer, requires the current raw contract, and receives every constructor and
     decoder default from a content-bound resolution record.  It never calls :func:`upgrade`.
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
     if (
         strict
         and isinstance(diagnostic_loading, dict)
@@ -281,10 +281,13 @@ def load(
 
     restore_actor(actor, state, region_head)
     actor.eval()
-    # Contract 9: a policy trained without commitments decides every turn at evaluation too, whatever span head it
-    # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results reproduce.
+    # Contract 9: a policy trained without commitments decides every turn at evaluation too,
+    # whatever span head it
+    # inherited. Checkpoints saved before the flag existed keep the span argmax, so recorded results
+    # reproduce.
     actor.commitments = bool(state.get("commitments", True))
-    # Contract 10: a policy trained with learned movement moves over region rows; others keep the contract-8 pointer.
+    # Contract 10: a policy trained with learned movement moves over region rows; others keep the
+    # contract-8 pointer.
     actor.region_movement = bool(state.get("region_movement", False))
     actor.learned_fission = bool(state.get("learned_fission", False))
     actor.learned_trade = bool(state.get("learned_trade", False))
@@ -308,7 +311,7 @@ def policy_actions(
 ) -> dict[int, dict[str, Any]]:
     """Deterministic actions; movement stays native unless ``movement`` (curriculum stage 4). ``mixes`` receives each
     village's economy mix. ``personality``: one vector for every village (a sweep point), or a map from society id to
-    vector (societies not in it take the default)."""
+    vector (societies not in it take the default)."""  # noqa: E501 - docstring/prose line kept verbatim
     live = [v for v in villages if v.get("observation") is not None and not v.get("terminated")]
     if not live:
         return {}
@@ -478,7 +481,7 @@ def policy_actions_stochastic(
 
 def specialist_share(villages: list[dict[str, Any]]) -> float:
     """Population-weighted mean of the bridge's per-village ``specialistShare`` (0-1: goods output per resident;
-    herding, farming and fishing count as food, not specialist work). 0 for bridges built before the field existed."""
+    herding, farming and fishing count as food, not specialist work). 0 for bridges built before the field existed."""  # noqa: E501 - docstring/prose line kept verbatim
     people = sum(v["population"] for v in villages)
     return float(
         sum(float(v.get("specialistShare", 0.0)) * v["population"] for v in villages)
@@ -576,7 +579,7 @@ def rollout(
     ``focal`` (with ``personality``): only alternate founding lineages (and their daughters) take ``personality``; the
     others draw Dirichlet(1) personalities, as in training. The focal lineages' outcomes are reported separately.
     ``warmup``: the heuristic plays that many turns first (selected fixture states, e.g. valley fixtures); they count
-    toward neither welfare nor decisions."""
+    toward neither welfare nor decisions."""  # noqa: E501 - docstring/prose line kept verbatim
     torch.set_num_threads(1)
     actor = normalizer = None
     if action_mode not in {"deterministic", "seeded-stochastic"}:
@@ -947,25 +950,30 @@ def rollout(
         "clothing": sum(v["clothing"] * v["population"] for v in final) / weight,
         "housing": sum(v["housing"] * v["population"] for v in final) / weight,
         "qol": sum(v["qol"] * v["population"] for v in final) / weight,
-        # Round 3: the population-weighted share of goods (specialist) output per resident in final villages.
+        # Round 3: the population-weighted share of goods (specialist) output per resident in final
+        # villages.
         "specialist_share": specialist_share(final),
         "hungry_share": hungry / max(1, camp_turns),
         "extinctions": sum(1 for v in step["villages"] if v["terminated"]),
         "below_30": sum(1 for v in final if v["population"] < 30),
         "interventions_per_decision": interventions / max(1, decisions),
         "replay_steps": replay,
-        # Turn-to-turn total-variation change of each village's economy mix, and the share of abrupt switches.
+        # Turn-to-turn total-variation change of each village's economy mix, and the share of abrupt
+        # switches.
         "mix_change": float(np.mean(changes)) if changes else 0.0,
         "mix_switches": float(np.mean([c > 0.5 for c in changes])) if changes else 0.0,
         # Contract 9: share of decisions holding (0), deciding one turn (1) or committing (2-6).
         "hold_share": spans.get(0, 0) / max(1, sum(spans.values())),
         "commit_share": sum(v for k, v in spans.items() if k >= 2) / max(1, sum(spans.values())),
-        # Contract 10: share of decisions that chose a region row other than the current tile, or kept an intent.
+        # Contract 10: share of decisions that chose a region row other than the current tile, or
+        # kept an intent.
         "region_move_share": moves / max(1, sum(spans.values())),
-        # Learned fission: share of decisions setting Discourage (1) and Encourage (2); -1 is native.
+        # Learned fission: share of decisions setting Discourage (1) and Encourage (2); -1 is
+        # native.
         "fission_discourage_share": policies.get(1, 0) / max(1, sum(policies.values())),
         "fission_encourage_share": policies.get(2, 0) / max(1, sum(policies.values())),
-        # Contract 11: realised trade utility summed over villages and turns, and village-turns that traded.
+        # Contract 11: realised trade utility summed over villages and turns, and village-turns that
+        # traded.
         "trade_utility": trade_utility,
         "trades": trades,
         "snapshot_sha256": world_contract["snapshot_sha256"],

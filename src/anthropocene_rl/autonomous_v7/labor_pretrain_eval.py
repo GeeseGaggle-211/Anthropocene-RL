@@ -633,7 +633,8 @@ def summarize_actor(report: Mapping[str, Any]) -> str:
         f"  specialty L1={_fmt(o['specialty_l1'])} activity L1={_fmt(o['activity_l1'])} "
         f"resident |residual|/camp={_fmt(o['resident_abs_residual_per_camp'], 2)}",
         f"  movement acc={_fmt(o['movement']['accuracy'])} (n={o['movement']['rows']}) "
-        f"fission acc={_fmt(o['fission']['accuracy'])} trade-gate acc={_fmt(o['trade_gate']['accuracy'])}",
+        f"fission acc={_fmt(o['fission']['accuracy'])} trade-gate "
+        f"acc={_fmt(o['trade_gate']['accuracy'])}",
     ]
     for name, s in o["per_specialty"].items():
         lines.append(
@@ -648,7 +649,8 @@ def summarize_actor(report: Mapping[str, Any]) -> str:
     for group in ("by_population_bin", "by_turn_third"):
         for name, s in report[group].items():
             lines.append(
-                f"  [{name}] rows={s['rows']} spec L1={_fmt(s['specialty_l1'])} act L1={_fmt(s['activity_l1'])} "
+                f"  [{name}] rows={s['rows']} spec L1={_fmt(s['specialty_l1'])} act "
+                f"L1={_fmt(s['activity_l1'])} "
                 f"move={_fmt(s['movement']['accuracy'])} fission={_fmt(s['fission']['accuracy'])} "
                 f"gate={_fmt(s['trade_gate']['accuracy'])}"
             )
@@ -2502,8 +2504,11 @@ def run_critic_calibration(
         ),
         "discount_tau_years": CRITIC_DISCOUNT_YEARS,
         "gates": CRITIC_GATES,
-        "gate_semantics": "PASS all gates; FAIL any metric gate; HOLD metrics pass but coverage insufficient",
-        "weighting": "nMAE/bias world-balanced; ranking pooled over informative pairs (world-balanced also shown)",
+        "gate_semantics": "PASS all gates; FAIL any metric gate; HOLD metrics pass but coverage "
+        "insufficient",
+        "weighting": "nMAE/bias world-balanced; ranking pooled over informative pairs "
+        "(world-balanced "
+        "also shown)",
         "calibration": calibration,
         "verdict": {name: strata["all"]["gate"] for name, strata in calibration["heads"].items()},
         # QoL gate v2 (user 28 Oct): target definition and unit of the qol_nstep sections.
@@ -2616,7 +2621,8 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                     else ""
                 )
                 lines.append(
-                    f"  {name:<17} {stratum:<16} {m['gate']:<4} nMAE={_fmt(m['nmae'])} bias={_fmt(m['bias'])} "
+                    f"  {name:<17} {stratum:<16} {m['gate']:<4} nMAE={_fmt(m['nmae'])} "
+                    f"bias={_fmt(m['bias'])} "
                     f"rank={_fmt(rank['accuracy'])} pairs={rank['informative_pairs']} "
                     f"groups={rank['informative_groups']} worlds={m['worlds']}{extra}"
                 )
@@ -2629,7 +2635,8 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
                 lines.append(
                     f"  support [{s['low']:g},{s['high']:g}]x{s['bins']} {name:<17} "
                     f"y=[{_fmt(h['observed_symlog_min'])},{_fmt(h['observed_symlog_max'])}] "
-                    f"clip<={_fmt(h['clip_below_fraction'], 4)} clip>={_fmt(h['clip_above_fraction'], 4)} "
+                    f"clip<={_fmt(h['clip_below_fraction'], 4)} "
+                    f"clip>={_fmt(h['clip_above_fraction'], 4)} "
                     f"mass>max={_fmt(h['upper_mass'], 4)} top-bin={_fmt(h['top_bin_mass'], 5)} "
                     f"decoded>max={_fmt(h['upper_contribution'])} excess={_fmt(h['upper_excess'])}"
                 )
@@ -2696,7 +2703,8 @@ def summarize_critic(report: Mapping[str, Any]) -> str:
             )
     for name, gap in (report.get("generalisation_gap") or {}).items():
         lines.append(
-            f"  gap {name:<17} nMAE={_fmt(gap['nmae_cal_minus_fit'])} bias={_fmt(gap['bias_cal_minus_fit'])} "
+            f"  gap {name:<17} nMAE={_fmt(gap['nmae_cal_minus_fit'])} "
+            f"bias={_fmt(gap['bias_cal_minus_fit'])} "
             f"rank={_fmt(gap['ranking_cal_minus_fit'])}"
         )
     return "\n".join(lines)
@@ -3805,14 +3813,26 @@ def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
             "policy_seed": int(args.policy_seed),
             "gates": dict(AUTONOMOUS_GATES, gated_metrics=list(GATED_AUTONOMOUS_METRICS)),
             "definitions": {
-                "welfare": "sum over settlements and turns of native village welfare (prior residents x QoL x years)",
+                "welfare": "sum over settlements and turns of native village welfare (prior "
+                "residents "
+                "x QoL x years)",
                 "person_years": "sum over living settlements of prior residents x years",
                 "qol": "welfare / person_years",
-                "starvation_extinction": f"newly terminated settlement whose terminal or preceding nutrition < {STARVATION_NUTRITION}",
-                "farmer_share_actor": "accepted Farmer residents (native apportionment) / acting residents",
-                "farmer_share_heuristic": "ceil(assignedFarmerYears / years) / acting residents (economic diagnostics)",
-                "coverage": "resident-weighted housing/clothing coverage of living settlements after the turn",
-                "baseline": "native heuristic stepped with empty actions from the actor-labor reset snapshot",
+                "starvation_extinction": "newly terminated settlement whose terminal or preceding "
+                "nutrition "
+                "< "
+                f"{STARVATION_NUTRITION}",
+                "farmer_share_actor": "accepted Farmer residents (native apportionment) / acting "
+                "residents",
+                "farmer_share_heuristic": "ceil(assignedFarmerYears / years) / acting residents "
+                "(economic "
+                "diagnostics)",
+                "coverage": "resident-weighted housing/clothing coverage of living settlements "
+                "after "
+                "the turn",
+                "baseline": "native heuristic stepped with empty actions from the actor-labor "
+                "reset "
+                "snapshot",
             },
             "wall_seconds": time.perf_counter() - started,
             "runs": results,
@@ -3833,12 +3853,14 @@ def _mode_tag(mode: str) -> str:
 
 def summarize_autonomous(report: Mapping[str, Any]) -> str:
     lines = [
-        f"autonomous worlds={len(report['worlds'])} turns={report['turns']} modes={','.join(report['modes'])}"
+        f"autonomous worlds={len(report['worlds'])} turns={report['turns']} "
+        f"modes={','.join(report['modes'])}"
     ]
     for mode, agg in report["aggregate"].items():
         r = agg["ratios"]
         lines.append(
-            f"  {mode:<13} {agg['gate']} welfare={_fmt(r['welfare'])} person-years={_fmt(r['person_years'])} "
+            f"  {mode:<13} {agg['gate']} welfare={_fmt(r['welfare'])} "
+            f"person-years={_fmt(r['person_years'])} "
             f"qol={_fmt(r['qol'])} starvation actor/heur={agg['actor']['starvation_extinctions']}/"
             f"{agg['heuristic']['starvation_extinctions']}"
         )
@@ -4622,15 +4644,45 @@ def run_divergence(args: argparse.Namespace) -> dict[str, Any]:
                 "sustain_turns": DIVERGENCE_SUSTAIN,
             },
             "definitions": {
-                "turn": "1-based decision index; the actor decides, H12's label on the same state is computed but never executed",
-                "specialty": "L1 between actor (accepted residents / P) and H12 (counts / P) specialty share vectors; only camps whose H12 specialty label is valid. per_specialty.signed_diff = actor - H12 share",
-                "activity": "per H12-staffed role with a valid H12 activity label: L1 between actor requested and H12 activity share rows, and argmax-activity mismatch; skipped when the actor's final labor request was rejected (labor_rejected_rate)",
-                "role_activity_signed_diff": "mean (actor - H12) activity share within the role, Role/activity keys",
-                "resident_time": "fraction of the camp's residents-time on each activity (idle included), actor vs H12, camps whose staffed H12 roles are all valid; resident_time_groups sums housing/clothing/field/herd/gathering/idle activities",
-                "movement/fission/trade_gate": "disagreement = 1 - agreement of the actor's initial schema-12 head vs the H12 label where its *_valid flag holds (trade gate per valid group)",
-                "heads[*].first_turn": "first turn after the baseline window whose pooled disagreement exceeds factor x max(baseline mean over baseline turns, floor); first_sustained_turn needs sustain consecutive turns",
-                "context": "housing/clothing coverage are resident-weighted on the actor's pre-action state; actor_turn_world_mean (keyed by decision index, record.turn is the native clock) is the panel-style post-turn record",
-                "pooling": "top-level blocks pool camp decisions across worlds; per_world holds each world's own copy; world_balanced_window_heads averages per-world window values",
+                "turn": "1-based decision index; the actor decides, H12's label on the same state "
+                "is computed but never executed",
+                "specialty": "L1 between actor (accepted residents / P) and H12 (counts / P) "
+                "specialty "
+                "share vectors; only camps whose H12 specialty label is valid. "
+                "per_specialty.signed_diff = actor - H12 share",
+                "activity": "per H12-staffed role with a valid H12 activity label: L1 between "
+                "actor "
+                "requested and H12 activity share rows, and argmax-activity mismatch; "
+                "skipped when the actor's final labor request was rejected "
+                "(labor_rejected_rate)",
+                "role_activity_signed_diff": "mean (actor - H12) activity share within the role, "
+                "Role/activity "
+                "keys",
+                "resident_time": "fraction of the camp's residents-time on each activity (idle "
+                "included), "
+                "actor vs H12, camps whose staffed H12 roles are all valid; "
+                "resident_time_groups sums housing/clothing/field/herd/gathering/idle "
+                "activities",
+                "movement/fission/trade_gate": (
+                    "disagreement = 1 - agreement of the actor's initial "
+                    "schema-12 "
+                    "head vs "
+                    "the "
+                    "H12 label where its *_valid flag holds (trade gate per valid group)"
+                ),
+                "heads[*].first_turn": "first turn after the baseline window whose pooled "
+                "disagreement "
+                "exceeds "
+                "factor x max(baseline mean over baseline turns, floor); "
+                "first_sustained_turn needs sustain consecutive turns",
+                "context": "housing/clothing coverage are resident-weighted on the actor's "
+                "pre-action "
+                "state; actor_turn_world_mean (keyed by decision index, record.turn is the "
+                "native clock) is the panel-style post-turn record",
+                "pooling": "top-level blocks pool camp decisions across worlds; per_world holds "
+                "each "
+                "world's own copy; world_balanced_window_heads averages per-world window "
+                "values",
             },
             "wall_seconds": time.perf_counter() - started,
         }

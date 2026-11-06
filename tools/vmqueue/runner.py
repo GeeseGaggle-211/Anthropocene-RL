@@ -72,7 +72,7 @@ def _strip_comment(val):
 
 
 class _Parser:
-    """Subset: comment lines, `key: scalar`, nested mappings, lists of scalars or mappings, `|` blocks."""
+    """Subset: comment lines, `key: scalar`, nested mappings, lists of scalars or mappings, `|` blocks."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, text):
         self.lines = []
@@ -187,7 +187,8 @@ def validate_job(data):
     name = str(data.get("name") or "")
     if not NAME_RE.match(name):
         problems.append(
-            "name must be 1-64 chars of letters, digits, '_', '-', '.' and start with a letter or digit"
+            "name must be 1-64 chars of letters, digits, '_', '-', '.' and start with a "
+            "letter or digit"
         )
     for f in ("rl_sha", "sim_sha"):
         v = str(data.get(f) or "")
@@ -485,7 +486,7 @@ class Runner:
     checkout(rl_sha, sim_sha, name, logfile) -> exit code (must create ~/code/<name>/PROVENANCE)
     execute(run, cwd, env, logfile, should_cancel, on_start) -> exit code; on_start(pgid) records the process
     system: boot_id(), start_time(pid), kill_group(pid); a live phase of the same boot is adopted, not relaunched
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(
         self, home=None, cap=None, checkout=None, execute=None, poll=5.0, log=None, system=None
@@ -522,7 +523,7 @@ class Runner:
         os.replace(str(f), str(bad / f.name))
 
     def candidates(self):
-        """Startable jobs sorted by priority: resumable ('running' after a restart) plus pending files."""
+        """Startable jobs sorted by priority: resumable ('running' after a restart) plus pending files."""  # noqa: E501 - docstring/prose line kept verbatim
         found = {}
         if self.paths.jobs.is_dir():
             for d in sorted(self.paths.jobs.iterdir()):
@@ -569,7 +570,8 @@ class Runner:
                     )
                     continue
                 if used + job["threads"] > cap:
-                    break  # strict priority order: smaller jobs never starve a larger, higher-priority one
+                    # strict priority order: smaller jobs never starve a larger, higher-priority one
+                    break
                 if src is not None:
                     write_json(self.paths.job_dir(name) / "job.json", job)
                     write_json(
@@ -623,14 +625,14 @@ class Runner:
             time.sleep(self.poll)
 
     def _adoptable(self, ps):
-        """True if this phase's recorded process is still alive in the same boot (runner-only restart)."""
+        """True if this phase's recorded process is still alive in the same boot (runner-only restart)."""  # noqa: E501 - docstring/prose line kept verbatim
         pid, st, boot = ps.get("pid"), ps.get("start_time"), ps.get("boot_id")
         if ps.get("state") != "running" or not pid or st is None or not boot:
             return False
         return boot == self.system.boot_id() and self.system.start_time(pid) == st
 
     def _wait_adopted(self, ps, cancelled):
-        """Poll an adopted process group until it exits; kill its group on cancel. Returns -15 or None."""
+        """Poll an adopted process group until it exits; kill its group on cancel. Returns -15 or None."""  # noqa: E501 - docstring/prose line kept verbatim
         pid, st = ps["pid"], ps["start_time"]
         while self.system.start_time(pid) == st:
             if cancelled():

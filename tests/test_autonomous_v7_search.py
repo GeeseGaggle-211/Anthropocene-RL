@@ -31,7 +31,8 @@ def test_alternatives_list_policy_native_legal_regions_and_distinct_vertices() -
     kinds = [a["kind"] for a in alts]
     assert kinds[0] == st.POLICY and kinds[1] == st.NATIVE
     assert [a["slot"] for a in alts if a["kind"] == st.REGION] == [3, 5]
-    # The cultivation vertex is the policy's own mix; only the herding vertex is new; fishing is illegal.
+    # The cultivation vertex is the policy's own mix; only the herding vertex is new; fishing is
+    # illegal.
     assert [a["mix"].tolist() for a in alts if a["kind"] == st.MIX] == [[0.0, 1.0, 0.0]]
     assert len(alts) <= st.MAX_ALTERNATIVES
 
@@ -57,7 +58,8 @@ def test_override_applies_only_the_alternative() -> None:
 
 
 def test_personality_scores_rank_alternatives_by_the_personalitys_own_objectives() -> None:
-    # Objectives: welfare, population_years, trade_utility, qol_years. Policy first; alt 1 adds people at lower QoL,
+    # Objectives: welfare, population_years, trade_utility, qol_years. Policy first; alt 1 adds
+    # people at lower QoL,
     # alt 2 raises QoL with fewer people.
     returns = np.array(
         [[100.0, 1000.0, 0.0, 16.0], [104.0, 1200.0, 0.0, 14.0], [99.0, 900.0, 0.0, 18.0]]

@@ -1,4 +1,4 @@
-"""Tests for tools/vmqueue (elderq + runner) using a temporary home and fake checkout/execute commands."""
+"""Tests for tools/vmqueue (elderq + runner) using a temporary home and fake checkout/execute commands."""  # noqa: E501 - docstring/prose line kept verbatim
 
 import importlib.machinery
 import importlib.util
@@ -142,7 +142,7 @@ def test_help_states_rules(capsys):
 
 # ------------------------------------------------------------ runner harness
 class Fake:
-    """Checkout creates PROVENANCE; execute interprets 'touch <rel>', 'fail', 'hold', 'nomark' commands."""
+    """Checkout creates PROVENANCE; execute interprets 'touch <rel>', 'fail', 'hold', 'nomark' commands."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, home):
         self.home = Path(home)
@@ -249,12 +249,14 @@ def test_priority_order_and_thread_cap(tmp_path):
         )
     r.tick()
     time.sleep(0.2)
-    # strict priority: high (6) starts; mid (5) does not fit with it (11 > 10) and low must not jump ahead.
+    # strict priority: high (6) starts; mid (5) does not fit with it (11 > 10) and low must not jump
+    # ahead.
     assert set(r.active) == {"high"}
     assert status(tmp_path, "high")["state"] == "running"
     assert not (tmp_path / "queue" / "jobs" / "mid").exists()
     fake.release.set()
-    # let held phases finish without a marker -> failures are fine; we only check ordering and the cap
+    # let held phases finish without a marker -> failures are fine; we only check ordering and the
+    # cap
     assert r.drain(10)
     assert fake.order[0] == "high" and sorted(fake.order[1:]) == [
         "low",
@@ -296,7 +298,8 @@ def test_skips_phases_with_done_markers(tmp_path):
 
 
 def test_resume_after_simulated_restart(tmp_path):
-    # First runner: phase one done, phase two "interrupted" (process dies mid-run, status left as running).
+    # First runner: phase one done, phase two "interrupted" (process dies mid-run, status left as
+    # running).
     fake = Fake(tmp_path)
     r1, _ = make(tmp_path, fake=fake)
     submit(tmp_path, good("res", phases=phases("one", "two", "three")))

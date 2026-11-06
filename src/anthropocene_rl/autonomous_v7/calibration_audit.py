@@ -111,7 +111,8 @@ def inventory(roots, checkpoint_sha, held, frozen):
         or worlds != expected
     ):
         raise ProvenanceError(
-            "calibration input subset/extra/duplicate differs from full frozen cohort/payload inventory"
+            "calibration input subset/extra/duplicate differs from full frozen "
+            "cohort/payload inventory"
         )
     return {
         "protocol_digest": held["protocol_digest"],
@@ -142,7 +143,8 @@ def claim(held, binding):
             json.dump(dict(binding, audit_key=key), stream, sort_keys=True)
     except FileExistsError as error:
         raise ProvenanceError(
-            "one-shot calibration already claimed for protocol/candidate; changing output or inputs is forbidden"
+            "one-shot calibration already claimed for protocol/candidate; changing output "
+            "or inputs is forbidden"
         ) from error
     path = root / (key + ".json")
     with path.open("x") as stream:

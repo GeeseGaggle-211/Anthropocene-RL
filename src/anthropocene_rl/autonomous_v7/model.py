@@ -3,7 +3,7 @@
 Actor and critic do not share parameters (the critic may later receive privileged inputs that must never reach
 the actor). Inputs are normalized as symlog(x) followed by a fixed TRAIN-fitted affine; missing rows are excluded
 from pooling, so missing and zero never look alike.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -23,8 +23,10 @@ MASKED = -30.0  # finite logit for actions the native mask rules out
 BINS = 255
 BIN_LOW, BIN_HIGH = -2.0, 9.0  # symlog(u): u in roughly [-6, 8100] welfare-years per resident
 
-# New-run-only normalization contract (IMPLEMENTATION_CONTRACT_RETRY_V1.md, Stage 1). Historical checkpoints do
-# not carry this identifier and continue through the original symlog/affine path below. In particular, the presence
+# New-run-only normalization contract (IMPLEMENTATION_CONTRACT_RETRY_V1.md, Stage 1). Historical
+# checkpoints do
+# not carry this identifier and continue through the original symlog/affine path below. In
+# particular, the presence
 # of the older ``guard`` field does not imply this contract.
 BOUNDED_FEATURE_CONTRACT = "model9-bounded-physical-history-v1"
 LEGACY_FEATURE_CONTRACT = "legacy-implicit-symlog-affine"
@@ -43,8 +45,10 @@ class PhysicalFeature:
     reference: float | None = None
 
 
-# Core 40:55 are the previous-decision wire block. Core 144 is the current movement-enabled flag. Fractions are
-# already in physical [0, 1] units; counts and durations use fixed declared scales rather than a fitted near-zero
+# Core 40:55 are the previous-decision wire block. Core 144 is the current movement-enabled flag.
+# Fractions are
+# already in physical [0, 1] units; counts and durations use fixed declared scales rather than a
+# fitted near-zero
 # variance. Names describe wire fields, not a causal interpretation of compiler corrections.
 PHYSICAL_CORE_FEATURES = (
     PhysicalFeature(40, "previous-decision-present", "bool"),
@@ -81,7 +85,7 @@ def normalization_corpus_sha256(batch: dict[str, np.ndarray]) -> str:
 
     This hashes typed shapes and bytes instead of accepting a caller's asserted corpus digest. Object arrays are
     rejected because their in-memory pointer representation is not a portable evidence format.
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
     digest = hashlib.sha256(b"model9-normalization-corpus-v1\0")
     for key in sorted(batch):
         value = batch[key]
@@ -113,7 +117,8 @@ def _physical_values(
         raise ValueError(f"{feature.name} must use a numeric, non-boolean array")
     if selected.size and not np.isfinite(selected).all():
         raise ValueError(f"{feature.name} contains a non-finite present value")
-    # Zero missing positions before any arithmetic: IEEE NaN * 0 is still NaN and must not poison fitting/inference.
+    # Zero missing positions before any arithmetic: IEEE NaN * 0 is still NaN and must not poison
+    # fitting/inference.
     numeric = np.where(mask, source, 0).astype(np.float64, copy=False)
     if feature.transform == "bool":
         if selected.size and not np.isin(selected, (0, 1)).all():
@@ -395,9 +400,12 @@ class Normalizer:
     set_std: dict[str, np.ndarray] = field(default_factory=dict)
     privileged_mean: np.ndarray | None = None
     privileged_std: np.ndarray | None = None
-    # Input guard (docs/MODEL9_TOKENS.md, "Cloning stability"): None keeps the original affine exactly. Otherwise
-    # inputs that were constant in the fitting data (``dead``: "core", set names, "privileged") are dropped, since the
-    # 1e-3 std floor would turn any other value into a |z| of hundreds through weights that never received a gradient,
+    # Input guard (docs/MODEL9_TOKENS.md, "Cloning stability"): None keeps the original affine
+    # exactly. Otherwise
+    # inputs that were constant in the fitting data (``dead``: "core", set names, "privileged") are
+    # dropped, since the
+    # 1e-3 std floor would turn any other value into a |z| of hundreds through weights that never
+    # received a gradient,
     # and every other normalized input is clipped to [-guard, guard].
     guard: float | None = None
     dead: dict[str, np.ndarray] = field(default_factory=dict)
@@ -450,7 +458,7 @@ class Normalizer:
         With no provenance, history 40:55 is deliberately masked for clone/support collection. Passing typed
         row-level closed-loop provenance refits all ordinary moments on that closed-loop corpus and derives the
         supported history subset from actual values; callers cannot nominate support indices.
-        """
+        """  # noqa: E501 - docstring/prose line kept verbatim
         core = np.asarray(batch["core"])
         core_present = np.asarray(batch["core_present"])
         if core.ndim != 2 or core_present.shape != core.shape or core.shape[1] <= 144:
@@ -628,7 +636,7 @@ def load_checkpoint_normalizer(
 
     New checkpoints must carry the same identifier both at top level (``feature_contract``) and inside their
     normalizer state. Historical checkpoints carry neither; an old ``guard`` alone is still legacy.
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
     if not isinstance(state, dict) or not isinstance(state.get("normalizer"), dict):
         raise ValueError("checkpoint is missing its normalizer state")
     normalizer = Normalizer.from_state(state["normalizer"])
@@ -648,7 +656,8 @@ def load_checkpoint_normalizer(
     return normalizer
 
 
-# A normalized input whose fitting-data std (after symlog) is below this is constant there: the guard drops it.
+# A normalized input whose fitting-data std (after symlog) is below this is constant there: the
+# guard drops it.
 DEAD_STD = 1e-3
 
 
@@ -685,7 +694,8 @@ def to_tensors(
         return z
 
     if normalizer.normalization_contract is None:
-        # Keep the historical path exactly as saved, including its original presence dtype semantics.
+        # Keep the historical path exactly as saved, including its original presence dtype
+        # semantics.
         present = batch["core_present"].astype(np.float32)
         core = norm(batch["core"], normalizer.core_mean, normalizer.core_std, "core") * present
     else:
@@ -745,7 +755,8 @@ def to_tensors(
         region = np.zeros((len(batch["core"]), contracts.REGION_MOVEMENT_SLOTS), bool)
         region[:, contracts.REGION_NATIVE] = True
     out["region_movement_mask"] = torch.as_tensor(region, dtype=torch.bool, device=device)
-    # Elder personality: per-row weights over contracts.OBJECTIVES (absent: the default personality).
+    # Elder personality: per-row weights over contracts.OBJECTIVES (absent: the default
+    # personality).
     personality = batch.get("personality")
     if personality is None:
         personality = np.tile(
@@ -832,7 +843,7 @@ class TokenEncoder(nn.Module):
     """Contract 12 token encoder (docs/MODEL9_TOKENS.md): every present row of every entity set is a token (a per-set
     projection plus set-type and row-index embeddings), the core observation is the village token, and L self-attention
     layers mix them. The village token's output feeds a fixed-width trunk, so adding a set or a row kind never changes
-    the trunk; pointer heads read their set's token outputs. Absent rows are masked out of attention, never zeros."""
+    the trunk; pointer heads read their set's token outputs. Absent rows are masked out of attention, never zeros."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(
         self,
@@ -853,7 +864,8 @@ class TokenEncoder(nn.Module):
         )
         for e in self.position.values():
             nn.init.normal_(e.weight, std=0.02)
-        # The village token reads the core observation and the Elder's personality (docs/MODEL9_PERSONALITY.md).
+        # The village token reads the core observation and the Elder's personality
+        # (docs/MODEL9_PERSONALITY.md).
         self.village = nn.Linear(core_width * 2 + privileged_width + contracts.PERSONALITY_WIDTH, d)
         layer = nn.TransformerEncoderLayer(
             d, heads, dim_feedforward=2 * d, dropout=0.0, batch_first=True, norm_first=True
@@ -869,10 +881,14 @@ class TokenEncoder(nn.Module):
             nn.LayerNorm(width),
         )
         self.width, self.set_hidden, self.privileged_width = width, d, privileged_width
-        # FiLM conditioning (docs/MODEL9_PERSONALITY.md): the personality's offset from the default personality sets a
-        # per-channel scale and shift on the tokens before every attention layer and after each trunk layer, so a
-        # personality reshapes every computation instead of being one more input. Bias-free and zero-initialised: at
-        # the default personality, and in any checkpoint saved before FiLM, it is exactly the identity. Later trait
+        # FiLM conditioning (docs/MODEL9_PERSONALITY.md): the personality's offset from the default
+        # personality sets a
+        # per-channel scale and shift on the tokens before every attention layer and after each
+        # trunk layer, so a
+        # personality reshapes every computation instead of being one more input. Bias-free and
+        # zero-initialised: at
+        # the default personality, and in any checkpoint saved before FiLM, it is exactly the
+        # identity. Later trait
         # vectors widen the conditioning input rather than adding tokens.
         self.film_tokens = nn.ModuleList(
             nn.Linear(contracts.PERSONALITY_WIDTH, 2 * d, bias=False) for _ in range(layers)
@@ -897,12 +913,13 @@ class TokenEncoder(nn.Module):
             if name.startswith("film_") and prefix + name not in state_dict:
                 state_dict[prefix + name] = torch.zeros_like(p)
 
-    # Optional bound on the FiLM scale and shift (bound x tanh(x / bound)). Off by default because it also dampens
+    # Optional bound on the FiLM scale and shift (bound x tanh(x / bound)). Off by default because
+    # it also dampens
     # FiLM; ppo --film-bound sets it only if film_max shows instability.
     film_bound: float | None = None
 
     def film_extent(self, t: dict[str, torch.Tensor]) -> float:
-        """The largest |scale| or |shift| any FiLM layer applies on this batch (the instability monitor)."""
+        """The largest |scale| or |shift| any FiLM layer applies on this batch (the instability monitor)."""  # noqa: E501 - docstring/prose line kept verbatim
         c = t["personality"] - self.default_personality
         with torch.no_grad():
             return float(max(f(c).abs().max() for f in [*self.film_tokens, *self.film_trunk]))
@@ -955,7 +972,7 @@ class EconomyExperts(nn.Module):
     """Capability-conditioned expert adapters (M7 pilot, option b): one residual MLP per economy (cultivation,
     herding, fishing). A village averages the adapters of the economies it can practise (its economy-mix mask), so a
     fishing-only village's gradient reaches only the fishing adapter. The adapters' output layers start at zero: a
-    warm start from a shared-head checkpoint reproduces it exactly."""
+    warm start from a shared-head checkpoint reproduces it exactly."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, width: int, hidden: int = 64) -> None:
         super().__init__()
@@ -979,16 +996,23 @@ def init_span_head(layer: nn.Linear) -> None:
         layer.bias[contracts.SPAN_SINGLE] = float(np.log(len(contracts.SPANS) - 1))
 
 
-# Contract 10: the region movement head starts at NATIVE_START probability on native movement, the rest spread
-# evenly, so a learned-movement policy begins as the heuristic (argmax native) and explores the alternatives.
+# Contract 10: the region movement head starts at NATIVE_START probability on native movement, the
+# rest spread
+# evenly, so a learned-movement policy begins as the heuristic (argmax native) and explores the
+# alternatives.
 NATIVE_START = 0.8
 
 
-# Round 3 hierarchical region head (docs/MODEL9_M7.md, *Round 3 build: hierarchical region head*): one distribution
-# for sampling, likelihood, search labels, selection and inference. First a 3-way decision (native, stay, go), then a
-# pointer over the go slots (keep the intent, region rows 1-7). The group logits are the log-mass the flat logits give
-# each group plus a learned offset (``Actor.region_group``, zero-initialised), so an untrained offset (and any checkpoint
-# saved before the head) is exactly the flat distribution; only the deterministic choice differs (group first). The
+# Round 3 hierarchical region head (docs/MODEL9_M7.md, *Round 3 build: hierarchical region head*):
+# one distribution
+# for sampling, likelihood, search labels, selection and inference. First a 3-way decision (native,
+# stay, go), then a
+# pointer over the go slots (keep the intent, region rows 1-7). The group logits are the log-mass
+# the flat logits give
+# each group plus a learned offset (``Actor.region_group``, zero-initialised), so an untrained
+# offset (and any checkpoint
+# saved before the head) is exactly the flat distribution; only the deterministic choice differs
+# (group first). The
 # offset lets the policy move the go mass without moving any destination's relative odds.
 REGION_GROUP_NATIVE, REGION_GROUP_STAY, REGION_GROUP_GO = 0, 1, 2
 REGION_GROUPS = ("native", "stay", "go")
@@ -1008,7 +1032,7 @@ def region_group_index(slots: int = contracts.REGION_MOVEMENT_SLOTS) -> torch.Te
 
 def default_region_flat() -> bool:
     """The head a checkpoint saved before the hierarchical head loads with: hierarchical, unless the environment sets
-    ANTHROPOCENE_REGION_HEAD=flat (to reproduce earlier flat-argmax evaluations of old checkpoints exactly)."""
+    ANTHROPOCENE_REGION_HEAD=flat (to reproduce earlier flat-argmax evaluations of old checkpoints exactly)."""  # noqa: E501 - docstring/prose line kept verbatim
     import os
 
     return os.environ.get("ANTHROPOCENE_REGION_HEAD", "hierarchical").strip().lower() == "flat"
@@ -1019,7 +1043,7 @@ def hierarchical_region(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Group logits (B, 3) and the joint log-probability of every slot (B, S) of the hierarchical region head.
     ``region``: masked flat logits; ``legal``: the region-movement mask; ``offset``: the learned group offset. A group with
-    no legal slot gets the MASKED logit; an illegal slot gets log-probability _FILL."""
+    no legal slot gets the MASKED logit; an illegal slot gets log-probability _FILL."""  # noqa: E501 - docstring/prose line kept verbatim
     index = region_group_index(region.shape[1]).to(region.device)
     member = nn.functional.one_hot(index, len(REGION_GROUPS)).bool().unsqueeze(0) & legal.unsqueeze(
         2
@@ -1038,7 +1062,7 @@ def hierarchical_region(
 def region_mode(out: dict[str, torch.Tensor], grouped: bool = False) -> torch.Tensor:
     """The deterministic region slot. The hierarchical head (``region_group`` in ``out``): the most likely group, then
     its most likely slot, whatever ``grouped`` says. The flat head (``Actor.region_flat``): a plain argmax, or
-    ``grouped_region_slot`` when ``grouped`` (the evaluation option that preceded the hierarchical head)."""
+    ``grouped_region_slot`` when ``grouped`` (the evaluation option that preceded the hierarchical head)."""  # noqa: E501 - docstring/prose line kept verbatim
     if "region_group" in out:
         index = region_group_index(out["region"].shape[1]).to(out["region"].device)
         group = out["region_group"].argmax(dim=1)
@@ -1051,7 +1075,7 @@ def region_mode(out: dict[str, torch.Tensor], grouped: bool = False) -> torch.Te
 
 def init_region_heads(actor: Actor) -> None:
     """Zero weights everywhere; the native logit's bias sets NATIVE_START. The mix offset starts at zero, so the mix
-    given any destination equals the unconditioned mix."""
+    given any destination equals the unconditioned mix."""  # noqa: E501 - docstring/prose line kept verbatim
     others = contracts.REGION_MOVEMENT_SLOTS - 1
     with torch.no_grad():
         for layer in (
@@ -1066,8 +1090,10 @@ def init_region_heads(actor: Actor) -> None:
         actor.region_native.bias.fill_(float(np.log(NATIVE_START / (1 - NATIVE_START) * others)))
 
 
-# Contract 11 trade heads start at the native posture: log relative value 0, gates at Make with probability
-# TRADE_GATE_START, and an export share whose mean sigmoid(TRADE_SHARE_START) snaps to 0 in deterministic evaluation
+# Contract 11 trade heads start at the native posture: log relative value 0, gates at Make with
+# probability
+# TRADE_GATE_START, and an export share whose mean sigmoid(TRADE_SHARE_START) snaps to 0 in
+# deterministic evaluation
 # (the shipped share is 0) while sampled shares explore small making capacity.
 TRADE_GATE_START = 0.8
 TRADE_SHARE_START = -4.6
@@ -1090,7 +1116,7 @@ def init_trade_heads(actor: Actor) -> None:
 
 
 def condition_mix(out: dict[str, torch.Tensor], slot: torch.Tensor) -> dict[str, torch.Tensor]:
-    """The economy mix given the chosen region-movement slot (contract 10: the mix is chosen after the site)."""
+    """The economy mix given the chosen region-movement slot (contract 10: the mix is chosen after the site)."""  # noqa: E501 - docstring/prose line kept verbatim
     if "mix_offset" not in out:
         return out
     out = dict(out)
@@ -1115,7 +1141,7 @@ def span_mask(t: dict[str, torch.Tensor]) -> torch.Tensor:
 class Actor(nn.Module):
     """Logistic-normal service levels and unit strategic controls, a masked softmax economy mix over cultivation,
     herding and fishing, masked categorical routes and fission policy, and a pointer over site rows for movement
-    (stay is slot 0). With ``experts`` the strategic, mix and service heads read capability-conditioned features."""
+    (stay is slot 0). With ``experts`` the strategic, mix and service heads read capability-conditioned features."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(
         self,
@@ -1126,13 +1152,16 @@ class Actor(nn.Module):
         region_head: str | None = None,
     ) -> None:
         super().__init__()
-        # Round 3: the hierarchical region head is the default; "flat" reproduces the earlier flat softmax and argmax.
-        # Saved as a buffer, so every loader (evaluation included) restores the checkpoint's own head.
+        # Round 3: the hierarchical region head is the default; "flat" reproduces the earlier flat
+        # softmax and argmax.
+        # Saved as a buffer, so every loader (evaluation included) restores the checkpoint's own
+        # head.
         if region_head not in (None, "hierarchical", "flat"):
             raise ValueError(f"unknown region head {region_head!r}")
         flat = default_region_flat() if region_head is None else region_head == "flat"
         self.register_buffer("region_flat", torch.tensor(flat))
-        # Contract 12: the token model reads the economy mix from activity tokens and the trade posture from trade
+        # Contract 12: the token model reads the economy mix from activity tokens and the trade
+        # posture from trade
         # tokens, so new activities and trade groups are rows, not heads.
         self.token = token
         self.encoder = TokenEncoder(core_width, width) if token else Encoder(core_width, width)
@@ -1145,23 +1174,28 @@ class Actor(nn.Module):
         self.fission = nn.Linear(width, contracts.FISSION_POLICIES)
         self.stay = nn.Linear(width, 1)
         self.site_query = nn.Linear(width, self.encoder.set_hidden)
-        # Contract 9 commitment span over contracts.SPANS. It starts at about even odds for "this turn only" against
-        # the rest, so the argmax (deterministic evaluation) is "this turn only", contract 8's behaviour.
+        # Contract 9 commitment span over contracts.SPANS. It starts at about even odds for "this
+        # turn only" against
+        # the rest, so the argmax (deterministic evaluation) is "this turn only", contract 8's
+        # behaviour.
         self.span = nn.Linear(width, len(contracts.SPANS))
         init_span_head(self.span)
-        # Contract 10 movement: native and keep-intent logits plus a pointer over region rows, and the economy-mix
+        # Contract 10 movement: native and keep-intent logits plus a pointer over region rows, and
+        # the economy-mix
         # offset given the chosen row.
         hidden = self.encoder.set_hidden
         self.region_native = nn.Linear(width, 1)
         self.region_keep = nn.Linear(width, 1)
         self.region_query = nn.Linear(width, hidden)
         self.mix_region = nn.Linear(hidden, len(contracts.ECONOMY_MIX))
-        # A dormant new head must not change any later head/critic initialization in flat compatibility mode.
+        # A dormant new head must not change any later head/critic initialization in flat
+        # compatibility mode.
         with torch.random.fork_rng():
             self.region_group = nn.Linear(width, len(REGION_GROUPS))
         init_region_heads(self)
         self._register_load_state_dict_pre_hook(self._region_defaults)
-        # Contract 11 trade posture: relative value per group, offer gate per group, export labour share.
+        # Contract 11 trade posture: relative value per group, offer gate per group, export labour
+        # share.
         groups = len(contracts.TRADE_GROUPS)
         self.trade_value = nn.Linear(width, 2 * groups)
         self.trade_gate = nn.Linear(width, groups * contracts.TRADE_GATES)
@@ -1182,7 +1216,7 @@ class Actor(nn.Module):
 
     def _region_defaults(self, state_dict, prefix, *args) -> None:
         """Checkpoints saved before the hierarchical head: a zero group offset (exactly the flat distribution) and the
-        default head (default_region_flat)."""
+        default head (default_region_flat)."""  # noqa: E501 - docstring/prose line kept verbatim
         for name in ("region_group.weight", "region_group.bias"):
             if prefix + name not in state_dict:
                 state_dict[prefix + name] = torch.zeros_like(dict(self.named_parameters())[name])
@@ -1268,7 +1302,7 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    """Predicts u = return per opening resident as a two-hot distribution over symlog-spaced bins."""
+    """Predicts u = return per opening resident as a two-hot distribution over symlog-spaced bins."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(
         self, core_width: int, width: int = 256, privileged_width: int = 0, token: bool = False
@@ -1305,7 +1339,7 @@ class Critic(nn.Module):
 
 class VectorCritic(nn.Module):
     """One two-hot value head per objective component (contracts.OBJECTIVES) on the critic's own encoder. With the
-    default weights it reproduces the scalar critic: ``from_scalar`` copies a scalar critic into the welfare head."""
+    default weights it reproduces the scalar critic: ``from_scalar`` copies a scalar critic into the welfare head."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(
         self,
@@ -1407,7 +1441,7 @@ def mix_soft_cross_entropy(
     logits: torch.Tensor, target: torch.Tensor, mask: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Cross-entropy of the masked softmax against a simplex target restricted to the available coordinates.
-    Returns per-row losses and the rows where the target carries mass on an available coordinate."""
+    Returns per-row losses and the rows where the target carries mass on an available coordinate."""  # noqa: E501 - docstring/prose line kept verbatim
     target = target * mask.float()
     mass = target.sum(dim=1)
     target = target / mass.clamp(min=1e-12).unsqueeze(1)
@@ -1424,7 +1458,7 @@ def mix_log_prob(
 ) -> torch.Tensor:
     """Logistic-normal density of a sampled mix (for PPO): additive log-ratios against the last available
     coordinate are Gaussian with mean logits_i - logits_ref and std exp(log_std_i). Boundary points are pulled
-    eps into the simplex; rows with one available coordinate have log-probability zero."""
+    eps into the simplex; rows with one available coordinate have log-probability zero."""  # noqa: E501 - docstring/prose line kept verbatim
     m = mask.float()
     p = mix.clamp(min=eps) * m
     p = p / p.sum(dim=1, keepdim=True).clamp(min=1e-12)
@@ -1444,7 +1478,7 @@ def mix_log_prob(
 def grouped_region_slot(logits: torch.Tensor) -> torch.Tensor:
     """Hierarchical choice over the region head: first the decision (native, stay, or go: keep the intent or a region
     row 1-7) with the most probability mass, then the most likely slot within it. A plain argmax picks native whenever
-    no single destination outweighs it, even when moving somewhere is more likely than not."""
+    no single destination outweighs it, even when moving somewhere is more likely than not."""  # noqa: E501 - docstring/prose line kept verbatim
     p = torch.softmax(logits, dim=1)
     go = torch.zeros(p.shape[1], dtype=torch.bool, device=p.device)
     go[contracts.REGION_KEEP] = True
@@ -1467,7 +1501,7 @@ def act_deterministic(
 ) -> dict[str, np.ndarray]:
     """The mode used for closed-loop evaluation of the cloned policy (levels snap to the unit-interval ends). With
     ``region`` (contract 10 learned movement) the region slot is chosen first and the mix given it: the hierarchical
-    head's own choice (region_mode); on a flat head ``grouped`` makes it grouped_region_slot."""
+    head's own choice (region_mode); on a flat head ``grouped`` makes it grouped_region_slot."""  # noqa: E501 - docstring/prose line kept verbatim
     if region and "region" in out:
         if selection == "argmax":
             slot = out.get("region_logp", out["region"]).argmax(dim=1)
@@ -1505,7 +1539,8 @@ def act_deterministic(
         if "span" in out
         else np.full(len(mix), contracts.SPAN_SINGLE),
         "region": slot.cpu().numpy(),
-        # Contract 11: relative values (clamped), the most likely gate, and the export share (snapped to 0 below 0.01).
+        # Contract 11: relative values (clamped), the most likely gate, and the export share
+        # (snapped to 0 below 0.01).
         "trade_value": np.clip(
             np.exp(out["trade_value_mean"].detach().cpu().numpy()), *contracts.TRADE_VALUE_RANGE
         ),

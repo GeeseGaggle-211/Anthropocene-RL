@@ -11,7 +11,7 @@ provenance existed):
 * ``allow``: report only.
 
 A deliberate mix, such as last round's branch shards beside this round's, is loaded with ``flag`` and its report kept.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def checkpoint_hash(path: str | Path | None) -> str:
 def code_commit() -> str:
     """The learner code commit: ANTHROPOCENE_CODE_COMMIT when set (detached run checkouts record it in PROVENANCE),
     else the local Git commit with a content digest of any dirty code, else ``unknown``. Failed Git calls never
-    produce an apparently clean identity. Generated datasets and run outputs are outside the code digest."""
+    produce an apparently clean identity. Generated datasets and run outputs are outside the code digest."""  # noqa: E501 - docstring/prose line kept verbatim
     try:
         head = subprocess.run(
             ["git", "-C", str(REPOSITORY), "rev-parse", "HEAD"],
@@ -137,7 +137,7 @@ def digest(value: Any) -> str:
 
 
 def label_identity(row: dict) -> tuple[str, str]:
-    """One main-path search decision; its winning alternative is deliberately excluded from identity."""
+    """One main-path search decision; its winning alternative is deliberately excluded from identity."""  # noqa: E501 - docstring/prose line kept verbatim
     context = {
         k: row[k]
         for k in ("source_run", "seed", "withheld", "warmup", "bank_entry", "snapshot_hash")
@@ -447,7 +447,7 @@ def declared_sources(path: Path | None) -> set[str] | None:
 
 
 def key(record: dict[str, Any] | None) -> tuple[str, str, str]:
-    """Checkpoint, learner commit and canonical source-run identity; old records carry ``unknown``."""
+    """Checkpoint, learner commit and canonical source-run identity; old records carry ``unknown``."""  # noqa: E501 - docstring/prose line kept verbatim
     record = record or {}
     return (
         str(record.get("source_checkpoint") or UNKNOWN),
@@ -472,7 +472,7 @@ def check(
     declared: set[str] | None = None,
 ) -> dict[str, Any]:
     """Apply ``policy`` to the (checkpoint, commit) sources of one load. Returns the report: every distinct source with
-    its row count, and whether the load is mixed or holds unknown rows."""
+    its row count, and whether the load is mixed or holds unknown rows."""  # noqa: E501 - docstring/prose line kept verbatim
     if policy not in POLICIES:
         raise ValueError(f"unknown provenance policy {policy!r}")
     sources = list(sources)

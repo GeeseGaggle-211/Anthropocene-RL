@@ -8,7 +8,7 @@ the daughter society's survival (any of its settlements alive at the end), its p
 the daughter camp's residents at the snapshot) and its population-weighted final QoL.
 
     python -m anthropocene_rl.autonomous_v7.daughter_eval --checkpoint <pt> --bank <dir> --turns 5 --out <json>
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -58,7 +58,8 @@ def run_entry(
     entry = store.get(entry_id)
     if not held_out(entry):
         raise ValueError(
-            f"daughter_eval uses only the held-out family; entry {entry_id} (seed {entry['seed']}) trains"
+            f"daughter_eval uses only the held-out family; entry {entry_id} (seed "
+            f"{entry['seed']}) trains"
         )
     move = bool(entry.get("movement", False)) if movement is None else movement
     actor = normalizer = None
@@ -118,7 +119,7 @@ def run_entry(
 
 
 def paired(policy: list[dict[str, Any]], heuristic: list[dict[str, Any]]) -> dict[str, Any]:
-    """Aggregate paired outcomes: means for each side and the mean paired difference (policy minus heuristic)."""
+    """Aggregate paired outcomes: means for each side and the mean paired difference (policy minus heuristic)."""  # noqa: E501 - docstring/prose line kept verbatim
     report: dict[str, Any] = {"entries": len(policy)}
     for key in ("alive", "growth", "qol", "population"):
         p = np.asarray([r[key] for r in policy])
@@ -129,7 +130,8 @@ def paired(policy: list[dict[str, Any]], heuristic: list[dict[str, Any]]) -> dic
             "difference": float((p - h).mean()) if len(p) else 0.0,
             "difference_se": float((p - h).std(ddof=1) / np.sqrt(len(p))) if len(p) > 1 else 0.0,
         }
-    # QoL among daughters alive on both sides (a dead daughter's QoL is 0 and would mix survival into QoL).
+    # QoL among daughters alive on both sides (a dead daughter's QoL is 0 and would mix survival
+    # into QoL).
     both = [
         (a["qol"], b["qol"])
         for a, b in zip(policy, heuristic, strict=False)

@@ -1,5 +1,5 @@
 """The audit-only bridge ``inspect`` op is read-only: interleaving it with steps leaves every post-step fingerprint and
-the replay unchanged (docs/MODEL9_MOVEMENT_AUDIT.md). Needs the built model9 bridge (ANTHROPOCENE_MODEL9_BRIDGE)."""
+the replay unchanged (docs/MODEL9_MOVEMENT_AUDIT.md). Needs the built model9 bridge (ANTHROPOCENE_MODEL9_BRIDGE)."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -20,8 +20,10 @@ def _run(seed: int, turns: int, probe: bool) -> tuple[list[str], int]:
         prints.append(step["fingerprint"])
         for _ in range(turns):
             if probe:
-                # The op itself refuses to return if the fingerprint moved; a second call must agree too. (The reset
-                # step's reported fingerprint predates Observe initializing Elder memory, so it is not compared.)
+                # The op itself refuses to return if the fingerprint moved; a second call must agree
+                # too. (The reset
+                # step's reported fingerprint predates Observe initializing Elder memory, so it is
+                # not compared.)
                 response = bridge.request({"op": "inspect", "tiles": [0, 1, 2]})
                 assert bridge.request({"op": "inspect"})["fingerprint"] == response["fingerprint"]
                 assert response["inspect"]["camps"], "inspect returned no camps"

@@ -30,7 +30,8 @@ out["actor_fidelity"] = {
 crit = []
 for l in L("eval-final-critic.log"):
     m = re.match(
-        r"\s+(\w+)\s+(\w+)\s+(PASS|FAIL)\s+nMAE=(\S+) bias=(\S+) rank=(\S+) pairs=(\d+) groups=(\d+) worlds=(\d+)",
+        r"\s+(\w+)\s+(\w+)\s+(PASS|FAIL)\s+nMAE=(\S+) bias=(\S+) rank=(\S+) pairs=(\d+) "
+        r"groups=(\d+) worlds=(\d+)",
         l,
     )
     if m:

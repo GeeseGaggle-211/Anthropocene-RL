@@ -52,7 +52,8 @@ def test_ranking_accuracy_counts_only_informative_pairs_within_groups() -> None:
     worlds = np.array([1, 1, 1, 1, 2, 2])
     turns = np.array([0, 0, 0, 0, 0, 0])
     result = ev.ranking_accuracy(pred, target, worlds, turns, threshold=0.05)
-    # World 1: informative pairs (0,1),(0,2),(0,3),(1,2),(1,3) all correct; (2,3) |dG|=0.01 excluded.
+    # World 1: informative pairs (0,1),(0,2),(0,3),(1,2),(1,3) all correct; (2,3) |dG|=0.01
+    # excluded.
     # World 2: one pair, wrong order.
     assert result["informative_pairs"] == 6
     assert result["accuracy"] == pytest.approx(5 / 6)

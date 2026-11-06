@@ -50,7 +50,7 @@ def complete_payload(raw):
 
 
 def same_experiment(source, source_base, live, live_base, outputs):
-    """Different binaries must receive one identical, content-backed experiment before either replay."""
+    """Different binaries must receive one identical, content-backed experiment before either replay."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def canonical(value):
         try:
@@ -236,8 +236,8 @@ def verify(trace, base, identity, flags, row, side, outputs):
                     or live_payload != read_frame(frame, expected_turn, label)[2]
                 ):
                     raise ProvenanceError(
-                        label
-                        + " replay successor differs in root, turn, fingerprint, or complete save payload"
+                        label + " replay successor differs in root, turn, fingerprint, or complete "
+                        "save payload"
                     )
 
             compare_live(initial, first_turn, "initial state")
