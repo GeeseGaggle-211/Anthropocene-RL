@@ -1,6 +1,6 @@
 """Evaluation of the interim labor pretrain: actor fidelity, critic calibration, closed loop.
 
-Three subcommands, each writing one JSON report (``--out``) and printing a
+Four subcommands, each writing one JSON report (``--out``) and printing a
 compact summary:
 
 ``actor-fidelity``
@@ -32,6 +32,17 @@ compact summary:
     ``labor_bc.collect_heuristic_world`` builds it) through the same action-12
     labor runtime, separating interface loss (h12 vs heuristic) from actor
     loss (actor vs h12).
+
+``actor-divergence``
+    Where the BC actor first leaves its teacher in closed loop. The actor (deterministic
+    decode) is the only policy executed; on every actor state H12's converted label is also
+    computed (shadow heuristic from a snapshot, never executed) and each head's
+    disagreement is recorded per turn: specialty L1 (per-specialty signed difference),
+    activity L1 / argmax mismatch per staffed role (per-activity signed difference and
+    resident-time shares), movement, fission and trade-gate agreement, with camp context
+    (residents, housing/clothing coverage, farmer share). Only valid H12 labels count.
+    The report gives per-turn and window (default turns 5-25) pools, the first turn each
+    head exceeds 2x its turns 1-5 baseline, and a copy per world.
 
 Gate semantics (critic): PASS when every metric gate and the coverage gates
 hold; FAIL when any metric gate fails; HOLD when the metrics pass but the
@@ -3372,6 +3383,782 @@ def summarize_autonomous(report: Mapping[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# 4. Actor-vs-H12 divergence (where does the BC actor first leave its teacher?)
+# ---------------------------------------------------------------------------
+
+DIVERGENCE_SCHEMA = "labor-actor-divergence-v1"
+# Mirrors the scale-out scheduler's panel defaults (ops/r5/scaleout/cpu_sched.py: PLAYERS=16,
+# WIDTH=128, HEIGHT=64, SEPARATION=9), which are what the panel actually ran with. The
+# ``autonomous`` parser's own defaults (32 players, native map) are not the panel's.
+SCALEOUT_RESET_DEFAULTS = {"players": 16, "width": 128, "height": 64, "separation": 9}
+RESERVED_HELD_OUT_WORLDS = range(90154, 90160)
+DIVERGENCE_BASELINE_TURNS = (1, 5)
+DIVERGENCE_WINDOW_TURNS = (5, 25)
+DIVERGENCE_EXCEED_FACTOR = 2.0
+DIVERGENCE_FLOOR = 0.01
+DIVERGENCE_SUSTAIN = 3
+ACTIVITY_GROUPS: dict[str, tuple[str, ...]] = {
+    "housing": ("goods.housing", "goods.light-housing", "goods.housing-material"),
+    "clothing": ("goods.cloth", "goods.animal-fabric"),
+    "field": ("field.operation", "field.expansion"),
+    "herd": ("herd.management", "herd.expansion"),
+    "gathering": ("food.gather",),
+    "idle": ("idle",),
+}
+# head name -> (summary section, metric key) of the per-turn disagreement series.
+DIVERGENCE_HEADS: dict[str, tuple[str, str]] = {
+    "specialty": ("specialty", "l1_mean"),
+    "activity_l1": ("activity", "l1_mean"),
+    "activity_mismatch": ("activity", "mismatch_rate"),
+    "movement": ("movement", "disagreement"),
+    "fission": ("fission", "disagreement"),
+    "trade_gate": ("trade_gate", "disagreement"),
+}
+
+
+class TeacherChoice:
+    """H12's converted label on one camp state, reduced to arrays and validity flags.
+
+    ``specialty_counts`` has one entry per specialty row (index 0 is Idle, index
+    ``r + 1`` is role ``r``); ``activity`` is the (roles x activities) share matrix.
+    """
+
+    __slots__ = (
+        "activity",
+        "fission",
+        "fission_valid",
+        "movement",
+        "movement_valid",
+        "population",
+        "role_valid",
+        "specialty_counts",
+        "specialty_valid",
+        "trade_gate",
+        "trade_gate_valid",
+    )
+
+    def __init__(
+        self,
+        *,
+        population: int,
+        specialty_counts: Any,
+        specialty_valid: bool,
+        activity: Any,
+        role_valid: Any,
+        movement: int,
+        movement_valid: bool,
+        fission: int,
+        fission_valid: bool,
+        trade_gate: Any,
+        trade_gate_valid: Any,
+    ) -> None:
+        self.population = int(population)
+        self.specialty_counts = np.asarray(specialty_counts, dtype=np.float64).reshape(-1)
+        self.specialty_valid = bool(specialty_valid)
+        self.activity = np.asarray(activity, dtype=np.float64)
+        self.role_valid = np.asarray(role_valid, dtype=bool).reshape(-1)
+        self.movement = int(movement)
+        self.movement_valid = bool(movement_valid)
+        self.fission = int(fission)
+        self.fission_valid = bool(fission_valid)
+        self.trade_gate = np.asarray(trade_gate, dtype=np.int64).reshape(-1)
+        self.trade_gate_valid = np.asarray(trade_gate_valid, dtype=bool).reshape(-1)
+
+
+class ActorChoice:
+    """The actor's executed labor decision and its schema-12 non-labor heads for one camp.
+
+    ``specialty_counts`` are the natively accepted (apportioned) residents; ``activity`` is the
+    requested activity matrix of the final (post-retry) attempt, ``None`` when that attempt was
+    rejected and the native fallback ran (the labor heads are then not comparable).
+    """
+
+    __slots__ = (
+        "activity",
+        "fission",
+        "movement",
+        "population",
+        "specialty_counts",
+        "trade_gate",
+    )
+
+    def __init__(
+        self,
+        *,
+        population: int,
+        specialty_counts: Any,
+        activity: Any,
+        movement: int,
+        fission: int,
+        trade_gate: Any,
+    ) -> None:
+        self.population = int(population)
+        self.specialty_counts = np.asarray(specialty_counts, dtype=np.float64).reshape(-1)
+        self.activity = None if activity is None else np.asarray(activity, dtype=np.float64)
+        self.movement = int(movement)
+        self.fission = int(fission)
+        self.trade_gate = np.asarray(trade_gate, dtype=np.int64).reshape(-1)
+
+
+def teacher_from_label(label: Any, population: int) -> TeacherChoice:
+    """Reduce a ``HeuristicLaborLabel`` to a ``TeacherChoice`` (validity flags preserved)."""
+    action = label.action
+    return TeacherChoice(
+        population=population,
+        specialty_counts=label.specialty_counts,
+        specialty_valid=label.specialty_valid,
+        activity=label.activity,
+        role_valid=label.activity_role_valid,
+        movement=label.movement_code,
+        movement_valid=label.movement_valid,
+        fission=int(action["fission"]),
+        fission_valid=label.fission_valid,
+        trade_gate=action["tradeGate"],
+        trade_gate_valid=label.trade_gate_valid,
+    )
+
+
+def actor_from_execution(
+    payload: Mapping[str, Any], final_attempt: Any, population: int
+) -> ActorChoice:
+    """The actor's choice: initial non-labor payload heads, final accepted labor allocation."""
+    usable = bool(final_attempt.valid) and not bool(final_attempt.fallback)
+    return ActorChoice(
+        population=population,
+        specialty_counts=final_attempt.accepted_specialty_residents,
+        activity=final_attempt.requested_activity_allocation if usable else None,
+        movement=int(payload["movement"]),
+        fission=int(payload["fission"]),
+        trade_gate=payload["tradeGate"],
+    )
+
+
+def camp_divergence(teacher: TeacherChoice, actor: ActorChoice) -> dict[str, Any]:
+    """Per-head disagreement of one actor decision against H12's label on the same state.
+
+    Pure. A head is ``None`` when the H12 label for it is invalid (or the actor's labor
+    request was rejected, for the activity heads); invalid labels never count.
+
+    ``specialty``: L1 between specialty share vectors (counts / P, each side its own count
+    vector; both sum to 1) and the signed (actor - teacher) share per specialty row.
+    ``roles``: per teacher-staffed, valid role, the L1 between activity share rows, whether the
+    argmax activities agree, the teacher's argmax activity, and the signed row difference.
+    ``resident_time``: share of the camp's residents-time spent on each activity (idle
+    included), actor and teacher, taken only when every staffed teacher role is valid.
+    """
+    out: dict[str, Any] = {
+        "population": teacher.population,
+        "specialty": None,
+        "roles": None,
+        "resident_time": None,
+        "movement": None,
+        "fission": None,
+        "trade_gate": None,
+        "labor_rejected": actor.activity is None,
+    }
+    population = max(1, teacher.population)
+    t_counts, a_counts = teacher.specialty_counts, actor.specialty_counts
+    t_share = t_counts / population
+    a_share = a_counts / max(1, actor.population)
+    if teacher.specialty_valid:
+        out["specialty"] = {
+            "l1": float(np.abs(a_share - t_share).sum()),
+            "diff": a_share - t_share,
+            "actor_share": a_share,
+            "teacher_share": t_share,
+        }
+    if teacher.specialty_valid and actor.activity is not None:
+        roles = teacher.activity.shape[0]
+        staffed = t_counts[1 : 1 + roles] > 0
+        compared = staffed & teacher.role_valid[:roles]
+        if compared.any():
+            l1 = np.abs(actor.activity - teacher.activity).sum(axis=1)
+            actor_arg = actor.activity.argmax(axis=1)
+            teacher_arg = teacher.activity.argmax(axis=1)
+            out["roles"] = {
+                "compared": compared,
+                "l1": np.where(compared, l1, 0.0),
+                "match": compared & (actor_arg == teacher_arg),
+                "teacher_arg": np.where(compared, teacher_arg, -1),
+                "diff": np.where(compared[:, None], actor.activity - teacher.activity, 0.0),
+            }
+        if bool(np.all(teacher.role_valid[:roles] | ~staffed)):
+            out["resident_time"] = {
+                "actor": (a_counts[1 : 1 + roles, None] * actor.activity).sum(axis=0) / population,
+                "teacher": (t_counts[1 : 1 + roles, None] * teacher.activity).sum(axis=0)
+                / population,
+            }
+    if teacher.movement_valid:
+        out["movement"] = bool(actor.movement == teacher.movement)
+    if teacher.fission_valid:
+        out["fission"] = {
+            "agree": bool(actor.fission == teacher.fission),
+            "actor_nonzero": bool(actor.fission != 0),
+            "teacher_nonzero": bool(teacher.fission != 0),
+        }
+    groups = min(teacher.trade_gate.size, actor.trade_gate.size)
+    if groups:
+        valid = teacher.trade_gate_valid[:groups]
+        out["trade_gate"] = {
+            "valid": valid,
+            "agree": valid & (actor.trade_gate[:groups] == teacher.trade_gate[:groups]),
+        }
+    return out
+
+
+class DivergenceAccumulator:
+    """Mergeable sums of ``camp_divergence`` results (one per turn per world, or pooled)."""
+
+    def __init__(self) -> None:
+        self.sums: dict[str, np.ndarray] = {}
+
+    def _add(self, key: str, value: Any) -> None:
+        value = np.asarray(value, dtype=np.float64)
+        if key in self.sums:
+            self.sums[key] = self.sums[key] + value
+        else:
+            self.sums[key] = value.copy()
+
+    def add(self, result: Mapping[str, Any], context: Mapping[str, float] | None = None) -> None:
+        population = float(result["population"])
+        self._add("camps", 1.0)
+        self._add("labor_rejected", float(bool(result["labor_rejected"])))
+        if (spec := result["specialty"]) is not None:
+            self._add("spec_n", 1.0)
+            self._add("spec_pop", population)
+            self._add("spec_l1", spec["l1"])
+            self._add("spec_l1_pop", spec["l1"] * population)
+            self._add("spec_diff", spec["diff"])
+            self._add("spec_actor", spec["actor_share"])
+            self._add("spec_teacher", spec["teacher_share"])
+        if (roles := result["roles"]) is not None:
+            self._add("role_n", roles["compared"].astype(np.float64))
+            self._add("role_l1", roles["l1"])
+            self._add("role_match", roles["match"].astype(np.float64))
+            self._add("role_diff", roles["diff"])
+            for activity in range(roles["diff"].shape[1]):
+                hit = (roles["teacher_arg"] == activity) & roles["compared"]
+                self._add(f"argact_n_{activity}", float(hit.sum()))
+                self._add(f"argact_match_{activity}", float((hit & roles["match"]).sum()))
+        if (rt := result["resident_time"]) is not None:
+            self._add("rt_n", 1.0)
+            self._add("rt_actor", rt["actor"])
+            self._add("rt_teacher", rt["teacher"])
+        if (move := result["movement"]) is not None:
+            self._add("move_n", 1.0)
+            self._add("move_agree", float(move))
+        if (fission := result["fission"]) is not None:
+            self._add("fission_n", 1.0)
+            self._add("fission_agree", float(fission["agree"]))
+            self._add("fission_actor_nz", float(fission["actor_nonzero"]))
+            self._add("fission_teacher_nz", float(fission["teacher_nonzero"]))
+        if (gate := result["trade_gate"]) is not None:
+            self._add("gate_n", gate["valid"].astype(np.float64))
+            self._add("gate_agree", gate["agree"].astype(np.float64))
+        if context:
+            for key, value in context.items():
+                self._add(f"ctx_{key}", float(value))
+
+    def merge(self, other: DivergenceAccumulator) -> DivergenceAccumulator:
+        merged = DivergenceAccumulator()
+        for source in (self, other):
+            for key, value in source.sums.items():
+                merged._add(key, value)
+        return merged
+
+    def get(self, key: str, default: float = 0.0) -> Any:
+        return self.sums.get(key, np.asarray(default, dtype=np.float64))
+
+
+def merge_accumulators(items: Sequence[DivergenceAccumulator]) -> DivergenceAccumulator:
+    total = DivergenceAccumulator()
+    for item in items:
+        total = total.merge(item)
+    return total
+
+
+def _rate(num: Any, den: Any) -> float | None:
+    den = float(den)
+    return float(num) / den if den > 0 else None
+
+
+def divergence_summary(acc: DivergenceAccumulator) -> dict[str, Any]:
+    """Means/rates from accumulated sums; ``None`` where no valid H12 label contributed."""
+    from .labor_bridge import ACTIVITIES, SPECIALTIES
+
+    g = acc.get
+    spec_n = float(g("spec_n"))
+    specialty: dict[str, Any] = {
+        "n": int(spec_n),
+        "l1_mean": _rate(g("spec_l1"), spec_n),
+        "l1_resident_weighted": _rate(g("spec_l1_pop"), g("spec_pop")),
+        "per_specialty": {},
+    }
+    if spec_n > 0:
+        for row, name in enumerate(SPECIALTIES):
+            specialty["per_specialty"][name] = {
+                "signed_diff": float(g("spec_diff")[row]) / spec_n,
+                "actor_share": float(g("spec_actor")[row]) / spec_n,
+                "teacher_share": float(g("spec_teacher")[row]) / spec_n,
+            }
+    role_n = np.atleast_1d(g("role_n"))
+    total_roles = float(role_n.sum())
+    activity: dict[str, Any] = {
+        "n_role_decisions": int(total_roles),
+        "l1_mean": _rate(np.atleast_1d(g("role_l1")).sum(), total_roles),
+        "match_rate": _rate(np.atleast_1d(g("role_match")).sum(), total_roles),
+        "mismatch_rate": None,
+        "by_role": {},
+        "by_teacher_activity": {},
+        "role_activity_signed_diff": {},
+        "resident_time": {},
+        "resident_time_groups": {},
+    }
+    if activity["match_rate"] is not None:
+        activity["mismatch_rate"] = 1.0 - activity["match_rate"]
+    if total_roles > 0:
+        role_l1, role_match = np.atleast_1d(g("role_l1")), np.atleast_1d(g("role_match"))
+        role_diff = np.atleast_2d(g("role_diff"))
+        for role, count in enumerate(role_n):
+            if count <= 0:
+                continue
+            name = SPECIALTIES[role + 1]
+            activity["by_role"][name] = {
+                "n": int(count),
+                "l1_mean": float(role_l1[role] / count),
+                "match_rate": float(role_match[role] / count),
+            }
+            for index, aname in enumerate(ACTIVITIES):
+                value = float(role_diff[role, index] / count)
+                if abs(value) > 1e-9:
+                    activity["role_activity_signed_diff"][f"{name}/{aname}"] = value
+        for index, aname in enumerate(ACTIVITIES):
+            count = float(g(f"argact_n_{index}"))
+            if count > 0:
+                activity["by_teacher_activity"][aname] = {
+                    "n": int(count),
+                    "match_rate": float(g(f"argact_match_{index}")) / count,
+                }
+    rt_n = float(g("rt_n"))
+    if rt_n > 0:
+        actor_rt = np.atleast_1d(g("rt_actor")) / rt_n
+        teacher_rt = np.atleast_1d(g("rt_teacher")) / rt_n
+        activity["resident_time_n"] = int(rt_n)
+        for index, aname in enumerate(ACTIVITIES):
+            activity["resident_time"][aname] = {
+                "actor": float(actor_rt[index]),
+                "teacher": float(teacher_rt[index]),
+                "signed_diff": float(actor_rt[index] - teacher_rt[index]),
+            }
+        for group, members in ACTIVITY_GROUPS.items():
+            idx = [ACTIVITIES.index(m) for m in members if m in ACTIVITIES]
+            activity["resident_time_groups"][group] = {
+                "actor": float(actor_rt[idx].sum()),
+                "teacher": float(teacher_rt[idx].sum()),
+                "signed_diff": float(actor_rt[idx].sum() - teacher_rt[idx].sum()),
+            }
+    gate_n, gate_agree = np.atleast_1d(g("gate_n")), np.atleast_1d(g("gate_agree"))
+    gate_total = float(gate_n.sum())
+    move_n, fission_n = float(g("move_n")), float(g("fission_n"))
+    movement = {
+        "n": int(move_n),
+        "agreement": _rate(g("move_agree"), move_n),
+        "disagreement": None,
+    }
+    fission = {
+        "n": int(fission_n),
+        "agreement": _rate(g("fission_agree"), fission_n),
+        "disagreement": None,
+        "actor_nonzero_rate": _rate(g("fission_actor_nz"), fission_n),
+        "teacher_nonzero_rate": _rate(g("fission_teacher_nz"), fission_n),
+    }
+    trade = {
+        "n": int(gate_total),
+        "agreement": _rate(gate_agree.sum(), gate_total),
+        "disagreement": None,
+        "agreement_by_group": [
+            None if n <= 0 else float(a / n) for a, n in zip(gate_agree, gate_n, strict=True)
+        ],
+    }
+    for head in (movement, fission, trade):
+        if head["agreement"] is not None:
+            head["disagreement"] = 1.0 - head["agreement"]
+    camps = float(g("camps"))
+    residents = float(g("ctx_residents"))
+    context = {
+        "camp_decisions": int(camps),
+        "labor_rejected_rate": _rate(g("labor_rejected"), camps),
+        "residents_per_camp": _rate(residents, camps),
+        "housing_coverage": _rate(g("ctx_housing_w"), residents),
+        "clothing_coverage": _rate(g("ctx_clothing_w"), residents),
+        "farmer_share_actor": _rate(g("ctx_farmer_actor"), g("ctx_farmer_pop")),
+        "farmer_share_h12": _rate(g("ctx_farmer_teacher"), g("ctx_farmer_pop")),
+        "farmer_share_basis": "residents of camps with a valid H12 specialty label",
+    }
+    return {
+        "context": context,
+        "specialty": specialty,
+        "activity": activity,
+        "movement": movement,
+        "fission": fission,
+        "trade_gate": trade,
+    }
+
+
+def head_series(per_turn: Mapping[int, Mapping[str, Any]]) -> dict[str, dict[int, float | None]]:
+    """The per-turn disagreement of each head, from ``divergence_summary`` records."""
+    return {
+        head: {turn: summary[section][key] for turn, summary in sorted(per_turn.items())}
+        for head, (section, key) in DIVERGENCE_HEADS.items()
+    }
+
+
+def first_exceedance(
+    series: Mapping[int, float | None],
+    *,
+    baseline_turns: tuple[int, int] = DIVERGENCE_BASELINE_TURNS,
+    factor: float = DIVERGENCE_EXCEED_FACTOR,
+    floor: float = DIVERGENCE_FLOOR,
+    sustain: int = DIVERGENCE_SUSTAIN,
+) -> dict[str, Any]:
+    """First turn after the baseline window whose disagreement exceeds ``factor`` x baseline.
+
+    Baseline is the mean over ``baseline_turns`` (inclusive) of the turns with data; the
+    threshold is ``factor * max(baseline, floor)`` so a head that agrees perfectly early does
+    not trip on noise. ``first_sustained_turn`` is the first exceeding turn that starts
+    ``sustain`` consecutive exceeding turns.
+    """
+    lo, hi = baseline_turns
+    base = [v for t, v in series.items() if lo <= t <= hi and v is not None]
+    baseline = float(np.mean(base)) if base else None
+    out: dict[str, Any] = {
+        "baseline": baseline,
+        "threshold": None,
+        "first_turn": None,
+        "first_sustained_turn": None,
+    }
+    if baseline is None:
+        return out
+    threshold = factor * max(baseline, floor)
+    out["threshold"] = threshold
+    turns = sorted(t for t in series if t > hi)
+    above = {t: (series[t] is not None and series[t] > threshold) for t in turns}
+    for index, turn in enumerate(turns):
+        if above[turn] and out["first_turn"] is None:
+            out["first_turn"] = turn
+        window = turns[index : index + sustain]
+        if (
+            out["first_sustained_turn"] is None
+            and len(window) == sustain
+            and all(above[t] for t in window)
+        ):
+            out["first_sustained_turn"] = turn
+    return out
+
+
+def _world_block(
+    accumulators: Mapping[int, DivergenceAccumulator],
+    window: tuple[int, int],
+    baseline_turns: tuple[int, int],
+) -> dict[str, Any]:
+    per_turn = {t: divergence_summary(a) for t, a in sorted(accumulators.items())}
+    window_acc = merge_accumulators(
+        [a for t, a in accumulators.items() if window[0] <= t <= window[1]]
+    )
+    baseline_acc = merge_accumulators(
+        [a for t, a in accumulators.items() if baseline_turns[0] <= t <= baseline_turns[1]]
+    )
+    series = head_series(per_turn)
+    return {
+        "per_turn": {str(t): s for t, s in per_turn.items()},
+        "baseline": {"turns": list(baseline_turns), "summary": divergence_summary(baseline_acc)},
+        "window": {"turns": list(window), "summary": divergence_summary(window_acc)},
+        "heads": {
+            head: {
+                "series": {str(t): v for t, v in values.items()},
+                **first_exceedance(values, baseline_turns=baseline_turns),
+            }
+            for head, values in series.items()
+        },
+    }
+
+
+def divergence_report(
+    results: Sequence[Mapping[str, Any]],
+    *,
+    window: tuple[int, int] = DIVERGENCE_WINDOW_TURNS,
+    baseline_turns: tuple[int, int] = DIVERGENCE_BASELINE_TURNS,
+) -> dict[str, Any]:
+    """Pool per-world results (camp-decision weighted) and keep a copy per world."""
+    per_world: dict[str, Any] = {}
+    pooled: dict[int, list[DivergenceAccumulator]] = defaultdict(list)
+    for result in results:
+        accs = result["turn_accumulators"]
+        per_world[str(result["world"])] = dict(
+            _world_block(accs, window, baseline_turns),
+            reset_identity=result.get("reset_identity"),
+            actor_turns={str(r["decision"]): r for r in result["actor_turns"]},
+            turns_run=len(result["actor_turns"]),
+            wall_seconds=result.get("wall_seconds"),
+        )
+        for turn, acc in accs.items():
+            pooled[int(turn)].append(acc)
+    merged = {t: merge_accumulators(items) for t, items in pooled.items()}
+    report = _world_block(merged, window, baseline_turns)
+    # World-balanced window means of the head disagreements.
+    balanced: dict[str, Any] = {}
+    for head, (section, key) in DIVERGENCE_HEADS.items():
+        values = [
+            w["window"]["summary"][section][key]
+            for w in per_world.values()
+            if w["window"]["summary"][section][key] is not None
+        ]
+        balanced[head] = float(np.mean(values)) if values else None
+    report["world_balanced_window_heads"] = balanced
+    # Panel-style post-turn context of the actor, averaged over worlds (lines up with the collapse).
+    actor_context: dict[str, dict[str, float]] = {}
+    for turn in sorted({int(t) for w in per_world.values() for t in w["actor_turns"]}):
+        rows = [
+            w["actor_turns"][str(turn)] for w in per_world.values() if str(turn) in w["actor_turns"]
+        ]
+        actor_context[str(turn)] = {
+            field: float(np.mean([r[field] for r in rows]))
+            for field in (
+                "farmer_share",
+                "housing_coverage",
+                "clothing_coverage",
+                "live_settlements",
+                "residents",
+                "qol",
+            )
+        }
+        actor_context[str(turn)]["worlds"] = len(rows)
+    report["actor_turn_world_mean"] = actor_context
+    report["per_world"] = per_world
+    return report
+
+
+def _divergence_decision_context(
+    village: Mapping[str, Any], teacher: TeacherChoice, actor: ActorChoice, farmer_row: int
+) -> dict[str, float]:
+    residents = float(max(0, int(village["population"])))
+    context = {
+        "residents": residents,
+        "housing_w": float(village.get("housing", 0.0)) * residents,
+        "clothing_w": float(village.get("clothing", 0.0)) * residents,
+    }
+    if teacher.specialty_valid:
+        context["farmer_pop"] = float(teacher.population)
+        context["farmer_teacher"] = float(teacher.specialty_counts[farmer_row])
+        context["farmer_actor"] = float(actor.specialty_counts[farmer_row])
+    return context
+
+
+def _run_divergence_world(job: Mapping[str, Any]) -> dict[str, Any]:
+    """Actor in closed loop; on every actor state also H12's label, never executed."""
+    from .bridge import Model9Bridge
+    from .labor_bc import LaborResetOptions, convert_heuristic_labor_label
+    from .labor_bridge import SPECIALTIES, LaborModel9Bridge
+    from .labor_model import labor_checkpoint_personality, labor_policy_tensors
+    from .labor_personality import personality_for_world
+
+    torch.set_num_threads(1)
+    started = time.perf_counter()
+    state, actor_model, _, _, normalizer = _load_models(Path(job["checkpoint"]))
+    world = int(job["world"])
+    personality = personality_for_world(labor_checkpoint_personality(state), world)
+    options = LaborResetOptions.from_mapping(job["reset_options"])
+    generator = torch.Generator().manual_seed(int(job.get("policy_seed", 0)) * 1_000_003 + world)
+    farmer = SPECIALTIES.index(FARMER)
+    accumulators: dict[int, DivergenceAccumulator] = {}
+    actor_turns: list[dict[str, Any]] = []
+    with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heur:
+        step = bridge.reset(world, **options.reset_kwargs())
+        identity = bridge.last_reset_identity
+        terminated: set[int] = set()
+        nutrition: dict[int, float] = {}
+        _track(step, terminated, nutrition)
+        for turn in range(1, int(job["turns"]) + 1):
+            live = _live(step)
+            if not live:
+                break
+            contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
+            catalogs = {context[0].camp_id: context[0] for context in contexts}
+            # H12's label on this very state, from a shadow bridge reset to a snapshot of it.
+            snapshot = bridge._bridge.capture()
+            heur.reset(
+                world, movement=options.movement, withheld=options.withheld, snapshot=snapshot
+            )
+            h_step = heur.step({})
+            h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+            econ = h_step.get("economicDiagnostics") or {}
+            labels = {}
+            for village, context in zip(live, contexts, strict=True):
+                camp = int(village["camp"])
+                labels[camp] = convert_heuristic_labor_label(
+                    context[0],
+                    h_villages.get(camp, {}),
+                    econ.get(str(camp)),
+                    pre_observation=village["observation"],
+                )
+            # Only the actor's decision is executed (deterministic decode).
+            execution = actor_labor_decision(
+                bridge,
+                actor_model,
+                normalizer,
+                personality,
+                live,
+                catalogs,
+                tensors,
+                stochastic=False,
+                generator=generator,
+            )
+            acc = accumulators.setdefault(turn, DivergenceAccumulator())
+            for village in live:
+                camp = int(village["camp"])
+                population = int(catalogs[camp].population)
+                teacher = teacher_from_label(labels[camp], population)
+                actor_choice = actor_from_execution(
+                    execution.initial[camp].payload, execution.final_attempts[camp], population
+                )
+                acc.add(
+                    camp_divergence(teacher, actor_choice),
+                    _divergence_decision_context(village, teacher, actor_choice, farmer),
+                )
+            next_step = execution.step
+            farmers = sum(
+                int(a.accepted_specialty_residents[farmer])
+                for a in execution.final_attempts.values()
+            )
+            population = sum(int(catalogs[c].population) for c in catalogs)
+            record = _turn_record(next_step, farmers, population, terminated, nutrition)
+            # ``turn`` is the native clock; ``decision`` is the 1-based index used by the report.
+            actor_turns.append(dict(record, decision=turn))
+            _track(next_step, terminated, nutrition)
+            step = next_step
+    result = {
+        "world": world,
+        "reset_identity": identity,
+        "turn_accumulators": accumulators,
+        "actor_turns": actor_turns,
+        "wall_seconds": time.perf_counter() - started,
+    }
+    print(
+        json.dumps(
+            {
+                "world": world,
+                "mode": "actor-divergence",
+                "wall_seconds": round(result["wall_seconds"], 1),
+            }
+        ),
+        file=sys.stderr,
+        flush=True,
+    )
+    return result
+
+
+def check_divergence_worlds(worlds: Sequence[int], allow_non_development: bool) -> None:
+    from .labor_bc import DEVELOPMENT_WORLDS
+
+    _check_world_policy(worlds, "actor-divergence worlds")
+    reserved = [w for w in worlds if w in RESERVED_HELD_OUT_WORLDS]
+    if reserved:
+        raise ValueError(
+            f"actor-divergence never uses reserved held-out worlds; got {reserved[:5]}"
+        )
+    outside = [w for w in worlds if w not in DEVELOPMENT_WORLDS]
+    if outside and not allow_non_development:
+        raise ValueError(
+            f"actor-divergence uses development worlds 2000-2059; got {outside[:5]} "
+            "(pass --allow-non-development for other non-sealed, non-reserved worlds)"
+        )
+
+
+def run_divergence(args: argparse.Namespace) -> dict[str, Any]:
+    from .labor_bc import LaborResetOptions
+    from .protocol import seed_list
+
+    worlds = seed_list(args.worlds)
+    check_divergence_worlds(worlds, args.allow_non_development)
+    reset = LaborResetOptions(
+        players=args.players,
+        movement=not args.no_movement,
+        withheld=args.withheld,
+        width=args.width,
+        height=args.height,
+        separation=args.separation,
+    )
+    base = {
+        "checkpoint": str(args.checkpoint),
+        "turns": int(args.turns),
+        "reset_options": reset.state_dict(),
+        "policy_seed": 0,
+    }
+    jobs = [dict(base, world=w) for w in worlds]
+    started = time.perf_counter()
+    if args.jobs <= 1 or len(jobs) == 1:
+        results = [_run_divergence_world(job) for job in jobs]
+    else:
+        with ProcessPoolExecutor(max_workers=min(args.jobs, len(jobs))) as pool:
+            results = list(pool.map(_run_divergence_world, jobs))
+    window, baseline = tuple(args.window), tuple(args.baseline_turns)
+    report = divergence_report(results, window=window, baseline_turns=baseline)
+    report.update(
+        {
+            "schema": DIVERGENCE_SCHEMA,
+            "command": "actor-divergence",
+            "checkpoint": str(args.checkpoint),
+            "worlds": worlds,
+            "turns": int(args.turns),
+            "reset_options": reset.state_dict(),
+            "mode": "deterministic",
+            "exceedance_rule": {
+                "baseline_turns": list(baseline),
+                "factor": DIVERGENCE_EXCEED_FACTOR,
+                "floor": DIVERGENCE_FLOOR,
+                "sustain_turns": DIVERGENCE_SUSTAIN,
+            },
+            "definitions": {
+                "turn": "1-based decision index; the actor decides, H12's label on the same state is computed but never executed",
+                "specialty": "L1 between actor (accepted residents / P) and H12 (counts / P) specialty share vectors; only camps whose H12 specialty label is valid. per_specialty.signed_diff = actor - H12 share",
+                "activity": "per H12-staffed role with a valid H12 activity label: L1 between actor requested and H12 activity share rows, and argmax-activity mismatch; skipped when the actor's final labor request was rejected (labor_rejected_rate)",
+                "role_activity_signed_diff": "mean (actor - H12) activity share within the role, Role/activity keys",
+                "resident_time": "fraction of the camp's residents-time on each activity (idle included), actor vs H12, camps whose staffed H12 roles are all valid; resident_time_groups sums housing/clothing/field/herd/gathering/idle activities",
+                "movement/fission/trade_gate": "disagreement = 1 - agreement of the actor's initial schema-12 head vs the H12 label where its *_valid flag holds (trade gate per valid group)",
+                "heads[*].first_turn": "first turn after the baseline window whose pooled disagreement exceeds factor x max(baseline mean over baseline turns, floor); first_sustained_turn needs sustain consecutive turns",
+                "context": "housing/clothing coverage are resident-weighted on the actor's pre-action state; actor_turn_world_mean (keyed by decision index, record.turn is the native clock) is the panel-style post-turn record",
+                "pooling": "top-level blocks pool camp decisions across worlds; per_world holds each world's own copy; world_balanced_window_heads averages per-world window values",
+            },
+            "wall_seconds": time.perf_counter() - started,
+        }
+    )
+    return report
+
+
+def summarize_divergence(report: Mapping[str, Any]) -> str:
+    lines = [
+        f"actor-divergence: {len(report['worlds'])} worlds, {report['turns']} turns, "
+        f"window {report['window']['turns']}",
+        "head                 baseline  threshold  first>2x  sustained  window-mean",
+    ]
+    for head, record in report["heads"].items():
+        section, key = DIVERGENCE_HEADS[head]
+        window_value = report["window"]["summary"][section][key]
+        lines.append(
+            f"{head:<20} {_fmt(record['baseline']):>8}  {_fmt(record['threshold']):>9}  "
+            f"{record['first_turn']!s:>8}  {record['first_sustained_turn']!s:>9}  "
+            f"{_fmt(window_value):>11}"
+        )
+    groups = report["window"]["summary"]["activity"].get("resident_time_groups", {})
+    for name, group in groups.items():
+        lines.append(
+            f"resident-time {name:<10} actor {_fmt(group['actor'])} h12 {_fmt(group['teacher'])} "
+            f"diff {_fmt(group['signed_diff'])}"
+        )
+    return "\n".join(lines)
+
+
 def _write(path: Path, report: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
@@ -3464,6 +4251,38 @@ def argument_parser() -> argparse.ArgumentParser:
         "decision (runs[*].critic_trace) and add the trajectory_t4 report; off by default",
     )
     auto.add_argument("--out", type=Path, required=True)
+    div = commands.add_parser(
+        "actor-divergence",
+        help="where the BC actor first diverges from H12 in closed loop (per head, per turn)",
+    )
+    div.add_argument("--checkpoint", type=Path, required=True)
+    div.add_argument("--worlds", required=True, help="development seeds/ranges, e.g. 2000-2007")
+    div.add_argument("--turns", type=int, default=30)
+    div.add_argument("--players", type=int, default=SCALEOUT_RESET_DEFAULTS["players"])
+    div.add_argument("--width", type=int, default=SCALEOUT_RESET_DEFAULTS["width"])
+    div.add_argument("--height", type=int, default=SCALEOUT_RESET_DEFAULTS["height"])
+    div.add_argument("--separation", type=int, default=SCALEOUT_RESET_DEFAULTS["separation"])
+    div.add_argument("--withheld", type=int, default=0)
+    div.add_argument("--no-movement", action="store_true")
+    div.add_argument(
+        "--window",
+        type=int,
+        nargs=2,
+        default=list(DIVERGENCE_WINDOW_TURNS),
+        metavar=("FIRST", "LAST"),
+        help="aggregate turn window (inclusive, 1-based)",
+    )
+    div.add_argument(
+        "--baseline-turns",
+        type=int,
+        nargs=2,
+        default=list(DIVERGENCE_BASELINE_TURNS),
+        metavar=("FIRST", "LAST"),
+        help="baseline turn window for the 2x first-exceedance rule (inclusive, 1-based)",
+    )
+    div.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
+    div.add_argument("--allow-non-development", action="store_true")
+    div.add_argument("--out", type=Path, required=True)
     return parser
 
 
@@ -3487,6 +4306,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             member_reports=args.member_reports,
         )
         summary = summarize_critic(report)
+    elif args.command == "actor-divergence":
+        if args.turns < 1 or args.jobs < 1:
+            raise ValueError("turns and jobs must be positive")
+        report = run_divergence(args)
+        summary = summarize_divergence(report)
     else:
         if args.turns < 1 or args.jobs < 1:
             raise ValueError("turns and jobs must be positive")
