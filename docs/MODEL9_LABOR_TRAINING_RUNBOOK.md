@@ -281,7 +281,10 @@ Workflow (fitting worlds only for the moments; never 3000-3059, 2000-2059, the r
 * Weight, not support (decision 26 Oct): the 50-decision banks meet the root minima, so the default
   remedy is `--family-weights` on `pretrain-bc`, `pretrain-critic` and `labor_r5_acceptance run`
   (`FAMILY_WEIGHTS=` in `tools/r5_critic_acceptance.sh`). Rows are tagged at load time (teacher
-  `row_source` 0 by the tracker, scenario rows by their stored tags, other sources untagged), each row
+  `row_source` 0 by the tracker; DAgger rows of a `labor_dagger --prefix actor-from-reset` dataset,
+  the actor's own episodes from the reset, by the same tracker, one per rollout, the prefix read from
+  the dataset metadata; scenario rows by their stored tags; teacher-prefix DAgger branches and other
+  sources untagged), each row
   takes the max weight of its families (1 untagged), and every (source, world) group is rescaled to its
   unweighted mass. `default` = the weights (proposed, approved 26 Oct with the decay below): first-use x10, legal-window heads and mixed x5,
   under-housed/under-clothed x3, fission-daughter x2, others x1 (`default,family=w` overrides).

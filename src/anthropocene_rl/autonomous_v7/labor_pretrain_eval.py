@@ -31,7 +31,13 @@ compact summary:
     ``h12`` instead submits the converted heuristic recommendation (exactly as
     ``labor_bc.collect_heuristic_world`` builds it) through the same action-12
     labor runtime, separating interface loss (h12 vs heuristic) from actor
-    loss (actor vs h12).
+    loss (actor vs h12). Two diagnostic modes localise the actor loss:
+    ``takeover:K`` lets the deterministic actor decide decisions 0..K-1 and h12
+    every later decision of the same episode (``takeover:0`` is h12,
+    ``takeover:K`` with K >= turns is deterministic); ``swap:GROUPS`` is h12 with
+    the ``+``-joined head groups (labor = specialty+activity, specialty, activity,
+    movement, fission, trade) of every action taken from the deterministic actor
+    on the same state (``merge_action_payloads``).
 
 ``actor-divergence``
     Where the BC actor first leaves its teacher in closed loop. The actor (deterministic
@@ -52,10 +58,12 @@ coverage (worlds, informative groups) is insufficient to decide.
 from __future__ import annotations
 
 import argparse
+import copy
 import itertools
 import json
 import math
 import os
+import re
 import sys
 import time
 from collections import defaultdict
@@ -2886,88 +2894,27 @@ def actor_labor_decision(
     return execute_labor_decision(bridge, catalogs, retained, retry_factory)
 
 
-def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
-    from .labor_bc import LaborResetOptions
-    from .labor_bridge import SPECIALTIES, LaborModel9Bridge
-    from .labor_model import labor_checkpoint_personality, labor_policy_tensors
-    from .labor_personality import personality_for_world
+class _PhaseCounts:
+    """Decisions, initial rejections and retries of the turns one controller decided."""
 
-    torch.set_num_threads(1)
-    state, actor, task, costs, normalizer = _load_models(Path(job["checkpoint"]))
-    world = int(job["world"])
-    stochastic = job["mode"] == "stochastic"
-    recorder = None
-    if job.get("record_critic_trace"):
-        # T4 (r5 section 4a): per-decision critic predictions and realised rewards.
-        # Off by default; read-only (the critic never influences the actor's action).
-        from .labor_r5_trajectory import CriticTraceRecorder
-        from .labor_value_calibration import labor_critic_digest
+    def __init__(self) -> None:
+        self.decisions = 0
+        self.initial_rejections = 0
+        self.retries = 0
 
-        recorder = CriticTraceRecorder(task, costs, critic_digest=labor_critic_digest(task, costs))
-    generator = torch.Generator().manual_seed(int(job["policy_seed"]) * 1_000_003 + world)
-    personality = personality_for_world(labor_checkpoint_personality(state), world)
-    options = LaborResetOptions.from_mapping(job["reset_options"])
-    farmer = SPECIALTIES.index(FARMER)
-    turns: list[dict[str, Any]] = []
-    rejected = retries = 0
-    with LaborModel9Bridge() as bridge:
-        step = bridge.reset(world, **options.reset_kwargs())
-        identity = bridge.last_reset_identity
-        terminated: set[int] = set()
-        nutrition: dict[int, float] = {}
-        _track(step, terminated, nutrition)
-        for _ in range(int(job["turns"])):
-            live = _live(step)
-            if not live:
-                break
-            contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
-            catalogs = {context[0].camp_id: context[0] for context in contexts}
-            values = None if recorder is None else recorder.predict(live, tensors)
-            execution = actor_labor_decision(
-                bridge,
-                actor,
-                normalizer,
-                personality,
-                live,
-                catalogs,
-                tensors,
-                stochastic=stochastic,
-                generator=generator,
-            )
-            next_step = execution.step
-            if recorder is not None:
-                recorder.record(
-                    step=step, live=live, tensors=tensors, values=values, execution=execution
-                )
-            rejected += sum(1 for a in execution.initial_attempts.values() if not a.valid)
-            retries += len(execution.retry)
-            farmers = sum(
-                int(a.accepted_specialty_residents[farmer])
-                for a in execution.final_attempts.values()
-            )
-            population = sum(int(catalogs[c].population) for c in catalogs)
-            turns.append(_turn_record(next_step, farmers, population, terminated, nutrition))
-            _track(next_step, terminated, nutrition)
-            step = next_step
-        if recorder is not None:
-            final_live = _live(step)
-            final_tensors = (
-                labor_policy_tensors(final_live, normalizer, personality=personality)[1]
-                if final_live
-                else None
-            )
-            recorder.finish(step, final_live, final_tensors)
-    result = {
-        "world": world,
-        "mode": job["mode"],
-        "reset_identity": identity,
-        "turns": turns,
-        "initial_rejections": rejected,
-        "retries": retries,
-    }
-    if recorder is not None:
-        result["critic_trace"] = recorder.trace()
-    return result
+    def add(self, execution: Any) -> None:
+        self.decisions += 1
+        self.initial_rejections += sum(
+            1 for a in execution.initial_attempts.values() if not a.valid
+        )
+        self.retries += len(execution.retry)
+
+    def state_dict(self) -> dict[str, int]:
+        return {
+            "decisions": self.decisions,
+            "initial_rejections": self.initial_rejections,
+            "retries": self.retries,
+        }
 
 
 H12_FALLBACK_HEADS = (
@@ -2981,120 +2928,635 @@ H12_FALLBACK_HEADS = (
 )
 
 
-def _run_h12(job: Mapping[str, Any]) -> dict[str, Any]:
-    """Heuristic recommendation converted to action 12, every eligible camp.
+class _H12Tally:
+    """Per-head fallback counts of the converted heuristic labels (``h12_fallbacks``)."""
 
-    Mirrors ``labor_bc.collect_heuristic_world``: capture the labor bridge
-    snapshot, step a shadow heuristic bridge from it, convert each camp's
-    decision with ``convert_heuristic_labor_label`` (whose ``action`` already
-    carries the collector's per-head fallbacks), submit it with
-    ``_retained_action`` and retry rejections with the all-idle ``_idle_retry``.
+    def __init__(self) -> None:
+        from collections import Counter
+
+        self.decisions = 0
+        self.activity_roles = 0
+        self.fallback: Any = Counter()
+        self.reasons: Any = Counter()
+
+    def add(self, label: Any) -> None:
+        self.decisions += 1
+        for reason in label.reasons:
+            self.reasons[reason.split(":", 1)[0]] += 1
+        self.fallback["specialty"] += int(not label.specialty_valid)
+        # Only staffed roles carry an activity label; unstaffed roles are
+        # role-idle by construction, not a fallback.
+        roles = np.asarray(label.activity_role_valid, dtype=bool).reshape(-1)
+        staffed = np.asarray(label.specialty_counts).reshape(-1)[1 : 1 + roles.size] > 0
+        self.activity_roles += int(staffed.sum())
+        self.fallback["activity_role"] += int((staffed & ~roles).sum())
+        self.fallback["over_budget"] += int(bool(label.over_budget))
+        self.fallback["movement"] += int(not label.movement_valid)
+        self.fallback["fission"] += int(not label.fission_valid)
+        gates = np.asarray(label.trade_gate_valid, dtype=bool).reshape(-1)
+        self.fallback["trade_gate"] += int(not bool(np.all(gates)))
+        self.fallback["full_action"] += int(not label.full_action_valid)
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "decisions": self.decisions,
+            "activity_roles": self.activity_roles,
+            "counts": {k: int(self.fallback[k]) for k in H12_FALLBACK_HEADS},
+            "reasons": dict(sorted(self.reasons.items())),
+        }
+
+
+def _labor_episode(
+    bridge: Any,
+    world: int,
+    options: Any,
+    turns: int,
+    decide: Any,
+) -> tuple[Any, list[dict[str, Any]], Mapping[str, Any]]:
+    """One closed-loop episode on an open labor bridge.
+
+    ``decide(decision, step, live)`` makes decision ``decision`` (0-based) for every
+    live camp and returns ``(execution, catalogs)``. Returns the reset identity, the
+    per-turn records and the final step.
     """
-    from collections import Counter
+    from .labor_bridge import SPECIALTIES
 
-    from .bridge import Model9Bridge
-    from .labor_bc import (
-        LaborResetOptions,
-        _idle_retry,
-        _retained_action,
-        convert_heuristic_labor_label,
-    )
-    from .labor_bridge import SPECIALTIES, LaborModel9Bridge
-    from .labor_model import LaborPersonality, labor_policy_tensors
+    farmer = SPECIALTIES.index(FARMER)
+    records: list[dict[str, Any]] = []
+    step = bridge.reset(world, **options.reset_kwargs())
+    identity = bridge.last_reset_identity
+    terminated: set[int] = set()
+    nutrition: dict[int, float] = {}
+    _track(step, terminated, nutrition)
+    for decision in range(int(turns)):
+        live = _live(step)
+        if not live:
+            break
+        execution, catalogs = decide(decision, step, live)
+        next_step = execution.step
+        farmers = sum(
+            int(a.accepted_specialty_residents[farmer]) for a in execution.final_attempts.values()
+        )
+        population = sum(int(catalogs[c].population) for c in catalogs)
+        records.append(_turn_record(next_step, farmers, population, terminated, nutrition))
+        _track(next_step, terminated, nutrition)
+        step = next_step
+    return identity, records, step
+
+
+class _ActorController:
+    """The actor decides every live camp (``actor_labor_decision``), one turn at a time."""
+
+    def __init__(
+        self,
+        actor: Any,
+        normalizer: Any,
+        personality: Any,
+        *,
+        stochastic: bool,
+        generator: torch.Generator,
+        recorder: Any = None,
+    ) -> None:
+        self.actor = actor
+        self.normalizer = normalizer
+        self.personality = personality
+        self.stochastic = stochastic
+        self.generator = generator
+        self.recorder = recorder
+        self.counts = _PhaseCounts()
+
+    def decide(
+        self, bridge: Any, step: Mapping[str, Any], live: Sequence[Mapping[str, Any]]
+    ) -> tuple[Any, dict[int, Any]]:
+        from .labor_model import labor_policy_tensors
+
+        contexts, tensors = labor_policy_tensors(
+            live, self.normalizer, personality=self.personality
+        )
+        catalogs = {context[0].camp_id: context[0] for context in contexts}
+        values = None if self.recorder is None else self.recorder.predict(live, tensors)
+        execution = actor_labor_decision(
+            bridge,
+            self.actor,
+            self.normalizer,
+            self.personality,
+            live,
+            catalogs,
+            tensors,
+            stochastic=self.stochastic,
+            generator=self.generator,
+        )
+        if self.recorder is not None:
+            self.recorder.record(
+                step=step, live=live, tensors=tensors, values=values, execution=execution
+            )
+        self.counts.add(execution)
+        return execution, catalogs
+
+
+def _actor_controller(
+    job: Mapping[str, Any],
+    state: Any,
+    actor: Any,
+    normalizer: Any,
+    world: int,
+    *,
+    stochastic: bool,
+    recorder: Any = None,
+) -> _ActorController:
+    """The actor modes' controller: generator seeded from policy seed and world, the
+    checkpoint's personality resolved for ``world``."""
+    from .labor_model import labor_checkpoint_personality
     from .labor_personality import personality_for_world
-    from .labor_ppo import execute_labor_decision
+
+    generator = torch.Generator().manual_seed(int(job["policy_seed"]) * 1_000_003 + world)
+    personality = personality_for_world(labor_checkpoint_personality(state), world)
+    return _ActorController(
+        actor,
+        normalizer,
+        personality,
+        stochastic=stochastic,
+        generator=generator,
+        recorder=recorder,
+    )
+
+
+class _H12Controller:
+    """The converted heuristic recommendation (h12) decides every live camp.
+
+    Mirrors ``labor_bc.collect_heuristic_world``: capture the labor bridge snapshot,
+    step the shadow heuristic bridge ``heur`` from it, convert each camp's decision
+    with ``convert_heuristic_labor_label`` (whose ``action`` already carries the
+    collector's per-head fallbacks), submit it with ``_retained_action`` and retry
+    rejections with the all-idle ``_idle_retry``.
+    """
+
+    def __init__(
+        self, heur: Any, world: int, options: Any, normalizer: Any, personality: Any
+    ) -> None:
+        self.heur = heur
+        self.world = int(world)
+        self.options = options
+        self.normalizer = normalizer
+        self.personality = personality
+        self.counts = _PhaseCounts()
+        self.tally = _H12Tally()
+
+    def labels(
+        self, bridge: Any, live: Sequence[Mapping[str, Any]], contexts: Sequence[Any]
+    ) -> list[Any]:
+        """The converted heuristic label of every live camp (``live`` order)."""
+        from .labor_bc import convert_heuristic_labor_label
+
+        snap = bridge._bridge.capture()
+        self.heur.reset(
+            self.world,
+            movement=self.options.movement,
+            withheld=self.options.withheld,
+            snapshot=snap,
+        )
+        h_step = self.heur.step({})
+        h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
+        econ = h_step.get("economicDiagnostics") or {}
+        labels = []
+        for village, context in zip(live, contexts, strict=True):
+            camp = int(village["camp"])
+            label = convert_heuristic_labor_label(
+                context[0],
+                h_villages.get(camp, {}),
+                econ.get(str(camp)),
+                pre_observation=village["observation"],
+            )
+            self.tally.add(label)
+            labels.append(label)
+        return labels
+
+    def decide(
+        self, bridge: Any, step: Mapping[str, Any], live: Sequence[Mapping[str, Any]]
+    ) -> tuple[Any, dict[int, Any]]:
+        del step
+        from .labor_bc import _idle_retry, _retained_action
+        from .labor_model import labor_policy_tensors
+        from .labor_ppo import execute_labor_decision
+
+        contexts, tensors = labor_policy_tensors(
+            live, self.normalizer, personality=self.personality
+        )
+        catalogs = {context[0].camp_id: context[0] for context in contexts}
+        labels = self.labels(bridge, live, contexts)
+        retained = {}
+        for row, (village, context, label) in enumerate(zip(live, contexts, labels, strict=True)):
+            retained[int(village["camp"])] = _retained_action(
+                label, context[0], tensors["movement_mask"][row : row + 1]
+            )
+        execution = execute_labor_decision(bridge, catalogs, retained, _idle_retry)
+        self.counts.add(execution)
+        return execution, catalogs
+
+
+def _h12_controller(heur: Any, world: int, options: Any, normalizer: Any) -> _H12Controller:
+    from .labor_model import LaborPersonality
+    from .labor_personality import personality_for_world
+
+    return _H12Controller(
+        heur, world, options, normalizer, personality_for_world(LaborPersonality(), world)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic modes: takeover:K and swap:GROUPS
+# ---------------------------------------------------------------------------
+
+LEGACY_AUTONOMOUS_MODES = ("deterministic", "stochastic", "h12")
+TAKEOVER_PREFIX = "takeover:"
+SWAP_PREFIX = "swap:"
+# Schema-12 payload keys per swappable head group (labor_ppo.LABOR_ACTION_FIELDS
+# partitioned; "schemaVersion" is shared and must agree between the two sources).
+SWAP_GROUP_KEYS: dict[str, tuple[str, ...]] = {
+    "specialty": ("laborSpecialtyAllocation",),
+    "activity": ("laborActivityAllocation",),
+    "movement": ("movement",),
+    "fission": ("fission",),
+    "trade": ("tradeValue", "tradeGate", "tradeShare"),
+}
+SWAP_COMPOSITE_GROUPS: dict[str, tuple[str, ...]] = {"labor": ("specialty", "activity")}
+SWAP_SHARED_KEYS = ("schemaVersion",)
+
+
+def parse_swap_groups(text: str) -> frozenset[str]:
+    """``+``-joined head groups -> the atomic groups (``labor`` = specialty+activity).
+
+    Strict: at least one group, no unknown, repeated or overlapping names. An empty
+    swap is refused (it is ``h12``)."""
+    if not isinstance(text, str) or not text:
+        raise ValueError("swap: needs at least one head group (an empty swap is h12)")
+    tokens = text.split("+")
+    known = (*SWAP_COMPOSITE_GROUPS, *SWAP_GROUP_KEYS)
+    atoms: list[str] = []
+    for token in tokens:
+        if token not in known:
+            raise ValueError(f"unknown swap head group {token!r}; expected '+'-joined {known}")
+        atoms.extend(SWAP_COMPOSITE_GROUPS.get(token, (token,)))
+    if len(set(atoms)) != len(atoms):
+        raise ValueError(f"swap head groups {text!r} repeat or overlap")
+    return frozenset(atoms)
+
+
+def parse_autonomous_mode(mode: str) -> tuple[str, Any]:
+    """Validate one ``--modes`` entry: ``(kind, parameter)``.
+
+    ``deterministic``/``stochastic``/``h12`` -> ``(mode, None)``; ``takeover:K``
+    (K a canonical nonnegative integer) -> ``("takeover", K)``; ``swap:GROUPS``
+    -> ``("swap", frozenset of atomic groups)``."""
+    if mode in LEGACY_AUTONOMOUS_MODES:
+        return mode, None
+    if mode.startswith(TAKEOVER_PREFIX):
+        text = mode[len(TAKEOVER_PREFIX) :]
+        if re.fullmatch(r"0|[1-9][0-9]*", text) is None:
+            raise ValueError(f"takeover mode {mode!r} needs a canonical nonnegative integer K")
+        return "takeover", int(text)
+    if mode.startswith(SWAP_PREFIX):
+        return "swap", parse_swap_groups(mode[len(SWAP_PREFIX) :])
+    raise ValueError(
+        f"unknown autonomous mode {mode!r}: expected deterministic, stochastic, h12, "
+        "takeover:K or swap:GROUPS"
+    )
+
+
+def _check_swap_key_partition() -> frozenset[str]:
+    from .labor_ppo import LABOR_ACTION_FIELDS
+
+    keys = [key for group in SWAP_GROUP_KEYS.values() for key in group]
+    keys.extend(SWAP_SHARED_KEYS)
+    if len(keys) != len(set(keys)) or set(keys) != set(LABOR_ACTION_FIELDS):
+        raise RuntimeError(
+            f"swap head-group keys {sorted(keys)} no longer partition the schema-12 "
+            f"action fields {sorted(LABOR_ACTION_FIELDS)}"
+        )
+    return frozenset(LABOR_ACTION_FIELDS)
+
+
+def _role_active(row: Sequence[Any]) -> bool:
+    """Whether an activity row puts any share on a non-idle activity (index > 0)."""
+    return any(float(value) > 0.0 for value in list(row)[1:])
+
+
+def merge_action_payloads(
+    h12: Mapping[str, Any],
+    actor: Mapping[str, Any],
+    groups: frozenset[str] | set[str],
+    *,
+    population: int,
+) -> tuple[dict[str, Any], list[int]]:
+    """H12's schema-12 payload with ``groups`` overwritten from the actor's payload.
+
+    Returns ``(merged, substituted_roles)``. When exactly one of specialty/activity
+    is swapped, a role (activity row ``r`` = specialty row ``r + 1``) that the
+    specialty source staffs (at least one resident under the native largest-remainder
+    apportionment of its specialty shares over ``population``) but whose activity row
+    in the activity source is role-idle (no share on any non-idle activity, e.g. h12
+    left the role unstaffed) takes its activity row from the specialty source, if that
+    row is not itself role-idle. Those roles are returned. Unexpected or missing keys,
+    or a disagreeing ``schemaVersion``, raise.
+    """
+    from .labor_bridge import apportion_largest_remainder
+
+    expected = _check_swap_key_partition()
+    for name, payload in (("h12", h12), ("actor", actor)):
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            got = set(payload) if isinstance(payload, Mapping) else set()
+            raise ValueError(
+                f"{name} payload keys differ from the schema-12 fields: unexpected "
+                f"{sorted(got - expected)}, missing {sorted(expected - got)}"
+            )
+    for key in SWAP_SHARED_KEYS:
+        if h12[key] != actor[key]:
+            raise ValueError(f"h12 and actor payloads disagree on shared key {key!r}")
+    unknown = set(groups) - set(SWAP_GROUP_KEYS)
+    if unknown:
+        raise ValueError(f"unknown swap head groups {sorted(unknown)}")
+    merged = copy.deepcopy(dict(h12))
+    for group in sorted(groups):
+        for key in SWAP_GROUP_KEYS[group]:
+            merged[key] = copy.deepcopy(actor[key])
+    substituted: list[int] = []
+    if ("specialty" in groups) != ("activity" in groups) and int(population) > 0:
+        spec_source = actor if "specialty" in groups else h12
+        shares = tuple(float(x) for x in spec_source["laborSpecialtyAllocation"])
+        staffed = apportion_largest_remainder(shares, int(population))
+        rows = [list(row) for row in merged["laborActivityAllocation"]]
+        source_rows = spec_source["laborActivityAllocation"]
+        for role, row in enumerate(rows):
+            if role + 1 >= len(staffed) or staffed[role + 1] <= 0 or _role_active(row):
+                continue
+            if _role_active(source_rows[role]):
+                rows[role] = copy.deepcopy(list(source_rows[role]))
+                substituted.append(role)
+        if substituted:
+            merged["laborActivityAllocation"] = rows
+    return merged, substituted
+
+
+def actor_deterministic_payloads(
+    actor: Any, tensors: Mapping[str, torch.Tensor], rows: int
+) -> list[dict[str, Any]]:
+    """The actor's deterministic schema-12 payload per row, exactly as the initial
+    action of ``actor_labor_decision(stochastic=False)``."""
+    from .labor_model import deterministic_nonlabor_policy, schema12_initial_action
+
+    with torch.no_grad():
+        output = actor(tensors)
+        labor = _deterministic_labor_sample(output, tensors)
+        nonlabor = deterministic_nonlabor_policy(output)
+    return [schema12_initial_action(labor, nonlabor, row) for row in range(rows)]
+
+
+class _SwapController:
+    """h12 decides every camp, but the swapped head groups come from the actor's
+    deterministic decision on the same state (``merge_action_payloads``); rejections
+    retry with the all-idle ``_idle_retry`` as h12."""
+
+    def __init__(
+        self, h12: _H12Controller, actor: _ActorController, groups: frozenset[str]
+    ) -> None:
+        from collections import Counter
+
+        if not groups:
+            raise ValueError("swap needs at least one head group (an empty swap is h12)")
+        self.h12 = h12
+        self.actor = actor
+        self.groups = frozenset(groups)
+        self.counts = _PhaseCounts()
+        self.substituted_roles = 0
+        self.decisions_with_substitution = 0
+        self.group_differs: Any = Counter()
+
+    def decide(
+        self, bridge: Any, step: Mapping[str, Any], live: Sequence[Mapping[str, Any]]
+    ) -> tuple[Any, dict[int, Any]]:
+        del step
+        from .labor_bc import _idle_retry, _retained_payload_action
+        from .labor_model import labor_policy_tensors
+        from .labor_ppo import execute_labor_decision
+
+        h = self.h12
+        contexts, tensors = labor_policy_tensors(live, h.normalizer, personality=h.personality)
+        catalogs = {context[0].camp_id: context[0] for context in contexts}
+        labels = h.labels(bridge, live, contexts)
+        _, actor_tensors = labor_policy_tensors(
+            live, self.actor.normalizer, personality=self.actor.personality
+        )
+        actor_payloads = actor_deterministic_payloads(self.actor.actor, actor_tensors, len(live))
+        retained = {}
+        for row, (village, context, label) in enumerate(zip(live, contexts, labels, strict=True)):
+            catalog = context[0]
+            merged, substituted = merge_action_payloads(
+                label.action, actor_payloads[row], self.groups, population=int(catalog.population)
+            )
+            self.substituted_roles += len(substituted)
+            self.decisions_with_substitution += int(bool(substituted))
+            for group in self.groups:
+                self.group_differs[group] += int(
+                    any(label.action[k] != actor_payloads[row][k] for k in SWAP_GROUP_KEYS[group])
+                )
+            retained[int(village["camp"])] = _retained_payload_action(
+                merged, catalog, tensors["movement_mask"][row : row + 1]
+            )
+        execution = execute_labor_decision(bridge, catalogs, retained, _idle_retry)
+        self.counts.add(execution)
+        return execution, catalogs
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "groups": sorted(self.groups),
+            "decisions": self.counts.decisions,
+            "activity_row_substitutions": self.substituted_roles,
+            "decisions_with_activity_row_substitution": self.decisions_with_substitution,
+            "decisions_where_swapped_group_differs": {
+                g: int(self.group_differs[g]) for g in sorted(self.groups)
+            },
+            "h12_fallbacks": self.h12.tally.state_dict(),
+            "note": "specialty and activity from different sources: a role the specialty "
+            "source staffs (>=1 resident, native largest-remainder apportionment over the "
+            "catalog population) whose activity row in the activity source is role-idle "
+            "takes its activity row from the specialty source (activity_row_substitutions)",
+        }
+
+
+def _run_actor(job: Mapping[str, Any]) -> dict[str, Any]:
+    from .labor_bc import LaborResetOptions
+    from .labor_bridge import LaborModel9Bridge
+    from .labor_model import labor_policy_tensors
+
+    torch.set_num_threads(1)
+    state, actor, task, costs, normalizer = _load_models(Path(job["checkpoint"]))
+    world = int(job["world"])
+    stochastic = job["mode"] == "stochastic"
+    recorder = None
+    if job.get("record_critic_trace"):
+        # T4 (r5 section 4a): per-decision critic predictions and realised rewards.
+        # Off by default; read-only (the critic never influences the actor's action).
+        from .labor_r5_trajectory import CriticTraceRecorder
+        from .labor_value_calibration import labor_critic_digest
+
+        recorder = CriticTraceRecorder(task, costs, critic_digest=labor_critic_digest(task, costs))
+    controller = _actor_controller(
+        job, state, actor, normalizer, world, stochastic=stochastic, recorder=recorder
+    )
+    options = LaborResetOptions.from_mapping(job["reset_options"])
+    with LaborModel9Bridge() as bridge:
+        identity, turns, step = _labor_episode(
+            bridge,
+            world,
+            options,
+            int(job["turns"]),
+            lambda decision, step, live: controller.decide(bridge, step, live),
+        )
+        if recorder is not None:
+            final_live = _live(step)
+            final_tensors = (
+                labor_policy_tensors(final_live, normalizer, personality=controller.personality)[1]
+                if final_live
+                else None
+            )
+            recorder.finish(step, final_live, final_tensors)
+    result = {
+        "world": world,
+        "mode": job["mode"],
+        "reset_identity": identity,
+        "turns": turns,
+        "initial_rejections": controller.counts.initial_rejections,
+        "retries": controller.counts.retries,
+    }
+    if recorder is not None:
+        result["critic_trace"] = recorder.trace()
+    return result
+
+
+def _run_h12(job: Mapping[str, Any]) -> dict[str, Any]:
+    """Heuristic recommendation converted to action 12, every eligible camp
+    (``_H12Controller``, mirroring ``labor_bc.collect_heuristic_world``)."""
+    from .bridge import Model9Bridge
+    from .labor_bc import LaborResetOptions
+    from .labor_bridge import LaborModel9Bridge
 
     torch.set_num_threads(1)
     _, _, _, _, normalizer = _load_models(Path(job["checkpoint"]))
     world = int(job["world"])
-    personality = personality_for_world(LaborPersonality(), world)
     options = LaborResetOptions.from_mapping(job["reset_options"])
-    farmer = SPECIALTIES.index(FARMER)
-    turns: list[dict[str, Any]] = []
-    rejected = retries = decisions = activity_roles = 0
-    fallback: Counter[str] = Counter()
-    reasons: Counter[str] = Counter()
     with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heur:
-        step = bridge.reset(world, **options.reset_kwargs())
-        identity = bridge.last_reset_identity
-        terminated: set[int] = set()
-        nutrition: dict[int, float] = {}
-        _track(step, terminated, nutrition)
-        for _ in range(int(job["turns"])):
-            live = _live(step)
-            if not live:
-                break
-            contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
-            catalogs = {context[0].camp_id: context[0] for context in contexts}
-            snap = bridge._bridge.capture()
-            heur.reset(world, movement=options.movement, withheld=options.withheld, snapshot=snap)
-            h_step = heur.step({})
-            h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
-            econ = h_step.get("economicDiagnostics") or {}
-            retained = {}
-            for row, (village, context) in enumerate(zip(live, contexts, strict=True)):
-                camp = int(village["camp"])
-                catalog = context[0]
-                label = convert_heuristic_labor_label(
-                    catalog,
-                    h_villages.get(camp, {}),
-                    econ.get(str(camp)),
-                    pre_observation=village["observation"],
-                )
-                decisions += 1
-                for reason in label.reasons:
-                    reasons[reason.split(":", 1)[0]] += 1
-                fallback["specialty"] += int(not label.specialty_valid)
-                # Only staffed roles carry an activity label; unstaffed roles are
-                # role-idle by construction, not a fallback.
-                roles = np.asarray(label.activity_role_valid, dtype=bool).reshape(-1)
-                staffed = np.asarray(label.specialty_counts).reshape(-1)[1 : 1 + roles.size] > 0
-                activity_roles += int(staffed.sum())
-                fallback["activity_role"] += int((staffed & ~roles).sum())
-                fallback["over_budget"] += int(bool(label.over_budget))
-                fallback["movement"] += int(not label.movement_valid)
-                fallback["fission"] += int(not label.fission_valid)
-                gates = np.asarray(label.trade_gate_valid, dtype=bool).reshape(-1)
-                fallback["trade_gate"] += int(not bool(np.all(gates)))
-                fallback["full_action"] += int(not label.full_action_valid)
-                retained[camp] = _retained_action(
-                    label, catalog, tensors["movement_mask"][row : row + 1]
-                )
-            execution = execute_labor_decision(bridge, catalogs, retained, _idle_retry)
-            next_step = execution.step
-            rejected += sum(1 for a in execution.initial_attempts.values() if not a.valid)
-            retries += len(execution.retry)
-            farmers = sum(
-                int(a.accepted_specialty_residents[farmer])
-                for a in execution.final_attempts.values()
-            )
-            population = sum(int(catalogs[c].population) for c in catalogs)
-            turns.append(_turn_record(next_step, farmers, population, terminated, nutrition))
-            _track(next_step, terminated, nutrition)
-            step = next_step
+        controller = _h12_controller(heur, world, options, normalizer)
+        identity, turns, _ = _labor_episode(
+            bridge,
+            world,
+            options,
+            int(job["turns"]),
+            lambda decision, step, live: controller.decide(bridge, step, live),
+        )
     return {
         "world": world,
         "mode": "h12",
         "reset_identity": identity,
         "turns": turns,
-        "initial_rejections": rejected,
-        "retries": retries,
-        "h12_fallbacks": {
-            "decisions": decisions,
-            "activity_roles": activity_roles,
-            "counts": {k: int(fallback[k]) for k in H12_FALLBACK_HEADS},
-            "reasons": dict(sorted(reasons.items())),
-        },
+        "initial_rejections": controller.counts.initial_rejections,
+        "retries": controller.counts.retries,
+        "h12_fallbacks": controller.tally.state_dict(),
+    }
+
+
+def _run_takeover(job: Mapping[str, Any]) -> dict[str, Any]:
+    """``takeover:K``: the actor (deterministic decoding, exactly as mode
+    ``deterministic``) decides every live camp for decisions 0..K-1, then h12
+    (exactly as mode ``h12``) from decision K on, continuing the same episode.
+    ``takeover:0`` is h12 and ``takeover:K`` with K >= turns is deterministic."""
+    from .bridge import Model9Bridge
+    from .labor_bc import LaborResetOptions
+    from .labor_bridge import LaborModel9Bridge
+
+    kind, handover = parse_autonomous_mode(job["mode"])
+    if kind != "takeover":
+        raise ValueError(f"not a takeover mode: {job['mode']!r}")
+    if job.get("record_critic_trace"):
+        raise ValueError("takeover modes do not record critic traces")
+    torch.set_num_threads(1)
+    state, actor, _, _, normalizer = _load_models(Path(job["checkpoint"]))
+    world = int(job["world"])
+    actor_controller = _actor_controller(job, state, actor, normalizer, world, stochastic=False)
+    options = LaborResetOptions.from_mapping(job["reset_options"])
+    with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heur:
+        h12 = _h12_controller(heur, world, options, normalizer)
+
+        def decide(decision: int, step: Mapping[str, Any], live: Any) -> Any:
+            controller = actor_controller if decision < handover else h12
+            return controller.decide(bridge, step, live)
+
+        identity, turns, _ = _labor_episode(bridge, world, options, int(job["turns"]), decide)
+    actor_phase = actor_controller.counts.state_dict()
+    h12_phase = dict(h12.counts.state_dict(), h12_fallbacks=h12.tally.state_dict())
+    return {
+        "world": world,
+        "mode": job["mode"],
+        "reset_identity": identity,
+        "turns": turns,
+        "handover_turn": int(handover),
+        "initial_rejections": actor_phase["initial_rejections"] + h12_phase["initial_rejections"],
+        "retries": actor_phase["retries"] + h12_phase["retries"],
+        "actor_phase": actor_phase,
+        "h12_phase": h12_phase,
+    }
+
+
+def _run_swap(job: Mapping[str, Any]) -> dict[str, Any]:
+    """``swap:GROUPS``: h12 decides every camp each turn, with the named head groups
+    of each camp's action taken from the actor's deterministic decision on the same
+    state (``merge_action_payloads``)."""
+    from .bridge import Model9Bridge
+    from .labor_bc import LaborResetOptions
+    from .labor_bridge import LaborModel9Bridge
+
+    kind, groups = parse_autonomous_mode(job["mode"])
+    if kind != "swap":
+        raise ValueError(f"not a swap mode: {job['mode']!r}")
+    if job.get("record_critic_trace"):
+        raise ValueError("swap modes do not record critic traces")
+    torch.set_num_threads(1)
+    state, actor, _, _, normalizer = _load_models(Path(job["checkpoint"]))
+    world = int(job["world"])
+    actor_controller = _actor_controller(job, state, actor, normalizer, world, stochastic=False)
+    options = LaborResetOptions.from_mapping(job["reset_options"])
+    with LaborModel9Bridge() as bridge, Model9Bridge(economic_diagnostics=True) as heur:
+        h12 = _h12_controller(heur, world, options, normalizer)
+        swap = _SwapController(h12, actor_controller, groups)
+        identity, turns, _ = _labor_episode(
+            bridge,
+            world,
+            options,
+            int(job["turns"]),
+            lambda decision, step, live: swap.decide(bridge, step, live),
+        )
+    return {
+        "world": world,
+        "mode": job["mode"],
+        "reset_identity": identity,
+        "turns": turns,
+        "initial_rejections": swap.counts.initial_rejections,
+        "retries": swap.counts.retries,
+        "swap": swap.state_dict(),
     }
 
 
 def _run_job(job: Mapping[str, Any]) -> dict[str, Any]:
     torch.set_num_threads(1)
     started = time.perf_counter()
-    if job["mode"] == "heuristic":
+    kind = "heuristic" if job["mode"] == "heuristic" else parse_autonomous_mode(job["mode"])[0]
+    if kind == "heuristic":
         result = _run_heuristic(job)
-    elif job["mode"] == "h12":
+    elif kind == "h12":
         result = _run_h12(job)
+    elif kind == "takeover":
+        result = _run_takeover(job)
+    elif kind == "swap":
+        result = _run_swap(job)
     else:
         result = _run_actor(job)
     result["wall_seconds"] = time.perf_counter() - started
@@ -3261,6 +3723,22 @@ def _h12_extras(
     }
 
 
+def validate_autonomous_modes(text: str) -> list[str]:
+    """``--modes``: comma-separated deterministic, stochastic, h12, takeover:K and/or
+    swap:GROUPS (each validated by ``parse_autonomous_mode``), no repeats. The mode
+    strings are kept verbatim."""
+    modes = [m.strip() for m in str(text).split(",") if m.strip()]
+    if not modes:
+        raise ValueError(
+            "--modes must list deterministic, stochastic, h12, takeover:K and/or swap:GROUPS"
+        )
+    for mode in modes:
+        parse_autonomous_mode(mode)
+    if len(set(modes)) != len(modes):
+        raise ValueError(f"--modes repeats a mode: {modes}")
+    return modes
+
+
 def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
     from .labor_bc import DEVELOPMENT_WORLDS, LaborResetOptions
     from .protocol import seed_list
@@ -3272,9 +3750,11 @@ def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(
             f"autonomous evaluation uses development worlds 2000-2059; got {outside[:5]}"
         )
-    modes = [m.strip() for m in args.modes.split(",") if m.strip()]
-    if not modes or any(m not in ("deterministic", "stochastic", "h12") for m in modes):
-        raise ValueError("--modes must list deterministic, stochastic and/or h12")
+    modes = validate_autonomous_modes(args.modes)
+    if getattr(args, "record_critic_trace", False) and any(
+        m not in LEGACY_AUTONOMOUS_MODES for m in modes
+    ):
+        raise ValueError("--record-critic-trace supports only deterministic, stochastic and h12")
     reset = LaborResetOptions(
         players=args.players,
         movement=not args.no_movement,
@@ -3330,6 +3810,11 @@ def run_autonomous(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+def _mode_tag(mode: str) -> str:
+    """Short summary label: the first four letters of a legacy mode, else the full mode."""
+    return mode[:4] if mode in LEGACY_AUTONOMOUS_MODES else mode
+
+
 def summarize_autonomous(report: Mapping[str, Any]) -> str:
     lines = [
         f"autonomous worlds={len(report['worlds'])} turns={report['turns']} modes={','.join(report['modes'])}"
@@ -3346,11 +3831,12 @@ def summarize_autonomous(report: Mapping[str, Any]) -> str:
         for mode in report["modes"]:
             rr = entry[mode]["ratios"]
             parts.append(
-                f"{mode[:4]} W={_fmt(rr['welfare'])} PY={_fmt(rr['person_years'])} Q={_fmt(rr['qol'])}"
+                f"{_mode_tag(mode)} W={_fmt(rr['welfare'])} PY={_fmt(rr['person_years'])} "
+                f"Q={_fmt(rr['qol'])}"
             )
         parts.append(
             "farmer heur/"
-            + "/".join(m[:4] for m in report["modes"])
+            + "/".join(_mode_tag(m) for m in report["modes"])
             + "="
             + "/".join(
                 _fmt(

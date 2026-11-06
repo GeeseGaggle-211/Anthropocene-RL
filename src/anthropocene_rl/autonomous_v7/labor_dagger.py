@@ -37,6 +37,24 @@ or with teacher shards) only with ``--learner-state-continuations``; actor BC
 refuses it. Its observation and privileged arrays are those of the
 learner-visited state.
 
+Prefix (``--prefix``). ``teacher`` (the default, above) runs the teacher prefix
+to the keyed starts. ``actor-from-reset`` starts every branch at decision 0 (no
+start draw; ``--depth`` must equal ``--horizon``), so each branch is the actor's
+own closed-loop episode from the world reset with every visited state labelled
+by the teacher: DAgger on the actor's full state distribution. A deterministic
+actor gives identical rollouts, so it needs ``--starts 1``; with
+``--stochastic`` each of ``--starts N`` rollouts samples from its own generator
+keyed by (policy seed, world, round, start index). Its source options record
+``"prefix": "actor-from-reset"`` (absent for the default, whose records are
+unchanged) and each shard's meta carries ``rollouts``: per branch, per actor
+decision, the evaluator's turn-record fields (``labor_pretrain_eval._turn_record``:
+turn, live settlements, residents, welfare, person-years, QoL, farmer share,
+housing/clothing coverage, terminations), directly comparable with an autonomous
+evaluation of the same checkpoint. ``rollout-compare`` checks a deterministic
+actor-from-reset dataset against ``labor_pretrain_eval autonomous --modes
+deterministic`` turn by turn: identical records prove the teacher's shadow query
+leaves the actor's closed-loop state untouched.
+
 Shards and the manifest follow ``labor_teacher_data`` (immutable shards, meta
 last, dataset.json only after every shard). ``--resume`` continues an
 interrupted output with the same source record: verified shards are kept,
@@ -48,6 +66,12 @@ Example::
         --checkpoint pretrained.pt --worlds 90100-90159 --round 1 --depth 1 \\
         --starts 3 --horizon 25 --players 16 --width 128 --height 64 \\
         --separation 9 --jobs 30 --out dagger/round-1/data
+
+    # the actor's own 50-decision episodes from the reset, teacher-labelled
+    python -m anthropocene_rl.autonomous_v7.labor_dagger collect \\
+        --checkpoint actor.pt --worlds 90100-90131 --round 1 --prefix actor-from-reset \\
+        --depth 50 --horizon 50 --starts 1 --players 16 --width 128 --height 64 \\
+        --separation 9 --jobs 8 --out dagger/actor-from-reset/data
 """
 
 from __future__ import annotations
@@ -107,6 +131,40 @@ CONTINUATION_SOURCE_KIND = labor_bc.CONTINUATION_SOURCE_KIND
 CONTINUATION_ROW_SOURCE = labor_bc.CONTINUATION_ROW_SOURCE
 CONTINUATION_CONTRACT = "model9-labor-dagger-teacher-continuation-v1"
 CONTINUATION_STATES = ("off", "branch-end", "all-visited")
+PREFIX_TEACHER = "teacher"
+PREFIX_ACTOR_FROM_RESET = "actor-from-reset"
+PREFIXES = (PREFIX_TEACHER, PREFIX_ACTOR_FROM_RESET)
+# Per-decision rollout summary (shard meta ``rollouts``): the evaluator's turn-record
+# fields (labor_pretrain_eval._turn_record), with the termination lists as counts.
+ROLLOUT_FIELDS = (
+    "turn",
+    "live_settlements",
+    "residents",
+    "welfare",
+    "person_years",
+    "qol",
+    "farmer_share",
+    "housing_coverage",
+    "clothing_coverage",
+    "terminations",
+    "starvation_extinctions",
+)
+
+
+def rollout_columns(records: Sequence[Mapping[str, Any]]) -> dict[str, list[Any]]:
+    """Columnar per-decision summary of evaluator-style turn records (``_turn_record``).
+
+    ``decision`` is the 0-based decision index; the termination lists become counts.
+    The same function summarises the collector's branches and an autonomous run, so
+    the two are compared field by field.
+    """
+    out: dict[str, list[Any]] = {"decision": list(range(len(records)))}
+    for name in ROLLOUT_FIELDS:
+        values = [record[name] for record in records]
+        if name in ("terminations", "starvation_extinctions"):
+            values = [len(v) for v in values]
+        out[name] = values
+    return out
 
 
 def draw_start_turns(
@@ -250,8 +308,14 @@ def collect_learner_world(
     continuation: RandomizedTailSettings | None = None,
     continuation_states: str = "branch-end",
     continuations: list[WorldCollection] | None = None,
+    rollouts: list[dict[str, Any]] | None = None,
 ) -> WorldCollection:
     """Teacher prefix, forked actor branches of ``depth`` decisions, teacher labels on every branch state.
+
+    With ``rollouts`` (a list) each branch appends its per-decision summary
+    (``start_index``, ``start`` and :func:`rollout_columns` of the evaluator's turn
+    records, tracked from the reset exactly as ``labor_pretrain_eval._labor_episode``
+    does); without it nothing extra is computed.
 
     ``personality`` is the checkpoint's declared personality (fixed or a
     distribution assignment); it conditions the actor and is recorded in the
@@ -270,6 +334,15 @@ def collect_learner_world(
     from .labor_pretrain_eval import actor_labor_decision
     from .labor_training import _settlement_guard, _transition_rewards
 
+    track = rollouts is not None
+    if track:
+        from .labor_bridge import SPECIALTIES
+        from .labor_pretrain_eval import FARMER, _track, _turn_record
+
+        farmer_index = SPECIALTIES.index(FARMER)
+        terminated: set[int] = set()
+        nutrition: dict[int, float] = {}
+
     require_training_worlds([world_seed], "labor dagger collection")
     options = reset_options or LaborResetOptions()
     labor_factory = labor_bridge_factory or LaborModel9Bridge
@@ -287,6 +360,8 @@ def collect_learner_world(
         identity = getattr(labor_bridge, "last_reset_identity", None)
         result.reset_identity = dict(identity) if isinstance(identity, Mapping) else {}
         founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
+        if track:
+            _track(step, terminated, nutrition)
         decision = 0
         for start, start_index in schedule:
             # Teacher prefix up to this start decision.
@@ -300,6 +375,8 @@ def collect_learner_world(
                 step = _teacher_step(labor_bridge, heur_bridge, world, options, live, contexts, tensors)
                 for village in step["villages"]:
                     founded.setdefault(int(village["camp"]), int(step["turn"]))
+                if track:
+                    _track(step, terminated, nutrition)
                 result.native_resolves += 2
                 result.counters["teacher_prefix_decisions"] += 1
                 decision += 1
@@ -317,6 +394,10 @@ def collect_learner_world(
                 _stream_seed(policy_seed, world, round_index, start_index)
             )
             branch = step
+            if track:
+                branch_terminated = set(terminated)
+                branch_nutrition = dict(nutrition)
+                branch_records: list[dict[str, Any]] = []
 
             def continue_teacher(
                 state: Mapping[str, Any],
@@ -444,6 +525,19 @@ def collect_learner_world(
                             terminal=bool(terminal[camp]),
                             privileged=privileged,
                         )
+                    if track:
+                        # The evaluator's turn record (labor_pretrain_eval._labor_episode).
+                        farmers = sum(
+                            int(a.accepted_specialty_residents[farmer_index])
+                            for a in execution.final_attempts.values()
+                        )
+                        population = sum(int(catalogs[c].population) for c in catalogs)
+                        branch_records.append(
+                            _turn_record(
+                                next_step, farmers, population, branch_terminated, branch_nutrition
+                            )
+                        )
+                        _track(next_step, branch_terminated, branch_nutrition)
                     branch = next_step
                     actor_steps = branch_step + 1
                     if progress is not None:
@@ -457,6 +551,11 @@ def collect_learner_world(
                     world_personality.table = saved_table
             if int(step["turn"]) != fork_turn:
                 raise ValueError("labor bridge restore returned a different decision turn")
+            if track:
+                rollouts.append(
+                    {"start_index": int(start_index), "start": int(start)}
+                    | rollout_columns(branch_records)
+                )
             result.counters["branches"] += 1
         result.surviving_camps = len(_live(step))
     return result
@@ -581,6 +680,8 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
 
     tail = RandomizedTailSettings.from_state(job.get("continuation_tail"))
     continuations: list[WorldCollection] = []
+    prefix = job.get("prefix", PREFIX_TEACHER)
+    rollouts: list[dict[str, Any]] | None = None if prefix == PREFIX_TEACHER else []
     collection = collect_learner_world(
         actor=actor,
         normalizer=normalizer,
@@ -596,6 +697,7 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         continuation=tail,
         continuation_states=job.get("continuation_states", "branch-end"),
         continuations=continuations,
+        rollouts=rollouts,
     )
     seconds = time.perf_counter() - started
     continuation_entry = None
@@ -630,6 +732,10 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         "return_tail": "learner-branch-truncated-actor-only",
         "partition": "fitting",
     }
+    if rollouts is not None:
+        # Only for a non-default prefix: default shard metas stay byte-identical.
+        meta["prefix"] = prefix
+        meta["rollouts"] = rollouts
     if continuation_entry is not None:
         meta["teacher_continuation"] = {
             "data_digest": continuation_entry["data_digest"],
@@ -828,6 +934,14 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--starts", type=int, default=3, help="branch starts per world")
     collect.add_argument("--horizon", type=int, default=25, help="teacher episode decisions")
     collect.add_argument("--start-key", type=int, default=DEFAULT_START_KEY)
+    collect.add_argument(
+        "--prefix",
+        choices=PREFIXES,
+        default=PREFIX_TEACHER,
+        help="teacher: teacher prefix to keyed start decisions (default); actor-from-reset: "
+        "every branch is the actor's own episode from the reset (decision 0; needs "
+        "--depth == --horizon, and --starts 1 unless --stochastic)",
+    )
     collect.add_argument("--stochastic", action="store_true", help="sample the actor (default: means)")
     collect.add_argument("--policy-seed", type=int, default=0)
     collect.add_argument("--players", type=int, default=16)
@@ -871,7 +985,99 @@ def argument_parser() -> argparse.ArgumentParser:
         help="development only: permit a dirty learner/simulator identity (non-production)",
     )
     collect.add_argument("--out", type=Path, required=True)
+    compare = commands.add_parser(
+        "rollout-compare",
+        help="state-fidelity probe: a deterministic actor-from-reset dataset against "
+        "labor_pretrain_eval autonomous --modes deterministic (exit 3 on any difference)",
+    )
+    compare.add_argument("--dagger", type=Path, required=True, help="published dagger dataset")
+    compare.add_argument(
+        "--autonomous", type=Path, required=True, help="labor_pretrain_eval autonomous report"
+    )
+    compare.add_argument(
+        "--decisions",
+        type=int,
+        default=None,
+        help="decisions to compare (default: the dagger horizon); both sides need at least these",
+    )
+    compare.add_argument("--out", type=Path, default=None, help="comparison result JSON")
     return parser
+
+
+def _branch_starts(args: argparse.Namespace, worlds: Sequence[int]) -> dict[int, list[int]]:
+    """Branch start decisions per world: keyed draws (teacher prefix) or decision 0."""
+    if getattr(args, "prefix", PREFIX_TEACHER) == PREFIX_ACTOR_FROM_RESET:
+        return {world: [0] * int(args.starts) for world in worlds}
+    return {
+        world: draw_start_turns(args.start_key, world, args.round, args.starts, args.horizon, args.depth)
+        for world in worlds
+    }
+
+
+def _validate_prefix(args: argparse.Namespace) -> None:
+    prefix = getattr(args, "prefix", PREFIX_TEACHER)
+    if prefix not in PREFIXES:
+        raise ValueError(f"--prefix must be one of {PREFIXES}")
+    if prefix != PREFIX_ACTOR_FROM_RESET:
+        return
+    if args.depth != args.horizon:
+        raise ValueError(
+            "--prefix actor-from-reset rolls the actor for the whole episode: --depth must "
+            "equal --horizon"
+        )
+    if not args.stochastic and args.starts != 1:
+        raise ValueError(
+            "--prefix actor-from-reset with a deterministic actor repeats one rollout: use "
+            "--starts 1 (or --stochastic for independent rollouts)"
+        )
+
+
+def _source_options(
+    args: argparse.Namespace,
+    worlds: Sequence[int],
+    starts: Mapping[int, Sequence[int]],
+    *,
+    checkpoint_sha: str,
+    reset: LaborResetOptions,
+    reference: Any,
+    conditioning: Any,
+    personality: Any,
+    normalizer_digest: str,
+    tail: RandomizedTailSettings | None,
+) -> dict[str, Any]:
+    """The learner source record's options (the default prefix adds no key)."""
+    actor_mode = "stochastic" if args.stochastic else "deterministic"
+    options = {
+        "contract": DAGGER_CONTRACT,
+        "worlds": list(worlds),
+        "turns": int(args.horizon),
+        "round": int(args.round),
+        "depth": int(args.depth),
+        "starts_per_world": int(args.starts),
+        "start_key": int(args.start_key),
+        "starts": {str(w): s for w, s in starts.items()},
+        "actor_mode": actor_mode,
+        "policy_seed": int(args.policy_seed),
+        "checkpoint_sha256": checkpoint_sha,
+        "reset_options": reset.state_dict(),
+        "personality": reference.state_dict(),
+        "personality_conditioning": conditioning.state_dict(),
+        "personality_iteration": int(getattr(personality, "iteration", 0)),
+        "normalizer_digest": normalizer_digest,
+        "teacher": "h12-converted-native-heuristic-shadow-step",
+        "actor_only": True,
+        "partition": "fitting",
+    }
+    prefix = getattr(args, "prefix", PREFIX_TEACHER)
+    if prefix != PREFIX_TEACHER:
+        options["prefix"] = prefix
+    if tail is not None:
+        # Recorded in the learner source too: the continuation fork/restore is part of the run.
+        options["teacher_continuation"] = {
+            "states": args.teacher_continuation,
+            "return_tail": tail.state_dict(),
+        }
+    return options
 
 
 def run_collect(args: argparse.Namespace) -> dict[str, Any]:
@@ -885,6 +1091,7 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("round, depth, starts and jobs must be positive")
     if args.depth > args.horizon:
         raise ValueError("depth cannot exceed the horizon")
+    _validate_prefix(args)
     continuation = args.teacher_continuation != "off"
     if continuation and args.continuation_out is None:
         raise ValueError("--teacher-continuation needs --continuation-out")
@@ -926,42 +1133,24 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
     del actor
     reference, conditioning = labor_personality_conditioning(personality)
     actor_mode = "stochastic" if args.stochastic else "deterministic"
-    starts = {
-        world: draw_start_turns(args.start_key, world, args.round, args.starts, args.horizon, args.depth)
-        for world in worlds
-    }
+    starts = _branch_starts(args, worlds)
     bridge_path = Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", str(DEFAULT_BRIDGE)))
     bridge_sha = checkpoint_hash(bridge_path)
     if not re.fullmatch(r"[0-9a-f]{64}", bridge_sha):
         raise ProvenanceError("production bridge binary missing")
     checkpoint_sha = checkpoint_hash(args.checkpoint)
-    options = {
-        "contract": DAGGER_CONTRACT,
-        "worlds": worlds,
-        "turns": int(args.horizon),
-        "round": int(args.round),
-        "depth": int(args.depth),
-        "starts_per_world": int(args.starts),
-        "start_key": int(args.start_key),
-        "starts": {str(w): s for w, s in starts.items()},
-        "actor_mode": actor_mode,
-        "policy_seed": int(args.policy_seed),
-        "checkpoint_sha256": checkpoint_sha,
-        "reset_options": reset.state_dict(),
-        "personality": reference.state_dict(),
-        "personality_conditioning": conditioning.state_dict(),
-        "personality_iteration": int(getattr(personality, "iteration", 0)),
-        "normalizer_digest": normalizer_digest(normalizer),
-        "teacher": "h12-converted-native-heuristic-shadow-step",
-        "actor_only": True,
-        "partition": "fitting",
-    }
-    if continuation:
-        # Recorded in the learner source too: the continuation fork/restore is part of the run.
-        options["teacher_continuation"] = {
-            "states": args.teacher_continuation,
-            "return_tail": tail.state_dict(),
-        }
+    options = _source_options(
+        args,
+        worlds,
+        starts,
+        checkpoint_sha=checkpoint_sha,
+        reset=reset,
+        reference=reference,
+        conditioning=conditioning,
+        personality=personality,
+        normalizer_digest=normalizer_digest(normalizer),
+        tail=tail,
+    )
     with LaborModel9Bridge() as probe:
         source = source_record(
             options,
@@ -1040,6 +1229,7 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
             "continuation_source_run": (
                 continuation_source["source_run"] if continuation else None
             ),
+            "prefix": args.prefix,
         }
         for world in worlds
         if world not in done
@@ -1108,10 +1298,121 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
     return manifest
 
 
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, allow_nan=False)
+
+
+def compare_rollout(
+    dagger_rollout: Mapping[str, Any],
+    evaluator_turns: Sequence[Mapping[str, Any]],
+    decisions: int,
+) -> dict[str, Any] | None:
+    """First difference between a collector branch summary and an autonomous run's turns.
+
+    Both are reduced by :func:`rollout_columns` and compared exactly (canonical JSON)
+    over the first ``decisions`` decisions; ``None`` when identical. A side with fewer
+    than ``decisions`` records is a ``<length>`` difference.
+    """
+    theirs = rollout_columns(list(evaluator_turns)[:decisions])
+    ours = {k: list(dagger_rollout.get(k, []))[:decisions] for k in ("decision", *ROLLOUT_FIELDS)}
+    for index in range(decisions):
+        fields = []
+        for name in ("decision", *ROLLOUT_FIELDS):
+            a, b = ours[name], theirs[name]
+            if index >= len(a) or index >= len(b):
+                return {
+                    "decision": index,
+                    "fields": ["<length>"],
+                    "dagger": len(a),
+                    "evaluator": len(b),
+                }
+            if _canonical(a[index]) != _canonical(b[index]):
+                fields.append({"field": name, "dagger": a[index], "evaluator": b[index]})
+        if fields:
+            return {"decision": index, "fields": fields}
+    return None
+
+
+def run_rollout_compare(args: argparse.Namespace) -> dict[str, Any]:
+    """State-fidelity probe: deterministic actor-from-reset rollouts equal the evaluator's.
+
+    The dataset must be a published, deterministic ``--prefix actor-from-reset``
+    collection with one rollout per world; the report a ``labor_pretrain_eval
+    autonomous`` report holding a ``deterministic`` run of every dataset world, with
+    the same reset options and checkpoint (sha256 of the report's checkpoint path).
+    Per world the reset identities and the per-decision turn records must be identical.
+    """
+    manifest = verify_dataset(args.dagger)
+    options = manifest["source_record"]["options"]
+    problems: list[str] = []
+    if options.get("prefix") != PREFIX_ACTOR_FROM_RESET:
+        problems.append(f"dataset prefix is {options.get('prefix', PREFIX_TEACHER)!r}")
+    if options.get("actor_mode") != "deterministic" or int(options.get("starts_per_world", 0)) != 1:
+        problems.append("dataset is not one deterministic rollout per world")
+    report = json.loads(Path(args.autonomous).read_text())
+    if report.get("reset_options") != options.get("reset_options"):
+        problems.append(
+            f"reset options differ: report {report.get('reset_options')} vs dataset "
+            f"{options.get('reset_options')}"
+        )
+    checkpoint = Path(str(report.get("checkpoint", "")))
+    report_sha = checkpoint_hash(checkpoint) if checkpoint.is_file() else None
+    if report_sha != options.get("checkpoint_sha256"):
+        problems.append(
+            f"checkpoint differs: report {checkpoint} sha256 {report_sha} vs dataset "
+            f"{options.get('checkpoint_sha256')}"
+        )
+    decisions = int(args.decisions) if args.decisions is not None else int(options["turns"])
+    if decisions < 1:
+        raise ValueError("--decisions must be positive")
+    runs = {
+        int(run["world"]): run
+        for run in report.get("runs", [])
+        if run.get("mode") == "deterministic"
+    }
+    worlds: dict[str, Any] = {}
+    for entry in sorted(manifest["shards"].values(), key=lambda e: int(e["world_seed"])):
+        world = int(entry["world_seed"])
+        meta = verify_shard(Path(args.dagger) / entry["path"])
+        rollouts = meta.get("rollouts") or []
+        check: dict[str, Any] = {"rollouts": len(rollouts)}
+        run = runs.get(world)
+        if run is None or len(rollouts) != 1:
+            check["ok"] = False
+            check["error"] = (
+                "no deterministic evaluator run" if run is None else "expected exactly one rollout"
+            )
+        else:
+            check["same_reset_identity"] = _canonical(meta.get("reset_identity")) == _canonical(
+                run.get("reset_identity")
+            )
+            check["first_difference"] = compare_rollout(rollouts[0], run["turns"], decisions)
+            check["ok"] = check["same_reset_identity"] and check["first_difference"] is None
+        worlds[str(world)] = check
+    if not worlds:
+        problems.append("the dataset has no shards")
+    result = {
+        "dagger": str(args.dagger),
+        "dagger_source_run": manifest["source_run"],
+        "autonomous": str(args.autonomous),
+        "decisions": decisions,
+        "problems": problems,
+        "worlds": worlds,
+        "ok": not problems and all(c["ok"] for c in worlds.values()),
+    }
+    if args.out is not None:
+        Path(args.out).write_text(json.dumps(result, indent=1, sort_keys=True))
+    print(json.dumps({"ok": result["ok"], "problems": problems,
+                      "worlds": {w: c["ok"] for w, c in worlds.items()}}, sort_keys=True))
+    return result
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = argument_parser().parse_args(argv)
     if args.command == "collect":
         run_collect(args)
+    elif args.command == "rollout-compare":
+        return 0 if run_rollout_compare(args)["ok"] else 3
     return 0
 
 

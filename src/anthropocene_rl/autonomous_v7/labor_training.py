@@ -1468,6 +1468,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         label_smoothing=getattr(args, "label_smoothing", 1e-6),
         inverse_freq_power=getattr(args, "inverse_freq_power", 0.5),
         **_bc_lr_schedule_kwargs(args),
+        **_bc_loss_balancing_kwargs(args),
         **_bc_stability_kwargs(args, task, costs),
         **(
             {"family_schedule": schedule}
@@ -1525,6 +1526,44 @@ def _bc_lr_schedule_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     if getattr(args, "lr_schedule_total_steps", None) is not None:
         schedule["total_steps"] = int(args.lr_schedule_total_steps)
     return {"lr_schedule": schedule}
+
+
+def _bc_loss_balancing_kwargs(args: argparse.Namespace) -> dict[str, Any]:
+    """``pretrain-bc --loss-balancing gradnorm|grouped``: actor BC task balancing (absent or
+    none: no kwarg, the historical loss bit for bit). ``--gradnorm-min-weight`` /
+    ``--gradnorm-max-weight`` default to each mode's own clamp (flat: per task; grouped: per
+    group)."""
+    mode = getattr(args, "loss_balancing", None) or "none"
+    if mode == "none":
+        return {}
+    if mode not in ("gradnorm", "grouped"):
+        raise ValueError("--loss-balancing must be none, gradnorm or grouped")
+    from .labor_actor_gradnorm import ActorGradNorm, ActorGroupedGradNorm
+
+    cls = ActorGradNorm if mode == "gradnorm" else ActorGroupedGradNorm
+    common: dict[str, Any] = {
+        "alpha": float(args.gradnorm_alpha),
+        "ema": float(args.gradnorm_ema),
+        "lr": float(args.gradnorm_lr),
+        "init": str(args.gradnorm_init),
+        "min_rows": int(args.gradnorm_min_rows),
+        "every": int(args.gradnorm_every),
+        "shared": str(args.gradnorm_shared),
+        "hold_below": float(args.gradnorm_hold_below),
+    }
+    for name in ("min_weight", "max_weight"):
+        value = getattr(args, f"gradnorm_{name}", None)
+        if value is not None:
+            common[name] = float(value)
+    if mode == "grouped":
+        common["inner"] = str(getattr(args, "gradnorm_inner", "none"))
+        for name in ("inner_min_weight", "inner_max_weight"):
+            value = getattr(args, f"gradnorm_{name}", None)
+            if value is not None:
+                common[name] = float(value)
+    elif getattr(args, "gradnorm_inner", "none") != "none":
+        raise ValueError("--gradnorm-inner applies to --loss-balancing grouped only")
+    return {"loss_balancing": cls(**common)}
 
 
 def _bc_stability_kwargs(args: argparse.Namespace, task: Any, costs: Any) -> dict[str, Any]:
@@ -2540,6 +2579,70 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_bc.add_argument("--inactive-role-weight", type=float, default=0.0)
     pretrain_bc.add_argument("--label-smoothing", type=float, default=1e-6)
     pretrain_bc.add_argument("--inverse-freq-power", type=float, default=0.5)
+    pretrain_bc.add_argument(
+        "--loss-balancing",
+        choices=("none", "gradnorm", "grouped"),
+        default="none",
+        help="gradnorm: flat GradNorm over the actor BC tasks (specialty, the 13 role activity "
+        "CEs, movement, fission, trade gate) on the shared actor encoder; grouped: GradNorm over "
+        "the specialty/movement/activity groups with role-balanced weights inside activity "
+        "(labor_actor_gradnorm.ActorGroupedGradNorm); weights logged in the stability JSONL. "
+        "none (default) keeps the historical loss",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-inner", choices=("none", "gradnorm"), default="none",
+        help="grouped only: none keeps the role weights inside activity fixed at "
+        "--gradnorm-init; gradnorm equalises them too",
+    )
+    pretrain_bc.add_argument("--gradnorm-inner-min-weight", type=float, default=None)
+    pretrain_bc.add_argument(
+        "--gradnorm-inner-max-weight", type=float, default=None,
+        help="grouped only: cap of a role weight inside activity (default: ActorGroupedGradNorm)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-alpha", type=float, default=0.0,
+        help="GradNorm asymmetry alpha (0: pure gradient-norm equalisation)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-lr", type=float, default=0.25,
+        help="log-space step of each weight toward its ideal per update, in (0, 1] (0.25)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-ema", type=float, default=0.1,
+        help="EMA rate of the task gradient norms and losses, in (0, 1] (0.1)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-init", choices=("uniform", "sqrt", "share"), default="uniform",
+        help="initial role weights: uniform per role, sqrt of the resident share, or share "
+        "(the current loss); normalised to the current loss scale",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-min-rows", type=int, default=4,
+        help="a role's weight is updated only when the batch staffs it in this many rows (4)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-min-weight", type=float, default=None,
+        help="weight clamp floor (default: flat 0.01 per task, grouped 0.1 per group)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-max-weight", type=float, default=None,
+        help="weight clamp cap (default: flat 100 per task, grouped 3 per group)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-every", type=int, default=1,
+        help="controller update every N optimizer steps (1)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-shared", choices=("trunk", "last-layer"), default="trunk",
+        help="parameters the task gradient norms are measured on: the whole actor encoder "
+        "(default) or its last global attention layer + output norm (cheaper, biased against "
+        "the role activity tasks)",
+    )
+    pretrain_bc.add_argument(
+        "--gradnorm-hold-below", type=float, default=0.05,
+        help="hold a task whose resident-scale-normalised gradient norm is below this fraction "
+        "of the median (solved/constant heads such as fission and trade gate); 0 disables",
+    )
     pretrain_bc.add_argument("--allow-vm-scale", action="store_true", default=False)
     pretrain_bc.add_argument(
         "--drop-reserved-worlds", action="store_true", default=False,
