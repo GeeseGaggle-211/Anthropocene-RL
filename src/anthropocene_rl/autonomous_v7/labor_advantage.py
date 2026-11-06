@@ -2126,8 +2126,12 @@ class AdvantageRanker:
         )
         features = torch.as_tensor(encode_actions(actions, population), dtype=torch.float32)
         root_index = torch.zeros(len(actions), dtype=torch.long)
+        # Score each distinct feature row once: identical rows in one CPU batch are not
+        # guaranteed bitwise-identical outputs (seen on Linux), and a control twin must tie H12.
+        unique, inverse = torch.unique(features, dim=0, return_inverse=True)
         with torch.no_grad():
-            raw = self.head(contexts, features, root_index)
+            scored = self.head(contexts, unique, torch.zeros(len(unique), dtype=torch.long))
+        raw = {name: scored[name][inverse] for name in COMPONENTS}
         advantage = {
             name: centre(raw[name], root_index, 1).double().tolist() for name in COMPONENTS
         }
