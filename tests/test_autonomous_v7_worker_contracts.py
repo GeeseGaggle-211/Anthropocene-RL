@@ -6,16 +6,24 @@ import json
 import sys
 import types
 from pathlib import Path
+
 import pytest
 import torch
+from test_autonomous_v7_round3_protocol import root_state, synthetic_worker
+
 from anthropocene_rl.autonomous_v7 import (
-    worker_contract as wc,
-    provenance as prov,
     evaluate,
     ppo,
+)
+from anthropocene_rl.autonomous_v7 import (
+    provenance as prov,
+)
+from anthropocene_rl.autonomous_v7 import (
     search_teacher as search,
 )
-from test_autonomous_v7_round3_protocol import synthetic_worker, root_state
+from anthropocene_rl.autonomous_v7 import (
+    worker_contract as wc,
+)
 
 
 @pytest.fixture
@@ -172,7 +180,7 @@ def test_actual_worker_entrypoints_reject_before_native_execution(
         with pytest.raises(prov.ProvenanceError):
             ppo.collect(actor, None, [(1001, 0, 3)], 1, ppo.STAGES["mixed"], torch.Generator())
     elif path == "daughter":
-        from anthropocene_rl.autonomous_v7 import daughter_eval, daughter_bank
+        from anthropocene_rl.autonomous_v7 import daughter_eval
 
         raw = b"synthetic allowed daughter"
         entry = {
@@ -327,8 +335,9 @@ def test_bound_bridge_rechecks_binary_before_step_and_world_before_reset(worker,
 
 
 def test_live_bound_producer_and_immediate_reset_fork_restore_keep_explicit_envelope():
-    from anthropocene_rl.autonomous_v7.bridge import Model9Bridge, DEFAULT_BRIDGE
     import os
+
+    from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE, Model9Bridge
 
     if not Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", DEFAULT_BRIDGE)).exists():
         pytest.skip("bridge not built")
@@ -373,7 +382,7 @@ def test_actual_fit_entrypoint_requires_vm_authority_before_rng_or_fitting(
 
 
 def test_nonqualifying_probe_cannot_carry_protocol_or_create_qualified_lineage():
-    from anthropocene_rl.autonomous_v7 import protocol, lineage
+    from anthropocene_rl.autonomous_v7 import lineage, protocol
 
     args = types.SimpleNamespace(
         nonqualifying=True, arm=None, seed=0, calibration_manifest="held.json"
@@ -420,7 +429,7 @@ def test_local_four_seed_workload_rejected_by_actual_entrypoint(tmp_path, monkey
 
 @pytest.mark.parametrize("kind", ["promotion", "clone_evaluate"])
 def test_clone_selection_publishers_require_actual_vm_authority(tmp_path, monkeypatch, kind):
-    from anthropocene_rl.autonomous_v7 import promotion, clone_evaluate
+    from anthropocene_rl.autonomous_v7 import clone_evaluate, promotion
 
     spec = {
         "kind": "clone_execution",
@@ -452,8 +461,9 @@ def test_clone_selection_publishers_require_actual_vm_authority(tmp_path, monkey
 
 
 def test_vm_authority_uses_fixed_host_metadata_not_environment_claims(monkeypatch):
-    from anthropocene_rl.autonomous_v7.protocol import require_vm_authority
     import urllib.request
+
+    from anthropocene_rl.autonomous_v7.protocol import require_vm_authority
 
     class Response:
         headers = {"Metadata-Flavor": "Google"}

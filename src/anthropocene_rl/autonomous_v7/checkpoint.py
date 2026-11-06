@@ -22,8 +22,9 @@ def arguments(parser) -> None:
 def parse(parser):
     arguments(parser)
     args = parser.parse_args()
-    from .protocol import command, scan
     import sys
+
+    from .protocol import command, scan
 
     command(sys.argv[1:])
     scan(vars(args), "CLI")
@@ -92,15 +93,15 @@ def run_manifest(
     args, actor, resume_state=None, *, require_init: bool = True, identity=None
 ) -> dict:
     """Freeze resolved flags and file contents, not just filenames, for same-round continuation."""
+    from . import contracts
+    from .bridge import Model9Bridge
     from .provenance import (
+        ProvenanceError,
         checkpoint_hash,
         code_commit,
         digest,
         simulator_identity,
-        ProvenanceError,
     )
-    from .bridge import Model9Bridge
-    from . import contracts
 
     # Schema only: no Reset/Step, episode, seeded draw or actor RNG is consumed.
     cached_probe = getattr(args, "_qualified_probe", None)

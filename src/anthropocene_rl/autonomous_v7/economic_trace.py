@@ -446,7 +446,7 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
             if not previous_indices
             else "partial-legacy-core-width"
         )
-        movement_available = MOVEMENT_CORE_INDEX < core_width
+        movement_available = core_width > MOVEMENT_CORE_INDEX
         groups = [
             group_health[name][row_index] for name, _value in [*normalized_groups, *identity_groups]
         ]

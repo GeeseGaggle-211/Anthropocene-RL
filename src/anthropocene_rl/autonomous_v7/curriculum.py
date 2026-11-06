@@ -8,10 +8,8 @@ import shutil
 import zlib
 from pathlib import Path
 
-import numpy as np
-
 from . import contracts
-from .protocol import seeds, artifact
+from .protocol import artifact, seeds
 from .provenance import ProvenanceError, digest
 
 SCHEDULE = (

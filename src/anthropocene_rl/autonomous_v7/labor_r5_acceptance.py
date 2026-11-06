@@ -2587,8 +2587,8 @@ def td_residual_report(
         return None if s <= 0 else float((values_ * w).sum() / s)
 
     return {
-        "rows": int(len(rows)),
-        "worlds": int(len(np.unique(worlds[rows]))) if len(rows) else 0,
+        "rows": len(rows),
+        "worlds": len(np.unique(worlds[rows])) if len(rows) else 0,
         "scale": scale,
         "scale_source": "frozen-g0" if qol_reference is None else qol_reference.get("source"),
         "scale_digest": None if qol_reference is None else qol_reference.get("digest"),

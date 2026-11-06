@@ -12,8 +12,9 @@ import json
 import math
 import random
 import struct
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 import torch
@@ -899,8 +900,7 @@ def _canonical_tensor_leaf(value: Any, dtype: str, what: str) -> None:
     if (
         not math.isfinite(normalized)
         or normalized != value
-        or normalized == 0.0
-        and math.copysign(1.0, normalized) != math.copysign(1.0, value)
+        or (normalized == 0.0 and math.copysign(1.0, normalized) != math.copysign(1.0, value))
     ):
         raise ValueError(f"{what} tensor is not finite canonical {dtype}")
 
@@ -1991,8 +1991,7 @@ def validate_trajectory_evidence(
             or type(terminal["truncated"]) is not bool
             or not isinstance(terminal["reason"], str)
             or not terminal["reason"]
-            or terminal["terminated"]
-            and terminal["truncated"]
+            or (terminal["terminated"] and terminal["truncated"])
         ):
             raise ValueError("trajectory termination declaration is malformed")
         all_terminal = not any(not village["terminated"] for village in successor["villages"])

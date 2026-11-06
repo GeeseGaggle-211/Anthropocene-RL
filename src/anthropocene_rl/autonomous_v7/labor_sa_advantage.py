@@ -1537,8 +1537,8 @@ def successor_section(
                                 }
                             )
                 results[key] = {
-                    "rows": int(len(rows["root"])),
-                    "roots": int(len(np.unique(rows["root"]))),
+                    "rows": len(rows["root"]),
+                    "roots": len(np.unique(rows["root"])),
                     "dropped": rows["dropped"],
                     "metrics": metrics,
                     "field_separation": field,

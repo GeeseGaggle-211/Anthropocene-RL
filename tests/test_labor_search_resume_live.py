@@ -160,7 +160,7 @@ def _equal(a, b) -> bool:
     if isinstance(a, dict):
         return isinstance(b, dict) and a.keys() == b.keys() and all(_equal(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):
-        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b))
+        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b, strict=False))
     return a == b
 
 

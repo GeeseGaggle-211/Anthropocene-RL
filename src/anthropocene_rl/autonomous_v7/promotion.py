@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 from .calibration import manifest
-from .protocol import seeds, scan, artifact, ROLES
+from .protocol import ROLES, artifact, scan
 from .provenance import ProvenanceError, checkpoint_hash, digest
 
 SELECTOR = {
@@ -209,7 +209,7 @@ def validate_embedded(state: dict) -> None:
 
 
 def promote(inputs: list[dict], held: dict) -> dict:
-    from .lineage import checkpoint_evidence, build, families, merge
+    from .lineage import build, checkpoint_evidence, families, merge
 
     candidates, parents, states, selection = [], [], {}, []
     for item in inputs:

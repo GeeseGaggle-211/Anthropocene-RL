@@ -3,23 +3,28 @@
 import copy
 import json
 import types
-from functools import lru_cache
+from functools import cache
 from pathlib import Path
 
 import numpy as np
 import pytest
 import torch
+from test_autonomous_v7 import batch
 
+from anthropocene_rl.autonomous_v7 import calibration as cal
+from anthropocene_rl.autonomous_v7 import (
+    curriculum,
+    data,
+    formal_report,
+    lineage,
+    ppo,
+    promotion,
+    protocol,
+)
+from anthropocene_rl.autonomous_v7 import provenance as prov
 from anthropocene_rl.autonomous_v7 import (
     teacher_data as td,
-    protocol,
-    lineage,
-    promotion,
-    curriculum,
-    formal_report,
 )
-from anthropocene_rl.autonomous_v7 import calibration as cal, provenance as prov, data, ppo
-from test_autonomous_v7 import batch
 
 
 def native_source(seed=1000, withheld=0):
@@ -66,7 +71,7 @@ def synthetic_worker():
     )
 
 
-@lru_cache(maxsize=None)
+@cache
 def native_proof(seed=1000):
     import tempfile
 
@@ -257,7 +262,7 @@ def test_teacher_collision_and_unattributed_root_never_verify(tmp_path):
 
 
 def test_clone_selection_rejects_spoofed_actual_worker_producer(tmp_path, monkeypatch):
-    from anthropocene_rl.autonomous_v7 import clone_evaluate, bridge
+    from anthropocene_rl.autonomous_v7 import bridge, clone_evaluate
 
     held, state = root_state()
     path = tmp_path / "candidate.pt"
@@ -426,7 +431,9 @@ def test_actual_ppo_entrypoint_resumes_effective_promoted_warmup_without_repeati
     tmp_path, monkeypatch
 ):
     import sys
-    from anthropocene_rl.autonomous_v7 import checkpoint, bridge as bridge_module
+
+    from anthropocene_rl.autonomous_v7 import bridge as bridge_module
+    from anthropocene_rl.autonomous_v7 import checkpoint
 
     monkeypatch.setenv("ANTHROPOCENE_REGION_HEAD", "hierarchical")
     held, inputs = promotion_inputs(tmp_path)
@@ -724,7 +731,11 @@ def test_balanced_sampler_has_mandatory_defaults_and_exact_resume():
     worlds = sampler(12)
     assert [s["requested"] for s in sampler.last_sources] == list(curriculum.SCHEDULE)
     assert sum(s["realised"] == "default" for s in sampler.last_sources) == 3
-    assert [w[1] for w, s in zip(worlds, sampler.last_sources) if s["realised"] == "fixture"] == [
+    assert [
+        w[1]
+        for w, s in zip(worlds, sampler.last_sources, strict=False)
+        if s["realised"] == "fixture"
+    ] == [
         12,
         10,
     ]
@@ -916,6 +927,7 @@ def test_final_preflight_rejects_local_or_unfrozen_design_before_any_bridge_prob
 
 def launch_fixture(tmp_path):
     import shlex
+
     from anthropocene_rl.autonomous_v7.checkpoint import arguments
 
     _, state = root_state()
@@ -1037,9 +1049,11 @@ def test_launch_gate_parses_actual_queue_argv_and_effective_defaults(tmp_path):
 
 
 def test_search_bindings_accept_actual_qualified_labels_and_complete_branch_metadata(tmp_path):
-    from anthropocene_rl.autonomous_v7 import branch_shards, search_teacher as st
-    from anthropocene_rl.autonomous_v7.qualification import validate_search_bindings
     from test_autonomous_v7_round3_search import fake_tail, village
+
+    from anthropocene_rl.autonomous_v7 import branch_shards
+    from anthropocene_rl.autonomous_v7 import search_teacher as st
+    from anthropocene_rl.autonomous_v7.qualification import validate_search_bindings
 
     held = cal.manifest(
         {"calibration_seeds": [10000], "training_seeds": [1001], "selection_seeds": [2160]}
@@ -1311,8 +1325,9 @@ def test_raw_on_bank_reset_rejected_before_warmup_or_actor_action(monkeypatch):
     ],
 )
 def test_launch_refuses_argv_config_cohort_and_default_drift(tmp_path, mutation):
-    from anthropocene_rl.autonomous_v7.qualification import validate_runs
     import shlex
+
+    from anthropocene_rl.autonomous_v7.qualification import validate_runs
 
     spec, state, expected = launch_fixture(tmp_path)
     run = spec["runs"][-1]
@@ -1470,8 +1485,8 @@ def json_ref(path, obj):
 
 
 def formal_fixture(tmp_path, monkeypatch):
-    from anthropocene_rl.autonomous_v7.personality_sweep import GRID
     from anthropocene_rl.autonomous_v7 import completion
+    from anthropocene_rl.autonomous_v7.personality_sweep import GRID
 
     launch, _, expected = launch_fixture(tmp_path)
     _, parent = root_state()

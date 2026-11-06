@@ -97,7 +97,7 @@ def later_turns(batch: dict[str, np.ndarray]) -> np.ndarray:
     world = np.asarray(batch["world"])
     turn = np.asarray(batch["turn"])
     last = {w: int(turn[world == w].max()) for w in np.unique(world)}
-    return np.asarray([last[w] - t for w, t in zip(world, turn)])
+    return np.asarray([last[w] - t for w, t in zip(world, turn, strict=False)])
 
 
 def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict[str, Any]:
@@ -105,7 +105,7 @@ def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict
     least that many later turns in their world's rollout (``later_turns``): with 20, every such return covers a full
     400-year-equivalent window (the stored reference scales, round 3 revision)."""
     components = data.reward_components(batch)
-    report: dict[str, Any] = {"rows": int(len(batch["camp"])), "objectives": {}}
+    report: dict[str, Any] = {"rows": len(batch["camp"]), "objectives": {}}
     remaining = later_turns(batch)
     for name in contracts.OBJECTIVES:
         g = discounted_returns(batch, components[name])
@@ -115,7 +115,7 @@ def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict
             entry.update(
                 full_window_std=float(np.std(sub)),
                 full_window_mean=float(np.mean(sub)),
-                full_window_rows=int(len(sub)),
+                full_window_rows=len(sub),
             )
         report["objectives"][name] = entry
     return report

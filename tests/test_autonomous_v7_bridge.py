@@ -22,7 +22,6 @@ from anthropocene_rl.autonomous_v7.gate1_diagnostics import (
     validate_economic_rows,
 )
 
-
 GATE1_SEMANTICS = {
     "experts": False,
     "token": False,

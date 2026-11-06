@@ -4,9 +4,11 @@ import json
 import math
 import zlib
 from pathlib import Path
+
 import numpy as np
-from .protocol import artifact, scan, ROLES, search_cohort, verify_inventory
-from .provenance import ProvenanceError, checkpoint_hash, digest, compatible_sources
+
+from .protocol import ROLES, artifact, scan, search_cohort, verify_inventory
+from .provenance import ProvenanceError, checkpoint_hash, compatible_sources, digest
 
 
 def read(ref, base):
@@ -28,8 +30,8 @@ class FrozenBank:
 
 
 def search_evidence(evidence, expected, held, base, *, calibration=False):
-    from .search_teacher import SearchConfig
     from . import branch_shards, ppo
+    from .search_teacher import SearchConfig
 
     cohort, _ = read(evidence["cohort"], base)
     summary, summary_path = read(evidence["summary"], base)
@@ -102,8 +104,8 @@ def search_evidence(evidence, expected, held, base, *, calibration=False):
 
 
 def calibration_evidence(evidence, expected, held, state, base):
+    from . import branch_bias, branch_shards
     from .calibration_audit import inventory
-    from . import branch_shards, branch_bias
     from .model import load_checkpoint_normalizer
     from .search_teacher import load_critic
 
@@ -256,7 +258,7 @@ def comparator(ref, base):
 
 
 def movement_evidence(evidence, expected, base):
-    from .movement_audit_summary import world, reduce
+    from .movement_audit_summary import reduce, world
 
     groups = {name: [] for name in ("grouped", "native", "stay")}
     for ref in evidence.get("rollouts", []):
@@ -384,7 +386,7 @@ def gate(gate_name, body, expected, held, state, base, spec):
     if gate_name == "source":
         path, _ = artifact(evidence["inventory"], base)
         verified = verify_inventory(path)
-        from .teacher_data import verify_dataset, validate_source
+        from .teacher_data import validate_source, verify_dataset
 
         datasets = []
         for ref in evidence.get("datasets", []):

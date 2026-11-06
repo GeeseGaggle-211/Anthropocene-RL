@@ -1,4 +1,11 @@
-import sys, glob, os, json, numpy as np, torch
+import glob
+import json
+import os
+import sys
+
+import numpy as np
+import torch
+
 from anthropocene_rl.autonomous_v7 import contracts
 
 ds = sys.argv[1]
@@ -38,7 +45,7 @@ for w in sorted(glob.glob(os.path.join(ds, "world-*"))):
 print(f"rows {tot}; food row present {pres_rows}")
 print("food row: rows with nonzero raw value per column:", nonzero)
 print("rows with nonzero raw value, per trade group x column (groups", contracts.TRADE_GROUPS, "):")
-for g, row in zip(contracts.TRADE_GROUPS, anygood):
+for g, row in zip(contracts.TRADE_GROUPS, anygood, strict=False):
     print("  ", g, row.tolist())
 print(
     "trade-related meta counters summed over worlds:", json.dumps(counters, sort_keys=True)[:2000]

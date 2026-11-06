@@ -24,10 +24,10 @@ import torch
 from . import contracts
 from .bridge import Model9Bridge, observation_batch
 from .gate1_diagnostics import (
+    action_decoder_receipt,
     boundary,
     capture_component_bytes,
     capture_envelope_bytes,
-    action_decoder_receipt,
     generator_state_sha256,
     preserve_global_rng,
     recompute_rng_receipt,
@@ -35,8 +35,8 @@ from .gate1_diagnostics import (
     validate_capture_bounds,
     validate_trajectory_evidence,
 )
-from .provenance import digest
 from .model import Actor, Normalizer, act_deterministic, bridge_actions_from_mode, to_tensors
+from .provenance import digest
 from .upgrade import upgrade
 
 
@@ -169,8 +169,7 @@ def load_strict_state(
                     for value in raw_values
                 )
                 or not np.isfinite(values).all()
-                or suffix == "std"
-                and not np.all(values > 0)
+                or (suffix == "std" and not np.all(values > 0))
             ):
                 raise ValueError(f"strict diagnostic normalizer {name}_{suffix} is invalid")
     if "guard" in normalizer_state:
@@ -328,7 +327,8 @@ def policy_actions(
 
     with torch.no_grad():
         if isinstance(actor, Contract8Actor):
-            from .legacy_contract8 import deterministic_mode, to_tensors as legacy_tensors
+            from .legacy_contract8 import deterministic_mode
+            from .legacy_contract8 import to_tensors as legacy_tensors
 
             output = actor(legacy_tensors(batch, normalizer))
             mode = deterministic_mode(output)
@@ -441,7 +441,8 @@ def policy_actions_stochastic(
         trade=getattr(actor, "learned_trade", False),
     )
     with torch.no_grad():
-        from .legacy_contract8 import Contract8Actor, to_tensors as legacy_tensors
+        from .legacy_contract8 import Contract8Actor
+        from .legacy_contract8 import to_tensors as legacy_tensors
 
         tensors = (
             legacy_tensors(batch, normalizer)
@@ -486,8 +487,8 @@ def specialist_share(villages: list[dict[str, Any]]) -> float:
 
 
 def producer_identity(bridge):
-    from .teacher_data import binary_identity
     from .provenance import simulator_identity
+    from .teacher_data import binary_identity
 
     return {
         "simulator": simulator_identity(bridge.schema),
@@ -1036,6 +1037,7 @@ def main() -> int:
     seeds = list(range(a, b + 1))
     clock = time.time()
     from functools import partial
+
     from .worker_contract import from_state, world
 
     saved = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
@@ -1062,13 +1064,13 @@ def main() -> int:
         or len(policy) != len(seeds)
         or any(
             row.get("world_contract") != descriptor
-            for row, descriptor in zip(teacher + policy, descriptors)
+            for row, descriptor in zip(teacher + policy, descriptors, strict=False)
         )
     ):
         from .provenance import ProvenanceError
 
         raise ProvenanceError("evaluation worker differs from requested world contract")
-    ratio = [p["welfare"] / max(1e-9, t["welfare"]) for p, t in zip(policy, teacher)]
+    ratio = [p["welfare"] / max(1e-9, t["welfare"]) for p, t in zip(policy, teacher, strict=False)]
 
     def mean(rows: list[dict[str, Any]], key: str) -> float:
         return float(np.mean([r[key] for r in rows]))
@@ -1100,7 +1102,7 @@ def main() -> int:
         "policy": {k: mean(policy, k) for k in keys},
         "per_seed": [
             {"seed": t["seed"], "teacher": t["welfare"], "policy": p["welfare"], "ratio": r}
-            for t, p, r in zip(teacher, policy, ratio)
+            for t, p, r in zip(teacher, policy, ratio, strict=False)
         ],
         "seconds": time.time() - clock,
     }

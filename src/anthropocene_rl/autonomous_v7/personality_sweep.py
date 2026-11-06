@@ -55,7 +55,8 @@ def main() -> int:
 
     args = parse(parser)
     import torch
-    from .provenance import checkpoint_hash, ProvenanceError
+
+    from .provenance import ProvenanceError, checkpoint_hash
 
     saved = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     initial_sha = checkpoint_hash(args.checkpoint)
@@ -117,7 +118,7 @@ def main() -> int:
             )
             if len(rows) != n or any(
                 row.get("world_contract") != descriptor
-                for row, descriptor in zip(rows, descriptors)
+                for row, descriptor in zip(rows, descriptors, strict=False)
             ):
                 raise ProvenanceError(
                     "sweep worker world differs from frozen pre-execution contract"

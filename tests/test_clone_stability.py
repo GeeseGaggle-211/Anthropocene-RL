@@ -131,8 +131,8 @@ def test_lr_factor_warms_up_then_cosine_decays_to_the_floor() -> None:
     total = 200
     f = [train.lr_factor(s, total, 0.05, 0.05) for s in range(total)]
     assert f[0] == pytest.approx(0.1) and f[9] == pytest.approx(1.0)
-    assert all(b >= a for a, b in zip(f[:10], f[1:10]))
-    assert all(b <= a + 1e-12 for a, b in zip(f[10:], f[11:]))
+    assert all(b >= a for a, b in zip(f[:10], f[1:10], strict=False))
+    assert all(b <= a + 1e-12 for a, b in zip(f[10:], f[11:], strict=False))
     assert f[-1] == pytest.approx(0.05)
     assert [train.lr_factor(s, total, 0.0, None) for s in (0, 100, 199)] == [
         1.0,
@@ -183,9 +183,11 @@ def write_shard(directory: Path, seed: int, n: int = 30, core: int = 24) -> None
 def run_main(monkeypatch, tmp_path: Path, *extra: str) -> list[dict]:
     # These historical optimizer/normalizer tests use deliberately tiny synthetic, unattributed arrays.
     # Strict production sources are tested separately; keep this fixture from masquerading as production evidence.
-    from test_autonomous_v7_round3_contracts import checkpoint_proof_fixture
-    from anthropocene_rl.autonomous_v7 import checkpoint
     import copy
+
+    from test_autonomous_v7_round3_contracts import checkpoint_proof_fixture
+
+    from anthropocene_rl.autonomous_v7 import checkpoint
 
     _, fixture = checkpoint_proof_fixture()
     original_load = getattr(train.data.load, "_original_load", train.data.load)
@@ -351,5 +353,6 @@ def test_default_train_actor_is_bitwise_the_original_loop() -> None:
             torch.nn.utils.clip_grad_norm_(old.parameters(), 1.0)
             optimizer.step()
     assert all(
-        torch.equal(a, c) for a, c in zip(new.state_dict().values(), old.state_dict().values())
+        torch.equal(a, c)
+        for a, c in zip(new.state_dict().values(), old.state_dict().values(), strict=False)
     )

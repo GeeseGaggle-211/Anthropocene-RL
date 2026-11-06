@@ -142,7 +142,7 @@ def _equal(a, b) -> bool:
     if isinstance(a, dict):
         return isinstance(b, dict) and list(a) == list(b) and all(_equal(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):
-        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b))
+        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b, strict=False))
     return a == b
 
 
@@ -178,7 +178,7 @@ def test_flag_off_is_v1_and_on_keeps_every_v1_field() -> None:
     assert json.dumps(a.table["decisions"]) == json.dumps(b.table["decisions"])
     assert json.dumps(a.table["rounds"]) == json.dumps(b.table["rounds"])
     assert _strip(a.table["work"]) == _strip(b.table["work"])
-    assert all(_equal(x, y) for x, y in zip(a.rows, b.rows))
+    assert all(_equal(x, y) for x, y in zip(a.rows, b.rows, strict=False))
 
 
 def test_successor_streams_rows_and_statuses() -> None:

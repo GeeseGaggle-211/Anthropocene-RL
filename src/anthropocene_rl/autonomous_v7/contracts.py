@@ -6,8 +6,9 @@ schema response against this registry so a learner never trains against a mismat
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 NATIVE_CONTRACT = 12
 ACTION_SCHEMA = 11

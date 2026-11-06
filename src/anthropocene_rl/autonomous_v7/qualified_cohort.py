@@ -1,6 +1,7 @@
 """One immutable qualified 3x5 submission binds every formal checkpoint/completion."""
 
 import json
+
 from .protocol import artifact, execution_design, verify_preregistration
 from .provenance import ProvenanceError, digest
 

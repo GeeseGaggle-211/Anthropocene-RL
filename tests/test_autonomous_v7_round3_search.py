@@ -7,6 +7,7 @@ import json
 import numpy as np
 import pytest
 import torch
+from test_autonomous_v7 import batch
 
 from anthropocene_rl.autonomous_v7 import (
     branch_bias,
@@ -14,10 +15,11 @@ from anthropocene_rl.autonomous_v7 import (
     contracts,
     data,
     ppo,
+)
+from anthropocene_rl.autonomous_v7 import (
     search_teacher as st,
 )
 from anthropocene_rl.autonomous_v7.model import Actor, Critic, Normalizer, VectorCritic, to_tensors
-from test_autonomous_v7 import batch
 
 GROUPS = len(contracts.TRADE_GROUPS)
 
@@ -32,7 +34,7 @@ def observation(seed: int = 0, trade_rows=(0, 3), held=(5.0, 40.0)) -> dict:
         if name == "trade":
             p[:] = False
             x[:, st.TRADE_HELD] = 0.0
-            for r, h in zip(trade_rows, held):
+            for r, h in zip(trade_rows, held, strict=False):
                 p[r] = True
                 x[r, st.TRADE_HELD] = h
         sets.append(x.reshape(-1).tolist())

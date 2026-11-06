@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 
-from .protocol import artifact, scan
+from .protocol import scan
 from .provenance import ProvenanceError, checkpoint_hash, digest
 
 

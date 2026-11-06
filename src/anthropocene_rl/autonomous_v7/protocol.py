@@ -232,7 +232,8 @@ def enforce_execution(args):
         return {"nonqualifying": True, "selection_allowed": False, "execution": design}
     if getattr(args, "nonqualifying", False) or getattr(args, "local_execution_design", None):
         raise ProvenanceError("registered arms cannot use nonqualifying/local execution mode")
-    import os, sys
+    import os
+    import sys
 
     path = getattr(args, "execution_manifest", None)
     if path is None:
@@ -269,7 +270,9 @@ def enforce_clone_execution(args):
         return enforce_execution(args)
     if getattr(args, "local_execution_design", None):
         raise ProvenanceError("qualifying clones cannot carry local execution design")
-    import os, sys, shlex
+    import os
+    import shlex
+    import sys
 
     path = getattr(args, "execution_manifest", None)
     if path is None:
@@ -311,7 +314,9 @@ def enforce_clone_execution(args):
 
 def enforce_qualification_execution(args, module):
     """Publishing clone-selection/promotion evidence is a qualification phase, not a local selection probe."""
-    import os, sys, shlex
+    import os
+    import shlex
+    import sys
 
     path = getattr(args, "execution_manifest", None)
     if path is None:
@@ -494,7 +499,8 @@ def inventory(spec: dict, *, base: Path | None = None) -> dict:
         elif kind in ("json", "report", "manifest", "receipt"):
             value = json.loads(path.read_text())
         elif kind == "bank_index":
-            import hashlib, zlib
+            import hashlib
+            import zlib
 
             value = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
             for entry in value:

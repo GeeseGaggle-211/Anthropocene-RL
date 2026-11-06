@@ -57,7 +57,7 @@ def seeds(text: str) -> list[int]:
 def splits(text: str) -> list[tuple[int, int, int]]:
     """'0:13:4 13:25:4' -> [(first, turns, roots), ...] (disjoint, increasing)."""
     out = [tuple(int(x) for x in part.split(":")) for part in text.split()]
-    for (a, b, r), nxt in zip(out, out[1:] + [None]):
+    for (a, b, r), nxt in zip(out, out[1:] + [None], strict=False):
         if not (0 <= a < b) or r < 1 or (nxt is not None and nxt[0] < b):
             raise ValueError(f"bad split list {text!r}: ranges must be disjoint and increasing")
         if r > b - a:

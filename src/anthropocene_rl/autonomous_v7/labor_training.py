@@ -45,26 +45,27 @@ from .labor_bridge import (
     labor_observation_fields,
 )
 from .labor_model import (
+    LABOR_CAMPAIGN_R5_QOL_ENCODER,
+    LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE,
+    LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
     LABOR_COSTS,
     LABOR_OBJECTIVES,
     LaborActor,
     LaborCostCritics,
     LaborEncoderLayout,
     LaborPersonality,
+    LaborQoLHead,
     LaborTaskCritic,
+    LaborValueSupport,
     Normalizer,
+    bind_privileged_normalizer,
     labor_checkpoint_payload,
     labor_checkpoint_personality,
-    labor_log_prob,
-    labor_policy_tensors,
-    LABOR_CAMPAIGN_R5_QOL_ENCODER,
-    LABOR_CAMPAIGN_R5_QOL_HEAD_SCALE,
-    LABOR_CAMPAIGN_R5_VALUE_SUPPORT,
-    LaborValueSupport,
-    LaborQoLHead,
     labor_checkpoint_qol_encoder,
     labor_checkpoint_qol_head,
     labor_checkpoint_value_support,
+    labor_log_prob,
+    labor_policy_tensors,
     labor_qol_encoder_seed,
     load_labor_checkpoint_models,
     nonlabor_entropy,
@@ -74,7 +75,6 @@ from .labor_model import (
     schema12_initial_action,
     schema12_retry_action,
     set_labor_film_bound,
-    bind_privileged_normalizer,
 )
 from .labor_personality import (
     LaborPersonalityAssignment,
@@ -1659,9 +1659,9 @@ def _task_weight_kwargs(args: argparse.Namespace) -> dict[str, Any]:
     for name, value in weights.items():
         if not math.isfinite(value) or value <= 0.0:
             raise ValueError(f"task loss weight {name} must be finite and positive")
-    if any(value != 1.0 for value in weights.values()):
-        kwargs["task_loss_weights"] = weights
-    elif weights and "qol_loss_weight_auto" in kwargs:
+    if any(value != 1.0 for value in weights.values()) or (
+        weights and "qol_loss_weight_auto" in kwargs
+    ):
         kwargs["task_loss_weights"] = weights
     return kwargs
 

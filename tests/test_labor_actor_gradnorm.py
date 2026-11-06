@@ -20,7 +20,9 @@ from anthropocene_rl.autonomous_v7.labor_bc import pretrain_labor_actor_bc
 from anthropocene_rl.autonomous_v7.labor_stability import StabilityConfig
 from tests.test_labor_actor_task_gradients import synthetic_actor_dataset
 
-SCALES = {t: s for t, s in zip(ACTOR_ROLE_TASKS, [0.5, 0.4, 0.01, 0.03] + [0.005] * 9)}
+SCALES = {
+    t: s for t, s in zip(ACTOR_ROLE_TASKS, [0.5, 0.4, 0.01, 0.03] + [0.005] * 9, strict=False)
+}
 
 
 def _fit(loss_balancing=None, stability=None, epochs=2):

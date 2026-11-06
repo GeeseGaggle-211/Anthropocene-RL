@@ -7,8 +7,8 @@ import torch
 from anthropocene_rl.autonomous_v7 import contracts, evaluate
 from anthropocene_rl.autonomous_v7.gate1_diagnostics import generator_state_sha256
 from anthropocene_rl.autonomous_v7.legacy_contract8 import (
-    Contract8Actor,
     SETS,
+    Contract8Actor,
     deterministic_mode,
     load,
     to_tensors,

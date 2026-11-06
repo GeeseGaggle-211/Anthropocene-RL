@@ -200,7 +200,7 @@ def ranking_accuracy(
     pred, target = np.asarray(pred, np.float64), np.asarray(target, np.float64)
     worlds, turns = np.asarray(worlds).reshape(-1), np.asarray(turns).reshape(-1)
     groups: dict[tuple[int, int], list[int]] = defaultdict(list)
-    for i, key in enumerate(zip(worlds.tolist(), turns.tolist())):
+    for i, key in enumerate(zip(worlds.tolist(), turns.tolist(), strict=False)):
         groups[(int(key[0]), int(key[1]))].append(i)
     correct = 0.0
     pairs = 0
@@ -2429,7 +2429,7 @@ def run_critic_calibration(
 
     qol_reference = frozen_qol_reference() if qol_reference is None else dict(qol_reference)
 
-    from .labor_bc import critic_target_available, discounted_returns, loader_corrections
+    from .labor_bc import critic_target_available, discounted_returns
 
     paths = _checkpoint_paths(checkpoint)
     if member_reports and len(paths) < 2:

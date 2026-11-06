@@ -106,7 +106,7 @@ def same_experiment(source, source_base, live, live_base, outputs):
         or len(left) != len(right)
     ):
         raise ProvenanceError("comparator shared experiment transitions are incomplete")
-    for a, b in zip(left, right):
+    for a, b in zip(left, right, strict=False):
         if (
             not isinstance(a, dict)
             or not isinstance(b, dict)

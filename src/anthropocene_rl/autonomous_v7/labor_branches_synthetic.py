@@ -18,7 +18,7 @@ common to every branch (CRN). Reward components are smooth in (x, u).
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 

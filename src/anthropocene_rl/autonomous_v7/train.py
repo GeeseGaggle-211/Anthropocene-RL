@@ -542,7 +542,7 @@ def main() -> int:
     np.random.seed(args.seed)
     torch.set_num_threads(args.threads)
     clock = time.time()
-    from .calibration import manifest, assert_training_rows
+    from .calibration import assert_training_rows, manifest
 
     held_manifest = manifest(args.calibration_manifest) if args.calibration_manifest else None
     from .provenance import declared_sources
@@ -608,14 +608,13 @@ def main() -> int:
             calibration_manifest=held_manifest,
         )
         print(
-            json.dumps(
-                {"branch_rows": int(len(branch[0]["camp"])), "branch_provenance": branch_report}
-            ),
+            json.dumps({"branch_rows": len(branch[0]["camp"]), "branch_provenance": branch_report}),
             flush=True,
         )
-    from .checkpoint import run_manifest, resolve_head
+    from .checkpoint import resolve_head, run_manifest
+    from .lineage import build as build_lineage
+    from .lineage import merge, rows_families, source_families
     from .provenance import checkpoint_hash, compatible_sources
-    from .lineage import build as build_lineage, rows_families, merge, source_families
 
     phase = args.out.with_suffix(".bc.pt")
     load_from = args.resume if args.resume is not None else phase if phase.exists() else None

@@ -94,8 +94,9 @@ def main() -> int:
         if path is not None:
             pairs = [line.split(",") for line in path.read_text().split() if line.strip()]
             categories[name] = [(int(s), 0, int(w)) for s, w in pairs]
-    from .worker_contract import from_state
     import torch
+
+    from .worker_contract import from_state
 
     expected_producer = from_state(torch.load(args.init, map_location="cpu", weights_only=False))
     report = {}

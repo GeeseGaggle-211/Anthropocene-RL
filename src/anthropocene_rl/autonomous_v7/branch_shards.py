@@ -17,8 +17,9 @@ of each living settlement. Label arrays are present with every mask false: the a
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import torch
@@ -312,7 +313,9 @@ def endpoint_values(critic, boot, normalizer) -> dict:
         return {}
     heads = _head_values(critic, boot, normalizer)
     out = {}
-    for world, turn in set(zip(boot["endpoint_world"].tolist(), boot["endpoint_turn"].tolist())):
+    for world, turn in set(
+        zip(boot["endpoint_world"].tolist(), boot["endpoint_turn"].tolist(), strict=False)
+    ):
         mask = (boot["endpoint_world"] == world) & (boot["endpoint_turn"] == turn)
         for name, u in heads.items():
             out[world, turn, name] = float(

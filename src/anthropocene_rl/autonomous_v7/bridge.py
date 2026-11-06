@@ -8,8 +8,9 @@ import os
 import subprocess
 import threading
 from collections import deque
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 import numpy as np
 import orjson
@@ -111,6 +112,7 @@ class Model9Bridge:
         expected_world = getattr(self, "_expected_world_contract", None)
         if expected_world is not None:
             import hashlib
+
             from .provenance import ProvenanceError
 
             raw = (
@@ -246,8 +248,8 @@ class Model9Bridge:
     def _check_expected_producer(self):
         expected = getattr(self, "_expected_worker_contract", None)
         if expected is not None:
-            from .worker_contract import checked, observe
             from .provenance import ProvenanceError
+            from .worker_contract import checked, observe
 
             if observe(self) != checked(expected):
                 raise ProvenanceError(
@@ -326,7 +328,7 @@ class Model9Bridge:
         for raw in self._process.stderr:
             self._stderr.append(raw.decode("utf-8", "replace").rstrip())
 
-    def __enter__(self) -> "Model9Bridge":
+    def __enter__(self) -> Model9Bridge:
         return self
 
     def __exit__(self, *_: object) -> None:

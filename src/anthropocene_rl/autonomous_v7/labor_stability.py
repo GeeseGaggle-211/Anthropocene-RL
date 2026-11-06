@@ -768,7 +768,9 @@ class TDDriftMonitor:
             for key in ("drift", "error"):
                 tail = self._series(key)[-(self.growth + 1) :]
                 if len(tail) == self.growth + 1:
-                    rising = all(b > a * (1.0 + self.increase) for a, b in zip(tail, tail[1:]))
+                    rising = all(
+                        b > a * (1.0 + self.increase) for a, b in zip(tail, tail[1:], strict=False)
+                    )
                     if rising and tail[-1] > self.floor:
                         alarm = {
                             "check": "td_divergence",

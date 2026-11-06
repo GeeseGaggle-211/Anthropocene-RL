@@ -53,7 +53,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from .labor_personality import LaborPersonalityConditioning, personality_for_world
 from .labor_bc import (
     ELAPSED_YEARS_FIELD,
     LABOR_LABEL_CONTRACT,
@@ -67,10 +66,15 @@ from .labor_bc import (
     world_balanced_weights,
 )
 from .labor_model import LaborPersonality
+from .labor_personality import LaborPersonalityConditioning, personality_for_world
 from .labor_privileged import (
     LABOR_PRIVILEGED_LAYOUT_V1,
     is_privileged_key,
+)
+from .labor_privileged import (
     shard_keys as privileged_shard_keys,
+)
+from .labor_privileged import (
     validate_raw as validate_privileged_raw,
 )
 from .labor_worlds import (
@@ -622,7 +626,7 @@ def load_labor_dataset(
         "label_contract": LABOR_LABEL_CONTRACT,
         "source_kind": manifest["source_record"].get("source_kind", SOURCE_KIND),
         "actor_only": bool(options.get("actor_only", False)),
-        "rows": int(len(keep)),
+        "rows": len(keep),
         "dataset_digest": manifest["dataset_digest"],
         "source_run": manifest["source_run"],
         "normalizer_digest": digest_value,
@@ -1153,7 +1157,7 @@ def _load_labor_datasets(
         ],
         "normalizer_digest": first["normalizer_digest"],
         "sources": sources,
-        "rows": int(len(keep)),
+        "rows": len(keep),
         "quarantined_rows": int((~keep).sum()),
         "world_seeds": sorted(set(dataset["row_world"].reshape(-1).tolist())),
         "sampling": "equal-source-mass-then-world-balanced-row-weights",

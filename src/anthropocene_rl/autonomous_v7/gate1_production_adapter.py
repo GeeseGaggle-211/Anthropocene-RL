@@ -14,8 +14,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import re
 import platform
+import re
 import sys
 import types
 from pathlib import Path
@@ -25,7 +25,6 @@ import numpy as np
 import torch
 
 from .provenance import ProvenanceError, checkpoint_hash, digest
-
 
 CONTRACT8_SOURCES = {"model.py", "contracts.py"}
 CONTRACT8_OUTPUTS = (
@@ -404,8 +403,7 @@ def _guarded_normalizer(state: dict[str, Any], core_width: int):
                     or float(np.float32(value)) != value
                     for value in raw
                 )
-                or suffix == "std"
-                and any(value <= 0 for value in raw)
+                or (suffix == "std" and any(value <= 0 for value in raw))
             ):
                 _fail(f"guarded BC normalizer {name}_{suffix} is invalid")
         dead = state[f"{name}_dead"]

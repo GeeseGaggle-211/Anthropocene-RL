@@ -22,8 +22,9 @@ import re
 import subprocess
 import warnings
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 PROVENANCE_VERSION = 2
 UNKNOWN = "unknown"
@@ -149,6 +150,7 @@ def label_identity(row: dict) -> tuple[str, str]:
 
 def normalize_label_identity(rows: dict, file_hash: str, strict: bool) -> tuple[list[str], bool]:
     import numpy as np
+
     from .protocol import seeds
 
     if "seed" in rows:
@@ -192,7 +194,7 @@ def normalize_label_identity(rows: dict, file_hash: str, strict: bool) -> tuple[
             raise ProvenanceError("search source snapshot differs from decision snapshot")
         if any(
             int(b) >= 0 and not re.fullmatch(r"[0-9a-f]{64}", str(s))
-            for b, s in zip(rows["bank_entry"], rows["snapshot_hash"])
+            for b, s in zip(rows["bank_entry"], rows["snapshot_hash"], strict=False)
         ):
             raise ProvenanceError("daughter search decisions require a full snapshot SHA-256")
         rows["source_seed"] = np.asarray(rows["seed"], np.int64)
@@ -255,7 +257,7 @@ def compatibility_mapping(path: Path | None, flags: dict) -> list[dict]:
 
             evidence_path, _ = artifact(ref, Path(path).parent)
             declared_outputs = {output.get("sha256") for output in body["outputs"]}
-            from .semantic_trace import verify, complete_payload, same_experiment
+            from .semantic_trace import complete_payload, same_experiment, verify
 
             for row in comparisons:
                 loaded = []
@@ -277,7 +279,7 @@ def compatibility_mapping(path: Path | None, flags: dict) -> list[dict]:
                 ]
                 if any(
                     complete_payload(a.read_bytes())[0] != complete_payload(b.read_bytes())[0]
-                    for a, b in zip(*traces)
+                    for a, b in zip(*traces, strict=False)
                 ):
                     raise ProvenanceError("simulator complete normalized save payloads differ")
         except (KeyError, TypeError, ValueError, OSError) as error:
@@ -478,7 +480,7 @@ def check(
     if len(counts) != len(sources):
         raise ValueError("source counts do not match source identities")
     tally: Counter = Counter()
-    for s, n in zip(sources, counts):
+    for s, n in zip(sources, counts, strict=False):
         tally[s] += int(n)
     unknown = sum(n for identity, n in tally.items() if UNKNOWN in identity)
     report = {

@@ -417,8 +417,8 @@ def test_status_json_and_cli(tmp_path, monkeypatch, capsys):
 
 
 def test_real_shell_execution(tmp_path):
-    import shutil
     import os
+    import shutil
 
     if os.name == "nt" or not shutil.which("bash"):
         pytest.skip("needs a POSIX bash")

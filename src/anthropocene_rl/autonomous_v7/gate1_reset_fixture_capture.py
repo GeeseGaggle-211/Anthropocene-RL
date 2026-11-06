@@ -39,7 +39,7 @@ def _seal(body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _worlds(candidate: dict[str, Any], base: Path) -> list[dict[str, Any]]:
-    evaluation = freeze._read_ref(  # noqa: SLF001 - reviewed same-package artifact loader
+    evaluation = freeze._read_ref(
         candidate["proposals"]["evaluation"],
         base,
         kind="gate1_evaluation_claim_protocol_proposal",
@@ -71,7 +71,7 @@ def capture(candidate_path: Path, review_path: Path, out: Path) -> dict[str, Any
     """Perform exactly one actor-free reset for every reviewed cohort world."""
     if out.exists():
         _fail("output already exists")
-    candidate, base = freeze._load_reviewed_candidate(  # noqa: SLF001
+    candidate, base = freeze._load_reviewed_candidate(
         candidate_path.resolve(),
         review_path.resolve(),
     )

@@ -279,9 +279,8 @@ def test_hard_cap_schedule_marks_cutoffs_unavailable_without_continuation(monkey
 
 @pytest.fixture(scope="module")
 def normalizer_path(tmp_path_factory):
-    from tests.test_labor_bc import _fit_test_normalizer
-
     from anthropocene_rl.autonomous_v7.labor_model import BOUNDED_FEATURE_CONTRACT
+    from tests.test_labor_bc import _fit_test_normalizer
 
     path = tmp_path_factory.mktemp("tailnorm") / "norm.pt"
     torch.save(

@@ -10,6 +10,7 @@ import torch
 
 from anthropocene_rl.autonomous_v7 import contracts, evaluate, initialization_lineage
 from anthropocene_rl.autonomous_v7 import gate1_freeze_candidate as freeze
+from anthropocene_rl.autonomous_v7.gate1_diagnostics import service_outcome_registry
 from anthropocene_rl.autonomous_v7.gate1_freeze_candidate import (
     _corpus,
     _git_bytes,
@@ -28,13 +29,11 @@ from anthropocene_rl.autonomous_v7.gate1_production_adapter import (
     run_contract8_comparator,
     tensor_state_identity,
 )
-from anthropocene_rl.autonomous_v7.gate1_diagnostics import service_outcome_registry
 from anthropocene_rl.autonomous_v7.provenance import (
     ProvenanceError,
     checkpoint_hash,
     digest,
 )
-
 
 SEMANTICS = {
     "experts": False,
@@ -414,7 +413,7 @@ def test_rng_schedule_couples_initial_state_not_post_draw_streams():
 
 
 def _contract8_fixture_state() -> dict:
-    from anthropocene_rl.autonomous_v7.legacy_contract8 import Contract8Actor, SETS
+    from anthropocene_rl.autonomous_v7.legacy_contract8 import SETS, Contract8Actor
 
     actor = Contract8Actor(207)
     normalizer = {"core_mean": [0.0] * 207, "core_std": [1.0] * 207}

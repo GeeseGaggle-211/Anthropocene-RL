@@ -60,11 +60,11 @@ WORK_DIR = "_work"
 PREFIX = "ckpt-"
 
 __all__ = [
+    "WORK_DIR",
     "CheckpointIdentityError",
     "ContinuationMismatch",
     "SearchCheckpointer",
     "SearchResumePoint",
-    "WORK_DIR",
     "load_search_resume_point",
     "search_work_dir",
 ]

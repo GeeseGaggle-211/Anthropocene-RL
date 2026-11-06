@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
-import shlex
 import os
 import re
+import shlex
+import subprocess
 from pathlib import Path
 
 import torch
@@ -15,7 +15,7 @@ import torch
 from .calibration import manifest
 from .lineage import checkpoint_evidence
 from .promotion import semantic_hash
-from .protocol import artifact, execution_design, receipt, scan, verify_inventory, ROLES
+from .protocol import ROLES, artifact, execution_design, receipt, scan, verify_inventory
 from .provenance import ProvenanceError, checkpoint_hash, code_commit, digest, simulator_identity
 from .teacher_data import binary_identity
 
@@ -69,11 +69,12 @@ def queue_receipt(body, expected, base):
 
 def validate_runs(spec, base, state, expected, frozen_runs=None):
     """Parse the actual PPO argv; a free resolved-config dict is not executable evidence."""
-    from . import ppo, contracts
-    from .checkpoint import arguments, resolve_head
-    from .protocol import command, seed_list
-    from .gate_validation import read
     import dataclasses
+
+    from . import contracts, ppo
+    from .checkpoint import arguments, resolve_head
+    from .gate_validation import read
+    from .protocol import command, seed_list
 
     job, _ = read(spec["queue_job"], base)
     if (
@@ -257,7 +258,7 @@ def validate_runs(spec, base, state, expected, frozen_runs=None):
 
 
 def validate_search_bindings(spec, search_receipt, receipt_base):
-    from . import ppo, branch_shards
+    from . import branch_shards, ppo
     from .checkpoint import arguments
 
     for run in spec["runs"]:

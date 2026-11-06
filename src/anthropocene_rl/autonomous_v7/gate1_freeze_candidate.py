@@ -16,8 +16,9 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import numpy as np
 import torch
@@ -163,8 +164,7 @@ def _read_ref(ref: dict[str, Any], base: Path, *, kind: str | None = None) -> di
     if (
         not path.is_file()
         or checkpoint_hash(path) != ref["sha256"]
-        or "size" in ref
-        and path.stat().st_size != ref["size"]
+        or ("size" in ref and path.stat().st_size != ref["size"])
     ):
         _fail(f"artifact reference is missing or changed: {ref.get('path')}")
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -2888,8 +2888,8 @@ def validate_candidate(candidate_path: Path) -> dict[str, Any]:
         or recovered_native.get("implicit_defaults") != []
     ):
         _fail("recovered contract-12 adapter protocol differs from the exact endpoint inventory")
-    from .gate1_diagnostics import preserve_global_rng
     from .evaluate import load_strict_state
+    from .gate1_diagnostics import preserve_global_rng
 
     protocol_ref = _adapter_ref(
         proposals["recovered_contract12_adapter"],
@@ -3345,8 +3345,8 @@ def evaluate_reviewed_node(
     rng = None
     if pane["action_mode"] == "seeded-stochastic":
         rng = _read_ref(proposals["policy_rng_schedule"], base, kind="gate1_policy_rng_schedule")
-    from .worker_contract import world as world_contract
     from . import evaluate
+    from .worker_contract import world as world_contract
 
     bounds = evaluation["capture_bounds"]
     personality = evaluation["personality"]

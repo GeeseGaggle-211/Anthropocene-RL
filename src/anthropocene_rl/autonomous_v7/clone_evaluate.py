@@ -9,13 +9,12 @@ from pathlib import Path
 
 import torch
 
-from . import contracts
 from .calibration import manifest
 from .evaluate import rollout
 from .lineage import checkpoint_evidence
 from .promotion import semantic_hash, validate_report
 from .protocol import ROLES
-from .provenance import checkpoint_hash, simulator_identity, ProvenanceError
+from .provenance import ProvenanceError, checkpoint_hash, simulator_identity
 from .teacher_data import binary_identity
 
 
@@ -26,8 +25,8 @@ def evaluate(path: Path, held: dict) -> dict:
     if not check["verified"] or state.get("model_semantics") != semantic_hash(state):
         raise ProvenanceError("clone evaluation requires a verified sealed candidate")
     frozen = state["run_manifest"]
-    from .checkpoint import resolve_head
     from .bridge import Model9Bridge
+    from .checkpoint import resolve_head
 
     if resolve_head(state) != "hierarchical":
         raise ProvenanceError("clone selection requires actual hierarchical inference")

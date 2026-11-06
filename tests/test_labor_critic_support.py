@@ -282,7 +282,7 @@ def test_campaign_r5_flag_declares_named_support_and_default_is_unchanged() -> N
         argument_parser,
     )
 
-    assert LABOR_CAMPAIGN_R5_VALUE_SUPPORT == LaborValueSupport(-0.5, 2.5, 255)
+    assert LaborValueSupport(-0.5, 2.5, 255) == LABOR_CAMPAIGN_R5_VALUE_SUPPORT
     assert not LABOR_CAMPAIGN_R5_VALUE_SUPPORT.is_default
     base = [
         "initialize",

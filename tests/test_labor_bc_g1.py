@@ -10,8 +10,7 @@ import numpy as np
 import pytest
 import torch
 
-from anthropocene_rl.autonomous_v7 import contracts
-from anthropocene_rl.autonomous_v7 import labor_bc
+from anthropocene_rl.autonomous_v7 import contracts, labor_bc
 from anthropocene_rl.autonomous_v7.labor_bc import (
     LaborResetOptions,
     _batch_loss_and_l1,

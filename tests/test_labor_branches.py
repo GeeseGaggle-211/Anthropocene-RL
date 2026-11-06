@@ -10,7 +10,6 @@ import numpy as np
 import pytest
 
 from anthropocene_rl.autonomous_v7 import labor_horizon_check as lhc
-from anthropocene_rl.autonomous_v7.labor_search import Branch, NativeSearch
 from anthropocene_rl.autonomous_v7.labor_branches import (
     KeyedActorContinuation,
     cumulative_returns,
@@ -20,6 +19,7 @@ from anthropocene_rl.autonomous_v7.labor_branches import (
 )
 from anthropocene_rl.autonomous_v7.labor_branches_synthetic import SYNTH_FOCAL, SyntheticNative
 from anthropocene_rl.autonomous_v7.labor_sa_advantage import parse_successors, successor_target
+from anthropocene_rl.autonomous_v7.labor_search import Branch, NativeSearch
 
 A = {"synthetic_vector": [0.5, -0.2, 0.1]}
 B = {"synthetic_vector": [-0.4, 0.3, 0.6]}

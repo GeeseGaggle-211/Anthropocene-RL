@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .protocol import artifact, scan, ROLES
+from .protocol import ROLES, artifact, scan
 from .provenance import ProvenanceError
 
 
@@ -88,7 +88,7 @@ def separation(reports: list[dict], *, focal=False) -> dict:
             )
         )
     sq, sp = float(np.std(q, ddof=1)), float(np.std(p, ddof=1))
-    success = [x > sq and y > sp for x, y in zip(q, p)]
+    success = [x > sq and y > sp for x, y in zip(q, p, strict=False)]
     return {
         "pass": sum(success) >= 4,
         "qol_gaps": q,
@@ -154,8 +154,8 @@ def default_comparison(a: list[dict], b: list[dict]) -> dict:
 
 
 def evaluate(spec: dict, base: Path) -> dict:
-    from .qualified_cohort import load
     from .provenance import digest
+    from .qualified_cohort import load
 
     qualified, frozen_runs = load(spec.get("qualification"), base)
     reports = {}
@@ -193,8 +193,9 @@ def evaluate(spec: dict, base: Path) -> dict:
                         path.parent,
                     )
                     import torch
-                    from .promotion import semantic_hash
+
                     from .checkpoint import saved_head
+                    from .promotion import semantic_hash
 
                     state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
                     from .completion import validate

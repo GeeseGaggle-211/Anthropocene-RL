@@ -13,8 +13,8 @@ from pathlib import Path
 import numpy as np
 
 from . import contracts
-from .bridge import Model9Bridge, DEFAULT_BRIDGE, observation_batch
-from .protocol import seeds, scan, seed_list
+from .bridge import DEFAULT_BRIDGE, Model9Bridge, observation_batch
+from .protocol import scan, seed_list
 from .provenance import ProvenanceError, checkpoint_hash, code_commit, digest, simulator_identity
 
 SCHEMA = 1
@@ -127,7 +127,7 @@ def payload(directory: Path) -> dict:
             "sha256": checkpoint_hash(path),
             "dtype": array.dtype.str,
             "shape": list(array.shape),
-            "rows": int(len(array)),
+            "rows": len(array),
         }
     return out
 
@@ -190,7 +190,7 @@ def verify_shard(directory: Path, *, live=None, binary_sha256=None) -> dict:
             )
     if any(p["rows"] != n for p in actual.values()):
         raise ProvenanceError("teacher row counts differ")
-    from .data import OBSERVATION_KEYS, LABEL_KEYS, OUTCOME_KEYS
+    from .data import LABEL_KEYS, OBSERVATION_KEYS, OUTCOME_KEYS
 
     required = {k + ".npy" for k in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS}
     if not required <= set(actual):
@@ -210,7 +210,11 @@ def verify_shard(directory: Path, *, live=None, binary_sha256=None) -> dict:
         if actual[key + ".npy"]["shape"] != [n, *shape]:
             raise ProvenanceError("teacher contracted array shape mismatch")
     identities = list(
-        zip(np.load(directory / "turn.npy").tolist(), np.load(directory / "camp.npy").tolist())
+        zip(
+            np.load(directory / "turn.npy").tolist(),
+            np.load(directory / "camp.npy").tolist(),
+            strict=False,
+        )
     )
     if len(set(identities)) != len(identities):
         raise ProvenanceError("duplicate teacher decisions")
@@ -272,7 +276,8 @@ def verify_dataset(directory: Path) -> dict:
 
 
 def collect_world(bridge, world: dict, options: dict) -> tuple[dict, dict]:
-    from .worker_contract import observe, validate, world as describe_world
+    from .worker_contract import observe, validate
+    from .worker_contract import world as describe_world
 
     expected = observe(bridge)
     validate(

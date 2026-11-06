@@ -21,7 +21,6 @@ from anthropocene_rl.autonomous_v7.semantic_trace import (
     verify,
 )
 
-
 FLAGS = {"sim_rules": "", "sim_statics": ""}
 
 
@@ -160,7 +159,7 @@ def test_two_pinned_bridge_replays_match_and_wrong_action_or_copied_frame_fail(
     _fake_environment(monkeypatch, {"source.dll": source, "live.dll": live})
     outputs: set[str] = set()
     traces = [_trace(tmp_path, "source", source, outputs), _trace(tmp_path, "live", live, outputs)]
-    for side, (trace, _) in zip(("source", "live"), traces):
+    for side, (trace, _) in zip(("source", "live"), traces, strict=False):
         row = {
             "seed": 2000,
             "turns": 1,

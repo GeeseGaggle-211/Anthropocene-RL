@@ -5,6 +5,7 @@ import copy
 import hashlib
 import os
 import re
+
 from . import contracts
 from .provenance import ProvenanceError, digest, simulator_identity
 

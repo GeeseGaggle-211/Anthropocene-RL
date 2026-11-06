@@ -29,7 +29,8 @@ from typing import Any
 import torch
 
 from . import contracts
-from .protocol import DENIED, ROLES, artifact as _protocol_artifact, scan
+from .protocol import DENIED, ROLES, scan
+from .protocol import artifact as _protocol_artifact
 from .provenance import ProvenanceError, checkpoint_hash, digest
 
 SCHEMA = 1

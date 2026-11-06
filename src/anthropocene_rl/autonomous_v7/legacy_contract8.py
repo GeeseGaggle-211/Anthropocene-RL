@@ -40,7 +40,7 @@ class Contract8Normalizer:
     set_std: dict[str, np.ndarray]
 
     @classmethod
-    def from_state(cls, state: dict[str, Any], core_width: int) -> "Contract8Normalizer":
+    def from_state(cls, state: dict[str, Any], core_width: int) -> Contract8Normalizer:
         required = {"core_mean", "core_std"} | {
             f"{name}_{suffix}" for name, _, _ in SETS for suffix in ("mean", "std")
         }

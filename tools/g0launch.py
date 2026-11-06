@@ -44,7 +44,9 @@ def _save_partial(optimizer):
         else list(c["task"].parameters()) + list(c["costs"].parameters())
     )
     sources = [p for group in optimizer.param_groups for p in group["params"]]
-    if len(targets) != len(sources) or any(t.shape != s.shape for t, s in zip(targets, sources)):
+    if len(targets) != len(sources) or any(
+        t.shape != s.shape for t, s in zip(targets, sources, strict=False)
+    ):
         print(
             "[progress] partial save skipped: parameter layout mismatch",
             file=sys.stderr,
@@ -52,7 +54,7 @@ def _save_partial(optimizer):
         )
         return
     with torch.no_grad():
-        for t, s in zip(targets, sources):
+        for t, s in zip(targets, sources, strict=False):
             t.copy_(s)
     out = dict(c["state"])
     out.update(

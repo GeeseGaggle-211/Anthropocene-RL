@@ -1,4 +1,9 @@
-import glob, os, numpy as np, torch
+import glob
+import os
+
+import numpy as np
+import torch
+
 from anthropocene_rl.autonomous_v7 import contracts
 from anthropocene_rl.autonomous_v7.labor_privileged import LABOR_PRIVILEGED_LAYOUT_V1 as L
 

@@ -22,6 +22,7 @@ from test_labor_qol_head import _training_dataset
 from torch import nn
 
 from anthropocene_rl.autonomous_v7 import labor_advantage as la
+from anthropocene_rl.autonomous_v7.labor_advantage import early_decision_mask
 from anthropocene_rl.autonomous_v7.labor_bc import pretrain_critic_on_dataset
 from anthropocene_rl.autonomous_v7.labor_model import (
     LaborActor,
@@ -43,7 +44,6 @@ from anthropocene_rl.autonomous_v7.labor_stability import (
     saturation_alarm,
     saturation_components,
 )
-from anthropocene_rl.autonomous_v7.labor_advantage import early_decision_mask
 
 
 def _toy(seed: int = 0):

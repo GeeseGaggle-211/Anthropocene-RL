@@ -42,13 +42,14 @@ from torch import nn
 from . import contracts
 from .bridge import Model9Bridge
 from .labor_bridge import (
+    SIMPLEX_TOLERANCE,
     LaborAttempt,
     LaborCatalog,
     LaborModel9Bridge,
     LaborPolicySample,
-    SIMPLEX_TOLERANCE,
     _simplex,
 )
+from .labor_device import cpu_copy, module_device, to_device
 from .labor_model import (
     LABOR_COSTS,
     LABOR_OBJECTIVE_REFERENCE_SCALES,
@@ -62,21 +63,19 @@ from .labor_model import (
     critic_privileged_batch,
     labor_policy_tensors,
 )
-from .labor_device import cpu_copy, module_device, to_device
 from .labor_personality import personality_for_world
+from .labor_ppo import (
+    RetainedLaborAction,
+    execute_labor_decision,
+    labor_cost_value_loss,
+    labor_cost_value_losses,
+    labor_task_value_losses,
+)
 from .labor_privileged import actor_inputs, privileged_row_tensors, require_critic_training_worlds
 from .labor_worlds import (
     require_held_out_test_worlds,
     require_training_record,
     require_training_worlds,
-)
-from .labor_ppo import (
-    labor_cost_value_losses,
-    labor_task_value_losses,
-    RetainedLaborAction,
-    execute_labor_decision,
-    labor_cost_value_loss,
-    labor_task_value_loss,
 )
 from .protocol import scan
 from .protocol import seeds as checked_seeds

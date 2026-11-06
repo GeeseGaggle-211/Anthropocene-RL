@@ -19,7 +19,7 @@ import torch
 from torch import nn
 
 from . import contracts
-from .model import SetEncoder, init_span_head, init_trade_heads, NATIVE_START
+from .model import NATIVE_START, SetEncoder, init_span_head, init_trade_heads
 
 _CORE_KEY = "encoder.core.0.weight"
 _TRUNK_KEY = "encoder.trunk.0.weight"

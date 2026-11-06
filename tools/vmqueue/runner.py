@@ -19,7 +19,7 @@ import subprocess
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 DEFAULT_CAP = 56
@@ -35,7 +35,7 @@ class JobError(Exception):
 
 
 def now_iso(t=None):
-    return datetime.fromtimestamp(time.time() if t is None else t, timezone.utc).strftime(
+    return datetime.fromtimestamp(time.time() if t is None else t, UTC).strftime(
         "%Y-%m-%dT%H:%M:%SZ"
     )
 
@@ -694,7 +694,7 @@ class Runner:
                     "JOB": name,
                 }
             )
-            for spec, ps in zip(job["phases"], st["phases"]):
+            for spec, ps in zip(job["phases"], st["phases"], strict=False):
                 if cancelled():
                     return finish("cancelled")
                 if (res / spec["done"]).exists():

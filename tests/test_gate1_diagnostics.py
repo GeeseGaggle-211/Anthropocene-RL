@@ -984,7 +984,7 @@ def test_randomized_native_forward_receipts_never_invert_rounded_mix_shares():
             roundtrip[0], np.asarray([field], np.float32)
         ) or not np.array_equal(roundtrip[1], np.asarray([fishing], np.float32))
         below = ((reconstructed > 0) & (reconstructed < np.float32(0.01))).any()
-        return mismatch or deterministic and below
+        return mismatch or (deterministic and below)
 
     formerly_rejected = [
         index

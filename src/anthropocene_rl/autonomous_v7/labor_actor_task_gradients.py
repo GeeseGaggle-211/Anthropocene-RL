@@ -120,11 +120,11 @@ def load_labor_rows(
         "dataset_digest": manifest["dataset_digest"],
         "normalizer_digest": digest_value,
         "partition": CALIBRATION_PARTITION if is_calibration_set(source) else "fitting",
-        "rows": int(len(keep)),
+        "rows": len(keep),
         "world_seeds": sorted(int(w) for w in manifest["shards"]),
         "row_sample": {"rows_per_world": int(rows_per_world), "seed": int(seed), **sampled},
-        "total_decisions": int(len(keep)),
-        "initial_accepted": int(len(keep)),
+        "total_decisions": len(keep),
+        "initial_accepted": len(keep),
     }
     if is_calibration_set(source):
         dataset["collection"]["calibration_set"] = True

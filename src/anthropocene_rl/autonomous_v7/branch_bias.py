@@ -29,9 +29,9 @@ import numpy as np
 import torch
 
 from . import branch_shards, data
+from .model import load_checkpoint_normalizer
 from .search_teacher import KINDS, MIX, NATIVE, REGION, load_critic
 from .upgrade import upgrade
-from .model import load_checkpoint_normalizer
 
 TARGET = 0.10
 GATED = (NATIVE, REGION, MIX)
@@ -68,12 +68,12 @@ def report(
     world, turn = rows["world"], rows["turn"]
     # Entry rows: each branch world's first tail turn (all lineage settlements deciding then).
     first = {}
-    for w, t in zip(world.tolist(), turn.tolist()):
+    for w, t in zip(world.tolist(), turn.tolist(), strict=False):
         first[w] = min(first.get(w, t), t)
-    entry = np.asarray([first[w] == t for w, t in zip(world.tolist(), turn.tolist())])
+    entry = np.asarray([first[w] == t for w, t in zip(world.tolist(), turn.tolist(), strict=False)])
     out: dict = {
-        "rows": int(len(kinds)),
-        "branches": int(len(first)),
+        "rows": len(kinds),
+        "branches": len(first),
         "target": TARGET,
         "kinds": {},
     }
@@ -104,7 +104,7 @@ def report(
     return out
 
 
-from .calibration import calibration, coverage, verdict, manifest, held_out
+from .calibration import calibration, coverage, held_out, manifest, verdict
 
 
 def saturation(u: dict[str, np.ndarray], edge: float = SATURATION_EDGE) -> dict[str, float]:
@@ -187,7 +187,7 @@ def main() -> int:
             )
         if args.calibration_inputs is None:
             raise ProvenanceError("calibration requires exact frozen --calibration-inputs")
-        from .calibration_audit import inventory, claim
+        from .calibration_audit import claim, inventory
 
         binding = inventory(
             [Path(p) for p in args.branch_shards.split(",")],
@@ -219,7 +219,7 @@ def main() -> int:
     pred, real = realised(critic, rows, boot, normalizer)
     endpoints = branch_shards.endpoint_values(critic, boot, normalizer)
     from .lineage import checkpoint_evidence
-    from .provenance import compatible_sources, ProvenanceError
+    from .provenance import ProvenanceError, compatible_sources
 
     checkpoint_check = (
         checkpoint_evidence(state, held)

@@ -24,9 +24,8 @@ from test_labor_qol_encoder import _dataset as _fit_dataset
 from test_labor_qol_encoder import _pair
 from test_labor_r5_acceptance import _evidence, _receipt
 
-from anthropocene_rl.autonomous_v7 import contracts
+from anthropocene_rl.autonomous_v7 import contracts, labor_bc
 from anthropocene_rl.autonomous_v7 import labor_advantage as la
-from anthropocene_rl.autonomous_v7 import labor_bc
 from anthropocene_rl.autonomous_v7 import labor_pretrain_eval as pe
 from anthropocene_rl.autonomous_v7 import labor_r5_acceptance as ra
 from anthropocene_rl.autonomous_v7 import labor_training as lt

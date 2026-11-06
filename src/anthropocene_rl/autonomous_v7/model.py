@@ -7,9 +7,9 @@ from pooling, so missing and zero never look alike.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import hashlib
 import json
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -248,7 +248,7 @@ class BoundedNormalizationContract:
         }
 
     @staticmethod
-    def from_state(state: dict[str, Any]) -> "BoundedNormalizationContract":
+    def from_state(state: dict[str, Any]) -> BoundedNormalizationContract:
         template = BoundedNormalizationContract(
             None,
             {
@@ -404,7 +404,7 @@ class Normalizer:
     normalization_contract: BoundedNormalizationContract | None = None
 
     @staticmethod
-    def fit(batch: dict[str, np.ndarray], guard: float | None = None) -> "Normalizer":
+    def fit(batch: dict[str, np.ndarray], guard: float | None = None) -> Normalizer:
         dead: dict[str, np.ndarray] = {}
 
         def moments(x: np.ndarray, present: np.ndarray, key: str) -> tuple[np.ndarray, np.ndarray]:
@@ -444,7 +444,7 @@ class Normalizer:
     @staticmethod
     def fit_bounded(
         batch: dict[str, np.ndarray], *, closed_loop_provenance: dict[str, Any] | None = None
-    ) -> "Normalizer":
+    ) -> Normalizer:
         """Fit the new-run bounded contract.
 
         With no provenance, history 40:55 is deliberately masked for clone/support collection. Passing typed
@@ -530,7 +530,7 @@ class Normalizer:
         return out
 
     @staticmethod
-    def from_state(state: dict[str, Any]) -> "Normalizer":
+    def from_state(state: dict[str, Any]) -> Normalizer:
         n = Normalizer(
             np.asarray(state["core_mean"], np.float32), np.asarray(state["core_std"], np.float32)
         )
@@ -941,7 +941,7 @@ class TokenEncoder(nn.Module):
         x = torch.cat(tokens, dim=1)
         mask = torch.cat(present, dim=1)
         # The encoder's layers one by one (it has no final norm), each after its FiLM step.
-        for layer, film in zip(self.attention.layers, self.film_tokens):
+        for layer, film in zip(self.attention.layers, self.film_tokens, strict=False):
             x = layer(self._film(x, film, condition), src_key_padding_mask=~mask)
         out = self.norm(x)
         out = out * mask.unsqueeze(-1).float()
@@ -1049,7 +1049,7 @@ def region_mode(out: dict[str, torch.Tensor], grouped: bool = False) -> torch.Te
     return grouped_region_slot(out["region"]) if grouped else out["region"].argmax(dim=1)
 
 
-def init_region_heads(actor: "Actor") -> None:
+def init_region_heads(actor: Actor) -> None:
     """Zero weights everywhere; the native logit's bias sets NATIVE_START. The mix offset starts at zero, so the mix
     given any destination equals the unconditioned mix."""
     others = contracts.REGION_MOVEMENT_SLOTS - 1
@@ -1074,7 +1074,7 @@ TRADE_SHARE_START = -4.6
 TRADE_LOG_STD_START = -2.3
 
 
-def init_trade_heads(actor: "Actor") -> None:
+def init_trade_heads(actor: Actor) -> None:
     with torch.no_grad():
         for layer in (actor.trade_value, actor.trade_gate, actor.trade_share):
             layer.weight.zero_()
@@ -1332,7 +1332,7 @@ class VectorCritic(nn.Module):
     two_hot = Critic.two_hot
 
     @staticmethod
-    def from_scalar(critic: "Critic", core_width: int, privileged_width: int = 0) -> "VectorCritic":
+    def from_scalar(critic: Critic, core_width: int, privileged_width: int = 0) -> VectorCritic:
         vector = VectorCritic(
             core_width,
             critic.head.in_features,

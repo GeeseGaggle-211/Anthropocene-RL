@@ -7,10 +7,10 @@ import dataclasses
 import numpy as np
 import pytest
 import torch
+from test_autonomous_v7 import batch
 
 from anthropocene_rl.autonomous_v7 import contracts, model, ppo
 from anthropocene_rl.autonomous_v7.model import Actor, Normalizer, to_tensors
-from test_autonomous_v7 import batch
 
 
 def setup(region_head: str | None = None, all_legal: bool = True, token: bool = False):

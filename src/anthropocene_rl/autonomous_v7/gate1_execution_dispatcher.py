@@ -138,7 +138,7 @@ def _context(
     except ValueError as error:
         raise DispatchError("dispatcher imported Gate-1 code from another source root") from error
     candidate_path = root / "freeze-candidate.json"
-    candidate = freeze._validate_seal(  # noqa: SLF001 - same-package verifier
+    candidate = freeze._validate_seal(
         json.loads(candidate_path.read_text(encoding="utf-8")),
         "gate1_production_freeze_candidate",
     )
@@ -146,7 +146,7 @@ def _context(
         _fail("dispatcher requires a VM-materialized candidate")
     freeze.validate_candidate(candidate_path)
     review_path = (review or root / "astra-review.json").resolve()
-    freeze._review(candidate, review_path)  # noqa: SLF001 - authoritative reviewed-candidate check
+    freeze._review(candidate, review_path)
     review_body = _sealed_json(review_path, "independent_gate1_freeze_review")
     command_ref = candidate["proposals"]["execution_commands"]
     commands_path = (root / command_ref["path"]).resolve()
@@ -154,9 +154,7 @@ def _context(
         commands_path.relative_to(root)
     except ValueError as error:
         raise DispatchError("execution command artifact escapes the materialized root") from error
-    commands = freeze._read_ref(  # noqa: SLF001 - content-addressed proposal loader
-        command_ref, root, kind="gate1_post_review_execution_commands"
-    )
+    commands = freeze._read_ref(command_ref, root, kind="gate1_post_review_execution_commands")
     if (
         commands_path.stat().st_size != command_ref["size"]
         or checkpoint_hash(commands_path) != command_ref["sha256"]
@@ -170,7 +168,7 @@ def _context(
     evaluations = command_set.get("checkpoint_evaluations")
     if not isinstance(evaluations, list) or len(evaluations) != EXPECTED_EVALUATION_COUNT:
         _fail("execution command set does not contain exactly 40 node/pane jobs")
-    evaluation = freeze._read_ref(  # noqa: SLF001
+    evaluation = freeze._read_ref(
         candidate["proposals"]["evaluation"],
         root,
         kind="gate1_evaluation_claim_protocol_proposal",
@@ -249,7 +247,7 @@ def _run_sync(context: Context, argv: list[str], log_path: Path) -> dict[str, An
 
 
 def _node_index(context: Context) -> dict[str, dict[str, Any]]:
-    dag = freeze._read_ref(  # noqa: SLF001
+    dag = freeze._read_ref(
         context.candidate["proposals"]["artifact_dag"],
         context.materialized_root,
         kind="gate1_artifact_dag_proposal",
@@ -295,7 +293,7 @@ def _validate_preflight_outputs(context: Context) -> dict[str, dict[str, Any]]:
     worker_path = _command_out(worker_argv)
     if worker_path is None:
         _fail("worker-capture command lacks its reviewed output")
-    worker = freeze._worker_capture(worker_path, context.candidate)  # noqa: SLF001
+    worker = freeze._worker_capture(worker_path, context.candidate)
     result["capture_current_worker"] = {"body_digest": worker["digest"], **_file_ref(worker_path)}
     return result
 

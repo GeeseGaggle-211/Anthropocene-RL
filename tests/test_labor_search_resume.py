@@ -24,12 +24,14 @@ import pytest
 import torch
 
 from anthropocene_rl.autonomous_v7 import bridge as bridge_module
-from anthropocene_rl.autonomous_v7 import labor_bridge
-from anthropocene_rl.autonomous_v7 import labor_model
+from anthropocene_rl.autonomous_v7 import (
+    labor_bridge,
+    labor_model,
+    labor_teacher_data,
+    labor_training,
+)
 from anthropocene_rl.autonomous_v7 import labor_search as ls
 from anthropocene_rl.autonomous_v7 import labor_search_resume as lsr
-from anthropocene_rl.autonomous_v7 import labor_teacher_data
-from anthropocene_rl.autonomous_v7 import labor_training
 from anthropocene_rl.autonomous_v7.labor_bc import LaborResetOptions
 
 CAMPS = (3, 7, 11)

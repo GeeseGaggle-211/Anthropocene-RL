@@ -130,7 +130,11 @@ def paired(policy: list[dict[str, Any]], heuristic: list[dict[str, Any]]) -> dic
             "difference_se": float((p - h).std(ddof=1) / np.sqrt(len(p))) if len(p) > 1 else 0.0,
         }
     # QoL among daughters alive on both sides (a dead daughter's QoL is 0 and would mix survival into QoL).
-    both = [(a["qol"], b["qol"]) for a, b in zip(policy, heuristic) if a["alive"] and b["alive"]]
+    both = [
+        (a["qol"], b["qol"])
+        for a, b in zip(policy, heuristic, strict=False)
+        if a["alive"] and b["alive"]
+    ]
     report["qol_both_alive"] = {
         "entries": len(both),
         "difference": float(np.mean([a - b for a, b in both])) if both else 0.0,
@@ -224,7 +228,9 @@ def main() -> int:
         or len(heuristic) != n
         or any(
             row.get("world_contract") != descriptor
-            for row, descriptor in zip(policy + heuristic, descriptors + native_descriptors)
+            for row, descriptor in zip(
+                policy + heuristic, descriptors + native_descriptors, strict=False
+            )
         )
     ):
         raise ValueError("daughter workers differ from frozen snapshot/world contract")
@@ -234,7 +240,8 @@ def main() -> int:
         "turns": args.turns,
         **paired(policy, heuristic),
         "per_entry": [
-            {"id": i, "policy": a, "heuristic": b} for i, a, b in zip(ids, policy, heuristic)
+            {"id": i, "policy": a, "heuristic": b}
+            for i, a, b in zip(ids, policy, heuristic, strict=False)
         ],
         "seconds": time.time() - clock,
     }

@@ -402,7 +402,7 @@ def calibration_coverage(worlds: list[dict[str, Any]]) -> dict[str, Any]:
     by_objective = {name: {o: 0 for o in contracts.OBJECTIVES} for name in KINDS}
     for world in worlds:
         for row in world["rows"]:
-            for alt, result in zip(row["alternatives"], row["results"]):
+            for alt, result in zip(row["alternatives"], row["results"], strict=False):
                 if not result.get("calibration"):
                     continue
                 name = KINDS[int(alt["kind"])]
@@ -839,7 +839,7 @@ def search_world(
                             config.calibration_min_per_kind,
                             [seed, withheld, warmup, turn, camp],
                         )
-                        for alt_i, c in zip(alts, calibrated):
+                        for alt_i, c in zip(alts, calibrated, strict=False):
                             calibrated_kinds[int(alt_i["kind"])] = calibrated_kinds.get(
                                 int(alt_i["kind"]), 0
                             ) + int(c)
@@ -860,9 +860,9 @@ def search_world(
                             config.calibration_tail if c else config.tail,
                             founded,
                         )
-                        for a, c in zip(alts, calibrated)
+                        for a, c in zip(alts, calibrated, strict=False)
                     ]
-                    for r, c in zip(results, calibrated):
+                    for r, c in zip(results, calibrated, strict=False):
                         r["calibration"] = bool(c)
                     branches += len(alts)
                     p = (
@@ -1103,7 +1103,9 @@ def write_branch_shards(
             int(world.get("warmup", 0)),
         )
         for point, row in enumerate(world["rows"]):
-            for a, (alt, result) in enumerate(zip(row["alternatives"], row["results"])):
+            for a, (alt, result) in enumerate(
+                zip(row["alternatives"], row["results"], strict=False)
+            ):
                 tail = result.get("tail")
                 if not tail or not tail["rows"]:
                     continue
@@ -1163,7 +1165,7 @@ def summarize(labels: dict[str, np.ndarray], margin: float) -> dict[str, Any]:
     labels = rescore(labels)
     gain, kept = label_gain(labels, margin)
     out = {
-        "rows": int(len(gain)),
+        "rows": len(gain),
         "beats_policy_share": float(np.mean(kept)),
         "margin": margin,
         "utility_version": UTILITY_VERSION,
@@ -1265,9 +1267,9 @@ def main() -> int:
         worlds += [(int(e["seed"]), int(e["mask"]), 0, int(e["id"])) for e in entries]
     cohort = None
     if args.worlds_manifest:
-        from .protocol import search_cohort
         from .calibration import manifest
         from .daughter_bank import DaughterBank
+        from .protocol import search_cohort
 
         if not config.calibration_manifest:
             raise ValueError("frozen cohort requires exclusion manifest")
@@ -1288,7 +1290,8 @@ def main() -> int:
     args.out.mkdir(parents=True, exist_ok=True)
     clock = time.time()
     # Freeze identities before any worker reads the checkpoint or forks a world.
-    from .provenance import source as provenance_source, checkpoint_hash, code_commit
+    from .provenance import checkpoint_hash, code_commit
+    from .provenance import source as provenance_source
 
     configuration = asdict(config)
     if cohort is not None:
@@ -1310,7 +1313,7 @@ def main() -> int:
         from .provenance import simulator_identity
 
         simulator = simulator_identity(probe.schema)
-        from .worker_contract import observe, world, from_state
+        from .worker_contract import from_state, observe, world
 
         expected_worker = observe(probe)
     source = provenance_source(args.checkpoint, configuration, simulator)
@@ -1398,7 +1401,7 @@ def main() -> int:
         raise ValueError("search worker pre-execution contract differs from frozen producer")
     if len(results) != len(descriptors) or any(
         result.get("world_contract") != descriptor
-        for result, descriptor in zip(results, descriptors)
+        for result, descriptor in zip(results, descriptors, strict=False)
     ):
         raise ValueError("search worker world/cohort contract differs from frozen descriptor")
     heads = {w["region_head"] for w in results}

@@ -13,17 +13,23 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from test_autonomous_v7 import batch
+from test_autonomous_v7_round3_search import calibration_rows, fake_tail, village
 
-from anthropocene_rl.autonomous_v7 import calibration as cal, checkpoint as ck, diagnostics as diag
+from anthropocene_rl.autonomous_v7 import (
+    branch_shards,
+    ppo,
+)
+from anthropocene_rl.autonomous_v7 import calibration as cal
+from anthropocene_rl.autonomous_v7 import checkpoint as ck
+from anthropocene_rl.autonomous_v7 import diagnostics as diag
 from anthropocene_rl.autonomous_v7 import (
     provenance as prov,
-    ppo,
-    branch_shards,
+)
+from anthropocene_rl.autonomous_v7 import (
     search_teacher as st,
 )
 from anthropocene_rl.autonomous_v7.model import Actor, Normalizer, to_tensors
-from test_autonomous_v7 import batch
-from test_autonomous_v7_round3_search import calibration_rows, fake_tail, village
 
 
 def legacy_module(file, name):
@@ -126,8 +132,9 @@ def test_frozen_run_probes_live_binary_once_without_actor_rng_or_rollout_state(
             pass
 
     monkeypatch.setattr(bridge, "Model9Bridge", Probe)
-    from anthropocene_rl.autonomous_v7 import worker_contract
     from test_autonomous_v7_round3_protocol import synthetic_worker
+
+    from anthropocene_rl.autonomous_v7 import worker_contract
 
     monkeypatch.setattr(worker_contract, "observe", lambda bridge: synthetic_worker())
     path = tmp_path / "init.pt"
@@ -432,7 +439,7 @@ def test_forced_calibration_catches_the_only_early_rare_alternative():
 
 
 def test_live_diagnostics_preserve_invalid_request_repair_and_fork_alignment():
-    from anthropocene_rl.autonomous_v7.bridge import Model9Bridge, DEFAULT_BRIDGE
+    from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE, Model9Bridge
 
     if not DEFAULT_BRIDGE.exists():
         pytest.skip("model9 bridge not built")
@@ -586,8 +593,9 @@ def test_movement_audit_preserves_loader_head_and_records_diagnostic_selection(
 
 
 def checkpoint_proof_fixture():
-    from anthropocene_rl.autonomous_v7 import lineage
     from test_autonomous_v7_round3_protocol import native_proof
+
+    from anthropocene_rl.autonomous_v7 import lineage
 
     inputs = {"training": native_proof(1000), "selection": native_proof(2000)}
     held = cal.manifest(
@@ -620,6 +628,7 @@ def checkpoint_proof_fixture():
 
 def test_calibration_requires_checkpoint_manifest_and_frozen_initialization_lineage(tmp_path):
     import copy
+
     from anthropocene_rl.autonomous_v7 import lineage
 
     held, state = checkpoint_proof_fixture()
@@ -699,8 +708,8 @@ def test_offline_source_union_and_live_binary_are_compatible_only_when_equal():
 
 def test_snapshot_only_schema2_trace_fails_closed(tmp_path):
     from anthropocene_rl.autonomous_v7.semantic_trace import (
-        NORMALIZATION,
         FINGERPRINT_CONTRACT,
+        NORMALIZATION,
         verify,
     )
 
@@ -780,7 +789,8 @@ def test_search_family_report_keeps_filtered_input_families(tmp_path):
 
 def test_stage1_saves_frozen_lineage_and_phase_resume_preserves_head(tmp_path, monkeypatch):
     import copy
-    from anthropocene_rl.autonomous_v7 import train, lineage
+
+    from anthropocene_rl.autonomous_v7 import lineage, train
 
     held, proof = checkpoint_proof_fixture()
     for name in ("train", "dev"):
@@ -909,6 +919,7 @@ def physical_step(turn=5, trajectory="main", requested=7.0, accepted=3.0, realis
 
 def test_physical_sidecar_units_validate_align_and_survive_step_fork_restore_without_actor_inputs():
     import copy
+
     from anthropocene_rl.autonomous_v7.bridge import Model9Bridge, observation_batch
 
     bridge = Model9Bridge.__new__(Model9Bridge)
@@ -975,6 +986,7 @@ def test_physical_sidecar_rejects_misaligned_or_invalid_receipts(mutation):
 
 def test_native_physical_receipts_restore_without_submitted_head_sidecars():
     import copy
+
     from anthropocene_rl.autonomous_v7.bridge import Model9Bridge
 
     bridge = Model9Bridge.__new__(Model9Bridge)
@@ -1002,7 +1014,7 @@ def test_native_physical_receipts_restore_without_submitted_head_sidecars():
 
 
 def test_live_snapshot_validation_binds_native_fingerprint_without_resetting_live_world():
-    from anthropocene_rl.autonomous_v7.bridge import Model9Bridge, DEFAULT_BRIDGE
+    from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE, Model9Bridge
 
     if not DEFAULT_BRIDGE.exists():
         pytest.skip("model9 bridge not built")
@@ -1017,11 +1029,12 @@ def test_live_snapshot_validation_binds_native_fingerprint_without_resetting_liv
         snapshot = exported["snapshot"]
         checked = bridge.request({"op": "validate_fingerprint_snapshot", "snapshot": snapshot})
         assert checked["sourceSeed"] == 1001 and checked["turn"] == step["turn"]
-        from anthropocene_rl.autonomous_v7.semantic_trace import (
-            complete_payload,
-            FINGERPRINT_CONTRACT,
-        )
         import base64
+
+        from anthropocene_rl.autonomous_v7.semantic_trace import (
+            FINGERPRINT_CONTRACT,
+            complete_payload,
+        )
 
         assert exported["fingerprintContract"] == FINGERPRINT_CONTRACT
         assert checked["payloadFingerprint"] == exported["fingerprint"]
@@ -1034,7 +1047,8 @@ def test_live_snapshot_validation_binds_native_fingerprint_without_resetting_liv
 
 def test_live_latent_physical_sidecar_authorizes_zero_and_fork_restore_preserves_it(monkeypatch):
     import copy
-    from anthropocene_rl.autonomous_v7.bridge import Model9Bridge, DEFAULT_BRIDGE, observation_batch
+
+    from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE, Model9Bridge, observation_batch
 
     if not DEFAULT_BRIDGE.exists():
         pytest.skip("model9 bridge not built")

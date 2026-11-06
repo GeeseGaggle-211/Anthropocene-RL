@@ -1,4 +1,6 @@
-import json, re, os
+import json
+import os
+import re
 
 R = os.path.expanduser("~/g0")
 
@@ -62,8 +64,7 @@ g4 = []
 for l in open(f"{R}/dagger/driver.log"):
     if (
         re.search(r"round \d+ done depth", l)
-        or "round " in l
-        and " collected " in l
+        or ("round " in l and " collected " in l)
         or "g4 complete" in l
     ):
         g4.append(l.rstrip("\n"))

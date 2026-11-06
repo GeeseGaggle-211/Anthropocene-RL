@@ -71,7 +71,7 @@ def teacher_proof(record: dict) -> bool:
         refs = record.get("dataset_refs", [])
         if len(refs) != len(record["datasets"]):
             return False
-        for ref, declared in zip(refs, record["datasets"]):
+        for ref, declared in zip(refs, record["datasets"], strict=False):
             path, _ = artifact(ref)
             if verify_dataset(path.parent) != declared:
                 return False
@@ -183,8 +183,9 @@ def checkpoint_evidence(state: dict, held: dict) -> dict:
             if not re.fullmatch(r"[0-9a-f]{64}", str(parent.get("checkpoint", ""))):
                 failures.append("initialization checkpoint identity missing")
             try:
-                from .protocol import artifact
                 import torch
+
+                from .protocol import artifact
 
                 path, sha = artifact(parent.get("artifact", {}))
                 actual = torch.load(path, map_location="cpu", weights_only=False)
@@ -258,8 +259,9 @@ def build(
         checkpoint_hash, state = item[:2]
         artifact_ref = item[2] if len(item) == 3 else {}
         try:
-            from .protocol import artifact
             import torch
+
+            from .protocol import artifact
 
             path, sha = artifact(artifact_ref)
             if sha != checkpoint_hash or proof(

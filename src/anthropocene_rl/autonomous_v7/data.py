@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import numpy as np
 
@@ -122,8 +122,8 @@ def load(
             scan(json.loads((directory / "meta.json").read_text()))
     verified, metadata = {}, []
     if strict:
-        from .teacher_data import verify_dataset, verify_shard
         from . import provenance as prov
+        from .teacher_data import verify_dataset, verify_shard
 
         for directory in directories:
             root = directory.parent
@@ -206,7 +206,7 @@ def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray
             else np.ones(len(rows))
         ) * alive
         q_lineage = float((p * q).sum() / p.sum()) if p.sum() > 0 else 0.0
-        for i, pi, a in zip(rows, p, alive):
+        for i, pi, a in zip(rows, p, alive, strict=False):
             reward[i] = pi * q_lineage * float(data["years"][i]) if a else 0.0
     return reward
 

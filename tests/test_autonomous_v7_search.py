@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-
-from anthropocene_rl.autonomous_v7 import contracts, ppo, search_teacher as st
-from anthropocene_rl.autonomous_v7.model import Actor, Normalizer, to_tensors
 from test_autonomous_v7 import batch
+
+from anthropocene_rl.autonomous_v7 import contracts, ppo
+from anthropocene_rl.autonomous_v7 import search_teacher as st
+from anthropocene_rl.autonomous_v7.model import Actor, Normalizer, to_tensors
 
 
 def village(regions=(3, 5), legal=(True, True, False)):
@@ -135,7 +136,8 @@ def test_labels_keep_only_winners_over_the_margin_and_the_loss_moves_toward_them
         score_policy=np.full(n, 100.0),
         score_best=np.where(np.arange(n) % 2 == 0, 110.0, 100.2),
     )
-    import tempfile, pathlib
+    import pathlib
+    import tempfile
 
     path = pathlib.Path(tempfile.mkdtemp()) / "labels.npz"
     np.savez(path, **rows)

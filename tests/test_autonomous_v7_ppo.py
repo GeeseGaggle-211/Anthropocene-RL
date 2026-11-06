@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from test_autonomous_v7 import batch
 
 from anthropocene_rl.autonomous_v7 import contracts, data, ppo
 from anthropocene_rl.autonomous_v7.model import Actor, Normalizer, to_tensors
-from test_autonomous_v7 import batch
 
 
 def setup(fishing: bool = True):
@@ -158,8 +158,8 @@ def test_route_anchor_vanishes_for_the_teacher_and_is_positive_otherwise() -> No
 
 
 def test_contract8_checkpoints_upgrade_exactly() -> None:
-    from anthropocene_rl.autonomous_v7.upgrade import upgrade
     from anthropocene_rl.autonomous_v7.model import Critic
+    from anthropocene_rl.autonomous_v7.upgrade import upgrade
 
     b = batch()
     old_width = b["core"].shape[1]
@@ -209,8 +209,8 @@ def test_contract8_checkpoints_upgrade_exactly() -> None:
 
 
 def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
-    from anthropocene_rl.autonomous_v7.upgrade import upgrade
     from anthropocene_rl.autonomous_v7.model import Critic
+    from anthropocene_rl.autonomous_v7.upgrade import upgrade
 
     b = batch()
     normalizer = Normalizer.fit(b)

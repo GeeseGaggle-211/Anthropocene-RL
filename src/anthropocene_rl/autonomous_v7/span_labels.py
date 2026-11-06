@@ -105,7 +105,8 @@ def extend(batch: dict[str, np.ndarray], tolerance: float = 0.05) -> dict[str, n
 
 
 if __name__ == "__main__":
-    import json, sys
+    import json
+    import sys
     from pathlib import Path
 
     root = Path(sys.argv[1])
@@ -117,7 +118,7 @@ if __name__ == "__main__":
             json.dumps(
                 {
                     "tolerance": tolerance,
-                    "rows": int(len(labels)),
+                    "rows": len(labels),
                     "shares": {
                         str(s): round(float((labels == i).mean()), 3)
                         for i, s in enumerate(contracts.SPANS)

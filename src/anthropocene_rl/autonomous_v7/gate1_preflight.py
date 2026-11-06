@@ -994,7 +994,7 @@ def _critic_complete(transitions: list[dict[str, Any]]) -> tuple[bool, list[str]
         if not isinstance(values, dict) or not values:
             return False, []
         for name, record in values.items():
-            if not isinstance(record, dict) or not CRITIC_FIELDS <= set(record):
+            if not isinstance(record, dict) or not set(record) >= CRITIC_FIELDS:
                 return False, []
             if any(
                 isinstance(record[field], bool)
@@ -1242,8 +1242,7 @@ def _resume_answerability(
         or type(python_rng[0]) is not int
         or not isinstance(python_rng[1], tuple)
         or not python_rng[1]
-        or python_rng[2] is not None
-        and not isinstance(python_rng[2], float)
+        or (python_rng[2] is not None and not isinstance(python_rng[2], float))
     ):
         return False, ["resume Python RNG state is absent or malformed"]
     numpy_rng = state.get("numpy_rng")

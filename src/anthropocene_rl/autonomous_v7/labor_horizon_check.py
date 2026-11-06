@@ -24,8 +24,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from .labor_branches import paired_differences, run_paired_branches
 from .labor_branches_synthetic import SYNTH_FOCAL, SyntheticNative, action_vector
 

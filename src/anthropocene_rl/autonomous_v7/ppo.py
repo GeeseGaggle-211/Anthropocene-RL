@@ -36,8 +36,8 @@ import torch
 from torch import nn
 
 from . import contracts, data
-from .daughter_bank import CAPTURES_PER_WORLD, DaughterBank, Reservoir
 from .bridge import Model9Bridge, observation_batch
+from .daughter_bank import CAPTURES_PER_WORLD, DaughterBank, Reservoir
 from .model import (
     MASKED,
     Actor,
@@ -639,8 +639,9 @@ def collect(
         raise ValueError("bank worlds need the daughter bank")
     held_manifest = getattr(actor, "calibration_manifest", None)
     if held_manifest:
-        from .calibration import assert_training
         import hashlib
+
+        from .calibration import assert_training
 
         assert_training(
             held_manifest,
@@ -693,7 +694,7 @@ def collect(
     try:
         expected_simulator = getattr(actor, "run_simulator", None)
         if expected_simulator is not None:
-            from .provenance import simulator_identity, ProvenanceError
+            from .provenance import ProvenanceError, simulator_identity
 
             if any(
                 simulator_identity(b.schema, production=True) != expected_simulator for b in bridges
@@ -702,7 +703,9 @@ def collect(
         from .worker_contract import validate, world
 
         prepared = []
-        for bridge, (seed, mask), warm, entry in zip(bridges, worlds, warmups, banked):
+        for bridge, (seed, mask), warm, entry in zip(
+            bridges, worlds, warmups, banked, strict=False
+        ):
             record = bank.get(entry) if entry >= 0 else None
             snapshot = bank.snapshot(record) if record is not None else None
             descriptor = world(
@@ -777,11 +780,15 @@ def collect(
                     actor_policy_active_mask(action, stage) for action in actions
                 ]
                 per_world: list[dict[int, dict]] = [{} for _ in seeds]
-                for (w, v), a in zip(live, actions):
+                for (w, v), a in zip(live, actions, strict=False):
                     per_world[w][int(v["camp"])] = a
                 turn_before = [s["turn"] for s in steps]
                 fingerprints_before = [s["fingerprint"] for s in steps] if economic_trace else None
-                steps = list(pool.map(lambda pair: pair[0].step(pair[1]), zip(bridges, per_world)))
+                steps = list(
+                    pool.map(
+                        lambda pair: pair[0].step(pair[1]), zip(bridges, per_world, strict=False)
+                    )
+                )
                 for bridge in bridges:
                     roll.diagnostics.extend(getattr(bridge, "decision_diagnostics", []))
                 action_diagnostics = [
@@ -903,7 +910,7 @@ def collect(
                 index = {(w, int(v["camp"])): i for i, (w, v) in enumerate(tail)}
                 o = roll.outcome
                 last: dict[tuple[int, int], int] = {}
-                for row, key in enumerate(zip(o["world"], o["camp"])):
+                for row, key in enumerate(zip(o["world"], o["camp"], strict=False)):
                     last[key] = row
                 for key, row in last.items():
                     if key in index and not o["terminated"][row]:
@@ -1080,7 +1087,7 @@ class CostCritic(nn.Module):
 
 
 def cost_bootstrap(
-    cost_critic: "CostCritic",
+    cost_critic: CostCritic,
     roll: Rollout,
     batch: dict[str, np.ndarray],
     normalizer: Normalizer,
@@ -1438,6 +1445,7 @@ def load_search_labels(
                     np.asarray(p["source_checkpoint"]).astype(str).tolist(),
                     np.asarray(p["code_commit"]).astype(str).tolist(),
                     np.asarray(p.get("source_run", np.full(n, prov.UNKNOWN))).astype(str).tolist(),
+                    strict=False,
                 )
             )
             for pair in sorted(set(pairs)):
@@ -1871,7 +1879,7 @@ def update(
                     "scope": {
                         "epoch": epoch,
                         "minibatch": start // hyper.batch,
-                        "minibatchRowCount": int(len(index)),
+                        "minibatchRowCount": len(index),
                         "expensiveAudit": expensive_critic_audit,
                         "actorAudit": expensive_actor_audit,
                         "criticAudit": expensive_critic_audit,
@@ -1883,8 +1891,9 @@ def update(
                 }
             if economic_trace is not None:
                 trace_metrics = {}
-                from .economic_trace import canonical_bytes, state_digest
                 import hashlib
+
+                from .economic_trace import canonical_bytes, state_digest
 
                 trace_before = {
                     "actor": state_digest(actor),
@@ -2225,7 +2234,7 @@ def update(
                 optimizer_debug["sampledPolicyShift"] = {
                     "measurementPhase": "pre-actor-step",
                     "rowSelection": "entire-current-minibatch",
-                    "rowCount": int(len(log_ratio)),
+                    "rowCount": len(log_ratio),
                     "nonnegativeKlEstimateMean": float(nonnegative_kl.mean()),
                     "logRatioMean": float(log_ratio.mean()),
                     "logRatioMin": float(log_ratio.min()),
@@ -2589,8 +2598,8 @@ def iteration(
         **collect_options,
     )
     if expected_worker is not None:
-        from .worker_contract import checked
         from .provenance import ProvenanceError
+        from .worker_contract import checked
 
         if (
             len(roll.worker_contracts) != len(seeds)
@@ -2602,7 +2611,10 @@ def iteration(
     batch, draws, old_logp = flatten(roll)
     reward = data.lineage_rewards(batch)
     regimes = np.asarray(
-        [regime(int(s), int(m), grassland) for s, m in zip(batch["seed"], batch["mask"])]
+        [
+            regime(int(s), int(m), grassland)
+            for s, m in zip(batch["seed"], batch["mask"], strict=False)
+        ]
     )
     span = draws["span"].numpy()
     hold_legal = batch.get("commit_hold_mask", np.zeros(len(reward), bool)).astype(bool)
@@ -2851,7 +2863,7 @@ def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) ->
     ).numpy()
     change = np.zeros(len(mix))
     for rows in data.sequences(batch):
-        for a, b in zip(rows[:-1], rows[1:]):
+        for a, b in zip(rows[:-1], rows[1:], strict=False):
             change[b] = 0.5 * float(np.abs(mix[b] - mix[a]).sum())
     return change
 
@@ -2929,6 +2941,7 @@ def evaluate_closed_loop(
     (seed, withheld mask) or (seed, withheld mask, heuristic warm-up turns). ``personality`` evaluates every village
     at that Elder personality (None: the default)."""
     from concurrent.futures import ProcessPoolExecutor
+
     from .evaluate import rollout
     from .worker_contract import from_state, world
 
@@ -2971,7 +2984,7 @@ def evaluate_closed_loop(
             row.get("worker_contract") != expected_producer
             or row.get("producer") != expected_old
             or row.get("world_contract") != descriptor
-            for row, descriptor in zip(rows, descriptors)
+            for row, descriptor in zip(rows, descriptors, strict=False)
         ):
             raise ProvenanceError(
                 "selection worker producer differs from frozen run; cannot select checkpoint"
@@ -3009,7 +3022,7 @@ def evaluate_closed_loop(
         # Per-world outcomes, in world order, for paired comparisons across policies.
         "worlds": [
             [int(w[0]), int(w[1]), float(r["welfare"]), int(r["extinctions"])]
-            for w, r in zip(worlds, rows)
+            for w, r in zip(worlds, rows, strict=False)
         ],
     }
 
@@ -3309,10 +3322,10 @@ def argument_parser():
 def main() -> int:
     parser = argument_parser()
     from .checkpoint import (
-        parse,
-        restore_actor,
-        resolve_head,
         actor_parameters,
+        parse,
+        resolve_head,
+        restore_actor,
         resume_setting,
         run_manifest,
     )
@@ -3329,7 +3342,7 @@ def main() -> int:
         raise ValueError(
             "flag/allow provenance is for analysis and migrations; training requires reject"
         )
-    from .calibration import manifest, assert_training
+    from .calibration import assert_training, manifest
 
     held_manifest = manifest(args.calibration_manifest) if args.calibration_manifest else None
     from .provenance import declared_sources
@@ -3544,7 +3557,7 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "search_rows": 0 if search is None else int(len(search["label_kind"])),
+                    "search_rows": 0 if search is None else len(search["label_kind"]),
                     "search_provenance": label_report,
                 }
             ),
@@ -3574,7 +3587,7 @@ def main() -> int:
             )
     bank = DaughterBank(args.daughter_bank) if args.daughter_bank else None
     if bank is not None and args.curriculum == "r3-balanced-v1":
-        from .curriculum import private_bank, bank_state
+        from .curriculum import bank_state, private_bank
 
         if args.bank_image is None:
             raise ValueError("balanced curriculum needs a frozen private bank image")
@@ -3621,8 +3634,8 @@ def main() -> int:
             json.dumps(
                 {
                     "branch_provenance": branch_report,
-                    "branch_rows": int(len(branch[0]["camp"])),
-                    "branch_bootstraps": 0 if branch[1] is None else int(len(branch[1]["core"])),
+                    "branch_rows": len(branch[0]["camp"]),
+                    "branch_bootstraps": 0 if branch[1] is None else len(branch[1]["core"]),
                 }
             ),
             flush=True,
@@ -3678,7 +3691,8 @@ def main() -> int:
         and resume_state["run_manifest"] != frozen_run
     ):
         raise ValueError("resolved hyperparameters/stage differ from frozen resume")
-    from .lineage import build as build_lineage, families, merge, source_families
+    from .lineage import build as build_lineage
+    from .lineage import families, merge, source_families
     from .provenance import checkpoint_hash
 
     entries = bank.training_entries() if bank is not None else []
@@ -3834,7 +3848,7 @@ def main() -> int:
         teacher.set_region_head(actor.region_head)
         critic.load_state_dict(r["critic"])
         cost_critic.load_state_dict(r["cost_critic"])
-        for optimizer, saved in zip(optimizers, r["optimizers"]):
+        for optimizer, saved in zip(optimizers, r["optimizers"], strict=False):
             optimizer.load_state_dict(saved)
         lagrange, best, baseline, log, start = (
             r["lagrange"],
@@ -3893,7 +3907,7 @@ def main() -> int:
     economic_trace = None
     if args.economic_trace is not None:
         from .economic_trace import EconomicTraceWriter
-        from .provenance import code_commit, checkpoint_hash
+        from .provenance import checkpoint_hash, code_commit
 
         economic_trace = EconomicTraceWriter(
             args.economic_trace,
