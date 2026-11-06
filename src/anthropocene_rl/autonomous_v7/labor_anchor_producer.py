@@ -48,6 +48,7 @@ from .labor_training import (
     LOCAL_WORLD_LIMIT,
     _models_from_checkpoint,
     _normalization_digest,
+    _rollout_privileged,
     _sample_world_step,
     labor_behavior_configuration,
 )
@@ -93,6 +94,7 @@ class LaborContinuationPath:
     rewards: Mapping[int, Mapping[str, tuple[float, ...]]]
     years: Mapping[int, tuple[float, ...]]
     terminated: Mapping[int, tuple[bool, ...]]
+    successor_privileged: Mapping[int, Mapping[str, np.ndarray]] | None = None
 
 
 def _tensor_row(tensors: Mapping[str, torch.Tensor], row: int) -> dict[str, np.ndarray]:
@@ -237,6 +239,17 @@ def _successor_inputs(
     }
 
 
+def _privileged_inputs(step, task, costs):
+    live = [
+        v for v in step["villages"]
+        if v.get("observation") is not None and not v.get("terminated")
+    ]
+    if not live:
+        return {}
+    raw = _rollout_privileged(live, task, costs)
+    return {} if raw is None else {int(v["camp"]): _tensor_row(raw, i) for i, v in enumerate(live)}
+
+
 def _run_continuation(
     *,
     bridge: LaborModel9Bridge,
@@ -267,6 +280,7 @@ def _run_continuation(
     maximum_terms = prefix_terms + schedule.required_terms
     successor: dict[int, dict[str, np.ndarray]] = {}
     successor_digests: dict[int, str] = {}
+    successor_privileged = {}
     for term in range(maximum_terms):
         step, rows = _sample_world_step(
             bridge=bridge,
@@ -294,6 +308,7 @@ def _run_continuation(
             terminal[camp].append(row.terminated)
         if term == 0:
             successor = _successor_inputs(step, normalizer, personality)
+            successor_privileged = _privileged_inputs(step, task_critic, cost_critics)
             for camp in opening_camps:
                 row = successor.get(camp)
                 successor_digests[camp] = digest(
@@ -318,6 +333,7 @@ def _run_continuation(
         },
         {camp: tuple(values) for camp, values in years.items()},
         {camp: tuple(values) for camp, values in terminal.items()},
+        successor_privileged,
     )
 
 
@@ -410,6 +426,8 @@ def collect_labor_anchor_arrays(
                 )
             schedules[(world, path_index)] = schedule
 
+    parent_privileged = []
+    rank_privileged = []
     parent_rows: list[dict[str, np.ndarray]] = []
     row_ids: list[str] = []
     unit_ids: list[str] = []
@@ -446,6 +464,7 @@ def collect_labor_anchor_arrays(
             opening = [context[0].camp_id for context in contexts]
             if len(opening) != len(set(opening)):
                 raise ValueError("labor anchor parent repeats a camp")
+            privileged_by_camp = _privileged_inputs(parent_step, task, costs)
             parent_by_camp = {
                 camp: _tensor_row(parent_tensors, row) for row, camp in enumerate(opening)
             }
@@ -497,6 +516,8 @@ def collect_labor_anchor_arrays(
         baseline = [by_path[(index, "sampled-policy")] for index in range(path_count)]
         for camp in opening:
             parent_rows.append(parent_by_camp[camp])
+            if privileged_by_camp:
+                parent_privileged.append(privileged_by_camp[camp])
             row_ids.append(f"{unit}/decision-0/camp-{camp}")
             unit_ids.append(unit)
             for head in LABOR_VALUE_HEADS:
@@ -527,6 +548,11 @@ def collect_labor_anchor_arrays(
                 for path in pair:
                     successor = path.successor_inputs.get(camp, parent_by_camp[camp])
                     rank_inputs.append(dict(successor))
+                    if privileged_by_camp:
+                        # Terminal rows use a shape-valid placeholder; their bootstrap is masked.
+                        rank_privileged.append(
+                            (path.successor_privileged or {}).get(camp, privileged_by_camp[camp])
+                        )
                     rank_groups.append(group)
                     rank_parents.append(parent_digest)
                     rank_successors.append(path.successor_digests[camp])
@@ -622,6 +648,8 @@ def collect_labor_anchor_arrays(
             for index, world in enumerate(worlds)
         ],
     }
+    if task.privileged_layout is not None:
+        source["privilegedNormalizerDigest"] = task.privileged_normalizer.digest()
     metadata = {
         "schemaVersion": 1,
         "kind": LABOR_ANCHOR_KIND,
@@ -640,6 +668,8 @@ def collect_labor_anchor_arrays(
         "independent_unit_id": np.asarray(unit_ids),
         **{f"input__{name}": value for name, value in _stack(parent_rows).items()},
     }
+    if parent_privileged:
+        arrays.update(_stack(parent_privileged))
     # A ranking group is usable only if the paired native successors differ.
     keep: list[int] = []
     for group in sorted(set(rank_groups)):
@@ -661,6 +691,11 @@ def collect_labor_anchor_arrays(
                 },
             }
         )
+        if rank_privileged:
+            arrays.update({
+                "rank_" + key: value
+                for key, value in _stack([rank_privileged[i] for i in keep]).items()
+            })
     else:
         metadata["rankSemantics"] = "absent"
         arrays["metadata_json"] = np.asarray(

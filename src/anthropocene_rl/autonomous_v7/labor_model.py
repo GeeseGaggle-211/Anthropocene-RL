@@ -2355,9 +2355,12 @@ def nonlabor_entropy(output: Mapping[str, torch.Tensor]) -> dict[str, torch.Tens
     def categorical(logits: torch.Tensor) -> torch.Tensor:
         probabilities = torch.softmax(logits, dim=-1)
         log_probabilities = torch.log_softmax(logits, dim=-1)
-        return -torch.where(
-            probabilities > 0, probabilities * log_probabilities, torch.zeros_like(probabilities)
-        ).sum(dim=-1)
+        # Mask before multiplication: where(0 * -inf, 0) has a finite forward
+        # value but still backpropagates NaN through the unselected product.
+        log_probabilities = torch.where(
+            probabilities > 0, log_probabilities, torch.zeros_like(log_probabilities)
+        )
+        return -(probabilities * log_probabilities).sum(dim=-1)
 
     constant = 0.5 * (1.0 + math.log(2.0 * math.pi))
     result = {

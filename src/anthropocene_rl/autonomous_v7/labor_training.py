@@ -59,6 +59,7 @@ from .labor_model import (
     LaborValueSupport,
     Normalizer,
     bind_privileged_normalizer,
+    critic_privileged_batch,
     labor_checkpoint_payload,
     labor_checkpoint_personality,
     labor_checkpoint_qol_encoder,
@@ -110,6 +111,57 @@ from .value_calibration import behavior_policy_digest
 LABOR_TRAINING_CONTRACT = "model9-specialty-attempt-training-v1"
 LABOR_ROLLOUT_KIND = "model9-specialty-attempt-rollout-v1"
 LOCAL_WORLD_LIMIT = 3
+MAX_WARMUP_DECISIONS = 9
+
+
+def _rollout_privileged(
+    live: Sequence[Mapping[str, Any]],
+    task: LaborTaskCritic | None,
+    costs: LaborCostCritics | None,
+) -> dict[str, torch.Tensor] | None:
+    """Capture pre-action raw state; retries reuse it because validation is pure."""
+    from .labor_privileged import privileged_row_tensors
+
+    layout = getattr(task, "privileged_layout", None)
+    if layout != getattr(costs, "privileged_layout", None):
+        raise ValueError("rollout critics disagree on privileged layout")
+    if layout is None:
+        return None
+    if (
+        task.privileged_normalizer is None
+        or task.privileged_normalizer is not costs.privileged_normalizer
+    ):
+        raise ValueError("rollout critics must share one bound privileged normalizer")
+    raw = privileged_row_tensors(live, layout)
+    if raw is None:
+        raise ValueError("privileged rollout requires the pre-action privileged view")
+    return raw
+
+
+def _optional_rows(
+    rows: Sequence[LaborRolloutRow],
+    name: str,
+    *,
+    example: Mapping[str, torch.Tensor] | None = None,
+) -> dict[str, torch.Tensor] | None:
+    values = [getattr(row, name) for row in rows]
+    if not values:
+        return None if example is None else _empty_like_rows(example)
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError(f"{name} is only present on some rollout rows")
+    return _concat(values, name)
+
+
+def _warmup_limit(value: int) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 1 <= value <= MAX_WARMUP_DECISIONS
+    ):
+        raise ValueError("critic warmup requires 1..9 rollout decisions per world")
+    return value
 
 
 def _cpu_rows(values: Mapping[str, torch.Tensor], rows: torch.Tensor) -> dict[str, torch.Tensor]:
@@ -183,20 +235,25 @@ def labor_behavior_configuration(
 
 
 def _task_values(
-    critic: LaborTaskCritic, tensors: Mapping[str, torch.Tensor]
+    critic: LaborTaskCritic,
+    tensors: Mapping[str, torch.Tensor],
+    privileged_raw: Mapping[str, torch.Tensor] | None = None,
 ) -> dict[str, torch.Tensor]:
     with torch.no_grad():
-        logits = critic(tensors)
+        logits = critic(tensors, critic_privileged_batch(critic, privileged_raw or {}))
         return {
             name: critic.expectation(name, logits[name]).detach().cpu() for name in LABOR_OBJECTIVES
         }
 
 
 def _cost_values(
-    critics: LaborCostCritics, tensors: Mapping[str, torch.Tensor]
+    critics: LaborCostCritics,
+    tensors: Mapping[str, torch.Tensor],
+    privileged_raw: Mapping[str, torch.Tensor] | None = None,
 ) -> dict[str, torch.Tensor]:
     with torch.no_grad():
-        return {name: value.detach().cpu() for name, value in critics(tensors).items()}
+        privileged = critic_privileged_batch(critics, privileged_raw or {})
+        return {name: value.detach().cpu() for name, value in critics(tensors, privileged).items()}
 
 
 def _score_nonlabor(
@@ -234,6 +291,13 @@ class LaborRolloutRow:
     feasibility_initial: float
     feasibility_retry: float
     settlement_guard: float
+    initial_privileged_raw: dict[str, torch.Tensor] | None = None
+    retry_privileged_raw: dict[str, torch.Tensor] | None = None
+    initial_actor_outputs: dict[str, torch.Tensor] | None = None
+    retry_actor_outputs: dict[str, torch.Tensor] | None = None
+    initial_action_features: dict[str, torch.Tensor] | None = None
+    retry_action_features: dict[str, torch.Tensor] | None = None
+    privileged_normalizer_digest: str | None = None
 
 
 def _transition_rewards(
@@ -312,7 +376,15 @@ def _execute_single_step_detailed(
     world_seed: int,
     world_index: int,
     founded_turns: dict[int, int],
+    action_binding: Mapping[str, Any] | None = None,
 ) -> tuple[Mapping[str, Any], list[LaborRolloutRow], dict[int, bool]]:
+    """Resolve one world decision; ``action_binding`` gates action-feature rows.
+
+    ``action_binding`` is the ``expected_layout``/``expected_adapter_digest``
+    pair the canonical adapter checks (see :func:`_producer_action_binding`).
+    It is passed in by the artifact producer, never rebuilt here. Without it no
+    action features are constructed and the rows carry none.
+    """
     live = [
         village
         for village in step["villages"]
@@ -321,6 +393,7 @@ def _execute_single_step_detailed(
     if not live:
         return step, [], {}
     contexts, tensors = labor_policy_tensors(live, normalizer, personality=personality)
+    raw = _rollout_privileged(live, task_critic, cost_critics)
     catalogs = {context[0].camp_id: context[0] for context in contexts}
     if len(catalogs) != len(live):
         raise ValueError("labor rollout has duplicate live camp identities")
@@ -332,11 +405,11 @@ def _execute_single_step_detailed(
         labor_lp = labor_log_prob(output, initial_labor, tensors)["joint"].detach().cpu()
         nonlabor_lp = nonlabor_log_prob(output, initial_nonlabor)["joint"].detach().cpu()
         if task_critic is not None:
-            initial_task = _task_values(task_critic, tensors)
+            initial_task = _task_values(task_critic, tensors, raw)
         else:
             initial_task = {name: torch.zeros(len(live)) for name in LABOR_OBJECTIVES}
         if cost_critics is not None:
-            initial_cost = _cost_values(cost_critics, tensors)
+            initial_cost = _cost_values(cost_critics, tensors, raw)
         else:
             initial_cost = {name: torch.zeros(len(live)) for name in LABOR_COSTS}
 
@@ -357,6 +430,7 @@ def _execute_single_step_detailed(
             float(nonlabor_lp[row]),
         )
 
+    retry_outputs = {}
     retry_rows: dict[
         int,
         tuple[
@@ -381,6 +455,8 @@ def _execute_single_step_detailed(
             raise ValueError("labor retry tensor context differs from typed rejection")
         with torch.no_grad():
             retry_output = actor(retry_tensors)
+            retry_outputs[camp] = _one_row(retry_output, 0)
+            retry_raw = None if raw is None else _one_row(raw, row_by_camp[camp])
             retry_sample = sample_labor_policy(retry_output, retry_tensors, generator=generator)
             retry_logp = float(
                 labor_log_prob(retry_output, retry_sample, retry_tensors)["joint"].detach().cpu()[0]
@@ -388,14 +464,14 @@ def _execute_single_step_detailed(
             if task_critic is not None:
                 task_values = {
                     name: float(value[0])
-                    for name, value in _task_values(task_critic, retry_tensors).items()
+                    for name, value in _task_values(task_critic, retry_tensors, retry_raw).items()
                 }
             else:
                 task_values = {name: 0.0 for name in LABOR_OBJECTIVES}
             if cost_critics is not None:
                 cost_values = {
                     name: float(value[0])
-                    for name, value in _cost_values(cost_critics, retry_tensors).items()
+                    for name, value in _cost_values(cost_critics, retry_tensors, retry_raw).items()
                 }
             else:
                 cost_values = {name: 0.0 for name in LABOR_COSTS}
@@ -430,6 +506,28 @@ def _execute_single_step_detailed(
         row = row_by_camp[camp]
         retry = retry_rows.get(camp)
         outcome = outcomes[camp]
+        initial_features = None
+        retry_features = None
+        if action_binding is not None:
+            from .labor_action_adapter import canonical_action_features
+
+            # One pre-action root catalog (masks and population) per parent:
+            # the retry is encoded with the same catalog as the initial action.
+            catalog = catalogs[camp]
+            initial_features = {
+                "features": canonical_action_features(
+                    retained[camp].payload, catalog, **action_binding
+                )[None]
+            }
+            if retry is not None:
+                # Non-labor posture is retained from the initial action, not resampled.
+                retry_payload = dict(retained[camp].payload)
+                retry_payload.update(execution.retry[camp].payload)
+                retry_features = {
+                    "features": canonical_action_features(retry_payload, catalog, **action_binding)[
+                        None
+                    ]
+                }
         rows.append(
             LaborRolloutRow(
                 world_seed=world_seed,
@@ -438,6 +536,15 @@ def _execute_single_step_detailed(
                 years=elapsed[camp],
                 terminated=terminal[camp],
                 initial_tensors=_one_row(tensors, row),
+                initial_privileged_raw=None if raw is None else _one_row(raw, row),
+                retry_privileged_raw=None if raw is None or retry is None else _one_row(raw, row),
+                initial_actor_outputs=_one_row(output, row),
+                retry_actor_outputs=retry_outputs.get(camp),
+                initial_action_features=initial_features,
+                retry_action_features=retry_features,
+                privileged_normalizer_digest=(
+                    None if raw is None else task_critic.privileged_normalizer.digest()
+                ),
                 initial_labor_sample=_one_row(initial_labor, row),
                 initial_nonlabor_sample=_one_row(initial_nonlabor, row),
                 behavior_initial_labor_logp=float(labor_lp[row]),
@@ -480,6 +587,7 @@ def _sample_world_step(
     world_index: int,
     founded_turns: dict[int, int],
     max_self_destruct_rewinds: int = 0,
+    action_binding: Mapping[str, Any] | None = None,
 ) -> tuple[Mapping[str, Any], list[LaborRolloutRow]]:
     if max_self_destruct_rewinds <= 0:
         next_step, rows, _ = _execute_single_step_detailed(
@@ -494,6 +602,7 @@ def _sample_world_step(
             world_seed=world_seed,
             world_index=world_index,
             founded_turns=founded_turns,
+            action_binding=action_binding,
         )
         return next_step, rows
 
@@ -515,6 +624,7 @@ def _sample_world_step(
             world_seed=world_seed,
             world_index=world_index,
             founded_turns=founded_turns,
+            action_binding=action_binding,
         )
         if not attempt_rows:
             bridge.drop(fork)
@@ -558,8 +668,9 @@ def _bootstrap_values(
     if not live:
         return {}
     _, tensors = labor_policy_tensors(live, normalizer, personality=personality)
-    task = _task_values(task_critic, tensors)
-    costs = _cost_values(cost_critics, tensors)
+    raw = _rollout_privileged(live, task_critic, cost_critics)
+    task = _task_values(task_critic, tensors, raw)
+    costs = _cost_values(cost_critics, tensors, raw)
     return {
         int(village["camp"]): {
             **{name: float(task[name][row]) for name in LABOR_OBJECTIVES},
@@ -583,9 +694,19 @@ def collect_labor_rollout(
     economic_trace: Any | None = None,
     max_self_destruct_rewinds: int = 0,
     allow_vm_scale: bool = False,
+    warmup_decisions: int | None = None,
+    action_binding: Mapping[str, Any] | None = None,
 ) -> tuple[list[LaborRolloutRow], dict[tuple[int, int], dict[str, float]]]:
-    """Collect diagnostic local worlds without performing any optimizer step."""
+    """Collect diagnostic local worlds without performing any optimizer step.
 
+    ``action_binding`` (see :func:`_producer_action_binding`) enables the
+    diagnostic action-feature rows; without it none are constructed.
+    """
+
+    if warmup_decisions is not None:
+        turns = _warmup_limit(warmup_decisions)
+        if max_self_destruct_rewinds:
+            raise ValueError("critic warmup disallows rewinds: each world decision counts once")
     worlds = checked_seeds(list(world_seeds), "labor local rollout worlds")
     if not allow_vm_scale and (not worlds or len(worlds) > LOCAL_WORLD_LIMIT):
         raise ValueError(f"local labor collection requires 1..{LOCAL_WORLD_LIMIT} world seeds")
@@ -620,6 +741,7 @@ def collect_labor_rollout(
                     world_index=world_index,
                     founded_turns=founded,
                     max_self_destruct_rewinds=max_self_destruct_rewinds,
+                    action_binding=action_binding,
                 )
                 if (
                     economic_trace is not None
@@ -674,9 +796,12 @@ def build_labor_training_batch(
     dict[str, dict[str, torch.Tensor]],
 ]:
     """Freeze four-head GAE/targets while preserving the parent decision denominator."""
+    from .labor_advantage import ACTION_LAYOUT_VERSION
 
     if not rows:
         raise ValueError("labor training batch requires rollout rows")
+    if len({row.privileged_normalizer_digest for row in rows}) != 1:
+        raise ValueError("rollout rows use different privileged normalization bindings")
     by_sequence: dict[tuple[int, int], list[int]] = defaultdict(list)
     for index, row in enumerate(rows):
         by_sequence[(row.world_seed, row.camp_id)].append(index)
@@ -826,6 +951,28 @@ def build_labor_training_batch(
         behavior_policy_digest=behavior_policy_sha256,
         advantage_critic_digest=critic_sha256,
         normalization_binding_digest=normalization_sha256,
+        initial_privileged_raw=_optional_rows(rows, "initial_privileged_raw"),
+        retry_privileged_raw=_optional_rows(
+            [rows[i] for i in retry_parent],
+            "retry_privileged_raw",
+            example=rows[0].initial_privileged_raw,
+        ),
+        privileged_normalizer_digest=rows[0].privileged_normalizer_digest,
+        initial_actor_outputs=_optional_rows(rows, "initial_actor_outputs"),
+        retry_actor_outputs=_optional_rows(
+            [rows[i] for i in retry_parent],
+            "retry_actor_outputs",
+            example=rows[0].initial_actor_outputs,
+        ),
+        initial_action_features=_optional_rows(rows, "initial_action_features"),
+        retry_action_features=_optional_rows(
+            [rows[i] for i in retry_parent],
+            "retry_action_features",
+            example=rows[0].initial_action_features,
+        ),
+        action_feature_contract=(
+            None if rows[0].initial_action_features is None else ACTION_LAYOUT_VERSION
+        ),
     )
     task_targets = {
         "initial": dict(initial_targets),
@@ -886,6 +1033,21 @@ def _load_rollout(
     batch_state = state.get("batch")
     if not isinstance(metadata, dict) or not isinstance(batch_state, dict):
         raise ValueError("labor rollout metadata/batch is missing")
+    # Load-time check of the producer binding (_producer_action_binding):
+    # recorded action features are consumable only by the adapter that wrote
+    # them. A rollout carrying features must record the binding; one without
+    # features is checked only if it records one.
+    has_features = batch_state.get("initial_action_features") is not None
+    if has_features or "actionAdapterDigest" in metadata or "actionAdapterContract" in metadata:
+        from .labor_action_adapter import action_adapter_contract, action_adapter_digest
+
+        if "actionAdapterDigest" not in metadata or "actionAdapterContract" not in metadata:
+            raise ValueError("labor rollout action features lack their action adapter binding")
+        if (
+            metadata.get("actionAdapterDigest") != action_adapter_digest()
+            or metadata.get("actionAdapterContract") != action_adapter_contract()
+        ):
+            raise ValueError("labor rollout action adapter binding differs")
     batch = LaborAttemptPolicyBatch(**batch_state)
     task = state.get("task_targets")
     costs = state.get("cost_targets")
@@ -1029,16 +1191,43 @@ def _critic_td_losses(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Average physical and retry edges over the physical-parent denominator."""
 
-    task_loss = labor_task_value_loss(task, batch.initial_tensors, task_targets["initial"])
-    cost_loss = labor_cost_value_loss(costs, batch.initial_tensors, cost_targets["initial"])
+    for critic in (task, costs):
+        if (
+            getattr(critic, "privileged_layout", None) is not None
+            and critic.privileged_normalizer.digest() != batch.privileged_normalizer_digest
+        ):
+            raise ValueError("rollout privileged normalization binding is stale")
+
+    def privileged_kwargs(critic, raw):
+        value = critic_privileged_batch(critic, raw or {})
+        return {} if value is None else {"privileged": value}
+
+    task_loss = labor_task_value_loss(
+        task,
+        batch.initial_tensors,
+        task_targets["initial"],
+        **privileged_kwargs(task, batch.initial_privileged_raw),
+    )
+    cost_loss = labor_cost_value_loss(
+        costs,
+        batch.initial_tensors,
+        cost_targets["initial"],
+        **privileged_kwargs(costs, batch.initial_privileged_raw),
+    )
     retry_count = len(batch.retry_parent)
     if retry_count:
         retry_weight = retry_count / batch.parent_count
         task_loss = task_loss + retry_weight * labor_task_value_loss(
-            task, batch.retry_tensors, task_targets["retry"]
+            task,
+            batch.retry_tensors,
+            task_targets["retry"],
+            **privileged_kwargs(task, batch.retry_privileged_raw),
         )
         cost_loss = cost_loss + retry_weight * labor_cost_value_loss(
-            costs, batch.retry_tensors, cost_targets["retry"]
+            costs,
+            batch.retry_tensors,
+            cost_targets["retry"],
+            **privileged_kwargs(costs, batch.retry_privileged_raw),
         )
     return task_loss, cost_loss
 
@@ -2013,6 +2202,32 @@ def _save_critic_checkpoints(
         _save_checkpoint(out, best_state)
 
 
+def _producer_action_binding() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Adapter binding for a rollout that produces action features, plus its metadata.
+
+    The PPO path has no checkpoint that consumes action features: the trainer
+    checkpoint holds state-value critics only, and no advantage head is loaded
+    here (docs/LABOR_PRIVILEGED_PPO.md). Per docs/LABOR_ACTION_ADAPTER.md, a
+    caller without a checkpoint passes the current layout and digest explicitly
+    and persists them with the feature data. The collector is that producer:
+    the binding returned here is exactly the one written into the rollout
+    metadata, and the meaningful comparison happens when the rollout is
+    consumed (:func:`_load_rollout`), not here. A future consumer that loads an
+    action-conditioned checkpoint must instead bind to that checkpoint's
+    recorded layout and adapter digest.
+    """
+    from .labor_action_adapter import action_adapter_contract, action_adapter_digest
+
+    contract = action_adapter_contract()
+    adapter_digest = action_adapter_digest()
+    binding = {
+        "expected_layout": contract["criticLayout"],
+        "expected_adapter_digest": adapter_digest,
+    }
+    metadata = {"actionAdapterContract": contract, "actionAdapterDigest": adapter_digest}
+    return binding, metadata
+
+
 def _command_collect(args: argparse.Namespace) -> None:
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
@@ -2036,6 +2251,7 @@ def _command_collect(args: argparse.Namespace) -> None:
                 "scope": "labor-rollout-economic-trace",
             },
         )
+    action_binding, action_metadata = _producer_action_binding()
     rows, bootstrap = collect_labor_rollout(
         actor=actor,
         task_critic=task,
@@ -2046,8 +2262,10 @@ def _command_collect(args: argparse.Namespace) -> None:
         generator=sampling,
         personality=personality,
         economic_trace=writer,
+        warmup_decisions=getattr(args, "warmup_decisions", None),
         max_self_destruct_rewinds=getattr(args, "max_self_destruct_rewinds", 0),
         allow_vm_scale=getattr(args, "allow_vm_scale", False),
+        action_binding=action_binding,
     )
     behavior = labor_behavior_configuration(personality)
     policy_sha = behavior_policy_digest(actor, behavior)
@@ -2068,6 +2286,7 @@ def _command_collect(args: argparse.Namespace) -> None:
     )
     metadata = {
         "schemaVersion": 1,
+        **action_metadata,
         "sourceCheckpointSha256": checkpoint_hash(args.checkpoint),
         "worldSeeds": worlds,
         "turns": args.turns,
@@ -2078,7 +2297,34 @@ def _command_collect(args: argparse.Namespace) -> None:
         "samplingGeneratorStateBefore": before_rng,
         "samplingGeneratorStateAfter": sampling.get_state(),
         "scope": "local-diagnostic-rollout-not-readiness",
+        "decisionRows": [
+            {
+                "world": row.world_seed,
+                "camp": row.camp_id,
+                "turn": row.turn,
+                "years": row.years,
+                "terminated": row.terminated,
+            }
+            for row in rows
+        ],
+        "tailSemantics": "frozen-source-state-value-bootstrap",
+        "bootstrapValues": [
+            {"world": world, "camp": camp, "values": dict(values)}
+            for (world, camp), values in sorted(bootstrap.items())
+        ],
     }
+    if getattr(args, "warmup_decisions", None) is not None:
+        metadata["criticWarmup"] = {
+            "decisionLimitPerWorld": _warmup_limit(args.warmup_decisions),
+            "decisionsPerWorld": {
+                str(world): len({row.turn for row in rows if row.world_seed == world})
+                for world in worlds
+            },
+            "tail": "frozen-source-state-value-bootstrap",
+            "stop": "decision-limit-or-world-terminal",
+            "readiness": False,
+        }
+        metadata["turns"] = args.warmup_decisions
     if getattr(args, "economic_trace", None) is not None:
         metadata["economicTraceDir"] = str(args.economic_trace)
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -2115,6 +2361,27 @@ def _command_train(args: argparse.Namespace) -> None:
         != batch.normalization_binding_digest
     ):
         raise ValueError("labor train anchor uses another normalizer")
+    warmup = rollout_metadata.get("criticWarmup")
+    if warmup is not None:
+        _warmup_limit(warmup["decisionLimitPerWorld"])
+        if warmup.get("tail") != "frozen-source-state-value-bootstrap":
+            raise ValueError("critic warmup requires a frozen state-value tail")
+        decisions = rollout_metadata.get("decisionRows", [])
+        if len(decisions) != batch.parent_count:
+            raise ValueError("critic warmup decision identities are missing")
+        counts = {
+            str(world): len({r["turn"] for r in decisions if r["world"] == world})
+            for world in rollout_metadata["worldSeeds"]
+        }
+        if counts != warmup.get("decisionsPerWorld") or any(
+            count > warmup["decisionLimitPerWorld"] for count in counts.values()
+        ):
+            raise ValueError("critic warmup decision count differs from its budget")
+        if args.calibration_report is not None:
+            raise ValueError(
+                "critic warmup cannot perform an actor update; recollect and recalibrate after it"
+            )
+    actor_before = {name: value.detach().clone() for name, value in actor.state_dict().items()}
     gate: LaborActorGate | None = None
     gate_report = None
     if args.calibration_report is not None:
@@ -2151,8 +2418,14 @@ def _command_train(args: argparse.Namespace) -> None:
         )
         critic_optimizer.step()
 
+    if any(
+        not torch.equal(value, actor.state_dict()[name]) for name, value in actor_before.items()
+    ):
+        raise AssertionError("critic update changed actor parameters")
     actor_stats: dict[str, Any]
-    if args.calibration_report is None:
+    if warmup is not None:
+        actor_stats = {"actorGateOpen": False, "reason": "critic-warmup-requires-fresh-calibration"}
+    elif args.calibration_report is None:
         actor_stats = {"actorGateOpen": False, "reason": "calibration-report-not-supplied"}
     elif gate is None:
         actor_stats = {
@@ -2215,6 +2488,8 @@ def _command_train(args: argparse.Namespace) -> None:
         "actor": actor_stats,
         "scope": "local-update-validation-not-readiness",
     }
+    if warmup is not None:
+        next_state["last_update"]["criticWarmup"] = dict(warmup)
     _save_checkpoint(args.out, next_state)
 
 
@@ -2943,6 +3218,11 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--checkpoint", type=Path, required=True)
     collect.add_argument("--worlds", required=True, help="comma-separated local diagnostic seeds")
     collect.add_argument("--turns", type=int, default=25)
+    collect.add_argument(
+        "--warmup-decisions",
+        type=int,
+        help="critic-only rollout: 1..9 physical decisions per world; overrides --turns",
+    )
     collect.add_argument("--lam", type=float, default=0.95)
     collect.add_argument("--feasibility-multiplier", type=float, default=1.0)
     collect.add_argument("--guard-multiplier", type=float, default=1.0)
