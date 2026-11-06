@@ -59,6 +59,9 @@ packages = ["src/anthropocene_rl"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Tests import shared helpers as `tests.<module>`; the `pytest` entry point (used by
+# CI) does not put the repository root on sys.path the way `python -m pytest` does.
+pythonpath = ["."]
 addopts = "-q"
 
 [tool.ruff]
