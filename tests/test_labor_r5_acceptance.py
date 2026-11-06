@@ -511,7 +511,7 @@ def test_small_position_group_is_reported_not_gated() -> None:
     position = list(range(10)) * 90 + [45] * 99
     normalized = [0.0] * 900 + [0.5] * 99
     td = _td(normalized, position)
-    late = [g for g in td["groups"] if g["first"] == 41][0]
+    late = [g for g in td["groups"] if g["first"] == 41][0]  # noqa: RUF015 - IndexError on empty must not become StopIteration
     assert late["windows"] == 99 and late["gated"] is False and late["bias"] == 0.5
     assert "qol:c:td-residual-position-41-50" not in _status(td)
 

@@ -349,11 +349,11 @@ def format_table(report: Mapping[str, Any]) -> str:
         staffed = report["staffed_rows"].get(task, report["rows"])
 
         def pct(entry: Mapping[str, Any], pset: str, key: str) -> str:
-            value = entry.get(pset, {}).get(key, {}).get(task)
+            value = entry.get(pset, {}).get(key, {}).get(task)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
             return "-" if value is None else f"{100 * value:7.2f}"
 
         def relative(weighting: str) -> str:
-            value = rel.get(weighting, {}).get("relative_to_farmer", {}).get(task)
+            value = rel.get(weighting, {}).get("relative_to_farmer", {}).get(task)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
             return "-" if value is None else f"{value:.3g}"
 
         l1 = report.get("role_activity_l1_staffed", {}).get(task)

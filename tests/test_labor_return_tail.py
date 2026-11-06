@@ -205,7 +205,7 @@ def test_continuation_closes_each_cutoff_with_the_anchor_estimator(monkeypatch) 
     assert entries[4]["reason"] == "camp-left-live-set-before-collection-horizon"
     for head in TAIL_HEADS:
         discounted = [GAMMA**t * _reward(1, t)[head] for t in range(required)]
-        if head == "feasibility":
+        if head == "feasibility":  # noqa: SIM108 - if/else kept verbatim
             bound = 1.0
         else:
             bound = 1e12

@@ -113,14 +113,14 @@ class _Parser:
             i, txt = self.lines[self.i]
             if i != ind or _is_item(txt):
                 if i > ind:
-                    raise JobError("bad indentation near: %s" % txt)
+                    raise JobError("bad indentation near: %s" % txt)  # noqa: UP031 - printf formatting kept verbatim (output identical)
                 break
             m = _KEY.match(txt)
             if not m:
-                raise JobError("cannot parse line: %s" % txt)
+                raise JobError("cannot parse line: %s" % txt)  # noqa: UP031 - printf formatting kept verbatim (output identical)
             key, val = m.group(1), (m.group(2) or "").strip()
             if key in result:
-                raise JobError("duplicate key: %s" % key)
+                raise JobError("duplicate key: %s" % key)  # noqa: UP031 - printf formatting kept verbatim (output identical)
             self.i += 1
             if val in ("|", ">"):
                 result[key] = self.block_scalar(ind)
@@ -158,7 +158,7 @@ def parse_yaml(text):
     p = _Parser(text)
     value = p.node(0)
     if p.skip():
-        raise JobError("could not parse near: %s" % p.lines[p.i][1])
+        raise JobError("could not parse near: %s" % p.lines[p.i][1])  # noqa: UP031 - printf formatting kept verbatim (output identical)
     return value if value is not None else {}
 
 
@@ -167,10 +167,10 @@ def _int(v, field, problems, minimum):
     try:
         n = int(str(v).strip())
     except (TypeError, ValueError):
-        problems.append("%s must be an integer (got %r)" % (field, v))
+        problems.append("%s must be an integer (got %r)" % (field, v))  # noqa: UP031 - printf formatting kept verbatim (output identical)
         return None
     if n < minimum:
-        problems.append("%s must be >= %d" % (field, minimum))
+        problems.append("%s must be >= %d" % (field, minimum))  # noqa: UP031 - printf formatting kept verbatim (output identical)
     return n
 
 
@@ -183,7 +183,7 @@ def validate_job(data):
     problems = []
     for k in data:
         if k not in ("name", "rl_sha", "sim_sha", "threads", "priority", "phases"):
-            problems.append("unknown field: %s" % k)
+            problems.append("unknown field: %s" % k)  # noqa: UP031 - printf formatting kept verbatim (output identical)
     name = str(data.get("name") or "")
     if not NAME_RE.match(name):
         problems.append(
@@ -193,7 +193,7 @@ def validate_job(data):
     for f in ("rl_sha", "sim_sha"):
         v = str(data.get(f) or "")
         if not SHA_RE.match(v):
-            problems.append("%s must be a full 40-character lowercase hex SHA (got %r)" % (f, v))
+            problems.append("%s must be a full 40-character lowercase hex SHA (got %r)" % (f, v))  # noqa: UP031 - printf formatting kept verbatim (output identical)
     threads = None
     if data.get("threads") is None:
         problems.append("threads is required (integer thread budget)")
@@ -210,18 +210,18 @@ def validate_job(data):
         seen = set()
         for n, ph in enumerate(phases, 1):
             if not isinstance(ph, dict):
-                problems.append("phase %d must be a mapping" % n)
+                problems.append("phase %d must be a mapping" % n)  # noqa: UP031 - printf formatting kept verbatim (output identical)
                 continue
             for k in ph:
                 if k not in ("name", "run", "done"):
-                    problems.append("phase %d: unknown field %s" % (n, k))
+                    problems.append("phase %d: unknown field %s" % (n, k))  # noqa: UP031 - printf formatting kept verbatim (output identical)
             pn = str(ph.get("name") or "")
             if not NAME_RE.match(pn):
-                problems.append("phase %d: name must be letters, digits, '_', '-', '.'" % n)
+                problems.append("phase %d: name must be letters, digits, '_', '-', '.'" % n)  # noqa: UP031 - printf formatting kept verbatim (output identical)
             elif pn in seen:
-                problems.append("phase %d: duplicate phase name %s" % (n, pn))
+                problems.append("phase %d: duplicate phase name %s" % (n, pn))  # noqa: UP031 - printf formatting kept verbatim (output identical)
             elif pn == "checkout":
-                problems.append("phase %d: 'checkout' is reserved" % n)
+                problems.append("phase %d: 'checkout' is reserved" % n)  # noqa: UP031 - printf formatting kept verbatim (output identical)
             seen.add(pn)
             run = ph.get("run")
             if not run or not str(run).strip():
@@ -253,7 +253,7 @@ def load_job_file(path):
         try:
             data = json.loads(text)
         except ValueError as e:
-            raise JobError("invalid JSON: %s" % e)
+            raise JobError("invalid JSON: %s" % e)  # noqa: B904, UP031 - exception chaining would change traceback; printf formatting kept verbatim (output identical)
     else:
         data = parse_yaml(text)
     return validate_job(data)
@@ -388,14 +388,14 @@ def cancel_job(paths, name):
                 write_json(paths.job_dir(job["name"]) / "job.json", job)
                 write_json(paths.job_dir(job["name"]) / "status.json", st)
             f.unlink()
-            return "cancelled pending job %s" % name
+            return "cancelled pending job %s" % name  # noqa: UP031 - printf formatting kept verbatim (output identical)
     st = read_json(paths.job_dir(name) / "status.json")
     if not st:
-        raise JobError("unknown job: %s" % name)
+        raise JobError("unknown job: %s" % name)  # noqa: UP031 - printf formatting kept verbatim (output identical)
     if st["state"] in TERMINAL:
-        return "job %s already %s" % (name, st["state"])
+        return "job %s already %s" % (name, st["state"])  # noqa: UP031 - printf formatting kept verbatim (output identical)
     (paths.cancel / name).write_text(now_iso(), encoding="utf-8")
-    return "cancel requested for %s (the runner stops it within a few seconds)" % name
+    return "cancel requested for %s (the runner stops it within a few seconds)" % name  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
 
 # ---------------------------------------------------------------- execution
@@ -423,7 +423,7 @@ class System:
     def start_time(self, pid):
         """Field 22 of /proc/<pid>/stat (clock ticks since boot); None if the process is gone."""
         try:
-            stat = Path("/proc/%d/stat" % pid).read_text()
+            stat = Path("/proc/%d/stat" % pid).read_text()  # noqa: UP031 - printf formatting kept verbatim (output identical)
             fields = stat[stat.rindex(")") + 2 :].split()  # after 'pid (comm)'; state is field 3
             if fields[0] == "Z":
                 return None
@@ -440,7 +440,7 @@ class System:
             if self.start_time(pid) is None:
                 return
             time.sleep(0.1)
-        try:
+        try:  # noqa: SIM105 - explicit try/except kept verbatim
             os.killpg(pid, signal.SIGKILL)
         except (OSError, AttributeError):
             pass
@@ -500,7 +500,7 @@ class Runner:
         self.checkout = checkout or default_checkout(self.paths)
         self.execute = execute or default_execute
         self.poll = poll
-        self.log = log or (lambda m: print("%s %s" % (now_iso(), m), flush=True))
+        self.log = log or (lambda m: print("%s %s" % (now_iso(), m), flush=True))  # noqa: UP031 - printf formatting kept verbatim (output identical)
         self.active = {}  # name -> (thread, threads)
         self.lock = threading.Lock()
 
@@ -517,7 +517,7 @@ class Runner:
         return self.cap_of(self.paths, self.default_cap)
 
     def _quarantine(self, f, why):
-        self.log("%s: %s; moved to pending/invalid" % (f.name, why))
+        self.log("%s: %s; moved to pending/invalid" % (f.name, why))  # noqa: UP031 - printf formatting kept verbatim (output identical)
         bad = self.paths.pending / "invalid"
         bad.mkdir(exist_ok=True)
         os.replace(str(f), str(bad / f.name))
@@ -539,7 +539,7 @@ class Runner:
             try:
                 job = load_job_file(f)
             except (JobError, OSError) as e:
-                self._quarantine(f, "invalid (%s)" % e)
+                self._quarantine(f, "invalid (%s)" % e)  # noqa: UP031 - printf formatting kept verbatim (output identical)
                 continue
             if job["name"] in found or (self.paths.job_dir(job["name"]) / "job.json").exists():
                 self._quarantine(f, "duplicates an existing job name")
@@ -566,7 +566,7 @@ class Runner:
                         job,
                         submitted,
                         src,
-                        "thread budget %d exceeds runner cap %d" % (job["threads"], cap),
+                        "thread budget %d exceeds runner cap %d" % (job["threads"], cap),  # noqa: UP031 - printf formatting kept verbatim (output identical)
                     )
                     continue
                 if used + job["threads"] > cap:
@@ -584,7 +584,7 @@ class Runner:
                 )
                 self.active[name] = (t, job["threads"])
                 used += job["threads"]
-                self.log("start %s (threads %d, used %d/%d)" % (name, job["threads"], used, cap))
+                self.log("start %s (threads %d, used %d/%d)" % (name, job["threads"], used, cap))  # noqa: UP031 - printf formatting kept verbatim (output identical)
                 t.start()
 
     def _fail_early(self, job, submitted, src, msg):
@@ -598,7 +598,7 @@ class Runner:
         )
         if src is not None:
             src.unlink()
-        self.log("failed %s: %s" % (job["name"], msg))
+        self.log("failed %s: %s" % (job["name"], msg))  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
     def drain(self, timeout=600):
         """Run until nothing is active and nothing more can start (`once` mode and tests)."""
@@ -616,12 +616,12 @@ class Runner:
         return False
 
     def serve(self):
-        self.log("runner started, cap %d" % self.cap())
+        self.log("runner started, cap %d" % self.cap())  # noqa: UP031 - printf formatting kept verbatim (output identical)
         while True:
             try:
                 self.tick()
             except Exception as e:  # never let one bad file stop the runner
-                self.log("tick error: %r" % (e,))
+                self.log("tick error: %r" % (e,))  # noqa: UP031 - printf formatting kept verbatim (output identical)
             time.sleep(self.poll)
 
     def _adoptable(self, ps):
@@ -666,7 +666,7 @@ class Runner:
             save()
             if flag.exists():
                 flag.unlink()
-            self.log("%s %s%s" % (state, name, (": " + error) if error else ""))
+            self.log("%s %s%s" % (state, name, (": " + error) if error else ""))  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
         try:
             st["state"] = "running"
@@ -678,7 +678,7 @@ class Runner:
                 if rc != 0 or not (code / "PROVENANCE").exists():
                     return finish(
                         "failed",
-                        "checkout failed (exit %s); see: elderq logs %s checkout" % (rc, name),
+                        "checkout failed (exit %s); see: elderq logs %s checkout" % (rc, name),  # noqa: UP031 - printf formatting kept verbatim (output identical)
                     )
             try:
                 st["provenance"] = (code / "PROVENANCE").read_text(
@@ -707,7 +707,7 @@ class Runner:
                 logfile = logs / (spec["name"] + ".log")
                 if self._adoptable(ps):
                     self.log(
-                        "adopting running phase %s of %s (pid %s)" % (spec["name"], name, ps["pid"])
+                        "adopting running phase %s of %s (pid %s)" % (spec["name"], name, ps["pid"])  # noqa: UP031 - printf formatting kept verbatim (output identical)
                     )
                     rc = self._wait_adopted(ps, cancelled)
                     if (
@@ -733,7 +733,7 @@ class Runner:
                     with open(str(logfile), "ab") as lf:
                         lf.write(
                             (
-                                "=== %s phase %s attempt %d\n"
+                                "=== %s phase %s attempt %d\n"  # noqa: UP031 - printf formatting kept verbatim (output identical)
                                 % (now_iso(), spec["name"], ps["attempts"])
                             ).encode()
                         )
@@ -753,19 +753,19 @@ class Runner:
                     return finish("cancelled")
                 if rc != 0:
                     ps["state"] = "failed"
-                    return finish("failed", "phase %s exited with code %s" % (spec["name"], rc))
+                    return finish("failed", "phase %s exited with code %s" % (spec["name"], rc))  # noqa: UP031 - printf formatting kept verbatim (output identical)
                 if not (res / spec["done"]).exists():
                     ps["state"] = "failed"
                     return finish(
                         "failed",
-                        "phase %s exited 0 but did not create done marker %s"
+                        "phase %s exited 0 but did not create done marker %s"  # noqa: UP031 - printf formatting kept verbatim (output identical)
                         % (spec["name"], spec["done"]),
                     )
                 ps["state"] = "done"
                 save()
             finish("done")
         except Exception as e:  # other jobs keep running whatever happens here
-            finish("failed", "runner error: %r" % (e,))
+            finish("failed", "runner error: %r" % (e,))  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
 
 def main(argv=None):
@@ -775,7 +775,9 @@ def main(argv=None):
     )
     ap.add_argument("--home")
     ap.add_argument(
-        "--cap", type=int, help="default thread cap %d (queue/config.json overrides)" % DEFAULT_CAP
+        "--cap",
+        type=int,
+        help="default thread cap %d (queue/config.json overrides)" % DEFAULT_CAP,  # noqa: UP031 - printf formatting kept verbatim (output identical)
     )
     ap.add_argument("--poll", type=float, default=5.0)
     a = ap.parse_args(argv)

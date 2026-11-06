@@ -542,7 +542,7 @@ def test_not_applicable_requires_rehashed_content_support(tmp_path: Path) -> Non
 
     history.write_text("mutated after inventory sealing\n", encoding="utf-8")
     with pytest.raises(
-        ProvenanceError, match="pre-existing-local provenance|size or SHA-256 differs"
+        ProvenanceError, match=r"pre-existing-local provenance|size or SHA-256 differs"
     ):
         preflight.run_preflight(path)
 
@@ -558,7 +558,7 @@ def test_trace_identity_and_artifact_hash_conflicts_reject(tmp_path: Path) -> No
     trace_path.write_text(trace_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     reseal(path, body)
     with pytest.raises(
-        ProvenanceError, match="pre-existing-local provenance|size or SHA-256 differs"
+        ProvenanceError, match=r"pre-existing-local provenance|size or SHA-256 differs"
     ):
         preflight.run_preflight(path)
 
@@ -619,7 +619,7 @@ def test_cross_slot_file_alias_is_rejected(tmp_path: Path) -> None:
     )
     install_producer_inventory(tmp_path, row)
     reseal(path, body)
-    with pytest.raises(ProvenanceError, match="repeats a file|aliases one file"):
+    with pytest.raises(ProvenanceError, match=r"repeats a file|aliases one file"):
         preflight.run_preflight(path)
 
 

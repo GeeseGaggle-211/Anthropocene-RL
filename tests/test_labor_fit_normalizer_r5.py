@@ -15,7 +15,7 @@ def _args(worlds: str):
 
 @pytest.mark.parametrize("worlds", ["90154", "90180", "2001", "3000"])
 def test_fit_normalizer_refuses_non_fitting_worlds(worlds: str) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - blind Exception assertion kept (test expectation unchanged)
         labor_training._command_fit_normalizer(_args(worlds))
 
 

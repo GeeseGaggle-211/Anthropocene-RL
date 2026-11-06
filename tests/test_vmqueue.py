@@ -45,7 +45,7 @@ phases:
       echo one
       echo two
     done: cmp/done.json
-""" % (SHA1, SHA2)
+""" % (SHA1, SHA2)  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
 
 def good(name="j", threads=4, priority=0, phases=None):
@@ -159,7 +159,7 @@ class Fake:
         self.checkouts.append(name)
         d = self.home / "code" / name
         (d / "rl").mkdir(parents=True, exist_ok=True)
-        (d / "PROVENANCE").write_text("rl=%s\nsim=%s\n" % (rl, sim))
+        (d / "PROVENANCE").write_text("rl=%s\nsim=%s\n" % (rl, sim))  # noqa: UP031 - printf formatting kept verbatim (output identical)
         return 0
 
     def execute(self, run, cwd, env, logfile, should_cancel, on_start=None):
@@ -224,7 +224,7 @@ def test_runs_phases_and_writes_status(tmp_path):
     assert all(p["exit_code"] == 0 and p["started"] and p["ended"] for p in st["phases"])
     assert "rl=" + SHA1 in st["provenance"]
     assert st["started"] and st["ended"] and st["threads"] == 6
-    job, run, omp, results, code = fake.runs[0]
+    _job, _run, omp, results, code = fake.runs[0]
     assert (
         omp == "6"
         and results == str(tmp_path / "results" / "a")
@@ -268,10 +268,10 @@ def test_priority_order_and_thread_cap(tmp_path):
 def test_cap_never_exceeded_with_many_jobs(tmp_path):
     r, fake = make(tmp_path, cap=12)
     for i in range(6):
-        submit(tmp_path, good("j%d" % i, threads=5, phases=phases("p")))
+        submit(tmp_path, good("j%d" % i, threads=5, phases=phases("p")))  # noqa: UP031 - printf formatting kept verbatim (output identical)
     assert r.drain(20)
     assert fake.peak <= 12
-    assert all(status(tmp_path, "j%d" % i)["state"] == "done" for i in range(6))
+    assert all(status(tmp_path, "j%d" % i)["state"] == "done" for i in range(6))  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
 
 def test_cap_from_config_file(tmp_path):
@@ -535,13 +535,13 @@ def test_dead_pid_and_reused_pid_relaunch(tmp_path):
     stale_running_job(tmp_path, "dp")
     r, fake = resume(tmp_path, FakeSystem())  # pid not alive
     assert r.drain(10)
-    assert [x[1] for x in fake.runs][0] == "touch one.done"
+    assert [x[1] for x in fake.runs][0] == "touch one.done"  # noqa: RUF015 - IndexError on empty must not become StopIteration
     stale_running_job(tmp_path, "rp")
     sysm = FakeSystem()
     sysm.alive[4242] = 1000  # same pid, different start time -> a different process
     r, fake = resume(tmp_path, sysm)
     assert r.drain(10)
-    assert [x[1] for x in fake.runs][0] == "touch one.done"
+    assert [x[1] for x in fake.runs][0] == "touch one.done"  # noqa: RUF015 - IndexError on empty must not become StopIteration
 
 
 def test_cancel_kills_adopted_group(tmp_path):

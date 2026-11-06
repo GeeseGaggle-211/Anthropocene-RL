@@ -32,7 +32,7 @@ for w in sorted(glob.glob(os.path.join(ds, "world-*"))):
     for c in range(Wd):
         nonzero[c] += int(((np.abs(x[:, food, c]) > 1e-6) & p[:, food]).sum())
     anygood += ((np.abs(x) > 1e-6) & p[:, :, None]).sum(0)
-    m = json.load(open(os.path.join(w, "meta.json")))
+    m = json.load(open(os.path.join(w, "meta.json")))  # noqa: SIM115 - file handle lifetime kept as written
 
     def walk(o, pre=""):
         if isinstance(o, dict):

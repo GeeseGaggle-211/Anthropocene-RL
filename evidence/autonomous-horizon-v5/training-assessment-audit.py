@@ -28,7 +28,7 @@ bank = json.loads(bank_path.read_text())["entries"]
 memory = []
 for entry in bank:
     path = bank_path.parent / entry["snapshot"]
-    payload = gzip.open(path, "rb").read()
+    payload = gzip.open(path, "rb").read()  # noqa: SIM115 - file handle lifetime kept as written
     markers = re.findall(b"ElderMemory.{0,15}", payload)
     memory.append(
         dict(
@@ -96,7 +96,7 @@ for c in campaign["cells"]:
             ),
             mean_preupdate_value_bias=mean(u["critic_bias"] for u in c["updates"]),
             mean_actor_minibatches=mean(u["actor_updates"] for u in c["updates"]),
-            actor_tanh_saturation=[l["saturated_fraction"] for l in h["actor_layers"]],
+            actor_tanh_saturation=[l["saturated_fraction"] for l in h["actor_layers"]],  # noqa: E741 - name kept verbatim
             active_simplex_clamp_fraction=h["active_clamp_fraction"],
             categorical=h["categorical"],
             family_episode_counts={f: len(es) for f, es in fam.items()},

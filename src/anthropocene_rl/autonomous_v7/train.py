@@ -130,7 +130,7 @@ def mode_agreement(
 def lr_factor(step: int, total: int, warmup: float, final: float | None) -> float:
     """Learning-rate multiplier: linear warm-up over the first ``warmup`` share of steps, then cosine decay to
     ``final`` of the peak at the last step; ``final`` None keeps the peak after warm-up (the original flat rate)."""  # noqa: E501 - docstring/prose line kept verbatim
-    warm = int(round(warmup * total))
+    warm = round(warmup * total)
     if step < warm:
         return (step + 1) / warm
     if final is None:

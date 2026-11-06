@@ -466,7 +466,7 @@ def test_fitting_world_partition_rejects_sealed_and_development_worlds() -> None
     assert validate_fitting_worlds([5000, 5001], "fit") == [5000, 5001]
     with pytest.raises(ValueError, match="development"):
         validate_fitting_worlds([2003], "fit")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - blind Exception assertion kept (test expectation unchanged)
         validate_fitting_worlds([3010], "fit")
     with pytest.raises(ValueError, match="repeats"):
         validate_fitting_worlds([5000, 5000], "fit")
@@ -603,7 +603,7 @@ def test_labor_teacher_cli_shards_feed_bc_and_critic(tmp_path, bounded_normalize
             float(weights.sum()) / 2,
             rel_tol=1e-5,
         )
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - blind Exception assertion kept (test expectation unchanged)
         ltd.main(
             [
                 "--normalizer-checkpoint",

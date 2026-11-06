@@ -426,7 +426,7 @@ class Normalizer:
 
         core_mean, core_std = moments(batch["core"], batch["core_present"], "core")
         normalizer = Normalizer(core_mean, core_std)
-        for name, rows, width in contracts.SETS:
+        for name, _rows, width in contracts.SETS:
             if (
                 name not in batch
             ):  # shards written before the set existed (contract 10 regions): identity moments
@@ -486,7 +486,7 @@ class Normalizer:
 
         core_mean, core_std = moments(core, core_present, "core")
         normalizer = Normalizer(core_mean, core_std, guard=BOUNDED_GUARD)
-        for name, rows, width in contracts.SETS:
+        for name, _rows, width in contracts.SETS:
             if name not in batch:
                 normalizer.set_mean[name] = np.zeros(width, np.float32)
                 normalizer.set_std[name] = np.ones(width, np.float32)
@@ -835,7 +835,7 @@ class Encoder(nn.Module):
             if self.privileged_width == 0
             else torch.cat([t["core"], t["privileged"]], dim=1)
         )
-        h = self.trunk(torch.cat([self.core(core)] + pooled, dim=1))
+        h = self.trunk(torch.cat([self.core(core)] + pooled, dim=1))  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
         return h, rows
 
 
@@ -1569,7 +1569,7 @@ def bridge_actions_from_mode(
     rounded economy shares back into the actor's hidden three-simplex.
     """
     rows = len(mode["strategic"])
-    if not commitments:
+    if not commitments:  # noqa: SIM108 - if/else kept verbatim
         spans = np.full(rows, contracts.SPAN_SINGLE)
     else:
         spans = mode["span"]

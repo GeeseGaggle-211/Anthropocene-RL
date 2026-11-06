@@ -28,7 +28,7 @@ def observation(seed: int = 0, trade_rows=(0, 3), held=(5.0, 40.0)) -> dict:
     """A bridge-shaped observation (lists, as the JSON bridge sends) with trade rows present at ``trade_rows``."""  # noqa: E501 - docstring/prose line kept verbatim
     b = batch(1, seed)
     sets, present = [], []
-    for name, rows, width in contracts.SETS:
+    for name, _rows, _width in contracts.SETS:
         x = b[name][0].copy()
         p = b[name + "_present"][0].copy()
         if name == "trade":
@@ -675,8 +675,8 @@ def test_kl_refit_runs_one_extra_critic_epoch_only_when_kl_stopped_the_update() 
 
 
 def test_critic_minibatches_mix_branch_rows(tmp_path) -> None:
-    rows, boot = branch_shards.load([write_two(tmp_path)])
-    b, normalizer, actor, teacher, critic, *_ = ppo_fixture()
+    rows, _boot = branch_shards.load([write_two(tmp_path)])
+    _b, _normalizer, _actor, _teacher, _critic, *_ = ppo_fixture()
     for key in ("privileged",):
         rows.pop(key)  # the fixture critic has no privileged block
     rows.pop("personality")

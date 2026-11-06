@@ -133,7 +133,7 @@ def test_cli_parses_weights_and_auto() -> None:
     assert kwargs("--qol-loss-weight", "30") == {"task_loss_weights": {"qol_years": 30.0}}
     auto = kwargs("--qol-loss-weight", "auto", "--qol-weight-target-share", "0.4")
     assert auto["qol_loss_weight_auto"] == AutoQoLLossWeight(target_share=0.4, ema=0.3)
-    with pytest.raises(ValueError, match="either|--task-loss-weights or"):
+    with pytest.raises(ValueError, match=r"either|--task-loss-weights or"):
         kwargs("--task-loss-weights", "qol_years=2", "--qol-loss-weight", "auto")
     with pytest.raises(ValueError, match="head=weight"):
         kwargs("--task-loss-weights", "feasibility=2")
@@ -167,7 +167,7 @@ def test_weights_scale_the_named_heads_loss_and_gradient() -> None:
         "qol_years": torch.linspace(5.0, 300.0, 6),
         "population_years": torch.linspace(1.0, 50.0, 6),
     }
-    base, heads, _ = labor_task_value_losses(task, tensors, targets)
+    _base, heads, _ = labor_task_value_losses(task, tensors, targets)
     weighted, w_heads, _ = labor_task_value_losses(
         task, tensors, targets, weights={"qol_years": 30.0, "population_years": 2.0}
     )
@@ -256,7 +256,7 @@ def test_auto_weight_is_deterministic_and_leaves_the_rng_alone(tmp_path) -> None
     steps = [s for s in _lines(tmp_path / "a.jsonl") if s["kind"] == "step"]
     assert [s["qol_loss_weight_auto"] for s in steps] == history
     # The weight a step used is the previous step's update (it applies from the next step).
-    for before, after in zip(steps, steps[1:], strict=False):
+    for before, after in zip(steps, steps[1:], strict=False):  # noqa: RUF007 - zip over slices kept (not plain pairwise)
         assert (
             after["task_loss_weights"]["qol_years"]
             == before["qol_loss_weight_auto"]["qol_weight_next"]
@@ -417,7 +417,7 @@ def test_best_validation_survives_a_resume(tmp_path) -> None:
         resume_every=2,
     )
     sink: dict = {}
-    _, summary, _ = _fit(
+    _, _summary, _ = _fit(
         dataset=data,
         epochs=4,
         validation_dataset=_validation_dataset(),

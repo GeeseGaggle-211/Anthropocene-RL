@@ -731,7 +731,7 @@ def test_action_legality_is_bound_to_source_masks_and_active_semantics(case):
     else:
         value["commit"] = contracts.SPAN_HOLD
         obs["commitHoldMask"] = False
-    with pytest.raises(ValueError, match="illegal|unavailable"):
+    with pytest.raises(ValueError, match=r"illegal|unavailable"):
         diagnostic._validate_action(
             value,
             semantics,
@@ -1230,7 +1230,7 @@ def test_decoder_receipt_rejects_absent_or_fabricated_inputs(attack):
             {key: value for key, value in receipt.items() if key != "digest"}
         )
     with pytest.raises(
-        ValueError, match="decoder receipt|forward decoder replay|tensor declaration"
+        ValueError, match=r"decoder receipt|forward decoder replay|tensor declaration"
     ):
         diagnostic._validate_action(
             emitted,
@@ -1445,7 +1445,7 @@ def test_migration_rejects_incomplete_or_unreconciled_endpoint_evidence(attack):
         left["destinationCamp"] = right["destinationCamp"] = 3
         left["people"] = right["people"] = 999999
     _reseal_evidence(evidence)
-    with pytest.raises(ValueError, match="migration|founding|transfer"):
+    with pytest.raises(ValueError, match=r"migration|founding|transfer"):
         _validate_migration(evidence, bounds)
 
 

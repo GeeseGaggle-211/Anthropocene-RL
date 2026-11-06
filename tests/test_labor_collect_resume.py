@@ -195,5 +195,5 @@ def test_resume_preflight_names_the_differing_identity_fields(tmp_path: Path) ->
     assert ltd._resume_preflight(out, source, [90100]) is None
     assert ltd._published_shards(out, source, [90100]) == {}
     assert not (out / "world-90100").exists()
-    with pytest.raises(ltd.ProvenanceError, match="no collection.json"):
+    with pytest.raises(ltd.ProvenanceError, match=r"no collection.json"):
         ltd._resume_preflight(tmp_path, source, [90100])

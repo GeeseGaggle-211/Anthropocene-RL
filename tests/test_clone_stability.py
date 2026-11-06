@@ -132,8 +132,8 @@ def test_lr_factor_warms_up_then_cosine_decays_to_the_floor() -> None:
     total = 200
     f = [train.lr_factor(s, total, 0.05, 0.05) for s in range(total)]
     assert f[0] == pytest.approx(0.1) and f[9] == pytest.approx(1.0)
-    assert all(b >= a for a, b in zip(f[:10], f[1:10], strict=False))
-    assert all(b <= a + 1e-12 for a, b in zip(f[10:], f[11:], strict=False))
+    assert all(b >= a for a, b in zip(f[:10], f[1:10], strict=False))  # noqa: RUF007 - zip over slices kept (not plain pairwise)
+    assert all(b <= a + 1e-12 for a, b in zip(f[10:], f[11:], strict=False))  # noqa: RUF007 - zip over slices kept (not plain pairwise)
     assert f[-1] == pytest.approx(0.05)
     assert [train.lr_factor(s, total, 0.0, None) for s in (0, 100, 199)] == [
         1.0,

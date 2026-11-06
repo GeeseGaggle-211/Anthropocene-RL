@@ -28,9 +28,10 @@ def test_factor_warms_up_then_decays_to_the_floor() -> None:
     total = 100
     values = [lr_schedule_factor(s, total, 0.1, 0.1) for s in range(total + 20)]
     assert values[0] == pytest.approx(0.1) and values[9] == pytest.approx(1.0)
-    assert all(b > a for a, b in zip(values[:9], values[1:10], strict=False))  # linear warm-up
+    assert all(b > a for a, b in zip(values[:9], values[1:10], strict=False))  # linear warm-up  # noqa: RUF007 - zip over slices kept (not plain pairwise)
     assert all(
-        b <= a + 1e-12 for a, b in zip(values[10:total], values[11 : total + 1], strict=False)
+        b <= a + 1e-12
+        for a, b in zip(values[10:total], values[11 : total + 1], strict=False)  # noqa: RUF007 - zip over slices kept (not plain pairwise)
     )
     mid = lr_schedule_factor(10 + 45, total, 0.1, 0.1)
     assert mid == pytest.approx(0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * 0.5)))

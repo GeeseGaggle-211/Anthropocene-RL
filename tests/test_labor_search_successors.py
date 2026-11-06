@@ -201,7 +201,7 @@ def test_successor_streams_rows_and_statuses() -> None:
             decisions = [b["decision"] for b in entry["boundaries"]]
             # per-stream rewards are the branch's raw steps
             assert len(entry["step_rewards"]) == len(decisions) == len(entry["step_years"])
-            for k, reward in enumerate(entry["step_rewards"]):
+            for _k, reward in enumerate(entry["step_rewards"]):
                 assert reward[0] == pytest.approx(v + 0.01 * s)
             for b in entry["boundaries"]:
                 if b["status"] == "terminated":

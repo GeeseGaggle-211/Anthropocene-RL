@@ -153,7 +153,7 @@ def test_pre_reset_contract_rejects_every_changed_binding(worker, mutation):
 def test_actual_worker_entrypoints_reject_before_native_execution(
     worker, monkeypatch, tmp_path, path, mutation
 ):
-    expected, schema, metadata, calls, Bridge = worker
+    expected, _schema, metadata, calls, Bridge = worker
     if mutation == "raw":
         metadata["rawMaterialsEnabled"] = True
     elif mutation == "configuration":
@@ -315,7 +315,7 @@ def test_collection_proof_rejected_before_flatten_or_optimization(worker, monkey
 def test_bound_bridge_rechecks_binary_before_step_and_world_before_reset(worker, monkeypatch):
     from anthropocene_rl.autonomous_v7.bridge import Model9Bridge
 
-    expected, schema, _, _, Bridge = worker
+    expected, schema, _, _, _Bridge = worker
     bridge = Model9Bridge.__new__(Model9Bridge)
     bridge.schema = schema
     bridge._expected_worker_contract = expected
@@ -377,7 +377,7 @@ def test_actual_fit_entrypoint_requires_vm_authority_before_rng_or_fitting(
     else:
         argv = ["ppo", "--init", "missing", "--out", str(tmp_path / "ppo")]
     monkeypatch.setattr(sys, "argv", argv)
-    with pytest.raises(prov.ProvenanceError, match="execution|VM"):
+    with pytest.raises(prov.ProvenanceError, match=r"execution|VM"):
         (train.main if kind == "train" else ppo.main)()
 
 
@@ -466,7 +466,7 @@ def test_vm_authority_uses_fixed_host_metadata_not_environment_claims(monkeypatc
     from anthropocene_rl.autonomous_v7.protocol import require_vm_authority
 
     class Response:
-        headers = {"Metadata-Flavor": "Google"}
+        headers = {"Metadata-Flavor": "Google"}  # noqa: RUF012 - class attribute default kept verbatim
 
         def __init__(self, text):
             self.text = text

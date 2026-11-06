@@ -1655,7 +1655,7 @@ def seed_verdict(
         "per_seed_status": per_seed_status,
         "passes_in_every_seed": all(v == "PASS" for v in per_seed_status.values()) and bool(seeds),
         "checks": rows,
-        "status": combine(statuses + [coverage]),
+        "status": combine(statuses + [coverage]),  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
     }
 
 

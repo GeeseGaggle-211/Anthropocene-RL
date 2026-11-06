@@ -37,7 +37,7 @@ def matches(batch: dict[str, np.ndarray], i: int, j: int, tolerance: float) -> b
         and ci != cj
     ):
         return False
-    if (
+    if (  # noqa: SIM103 - conditional return kept verbatim
         bool(batch["shelter_route_label_mask"][i])
         and bool(batch["shelter_route_label_mask"][j])
         and hi != hj
@@ -69,7 +69,7 @@ def derive(batch: dict[str, np.ndarray], tolerance: float = 0.05) -> dict[str, n
                 run += 1
             span = max(s for s in allowed if s <= run)
             span_label[start] = contracts.SPANS.index(span)
-            strategic, mask, cloth, shelter = capital(batch, start)
+            strategic, _mask, cloth, shelter = capital(batch, start)
             for k in range(1, span):
                 i = rows[position + k]
                 span_label[i] = contracts.SPAN_HOLD

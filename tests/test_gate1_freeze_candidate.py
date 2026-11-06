@@ -546,7 +546,7 @@ def test_contract8_comparator_rejects_incomplete_source_inventory_and_empty_corp
     }
     protocol["historical_sources"].pop("contracts.py")
     protocol_ref = sealed(tmp_path / "protocol.json", protocol)
-    with pytest.raises(ProvenanceError, match="model.py and contracts.py exactly"):
+    with pytest.raises(ProvenanceError, match=r"model.py and contracts.py exactly"):
         run_contract8_comparator(checkpoint, corpus_ref, protocol_ref, base=tmp_path)
     protocol["historical_sources"]["contracts.py"] = checkpoint_hash(historical / "contracts.py")
     empty_ref = sealed(

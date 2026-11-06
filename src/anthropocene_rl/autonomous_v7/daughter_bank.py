@@ -138,7 +138,7 @@ class DaughterBank:
         for e in [] if getattr(self, "retain_snapshots", False) else dropped:
             if e["file"] in kept:
                 continue
-            try:
+            try:  # noqa: SIM105 - explicit try/except kept verbatim
                 (self.directory / e["file"]).unlink()
             except FileNotFoundError:
                 pass
@@ -155,7 +155,7 @@ class DaughterBank:
         if not getattr(self, "retain_snapshots", False) and gone[0]["file"] not in {
             e["file"] for e in entries
         }:
-            try:
+            try:  # noqa: SIM105 - explicit try/except kept verbatim
                 (self.directory / gone[0]["file"]).unlink()
             except FileNotFoundError:
                 pass

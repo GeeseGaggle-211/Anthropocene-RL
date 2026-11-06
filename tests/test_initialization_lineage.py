@@ -2245,7 +2245,7 @@ def test_imported_evidence_recomputes_complete_typed_trajectory(tmp_path, attack
     reseal(document)
     report = manual_report(document, "prior", pane["id"], worker, mandatory_values())
     apply_trajectory_attack(report, attack)
-    with pytest.raises(ProvenanceError, match="diagnostic surface|outcomes/receipts"):
+    with pytest.raises(ProvenanceError, match=r"diagnostic surface|outcomes/receipts"):
         gate1._evaluation_index(document, [report], tmp_path)
 
 
@@ -2312,7 +2312,7 @@ def test_import_and_packet_reject_forced_region_selection_substitution(tmp_path)
     action["action_request"]["movement"] = contracts.REGION_BASE + 3
     action["decoded_action"]["movement"] = contracts.REGION_BASE + 3
     reseal_trajectory_report(forged)
-    with pytest.raises(ProvenanceError, match="diagnostic surface|outcomes/receipts"):
+    with pytest.raises(ProvenanceError, match=r"diagnostic surface|outcomes/receipts"):
         gate1._evaluation_index(document, [forged], tmp_path)
 
     reports = [
@@ -3050,7 +3050,7 @@ def test_import_and_complete_packet_reject_forged_decoder_receipt(tmp_path, atta
     reseal_trajectory_report(report)
     report_path.write_text(json.dumps(report, sort_keys=True))
     inputs[0][0]["sha256"] = checkpoint_hash(report_path)
-    with pytest.raises(ProvenanceError, match="decoder|action request|tensor"):
+    with pytest.raises(ProvenanceError, match=r"decoder|action request|tensor"):
         gate1.build_review_packet(
             document,
             inputs[0],
@@ -3507,7 +3507,7 @@ def test_packet_reconstructs_from_cas_and_detects_derived_tampering(tmp_path, mo
         apply_trajectory_attack(attacked_report, attack)
         rejects_blob_change(
             evaluation_refs[0]["sha256"],
-            lambda _, value=json.dumps(attacked_report, sort_keys=True).encode(): value,
+            lambda _, value=json.dumps(attacked_report, sort_keys=True).encode(): value,  # noqa: B008 - default evaluated at definition time, kept
         )
     protocol_cas = gate1._native_path(
         directory / "cas" / equivalence_evidence["protocol"]["sha256"],
@@ -3709,7 +3709,7 @@ def test_raw_equivalence_rejects_incomplete_or_duplicate_cross_product(tmp_path,
             result["executions"].append(copy.deepcopy(refs[0]))
 
     rewrite_sealed_ref(tmp_path, evidence["result"], mutate)
-    with pytest.raises(ProvenanceError, match="duplicated|omits a case/scope/side"):
+    with pytest.raises(ProvenanceError, match=r"duplicated|omits a case/scope/side"):
         gate1.validate_manifest(reseal(document), tmp_path)
 
 
@@ -3757,7 +3757,7 @@ def test_raw_equivalence_rejects_nonfinite_or_malformed_values(tmp_path, mutatio
             1,
             output_mutation=lambda output: output.update(values=[-1e308, 2.0]),
         )
-    with pytest.raises((ProvenanceError, ValueError), match="non-finite|nonfinite|shape|range"):
+    with pytest.raises((ProvenanceError, ValueError), match=r"non-finite|nonfinite|shape|range"):
         gate1.validate_manifest(reseal(document), tmp_path)
 
 
@@ -3967,7 +3967,7 @@ def test_old_review_rejects_output_contract_mutation(tmp_path):
         lambda protocol: protocol.update(output_contracts=evidence["output_contracts"]),
     )
     with pytest.raises(
-        ProvenanceError, match="equivalence differs from reviewed|evaluation surface"
+        ProvenanceError, match=r"equivalence differs from reviewed|evaluation surface"
     ):
         gate1.validate_manifest(reseal(document), tmp_path)
 

@@ -182,7 +182,7 @@ def execution_design(design: dict) -> dict:
                 "local training is limited to three diagnostic seeds and cannot select or "
                 "establish readiness"
             )
-    elif design["purpose"] == "readiness":
+    elif design["purpose"] == "readiness":  # noqa: SIM102 - nested if kept verbatim
         if set(arms) != {"R3def", "R3per", "R3lo"} or any(
             group != list(range(170, 175)) for group in arms.values()
         ):
@@ -528,9 +528,9 @@ def inventory(spec: dict, *, base: Path | None = None) -> dict:
             if isinstance(node, dict):
                 for key, item in node.items():
                     if key == "seed" and isinstance(item, int):
-                        found.add(item)
+                        found.add(item)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
                     elif (key == "seeds" or key.endswith("_seeds")) and isinstance(item, list):
-                        found.update(x for x in item if isinstance(x, int))
+                        found.update(x for x in item if isinstance(x, int))  # noqa: B023 - late-binding closure kept as written (called within the iteration)
                     visit(item)
             elif isinstance(node, list):
                 for item in node:

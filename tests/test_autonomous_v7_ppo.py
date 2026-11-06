@@ -423,7 +423,7 @@ def test_film_is_exact_at_init_inert_at_default_and_conditions_otherwise() -> No
             [enc.village(core).unsqueeze(1)],
             [torch.ones(len(core), 1, dtype=torch.bool)],
         )
-        for name, rows, _ in contracts.SETS:
+        for name, _rows, _ in contracts.SETS:
             tokens.append(
                 enc.project[name](tt[name])
                 + enc.kind[name]

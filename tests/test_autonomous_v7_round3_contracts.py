@@ -856,7 +856,7 @@ def test_stage1_saves_frozen_lineage_and_phase_resume_preserves_head(tmp_path, m
     monkeypatch.setenv("ANTHROPOCENE_REGION_HEAD", "flat")
     monkeypatch.setattr(sys, "argv", argv[:-1])
     assert train.main() == 0 and frozen_heads == ["flat", "flat"]
-    monkeypatch.setattr(sys, "argv", argv[:-1] + ["--region-head", "hierarchical"])
+    monkeypatch.setattr(sys, "argv", argv[:-1] + ["--region-head", "hierarchical"])  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
     with pytest.raises(ValueError, match="frozen resume"):
         train.main()
 
@@ -934,9 +934,9 @@ def test_physical_sidecar_units_validate_align_and_survive_step_fork_restore_wit
     bridge.request = lambda payload: {"fork": 4, "step": copy.deepcopy(main)}
     step = bridge.step({7: {}})
     expected = copy.deepcopy(bridge.raw_material_diagnostics)
-    assert list(expected.values())[0]["requestedUnits"] == 7.0
-    assert list(expected.values())[0]["acceptedUnits"] == 3.0
-    assert list(expected.values())[0]["realisedUnits"] == 2.0
+    assert list(expected.values())[0]["requestedUnits"] == 7.0  # noqa: RUF015 - IndexError on empty must not become StopIteration
+    assert list(expected.values())[0]["acceptedUnits"] == 3.0  # noqa: RUF015 - IndexError on empty must not become StopIteration
+    assert list(expected.values())[0]["realisedUnits"] == 2.0  # noqa: RUF015 - IndexError on empty must not become StopIteration
     before = observation_batch(step["villages"])
     altered = copy.deepcopy(step)
     altered["rawMaterialDiagnostics"] = physical_step(requested=99.0)["rawMaterialDiagnostics"]

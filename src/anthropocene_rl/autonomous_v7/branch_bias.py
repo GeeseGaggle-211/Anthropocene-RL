@@ -105,7 +105,7 @@ def report(
     return out
 
 
-from .calibration import calibration, coverage, held_out, manifest, verdict
+from .calibration import calibration, coverage, held_out, manifest, verdict  # noqa: E402 - import order is intentional
 
 
 def saturation(u: dict[str, np.ndarray], edge: float = SATURATION_EDGE) -> dict[str, float]:

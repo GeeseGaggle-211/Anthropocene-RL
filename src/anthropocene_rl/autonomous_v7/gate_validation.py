@@ -49,7 +49,7 @@ def search_evidence(evidence, expected, held, base, *, calibration=False):
         raise ProvenanceError("search summary is not the exact promoted candidate/cohort")
     roots = [artifact(ref, base)[0].parent for ref in evidence["branch_indexes"]]
     report = {}
-    rows, boot = branch_shards.load(
+    _rows, _boot = branch_shards.load(
         roots,
         "reject",
         report,
@@ -109,7 +109,7 @@ def calibration_evidence(evidence, expected, held, state, base):
     from .model import load_checkpoint_normalizer
     from .search_teacher import load_critic
 
-    cohort, roots, provenance = search_evidence(evidence, expected, held, base, calibration=True)
+    _cohort, roots, _provenance = search_evidence(evidence, expected, held, base, calibration=True)
     inputs, _ = read(evidence["inputs"], base)
     binding = inventory(roots, expected["initialization_sha256"], held, inputs)
     report, _ = read(evidence["report"], base)

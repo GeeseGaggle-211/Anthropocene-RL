@@ -16,7 +16,7 @@ def small(d, lim=20000):
 
 
 def L(n):
-    return [l.rstrip("\n") for l in open(f"{R}/{n}") if not l.startswith("{")]
+    return [l.rstrip("\n") for l in open(f"{R}/{n}") if not l.startswith("{")]  # noqa: E741 - name kept verbatim
 
 
 out = {
@@ -28,7 +28,7 @@ out["actor_fidelity"] = {
     "json_summary": small(J("eval-final-actor.json")),
 }
 crit = []
-for l in L("eval-final-critic.log"):
+for l in L("eval-final-critic.log"):  # noqa: E741 - name kept verbatim
     m = re.match(
         r"\s+(\w+)\s+(\w+)\s+(PASS|FAIL)\s+nMAE=(\S+) bias=(\S+) rank=(\S+) pairs=(\d+) "
         r"groups=(\d+) worlds=(\d+)",
@@ -62,7 +62,7 @@ out["critic3_calibration_log"] = (
     L("eval-critic3.log")[-30:] if os.path.exists(f"{R}/eval-critic3.log") else None
 )
 g4 = []
-for l in open(f"{R}/dagger/driver.log"):
+for l in open(f"{R}/dagger/driver.log"):  # noqa: E741, SIM115 - file handle lifetime kept as written; name kept verbatim
     if (
         re.search(r"round \d+ done depth", l)
         or ("round " in l and " collected " in l)
@@ -70,5 +70,5 @@ for l in open(f"{R}/dagger/driver.log"):
     ):
         g4.append(l.rstrip("\n"))
 out["g4_rounds"] = g4
-out["pipeline_log"] = [l.rstrip("\n") for l in open(f"{R}/pipeline.log")][-12:]
+out["pipeline_log"] = [l.rstrip("\n") for l in open(f"{R}/pipeline.log")][-12:]  # noqa: E741, SIM115 - file handle lifetime kept as written; name kept verbatim
 print(json.dumps(out, indent=1, allow_nan=True))

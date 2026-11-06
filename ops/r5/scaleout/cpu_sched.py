@@ -57,7 +57,7 @@ def seeds(text: str) -> list[int]:
 def splits(text: str) -> list[tuple[int, int, int]]:
     """'0:13:4 13:25:4' -> [(first, turns, roots), ...] (disjoint, increasing)."""
     out = [tuple(int(x) for x in part.split(":")) for part in text.split()]
-    for (a, b, r), nxt in zip(out, out[1:] + [None], strict=False):
+    for (a, b, r), nxt in zip(out, out[1:] + [None], strict=False):  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
         if not (0 <= a < b) or r < 1 or (nxt is not None and nxt[0] < b):
             raise ValueError(f"bad split list {text!r}: ranges must be disjoint and increasing")
         if r > b - a:
@@ -295,7 +295,7 @@ class Scheduler:
         hit = 0
         for task in self.tasks:
             if task.key in keys:
-                task.command = task.command + ["--successor-rows"]
+                task.command = task.command + ["--successor-rows"]  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
                 task.env = {"PYTHONPATH": src_dir}
                 hit += 1
         self.log(f"successor rows on {hit}/{len(keys)} listed tasks, PYTHONPATH={src_dir}")
@@ -362,7 +362,7 @@ class Scheduler:
     def launch(self, task: Task) -> None:
         task.attempts += 1
         task.log.parent.mkdir(parents=True, exist_ok=True)
-        handle = open(task.log, "a", encoding="utf-8")
+        handle = open(task.log, "a", encoding="utf-8")  # noqa: SIM115 - file handle lifetime kept as written
         handle.write(
             f"\n# attempt {task.attempts} {time.strftime('%FT%TZ', time.gmtime())}\n$ "
             + " ".join(task.command)
@@ -441,7 +441,7 @@ class Scheduler:
     def terminate(self) -> None:
         for task in self.tasks:
             if task.proc is not None:
-                try:
+                try:  # noqa: SIM105 - explicit try/except kept verbatim
                     os.killpg(task.proc.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass

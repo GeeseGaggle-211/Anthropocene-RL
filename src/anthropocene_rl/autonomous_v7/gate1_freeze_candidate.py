@@ -562,7 +562,7 @@ def _seed_scan(
     occurrences = []
     candidates = []
     output_relative = None
-    try:
+    try:  # noqa: SIM105 - explicit try/except kept verbatim
         output_relative = output.resolve().relative_to(rl_root.resolve()).as_posix()
     except ValueError:
         pass

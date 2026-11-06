@@ -185,7 +185,7 @@ def verify(trace, base, identity, flags, row, side, outputs):
             raise ProvenanceError(label + " fingerprint does not bind its full payload")
         return path, raw, payload
 
-    initial_path, initial_raw, initial_payload = read_frame(initial, first_turn, "initial state")
+    initial_path, _initial_raw, _initial_payload = read_frame(initial, first_turn, "initial state")
     if initial.get("source_seed") != trace["seed"]:
         raise ProvenanceError("comparator initial state root differs from trace seed")
     reset_path, reset_sha = artifact(trace.get("reset_snapshot"), base)
@@ -197,7 +197,7 @@ def verify(trace, base, identity, flags, row, side, outputs):
         "ANTHROPOCENE_SIM_RULES": flags["sim_rules"],
         "ANTHROPOCENE_SIM_STATICS": flags["sim_statics"],
     }
-    with patch.dict(os.environ, env):
+    with patch.dict(os.environ, env):  # noqa: SIM117 - nested with kept verbatim
         with Model9Bridge([dotnet_command()[0], str(binary)]) as bridge:
             if simulator_identity(bridge.schema, production=True) != identity:
                 raise ProvenanceError("comparator actual binary differs from trace simulator")

@@ -337,7 +337,7 @@ def test_compatibility_requires_same_experiment_before_either_replay(
     elif mutation == "reset-movement":
         b["reset"]["movement"] = True
     elif mutation == "ordinary-reset":
-        _frame_unused, raw, ref = _frame(tmp_path, "other-reset.save", 3, 11, 2000)
+        _frame_unused, _raw, ref = _frame(tmp_path, "other-reset.save", 3, 11, 2000)
         b["reset_snapshot"] = ref
         outputs.add(ref["sha256"])
     elif mutation == "canonical-initial":
@@ -397,7 +397,7 @@ def test_compatibility_requires_same_experiment_before_either_replay(
         assert calls == ["reset", "step", "reset", "step"]
     else:
         with pytest.raises(
-            provenance.ProvenanceError, match="experiment|reset|initial|interventions"
+            provenance.ProvenanceError, match=r"experiment|reset|initial|interventions"
         ):
             provenance.compatibility_mapping(manifest, FLAGS)
         assert calls == []

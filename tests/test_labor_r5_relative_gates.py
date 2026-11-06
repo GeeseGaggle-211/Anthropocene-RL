@@ -371,7 +371,7 @@ def test_relative_v1_demotes_absolute_qol_checks_and_gates_relative_ones() -> No
     bad_abs["calibration"]["calibration"]["heads"]["qol_years"]["all"]["nmae"] = 0.5
     checks = ra.fit_checks(bad_abs)
     assert checks["primary_status"] == "PASS"
-    row = [
+    row = [  # noqa: RUF015 - IndexError on empty must not become StopIteration
         d for d in checks["diagnostics"]["demoted_gate_v2_checks"] if d["id"] == "qol:b:nmae:all"
     ][0]
     assert row["would_have_been"] == "FAIL"

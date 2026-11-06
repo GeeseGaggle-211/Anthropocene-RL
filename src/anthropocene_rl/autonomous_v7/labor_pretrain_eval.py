@@ -127,7 +127,7 @@ def apportion_largest_remainder_rows(shares: np.ndarray, population: np.ndarray)
         )
     out = np.zeros(shares.shape, dtype=np.int64)
     for row in range(shares.shape[0]):
-        count = int(round(float(population[row])))
+        count = round(float(population[row]))
         values = np.clip(shares[row], 0.0, None)
         total = math.fsum(values.tolist())
         if count <= 0 or not total > 0.0:
@@ -307,7 +307,7 @@ def _load_models(path: Path) -> tuple[Any, ...]:
     from .labor_training import _models_from_checkpoint
 
     state = torch.load(path, map_location="cpu", weights_only=True)
-    layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
+    _layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
     for module in (actor, task, costs):
         module.eval()
     return state, actor, task, costs, normalizer

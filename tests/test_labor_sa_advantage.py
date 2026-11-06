@@ -286,7 +286,7 @@ def _fake_values(_paths, datasets):
         sha256 = "0"
 
     class E:
-        members = [M(), M()]
+        members = [M(), M()]  # noqa: RUF012 - class attribute default kept verbatim
 
     members = []
     for scale in (1.0, 1.0):

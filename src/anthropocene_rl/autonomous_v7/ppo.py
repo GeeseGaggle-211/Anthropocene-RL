@@ -584,7 +584,7 @@ class Rollout:
     outcome: dict[str, list] = field(
         default_factory=lambda: {
             k: []
-            for k in data.OUTCOME_KEYS
+            for k in data.OUTCOME_KEYS  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
             + ["world", "seed", "mask", "cost", "bootstrap_index", "trade_utility", "bank"]
         }
     )
@@ -816,7 +816,7 @@ def collect(
                 row_of = {}
                 for k, (w, v) in enumerate(live):
                     row_of[(w, int(v["camp"]))] = k
-                offset = sum(len(o["core"]) for o in roll.obs)
+                offset = sum(len(o["core"]) for o in roll.obs)  # noqa: F841 - assignment kept verbatim
                 kept = []
                 for w, s in enumerate(steps):
                     for v in s["villages"]:
@@ -1538,7 +1538,7 @@ def load_search_labels(
                 else np.nan
             )
             dtype = template.dtype if isinstance(fill, (str, bool)) or fill == -1 else np.float64
-            p[k] = np.full((len(p["label_kind"]),) + template.shape[1:], fill, dtype=dtype)
+            p[k] = np.full((len(p["label_kind"]),) + template.shape[1:], fill, dtype=dtype)  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
 
     def stack(k: str) -> np.ndarray:
         # Per-alternative arrays are padded to their file's MAX_ALTERNATIVES; pad to the widest
@@ -1552,7 +1552,7 @@ def load_search_labels(
                     [
                         a,
                         np.full(
-                            (a.shape[0], width - a.shape[1]) + a.shape[2:],
+                            (a.shape[0], width - a.shape[1]) + a.shape[2:],  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
                             fill,
                             dtype=a.dtype if fill == -1 else np.float64,
                         ),
@@ -1812,9 +1812,7 @@ def update(
         if branch is not None and hyper.branch_share > 0:
             rows_b, target_b = branch
             m = len(rows_b["camp"])
-            k = max(
-                1, int(round(len(index) * hyper.branch_share / max(1e-9, 1 - hyper.branch_share)))
-            )
+            k = max(1, round(len(index) * hyper.branch_share / max(1e-9, 1 - hyper.branch_share)))
             pick = rng.permutation(m)[:k] if m > k else np.arange(m)
             logits_b = critic(to_tensors({key: v[pick] for key, v in rows_b.items()}, normalizer))
             w_on, w_b = len(index) / (len(index) + len(pick)), len(pick) / (len(index) + len(pick))
@@ -2012,22 +2010,22 @@ def update(
                     audit_anchor = explore(teacher(audit_t), hyper.log_std_floor)
 
                 def actor_probe_losses():
-                    probe = explore(actor(audit_t), hyper.log_std_floor)
-                    probe_logp, probe_entropy = log_prob(probe, audit_t, audit_d, stage)
+                    probe = explore(actor(audit_t), hyper.log_std_floor)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
+                    probe_logp, probe_entropy = log_prob(probe, audit_t, audit_d, stage)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
                     terms, _ = frozen_branch_policy_terms(
-                        torch.exp(probe_logp - audit_old),
-                        audit_objective,
-                        audit_constraint,
-                        audit_weight,
+                        torch.exp(probe_logp - audit_old),  # noqa: B023 - late-binding closure kept as written (called within the iteration)
+                        audit_objective,  # noqa: B023 - late-binding closure kept as written (called within the iteration)
+                        audit_constraint,  # noqa: B023 - late-binding closure kept as written (called within the iteration)
+                        audit_weight,  # noqa: B023 - late-binding closure kept as written (called within the iteration)
                         hyper.clip,
-                        use_unclipped=frozen_branch,
+                        use_unclipped=frozen_branch,  # noqa: B023 - late-binding closure kept as written (called within the iteration)
                     )
                     terms["entropyRegularizer"] = -hyper.entropy * probe_entropy.mean()
                     terms["teacherAnchor"] = (
                         hyper.teacher_kl
                         * teacher_kl(
                             probe,
-                            audit_anchor,
+                            audit_anchor,  # noqa: B023 - late-binding closure kept as written (called within the iteration)
                             stage.anchor_strategic,
                             stage.anchor_routes,
                             stage.fission,
@@ -2463,7 +2461,7 @@ def update(
     if hyper.kl_refit and not modern:
         refit = kl_refit_due(stats, hyper)
         if refit:  # one more critic-only epoch on this iteration's batch
-            for start in range(0, n, hyper.batch):
+            for start in range(0, n, hyper.batch):  # noqa: B007 - loop variable name kept (renaming skipped)
                 index = rng.permutation(n)[: hyper.batch] if n > hyper.batch else np.arange(n)
                 t = to_tensors({k: v[index] for k, v in batch.items()}, normalizer)
                 if economic_trace is not None:
@@ -2925,7 +2923,7 @@ def mix_changes(batch: dict[str, np.ndarray], draws: dict[str, torch.Tensor]) ->
     ).numpy()
     change = np.zeros(len(mix))
     for rows in data.sequences(batch):
-        for a, b in zip(rows[:-1], rows[1:], strict=False):
+        for a, b in zip(rows[:-1], rows[1:], strict=False):  # noqa: RUF007 - zip over slices kept (not plain pairwise)
             change[b] = 0.5 * float(np.abs(mix[b] - mix[a]).sum())
     return change
 

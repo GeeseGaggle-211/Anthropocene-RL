@@ -769,7 +769,8 @@ class TDDriftMonitor:
                 tail = self._series(key)[-(self.growth + 1) :]
                 if len(tail) == self.growth + 1:
                     rising = all(
-                        b > a * (1.0 + self.increase) for a, b in zip(tail, tail[1:], strict=False)
+                        b > a * (1.0 + self.increase)
+                        for a, b in zip(tail, tail[1:], strict=False)  # noqa: RUF007 - zip over slices kept (not plain pairwise)
                     )
                     if rising and tail[-1] > self.floor:
                         alarm = {
@@ -1122,7 +1123,7 @@ class ValidationMonitor:
         ][-(self.epochs + 1) :]
         if len(tail) < self.epochs + 1:
             return None
-        pairs = list(zip(tail, tail[1:], strict=False))
+        pairs = list(zip(tail, tail[1:], strict=False))  # noqa: RUF007 - zip over slices kept (not plain pairwise)
         rising = all(b["total"] > a["total"] for a, b in pairs)
         falling = all(b["train_loss"] < a["train_loss"] for a, b in pairs)
         if not (rising and falling):

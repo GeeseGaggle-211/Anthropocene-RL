@@ -179,7 +179,7 @@ def load(
         template = next(w[key] for w in worlds if key in w)
         for world in worlds:
             if key not in world:
-                world[key] = np.zeros((len(world["camp"]),) + template.shape[1:], template.dtype)
+                world[key] = np.zeros((len(world["camp"]),) + template.shape[1:], template.dtype)  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
     return {key: np.concatenate([w[key] for w in worlds]) for key in keys}
 
 

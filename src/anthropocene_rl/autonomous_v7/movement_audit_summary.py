@@ -167,7 +167,7 @@ def world(path: Path) -> dict[str, Any]:
                 )
                 out["harvest_" + key].append({k: x / h["start"] for k, x in f.items()})
                 out["lifestyle_" + key].append(int(settled))
-        for camp, a in post.items():
+        for camp, a in post.items():  # noqa: B007 - loop variable name kept (renaming skipped)
             if camp not in pre:
                 tenure[camp] = 1
         # Regrowth of abandoned footprints (queried each turn after abandonment).
@@ -239,7 +239,7 @@ def after_arrival(worlds: list[dict[str, Any]]) -> dict[str, Any]:
 
     events: list[tuple[str, int, int, int, list[tuple[float, float, float]]]] = []
     for w in worlds:
-        for camp, t in w["traj"].items():
+        for _camp, t in w["traj"].items():
             by = {s["i"]: s for s in t}
             for s in t:
                 i = s["i"]
@@ -326,7 +326,7 @@ def reduce(worlds: list[dict[str, Any]]) -> dict[str, Any]:
         for f in w["out"].get("fissions", []):
             lineage_fissions[(w["seed"], f["lineage"])] += 1
     fissions = pool["fissions"]
-    per_world = lambda k: m([w[k] for w in worlds])
+    per_world = lambda k: m([w[k] for w in worlds])  # noqa: E731 - lambda assignment kept verbatim
     return {
         "worlds": len(worlds),
         "welfare": sum(w["welfare"] for w in worlds),

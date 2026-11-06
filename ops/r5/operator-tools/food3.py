@@ -39,7 +39,7 @@ for o in out[:12]:
     print("  ", o)
 v = np.array([o[2] for o in out])
 print(
-    "imported raw: min %.3g median %.3g max %.3g" % (v.min(), np.median(v), v.max())
+    "imported raw: min %.3g median %.3g max %.3g" % (v.min(), np.median(v), v.max())  # noqa: UP031 - printf formatting kept verbatim (output identical)
     if len(v)
     else "none"
 )

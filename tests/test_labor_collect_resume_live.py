@@ -252,7 +252,7 @@ def test_published_worlds_are_kept_and_the_rest_resume(tmp_path, normalizer, ref
     def remember(out: Path) -> None:
         published["meta"] = (out / "world-90100" / "meta.json").read_bytes()
 
-    out, resumed = _killed_then_resumed(
+    out, _resumed = _killed_then_resumed(
         tmp_path,
         normalizer,
         [{"after_checkpoint": [90101, 4]}],

@@ -242,7 +242,7 @@ def promote(inputs: list[dict], held: dict) -> dict:
                 "promotion requires guarded token/hierarchical clones with all four critic heads"
             )
         report = json.loads(report_path.read_text())
-        ratio, group = validate_report(report, sha, semantics, state["run_manifest"])
+        _ratio, group = validate_report(report, sha, semantics, state["run_manifest"])
         seed = state.get("seed")
         if seed not in range(10) or sha in states:
             raise ProvenanceError("duplicate/unregistered clone candidate")

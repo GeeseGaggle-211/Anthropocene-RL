@@ -71,7 +71,7 @@ def main() -> int:
     from .evaluate import load
 
     actor, _ = load(args.init)
-    load = lambda root: span_labels.extend(
+    load = lambda root: span_labels.extend(  # noqa: E731 - lambda assignment kept verbatim
         data.load(p for p in sorted(root.iterdir()) if p.is_dir()), args.tolerance
     )
     train, dev = load(args.train), load(args.dev)

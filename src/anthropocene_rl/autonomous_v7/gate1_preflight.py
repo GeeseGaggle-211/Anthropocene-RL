@@ -484,7 +484,10 @@ def _validate_embedded_slot(name: str, key: str, value: Any, node: dict[str, Any
 
 
 def _missing_slot(
-    slot: dict[str, Any], node_id: str, name: str, base: Path = Path.cwd()
+    slot: dict[str, Any],
+    node_id: str,
+    name: str,
+    base: Path = Path.cwd(),  # noqa: B008 - default evaluated at definition time, kept
 ) -> dict[str, Any]:
     status = slot.get("status")
     if status == "missing":
@@ -710,7 +713,7 @@ def _checkpoint_identity(node: dict[str, Any], state: dict[str, Any]) -> None:
         return
     if seed is not None and options.get("seed") is not None and options.get("seed") != seed:
         _fail(f"node {node['id']} checkpoint manifest seed differs")
-    if identity["arm_id"] is not None and options.get("arm") is not None:
+    if identity["arm_id"] is not None and options.get("arm") is not None:  # noqa: SIM102 - nested if kept verbatim
         if options["arm"] != identity["arm_id"]:
             _fail(f"node {node['id']} checkpoint manifest arm differs")
     if (
@@ -1383,7 +1386,7 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
     for name in sorted(REQUIRED_ENDPOINT_SLOTS):
         if descriptors[name]["status"] != "present":
             holds.append(f"required slot {name} is {descriptors[name]['status']}")
-    if checkpoint_raw is not None and checkpoint_raw["checkpoint_contract"] < 12:
+    if checkpoint_raw is not None and checkpoint_raw["checkpoint_contract"] < 12:  # noqa: SIM102 - nested if kept verbatim
         if descriptors["adapter-default-migration"]["status"] != "present":
             holds.append("legacy endpoint lacks a bound adapter/default/migration bundle")
 

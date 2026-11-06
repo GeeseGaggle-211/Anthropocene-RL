@@ -238,11 +238,11 @@ def test_live_dagger_round_feeds_aggregated_bc(tmp_path, bounded_normalizer) -> 
         "--allow-dirty",
     ]
     starts = draw_start_turns(labor_dagger.DEFAULT_START_KEY, 5000, 1, 2, 2, 1)
-    assert labor_dagger.main(common + ["--out", str(dagger)]) == 0
+    assert labor_dagger.main(common + ["--out", str(dagger)]) == 0  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
     manifest = ltd.verify_dataset(dagger)
     assert manifest["source_record"]["source_kind"] == labor_dagger.DAGGER_SOURCE_KIND
     assert manifest["source_record"]["options"]["actor_only"] is True
-    assert labor_dagger.main(common + ["--out", str(dagger)]) == 0  # published: idempotent no-op
+    assert labor_dagger.main(common + ["--out", str(dagger)]) == 0  # published: idempotent no-op  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
 
     learner = ltd.load_labor_dataset(dagger)
     reference = ltd.load_labor_dataset(teacher)

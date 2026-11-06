@@ -420,7 +420,7 @@ def convert_heuristic_labor_label(
         if assigned_herders is None or management is None or development is None:
             reasons.append("herder-staffing-unavailable")
         else:
-            whole = int(round(assigned_herders))
+            whole = round(assigned_herders)
             if whole < 0 or abs(whole - assigned_herders) > LABEL_TOLERANCE:
                 reasons.append("herder-staffing-not-whole-residents")
             assert herder is not None

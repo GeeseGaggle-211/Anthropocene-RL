@@ -526,7 +526,7 @@ def test_actual_ppo_entrypoint_resumes_effective_promoted_warmup_without_repeati
         "actor": 0,
         "total": 5,
     }
-    monkeypatch.setattr(sys, "argv", argv + ["--resume"])
+    monkeypatch.setattr(sys, "argv", argv + ["--resume"])  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
     assert ppo.main() == 0 and len(calls) == 5
 
 
@@ -1490,7 +1490,7 @@ def formal_fixture(tmp_path, monkeypatch):
     from anthropocene_rl.autonomous_v7 import completion
     from anthropocene_rl.autonomous_v7.personality_sweep import GRID
 
-    launch, _, expected = launch_fixture(tmp_path)
+    launch, _, _expected = launch_fixture(tmp_path)
     _, parent = root_state()
     init = Path(launch["runs"][0]["argv"][4])
     init_ref = {"path": str(init), "sha256": prov.checkpoint_hash(init)}
@@ -1646,7 +1646,7 @@ def formal_fixture(tmp_path, monkeypatch):
 
 def test_formal_report_complete_bound_arms_and_low_vs_per_is_report_only(tmp_path, monkeypatch):
     spec = formal_fixture(tmp_path, monkeypatch)
-    original = formal_report.default_comparison
+    original = formal_report.default_comparison  # noqa: F841 - assignment kept verbatim
     calls = []
 
     def comparison(a, b):

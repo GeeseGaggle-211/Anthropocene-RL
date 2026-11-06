@@ -127,7 +127,7 @@ def test_contract8_loader_rejects_nonexact_actor_state(mutation):
         state["actor"]["service.bias"] = state["actor"]["service.bias"].double()
     else:
         state["actor"]["service.bias"] = state["actor"]["service.bias"][:-1]
-    with pytest.raises(ValueError, match="raw actor keys differ|dtype/device/shape/layout"):
+    with pytest.raises(ValueError, match=r"raw actor keys differ|dtype/device/shape/layout"):
         load(state)
 
 
