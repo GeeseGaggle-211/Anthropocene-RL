@@ -127,7 +127,7 @@ def apportion_largest_remainder_rows(shares: np.ndarray, population: np.ndarray)
         )
     out = np.zeros(shares.shape, dtype=np.int64)
     for row in range(shares.shape[0]):
-        count = round(float(population[row]))
+        count = int(round(float(population[row])))  # noqa: RUF046 - unchanged from base
         values = np.clip(shares[row], 0.0, None)
         total = math.fsum(values.tolist())
         if count <= 0 or not total > 0.0:

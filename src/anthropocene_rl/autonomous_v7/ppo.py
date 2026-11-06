@@ -1812,7 +1812,10 @@ def update(
         if branch is not None and hyper.branch_share > 0:
             rows_b, target_b = branch
             m = len(rows_b["camp"])
-            k = max(1, round(len(index) * hyper.branch_share / max(1e-9, 1 - hyper.branch_share)))
+            k = max(
+                1,
+                int(round(len(index) * hyper.branch_share / max(1e-9, 1 - hyper.branch_share))),  # noqa: RUF046
+            )
             pick = rng.permutation(m)[:k] if m > k else np.arange(m)
             logits_b = critic(to_tensors({key: v[pick] for key, v in rows_b.items()}, normalizer))
             w_on, w_b = len(index) / (len(index) + len(pick)), len(pick) / (len(index) + len(pick))
