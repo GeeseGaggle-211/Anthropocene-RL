@@ -82,6 +82,7 @@ class Task:
     proc: subprocess.Popen | None = None
     started: float = 0.0
     durations: list[float] = field(default_factory=list)
+    env: dict = field(default_factory=dict)  # per-task environment overrides (SUCC_TASKS)
 
     def done(self) -> bool:
         return self.done_file.is_file()
@@ -202,6 +203,7 @@ class Scheduler:
                         needs_actor=True,
                     )
                 )
+        self.apply_successor_tasks()
         self.tasks.sort(key=lambda t: t.priority)
         self.log(
             f"built {len(self.tasks)} tasks: "
@@ -211,6 +213,25 @@ class Scheduler:
                           "search:fit-actor", "panel")
             )
         )
+
+    def apply_successor_tasks(self) -> None:
+        """Tasks named in WORK/SUCC_TASKS export successor rows (payload v2) using the code
+        whose src is in WORK/SUCC_PYTHONPATH (4 Nov 2026, approved option A)."""
+        listing = self.work / "SUCC_TASKS"
+        if not listing.is_file():
+            return
+        keys = {line.strip() for line in listing.read_text().splitlines() if line.strip()}
+        src_dir = (self.work / "SUCC_PYTHONPATH").read_text().strip()
+        search_py = Path(src_dir) / "anthropocene_rl" / "autonomous_v7" / "labor_search.py"
+        if "--successor-rows" not in search_py.read_text():
+            raise SystemExit(f"{search_py} lacks --successor-rows")
+        hit = 0
+        for task in self.tasks:
+            if task.key in keys:
+                task.command = task.command + ["--successor-rows"]
+                task.env = {"PYTHONPATH": src_dir}
+                hit += 1
+        self.log(f"successor rows on {hit}/{len(keys)} listed tasks, PYTHONPATH={src_dir}")
 
     # -- actor -----------------------------------------------------------------------------
     def actor_ready(self) -> bool:
@@ -269,6 +290,7 @@ class Scheduler:
         handle.flush()
         child_env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
                          PYTHONUNBUFFERED="1")
+        child_env.update(task.env)
         task.proc = subprocess.Popen(
             task.command, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             cwd=self.args.code, env=child_env, start_new_session=True,
