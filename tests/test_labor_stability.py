@@ -299,7 +299,9 @@ def test_saturated_bounded_head_fails_the_mandatory_check() -> None:
 def _sat_fixture(n_early: int, n_late: int, early_z: float, late_z: float, frac: float):
     z = torch.cat([torch.full((n_early,), early_z), torch.full((n_late,), late_z)])
     target = torch.full((n_early + n_late,), frac)
-    early = torch.cat([torch.ones(n_early, dtype=torch.bool), torch.zeros(n_late, dtype=torch.bool)])
+    early = torch.cat(
+        [torch.ones(n_early, dtype=torch.bool), torch.zeros(n_late, dtype=torch.bool)]
+    )
     return z, target, early
 
 
@@ -400,7 +402,9 @@ def test_td_flat_drift_fails_the_half_max_rule() -> None:
     assert all(a is None for a in alarms)  # no divergence, but not diminishing
     drift = monitor.report()["trajectory"]["drift"]
     assert drift["final_over_max"] == 1.0 and not drift["pass"]
-    assert any(a["reason"] == "drift-trajectory-not-diminishing" for a in monitor.report()["alarms"])
+    assert any(
+        a["reason"] == "drift-trajectory-not-diminishing" for a in monitor.report()["alarms"]
+    )
 
 
 def test_td_growth_after_warmup_fails() -> None:
@@ -459,7 +463,10 @@ def test_td_refresh_cadence_is_configurable_in_steps_and_per_epoch() -> None:
     by_steps = _td_fit(epochs=2, batch_size=2, td_refresh_steps=2)
     steps = [r["epoch"] for r in by_steps["stability"]["checks"]["td_divergence"]["refreshes"]]
     assert steps == [0, 2, 4]
-    assert all("refresh_seconds" in r for r in by_steps["stability"]["checks"]["td_divergence"]["refreshes"])
+    assert all(
+        "refresh_seconds" in r
+        for r in by_steps["stability"]["checks"]["td_divergence"]["refreshes"]
+    )
     default = _td_fit(epochs=2, batch_size=2)  # 4 per epoch capped at one per step
     assert len(default["stability"]["checks"]["td_divergence"]["refreshes"]) == 6
 

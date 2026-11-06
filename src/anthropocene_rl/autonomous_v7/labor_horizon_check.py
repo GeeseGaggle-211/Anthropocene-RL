@@ -48,9 +48,7 @@ def cost_estimate(states: int, k: int, streams: int = 1) -> dict[str, Any]:
         "forks": 1,
         "restores": branches,
     }
-    total = {
-        key: value * states for key, value in per_state.items() if key not in ("branches",)
-    }
+    total = {key: value * states for key, value in per_state.items() if key not in ("branches",)}
     return {"states": states, "k": k, "streams": streams, "per_state": per_state, "total": total}
 
 

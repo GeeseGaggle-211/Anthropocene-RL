@@ -40,7 +40,7 @@ CALIBRATION_TURNS = 8
 MIN_CELL = 20
 MIN_BAND = 5
 # Lineage population at the fork's first tail turn: [lower, upper) bounds of each band.
-POPULATION_BANDS = ((0, 30), (30, 100), (100, 300), (300, 10 ** 9))
+POPULATION_BANDS = ((0, 30), (30, 100), (100, 300), (300, 10**9))
 SATURATION_EDGE = 0.01
 
 
@@ -48,15 +48,22 @@ def relative(pred: np.ndarray, real: np.ndarray) -> np.ndarray:
     return (pred - real) / np.maximum(1e-9, np.abs(real))
 
 
-def realised(critic, rows: dict[str, np.ndarray], boot, normalizer) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+def realised(
+    critic, rows: dict[str, np.ndarray], boot, normalizer
+) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
     """Predicted raw values per head and the realised tail return plus bootstrap (lambda = 1)."""
     value, bootstrap = branch_shards.values(critic, rows, boot, normalizer)
     components = data.reward_components(rows)
-    real = {name: data.lambda_returns(rows, components[name], value[name], 1.0, bootstrap[name]) for name in value}
+    real = {
+        name: data.lambda_returns(rows, components[name], value[name], 1.0, bootstrap[name])
+        for name in value
+    }
     return value, real
 
 
-def report(pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[str, np.ndarray]) -> dict:
+def report(
+    pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[str, np.ndarray]
+) -> dict:
     kinds = rows["alt_kind"].astype(int)
     world, turn = rows["world"], rows["turn"]
     # Entry rows: each branch world's first tail turn (all lineage settlements deciding then).
@@ -64,19 +71,35 @@ def report(pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[
     for w, t in zip(world.tolist(), turn.tolist()):
         first[w] = min(first.get(w, t), t)
     entry = np.asarray([first[w] == t for w, t in zip(world.tolist(), turn.tolist())])
-    out: dict = {"rows": int(len(kinds)), "branches": int(len(first)), "target": TARGET, "kinds": {}}
+    out: dict = {
+        "rows": int(len(kinds)),
+        "branches": int(len(first)),
+        "target": TARGET,
+        "kinds": {},
+    }
     for k in sorted(set(kinds.tolist())):
         sel = kinds == k
         by_head = {}
         for name in pred:
             r = relative(pred[name][sel], real[name][sel])
             worlds = sorted(set(world[sel & entry].tolist()))
-            e = np.asarray([relative(np.asarray([pred[name][(world == w) & entry].sum()]),
-                                     np.asarray([real[name][(world == w) & entry].sum()]))[0] for w in worlds])
-            by_head[name] = {"entry_mean": float(np.mean(e)) if len(e) else None,
-                             "entry_median": float(np.median(e)) if len(e) else None,
-                             "rows_mean": float(np.mean(r)), "rows_median": float(np.median(r)),
-                             "branches": len(worlds), "rows": int(sel.sum())}
+            e = np.asarray(
+                [
+                    relative(
+                        np.asarray([pred[name][(world == w) & entry].sum()]),
+                        np.asarray([real[name][(world == w) & entry].sum()]),
+                    )[0]
+                    for w in worlds
+                ]
+            )
+            by_head[name] = {
+                "entry_mean": float(np.mean(e)) if len(e) else None,
+                "entry_median": float(np.median(e)) if len(e) else None,
+                "rows_mean": float(np.mean(r)),
+                "rows_median": float(np.median(r)),
+                "branches": len(worlds),
+                "rows": int(sel.sum()),
+            }
         out["kinds"][KINDS[k] if 0 <= k < len(KINDS) else str(k)] = by_head
     return out
 
@@ -88,35 +111,59 @@ def saturation(u: dict[str, np.ndarray], edge: float = SATURATION_EDGE) -> dict[
     """Per head, the share of value expectations (in the head's own two-hot units: per resident, qol_years raw) whose
     symlog lies within ``edge`` of the bin range's ends."""
     from .model import BIN_HIGH, BIN_LOW
+
     margin = edge * (BIN_HIGH - BIN_LOW)
     out = {}
     for name, x in u.items():
         y = np.sign(x) * np.log1p(np.abs(x))
-        out[name] = float(np.mean((y >= BIN_HIGH - margin) | (y <= BIN_LOW + margin))) if len(y) else 0.0
+        out[name] = (
+            float(np.mean((y >= BIN_HIGH - margin) | (y <= BIN_LOW + margin))) if len(y) else 0.0
+        )
     return out
 
 
-def evaluate(pred: dict[str, np.ndarray], real: dict[str, np.ndarray], rows: dict[str, np.ndarray],
-             endpoints: dict | None = None, manifest_verified: bool = False, waivers=()) -> dict:
+def evaluate(
+    pred: dict[str, np.ndarray],
+    real: dict[str, np.ndarray],
+    rows: dict[str, np.ndarray],
+    endpoints: dict | None = None,
+    manifest_verified: bool = False,
+    waivers=(),
+) -> dict:
     cal = calibration(pred, rows, endpoints=endpoints)
     cov = coverage(rows)
     gate = verdict(cal, cov, waivers)
     if not manifest_verified:
         gate["pass"] = False
         gate["failures"].append("held-out calibration manifest not verified")
-    return {**gate, "calibration": cal, "coverage": cov, "self_consistency": report(pred, real, rows)}
+    return {
+        **gate,
+        "calibration": cal,
+        "coverage": cov,
+        "self_consistency": report(pred, real, rows),
+    }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--branch-shards", required=True, help="comma-separated held-out branch-shard directories")
+    parser.add_argument(
+        "--branch-shards", required=True, help="comma-separated held-out branch-shard directories"
+    )
     parser.add_argument("--out", type=Path, default=None)
-    parser.add_argument("--provenance", choices=("reject", "flag", "allow"), default="flag",
-                        help="held-out shards that mix sources or hold shards of unknown source (default: flag)")
+    parser.add_argument(
+        "--provenance",
+        choices=("reject", "flag", "allow"),
+        default="flag",
+        help="held-out shards that mix sources or hold shards of unknown source (default: flag)",
+    )
     parser.add_argument("--calibration-manifest", type=Path, default=None)
-    parser.add_argument("--calibration-inputs", type=Path, default=None,
-                        help="full frozen calibration cohort/branch payload inventory")
+    parser.add_argument(
+        "--calibration-inputs",
+        type=Path,
+        default=None,
+        help="full frozen calibration cohort/branch payload inventory",
+    )
     args = parser.parse_args()
     torch.set_num_threads(4)
     state = upgrade(torch.load(args.checkpoint, map_location="cpu", weights_only=False))
@@ -124,49 +171,100 @@ def main() -> int:
     if held:
         from .lineage import checkpoint_evidence
         from .provenance import ProvenanceError, checkpoint_hash
-        if (held.get("waivers", []) != [] or state.get("artifact_kind") != "promotion"
-                or not state.get("vector_critic") or not checkpoint_evidence(state, held)["verified"]):
-            raise ProvenanceError("one-shot Round-3 calibration requires an already-promoted four-head candidate and no waivers")
+
+        if (
+            held.get("waivers", []) != []
+            or state.get("artifact_kind") != "promotion"
+            or not state.get("vector_critic")
+            or not checkpoint_evidence(state, held)["verified"]
+        ):
+            raise ProvenanceError(
+                "one-shot Round-3 calibration requires an already-promoted four-head candidate and no waivers"
+            )
         if args.provenance != "reject" or args.out is None:
-            raise ProvenanceError("qualification calibration requires reject provenance and a new output path")
-        if args.calibration_inputs is None: raise ProvenanceError("calibration requires exact frozen --calibration-inputs")
+            raise ProvenanceError(
+                "qualification calibration requires reject provenance and a new output path"
+            )
+        if args.calibration_inputs is None:
+            raise ProvenanceError("calibration requires exact frozen --calibration-inputs")
         from .calibration_audit import inventory, claim
-        binding = inventory([Path(p) for p in args.branch_shards.split(",")], checkpoint_hash(args.checkpoint), held,
-                            json.loads(args.calibration_inputs.read_text()))
+
+        binding = inventory(
+            [Path(p) for p in args.branch_shards.split(",")],
+            checkpoint_hash(args.checkpoint),
+            held,
+            json.loads(args.calibration_inputs.read_text()),
+        )
         prechecked = {}
-        preloaded = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], "reject", prechecked, purpose="analysis")
+        preloaded = branch_shards.load(
+            [Path(p) for p in args.branch_shards.split(",")],
+            "reject",
+            prechecked,
+            purpose="analysis",
+        )
         audit_claim = claim(held, binding)
     normalizer = load_checkpoint_normalizer(state)
     critic = load_critic(args.checkpoint)
     provenance: dict = {}
     if held:
-        rows, boot = preloaded; provenance.update(prechecked)
+        rows, boot = preloaded
+        provenance.update(prechecked)
     else:
-        rows, boot = branch_shards.load([Path(p) for p in args.branch_shards.split(",")], args.provenance, provenance, purpose="analysis")
+        rows, boot = branch_shards.load(
+            [Path(p) for p in args.branch_shards.split(",")],
+            args.provenance,
+            provenance,
+            purpose="analysis",
+        )
     pred, real = realised(critic, rows, boot, normalizer)
     endpoints = branch_shards.endpoint_values(critic, boot, normalizer)
     from .lineage import checkpoint_evidence
     from .provenance import compatible_sources, ProvenanceError
-    checkpoint_check = checkpoint_evidence(state, held) if held else {"verified": False, "failures": ["no exclusion manifest"]}
+
+    checkpoint_check = (
+        checkpoint_evidence(state, held)
+        if held
+        else {"verified": False, "failures": ["no exclusion manifest"]}
+    )
     source_check = {"compatible": False}
     if checkpoint_check["verified"]:
         try:
             frozen = state["run_manifest"]
-            source_check = compatible_sources(provenance.get("records", []), frozen["simulator"],
-                                              frozen.get("simulator_compatibility", []),
-                                              {k: frozen[k] for k in ("sim_rules", "sim_statics")})
+            source_check = compatible_sources(
+                provenance.get("records", []),
+                frozen["simulator"],
+                frozen.get("simulator_compatibility", []),
+                {k: frozen[k] for k in ("sim_rules", "sim_statics")},
+            )
         except ProvenanceError as error:
             source_check = {"compatible": False, "failure": str(error)}
-    verified = bool(held) and checkpoint_check["verified"] and source_check["compatible"] and provenance["identity_valid"] and provenance["ok"] and all(held_out(held, int(m["seed"]), m.get("snapshot_hash"))
-                                 and m.get("calibration_manifest_digest") == held["manifest_digest"]
-                                 for m in provenance["branches"])
-    u = {name: v / branch_shards.head_scale(name, rows["prior_population"]) for name, v in pred.items()}
-    result = {"checkpoint": str(args.checkpoint), "provenance": provenance,
-              "audit_binding": binding if held else None, "audit_claim": audit_claim if held else None,
-              "calibration_inputs": str(args.calibration_inputs) if args.calibration_inputs else None,
-              "checkpoint_evidence": checkpoint_check, "source_compatibility": source_check,
-              **evaluate(pred, real, rows, endpoints, verified, (held or {}).get("waivers", [])),
-              "saturation": saturation(u)}
+    verified = (
+        bool(held)
+        and checkpoint_check["verified"]
+        and source_check["compatible"]
+        and provenance["identity_valid"]
+        and provenance["ok"]
+        and all(
+            held_out(held, int(m["seed"]), m.get("snapshot_hash"))
+            and m.get("calibration_manifest_digest") == held["manifest_digest"]
+            for m in provenance["branches"]
+        )
+    )
+    u = {
+        name: v / branch_shards.head_scale(name, rows["prior_population"])
+        for name, v in pred.items()
+    }
+    result = {
+        "checkpoint": str(args.checkpoint),
+        "provenance": provenance,
+        "audit_binding": binding if held else None,
+        "audit_claim": audit_claim if held else None,
+        "calibration_inputs": str(args.calibration_inputs) if args.calibration_inputs else None,
+        "checkpoint_evidence": checkpoint_check,
+        "source_compatibility": source_check,
+        **evaluate(pred, real, rows, endpoints, verified, (held or {}).get("waivers", [])),
+        "saturation": saturation(u),
+    }
     text = json.dumps(result, indent=1)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)

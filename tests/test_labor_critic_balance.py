@@ -104,8 +104,17 @@ def test_cli_defaults_pass_no_balance_options() -> None:
     assert stability_config_from_args(args) == "auto"
     assert args.select_best_validation is False
     ones = lt.argument_parser().parse_args(
-        ["pretrain-critic", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
-         "--task-loss-weights", "qol_years=1,population_years=1"]
+        [
+            "pretrain-critic",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o.pt",
+            "--task-loss-weights",
+            "qol_years=1,population_years=1",
+        ]
     )
     assert lt._task_weight_kwargs(ones) == {}
 
@@ -132,8 +141,16 @@ def test_cli_parses_weights_and_auto() -> None:
         kwargs("--task-loss-weights", "qol_years=0")
     config = stability_config_from_args(
         lt.argument_parser().parse_args(
-            ["pretrain-critic", "--checkpoint", "c", "--dataset", "d", "--out", "o",
-             "--dominance-excess-loss"]
+            [
+                "pretrain-critic",
+                "--checkpoint",
+                "c",
+                "--dataset",
+                "d",
+                "--out",
+                "o",
+                "--dominance-excess-loss",
+            ]
         )
     )
     assert config.dominance_excess_loss and config.state_dict()["dominance_excess_loss"]
@@ -228,9 +245,7 @@ def _auto_fit(tmp_path, name, **kwargs):
 def test_auto_weight_is_deterministic_and_leaves_the_rng_alone(tmp_path) -> None:
     auto = AutoQoLLossWeight(ema=0.5)
     first, first_summary, first_rng = _auto_fit(tmp_path, "a.jsonl", qol_loss_weight_auto=auto)
-    second, second_summary, second_rng = _auto_fit(
-        tmp_path, "b.jsonl", qol_loss_weight_auto=auto
-    )
+    second, second_summary, second_rng = _auto_fit(tmp_path, "b.jsonl", qol_loss_weight_auto=auto)
     assert _equal(first, second) and first_rng == second_rng
     assert first_summary["task_loss_weights"] == second_summary["task_loss_weights"]
     _, _, fixed_rng = _auto_fit(tmp_path, "c.jsonl")
@@ -242,9 +257,10 @@ def test_auto_weight_is_deterministic_and_leaves_the_rng_alone(tmp_path) -> None
     assert [s["qol_loss_weight_auto"] for s in steps] == history
     # The weight a step used is the previous step's update (it applies from the next step).
     for before, after in zip(steps, steps[1:], strict=False):
-        assert after["task_loss_weights"]["qol_years"] == before["qol_loss_weight_auto"][
-            "qol_weight_next"
-        ]
+        assert (
+            after["task_loss_weights"]["qol_years"]
+            == before["qol_loss_weight_auto"]["qol_weight_next"]
+        )
 
 
 def test_auto_weight_raises_the_qol_share(tmp_path) -> None:
@@ -275,8 +291,14 @@ def test_auto_weight_survives_an_exact_resume(tmp_path) -> None:
     auto = AutoQoLLossWeight(ema=0.5)
     reference, reference_summary, _ = _auto_fit(tmp_path, "r.jsonl", qol_loss_weight_auto=auto)
     path = str(tmp_path / "resume.pt")
-    _auto_fit(tmp_path, "i.jsonl", qol_loss_weight_auto=auto, max_steps=7, resume_path=path,
-              resume_every=2)
+    _auto_fit(
+        tmp_path,
+        "i.jsonl",
+        qol_loss_weight_auto=auto,
+        max_steps=7,
+        resume_path=path,
+        resume_every=2,
+    )
     resumed, resumed_summary, _ = _auto_fit(
         tmp_path, "s.jsonl", qol_loss_weight_auto=auto, resume_path=path, resume_every=2
     )
@@ -329,18 +351,14 @@ def test_excess_bce_is_logged_in_step_validation_and_final_records(tmp_path) -> 
         assert record["qol_excess_bce"] >= -1e-6
         assert "qol_excess_bce" not in record["heads"]  # never part of the total
         heads = record["heads"]
-        assert record["task"] == pytest.approx(
-            (heads["qol_years"] + heads["population_years"]) / 2
-        )
+        assert record["task"] == pytest.approx((heads["qol_years"] + heads["population_years"]) / 2)
 
 
 def test_dominance_excess_progress_is_opt_in(tmp_path) -> None:
     plain_log, excess_log = tmp_path / "p.jsonl", tmp_path / "x.jsonl"
     plain, plain_summary, _ = _fit(stability=StabilityConfig(log_every=1, jsonl=str(plain_log)))
     excess, excess_summary, _ = _fit(
-        stability=StabilityConfig(
-            log_every=1, jsonl=str(excess_log), dominance_excess_loss=True
-        )
+        stability=StabilityConfig(log_every=1, jsonl=str(excess_log), dominance_excess_loss=True)
     )
     assert _equal(plain, excess)  # measurement only
     assert all("dominance_progress_losses" not in s for s in _lines(plain_log))
@@ -383,14 +401,30 @@ def test_best_validation_survives_a_resume(tmp_path) -> None:
     data = _training_dataset()
     data["collection"] = dict(data["collection"], dataset_digest="fixture")
     sink_ref: dict = {}
-    _fit(dataset=data, epochs=4, validation_dataset=_validation_dataset(),
-         best_validation_sink=sink_ref)
+    _fit(
+        dataset=data,
+        epochs=4,
+        validation_dataset=_validation_dataset(),
+        best_validation_sink=sink_ref,
+    )
     path = str(tmp_path / "resume.pt")
-    _fit(dataset=data, epochs=4, validation_dataset=_validation_dataset(), max_steps=10,
-         resume_path=path, resume_every=2)
+    _fit(
+        dataset=data,
+        epochs=4,
+        validation_dataset=_validation_dataset(),
+        max_steps=10,
+        resume_path=path,
+        resume_every=2,
+    )
     sink: dict = {}
-    _, summary, _ = _fit(dataset=data, epochs=4, validation_dataset=_validation_dataset(),
-                         resume_path=path, resume_every=2, best_validation_sink=sink)
+    _, summary, _ = _fit(
+        dataset=data,
+        epochs=4,
+        validation_dataset=_validation_dataset(),
+        resume_path=path,
+        resume_every=2,
+        best_validation_sink=sink,
+    )
     assert sink["epoch"] == sink_ref["epoch"]
     assert _equal(sink["task"], sink_ref["task"]) and _equal(sink["costs"], sink_ref["costs"])
 
@@ -433,7 +467,10 @@ def test_checkpoint_files_with_best_validation(tmp_path, select) -> None:
         assert record["selected"] == "final"
     plain = tmp_path / "plain.pt"
     lt._save_critic_checkpoints(
-        plain, {"critic": {"w": torch.tensor([3.0])}}, None, select=False,
+        plain,
+        {"critic": {"w": torch.tensor([3.0])}},
+        None,
+        select=False,
         rebuild_with_best=None,
     )
     assert plain.exists() and not (tmp_path / "plain.pt.best-val.pt").exists()

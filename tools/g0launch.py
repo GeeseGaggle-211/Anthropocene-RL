@@ -5,6 +5,7 @@ the input checkpoint with the models being trained replaced by their current par
 "g0_partial" metadata. This format is a valid --checkpoint for resuming after a Spot preemption
 (the Adam moments restart). It changes no computation of the run itself.
 """
+
 import os
 import sys
 import time
@@ -33,20 +34,42 @@ def _save_partial(optimizer):
     if not _cache:
         state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         layout, actor, task, costs, normalizer = lt._models_from_checkpoint(state)
-        _cache.update(state=state, layout=layout, actor=actor, task=task, costs=costs, normalizer=normalizer)
+        _cache.update(
+            state=state, layout=layout, actor=actor, task=task, costs=costs, normalizer=normalizer
+        )
     c = _cache
-    targets = list(c["actor"].parameters()) if mode == "pretrain-bc" else list(c["task"].parameters()) + list(c["costs"].parameters())
+    targets = (
+        list(c["actor"].parameters())
+        if mode == "pretrain-bc"
+        else list(c["task"].parameters()) + list(c["costs"].parameters())
+    )
     sources = [p for group in optimizer.param_groups for p in group["params"]]
     if len(targets) != len(sources) or any(t.shape != s.shape for t, s in zip(targets, sources)):
-        print("[progress] partial save skipped: parameter layout mismatch", file=sys.stderr, flush=True)
+        print(
+            "[progress] partial save skipped: parameter layout mismatch",
+            file=sys.stderr,
+            flush=True,
+        )
         return
     with torch.no_grad():
         for t, s in zip(targets, sources):
             t.copy_(s)
     out = dict(c["state"])
-    out.update(lt.labor_checkpoint_payload(c["actor"], c["task"], c["costs"], c["normalizer"], c["layout"],
-                                           personality=lt.labor_checkpoint_personality(c["state"])))
-    prior = int(c["state"].get("g0_partial", {}).get("steps", 0)) if isinstance(c["state"].get("g0_partial"), dict) else 0
+    out.update(
+        lt.labor_checkpoint_payload(
+            c["actor"],
+            c["task"],
+            c["costs"],
+            c["normalizer"],
+            c["layout"],
+            personality=lt.labor_checkpoint_personality(c["state"]),
+        )
+    )
+    prior = (
+        int(c["state"].get("g0_partial", {}).get("steps", 0))
+        if isinstance(c["state"].get("g0_partial"), dict)
+        else 0
+    )
     out["g0_partial"] = {"mode": mode, "steps": prior + _count[0], "source": ckpt_path}
     tmp = out_path + ".partial.tmp"
     torch.save(out, tmp)
@@ -61,7 +84,11 @@ def _step(self, *args, **kwargs):
     _count[0] += 1
     if _count[0] % 25 == 0:
         el = time.time() - _start[0]
-        print(f"[progress] steps={_count[0]} elapsed_s={el:.0f} s_per_step={el / _count[0]:.3f}", file=sys.stderr, flush=True)
+        print(
+            f"[progress] steps={_count[0]} elapsed_s={el:.0f} s_per_step={el / _count[0]:.3f}",
+            file=sys.stderr,
+            flush=True,
+        )
     if _count[0] % SAVE_EVERY == 0:
         try:
             _save_partial(self)

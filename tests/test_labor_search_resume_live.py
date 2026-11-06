@@ -28,10 +28,36 @@ BRIDGE = os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE")
 REPOSITORY = Path(__file__).resolve().parents[1]
 WORLD = 90100
 ARGS = [
-    "--worlds", str(WORLD), "--source", "h12", "--turns", "5", "--roots-per-world", "3",
-    "--candidates", "6", "--horizons", "1,2", "--keep", "all,2", "--reeval-streams", "2",
-    "--personalities", "balanced", "--control-fraction", "0.5", "--plan-candidates", "1",
-    "--plan-steps", "2", "--plan-fraction", "0.5", "--players", "4", "--jobs", "1",
+    "--worlds",
+    str(WORLD),
+    "--source",
+    "h12",
+    "--turns",
+    "5",
+    "--roots-per-world",
+    "3",
+    "--candidates",
+    "6",
+    "--horizons",
+    "1,2",
+    "--keep",
+    "all,2",
+    "--reeval-streams",
+    "2",
+    "--personalities",
+    "balanced",
+    "--control-fraction",
+    "0.5",
+    "--plan-candidates",
+    "1",
+    "--plan-steps",
+    "2",
+    "--plan-fraction",
+    "0.5",
+    "--players",
+    "4",
+    "--jobs",
+    "1",
     "--allow-dirty",
     # Extra search flags for a variant selftest, e.g. "--successor-rows" (export v2).
     *os.environ.get("ANTHROPOCENE_SEARCH_SELFTEST_EXTRA", "").split(),
@@ -83,29 +109,46 @@ def normalizer(tmp_path_factory: pytest.TempPathFactory) -> Path:
             pytest.skip("model9 bridge predates reset continuation; rebuild integration/")
         step = bridge.reset(50000)
         live = [
-            v for v in step["villages"] if v.get("observation") is not None and not v.get("terminated")
+            v
+            for v in step["villages"]
+            if v.get("observation") is not None and not v.get("terminated")
         ]
         norm = Normalizer.fit_bounded(observation_batch(live))
     path = tmp_path_factory.mktemp("norm") / "normalizer.pt"
-    torch.save({"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": norm.state_dict()}, path)
+    torch.save(
+        {"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": norm.state_dict()}, path
+    )
     return path
 
 
 def _run(out: Path, normalizer: Path, *, kill=None, resume=False):
     env = dict(os.environ, PYTHONPATH=str(REPOSITORY / "src"))
-    argv = [sys.executable, "-c", RUNNER, json.dumps(kill),
-            "--normalizer-checkpoint", str(normalizer), *ARGS, "--out", str(out)]
+    argv = [
+        sys.executable,
+        "-c",
+        RUNNER,
+        json.dumps(kill),
+        "--normalizer-checkpoint",
+        str(normalizer),
+        *ARGS,
+        "--out",
+        str(out),
+    ]
     if resume:
         argv.append("--resume")
-    return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=3600,
-                          stdin=subprocess.DEVNULL)
+    return subprocess.run(
+        argv, env=env, capture_output=True, text=True, timeout=3600, stdin=subprocess.DEVNULL
+    )
 
 
 def _strip(value):
     """Drop wall-clock fields (anything named *seconds* or *Ms)."""
     if isinstance(value, dict):
-        return {k: _strip(v) for k, v in value.items()
-                if "seconds" not in str(k) and not str(k).endswith("Ms")}
+        return {
+            k: _strip(v)
+            for k, v in value.items()
+            if "seconds" not in str(k) and not str(k).endswith("Ms")
+        }
     if isinstance(value, list):
         return [_strip(v) for v in value]
     return value
@@ -137,8 +180,16 @@ def _assert_identical(reference: Path, resumed: Path) -> None:
     for path in sorted(reference.glob("*.npy")):
         x, y = np.load(path), np.load(resumed / path.name)
         assert (x.dtype.str, x.shape, x.tobytes()) == (y.dtype.str, y.shape, y.tobytes()), path.name
-    for key in ("rows", "counters", "skipped", "work", "main_path_resolves", "root_turn_indices",
-                "reset_identity", "restore_checks"):
+    for key in (
+        "rows",
+        "counters",
+        "skipped",
+        "work",
+        "main_path_resolves",
+        "root_turn_indices",
+        "reset_identity",
+        "restore_checks",
+    ):
         assert meta.get(key) == ref_meta.get(key), key
     assert _tables(resumed) == _tables(reference)
     assert _equal(_payload(resumed), _payload(reference))

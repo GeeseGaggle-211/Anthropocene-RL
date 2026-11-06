@@ -54,7 +54,9 @@ def test_source_world_weights_give_equal_source_then_world_mass() -> None:
     assert torch.equal(single, world_balanced_weights(worlds, keep))
 
 
-def _fake_dataset(directory, kind: str, worlds: list[int], rows_per_world: int, extra: bool) -> dict:
+def _fake_dataset(
+    directory, kind: str, worlds: list[int], rows_per_world: int, extra: bool
+) -> dict:
     options = {"turns": 2, "reset_options": {"players": 8}, "worlds": worlds}
     if extra:
         options["actor_only"] = True
@@ -170,19 +172,70 @@ def test_live_dagger_round_feeds_aggregated_bc(tmp_path, bounded_normalizer) -> 
 
     norm = tmp_path / "norm.pt"
     torch.save(
-        {"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": bounded_normalizer.state_dict()},
+        {
+            "feature_contract": BOUNDED_FEATURE_CONTRACT,
+            "normalizer": bounded_normalizer.state_dict(),
+        },
         norm,
     )
     init = tmp_path / "init.pt"
-    labor_training_main(["initialize", "--normalizer-checkpoint", str(norm), "--world-seed", "5000",
-                         "--optimizer-seed", "1", "--out", str(init)])
+    labor_training_main(
+        [
+            "initialize",
+            "--normalizer-checkpoint",
+            str(norm),
+            "--world-seed",
+            "5000",
+            "--optimizer-seed",
+            "1",
+            "--out",
+            str(init),
+        ]
+    )
     teacher = tmp_path / "teacher"
-    assert ltd.main(["--normalizer-checkpoint", str(norm), "--worlds", "5000", "--turns", "2",
-                     "--players", "8", "--jobs", "1", "--allow-dirty",
-                     "--return-tail", "truncated-zero", "--out", str(teacher)]) == 0
+    assert (
+        ltd.main(
+            [
+                "--normalizer-checkpoint",
+                str(norm),
+                "--worlds",
+                "5000",
+                "--turns",
+                "2",
+                "--players",
+                "8",
+                "--jobs",
+                "1",
+                "--allow-dirty",
+                "--return-tail",
+                "truncated-zero",
+                "--out",
+                str(teacher),
+            ]
+        )
+        == 0
+    )
     dagger = tmp_path / "dagger"
-    common = ["collect", "--checkpoint", str(init), "--worlds", "5000", "--round", "1", "--depth", "1",
-              "--starts", "2", "--horizon", "2", "--players", "8", "--jobs", "1", "--allow-dirty"]
+    common = [
+        "collect",
+        "--checkpoint",
+        str(init),
+        "--worlds",
+        "5000",
+        "--round",
+        "1",
+        "--depth",
+        "1",
+        "--starts",
+        "2",
+        "--horizon",
+        "2",
+        "--players",
+        "8",
+        "--jobs",
+        "1",
+        "--allow-dirty",
+    ]
     starts = draw_start_turns(labor_dagger.DEFAULT_START_KEY, 5000, 1, 2, 2, 1)
     assert labor_dagger.main(common + ["--out", str(dagger)]) == 0
     manifest = ltd.verify_dataset(dagger)
@@ -199,30 +252,75 @@ def test_live_dagger_round_feeds_aggregated_bc(tmp_path, bounded_normalizer) -> 
     from anthropocene_rl.autonomous_v7.labor_privileged import shard_keys
 
     assert set(shard_keys()) <= set(learner) and set(shard_keys()) <= set(reference)
-    assert ltd.load_labor_dataset(dagger, require_privileged=True)["collection"][
-        "privileged_schema_version"
-    ] == 1
+    assert (
+        ltd.load_labor_dataset(dagger, require_privileged=True)["collection"][
+            "privileged_schema_version"
+        ]
+        == 1
+    )
     # Branch step 0 is the teacher-prefix state: inputs and labels equal the collector's rows there.
-    skip = {"row_weight", "row_source", "row_round", "row_depth", "row_start", "row_start_index",
-            "row_branch_step"}
+    skip = {
+        "row_weight",
+        "row_source",
+        "row_round",
+        "row_depth",
+        "row_start",
+        "row_start_index",
+        "row_branch_step",
+    }
     for index, start in enumerate(starts):
         sel_d = learner["row_start_index"] == index
         assert bool((learner["row_start"][sel_d] == start).all())
         turn = int(learner["row_turn"][sel_d][0])
         sel_t = reference["row_turn"] == turn
         for key, value in reference.items():
-            if not isinstance(value, torch.Tensor) or key in skip or key.startswith(("reward_", "transition_")):
+            if (
+                not isinstance(value, torch.Tensor)
+                or key in skip
+                or key.startswith(("reward_", "transition_"))
+            ):
                 continue
             assert torch.equal(value[sel_t], learner[key][sel_d]), key
 
     bc = tmp_path / "bc.pt"
-    labor_training_main(["pretrain-bc", "--checkpoint", str(init), "--dataset", str(teacher),
-                         "--dataset", str(dagger), "--epochs", "1", "--batch-size", "16", "--out", str(bc)])
+    labor_training_main(
+        [
+            "pretrain-bc",
+            "--checkpoint",
+            str(init),
+            "--dataset",
+            str(teacher),
+            "--dataset",
+            str(dagger),
+            "--epochs",
+            "1",
+            "--batch-size",
+            "16",
+            "--out",
+            str(bc),
+        ]
+    )
     summary = torch.load(bc, map_location="cpu", weights_only=True)["heuristic_bc_pretraining"]
     sources = summary["collection"]["sources"]
     assert set(sources) == {ltd.SOURCE_KIND, labor_dagger.DAGGER_SOURCE_KIND}
-    assert math.isclose(sources[ltd.SOURCE_KIND]["weight_mass"],
-                        sources[labor_dagger.DAGGER_SOURCE_KIND]["weight_mass"], rel_tol=1e-5)
+    assert math.isclose(
+        sources[ltd.SOURCE_KIND]["weight_mass"],
+        sources[labor_dagger.DAGGER_SOURCE_KIND]["weight_mass"],
+        rel_tol=1e-5,
+    )
     with pytest.raises(ValueError, match="actor-only"):
-        labor_training_main(["pretrain-critic", "--checkpoint", str(init), "--dataset", str(dagger),
-                             "--epochs", "1", "--batch-size", "16", "--out", str(tmp_path / "c.pt")])
+        labor_training_main(
+            [
+                "pretrain-critic",
+                "--checkpoint",
+                str(init),
+                "--dataset",
+                str(dagger),
+                "--epochs",
+                "1",
+                "--batch-size",
+                "16",
+                "--out",
+                str(tmp_path / "c.pt"),
+            ]
+        )

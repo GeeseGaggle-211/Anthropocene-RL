@@ -9,6 +9,7 @@ Layout under HOME (override with ELDERQ_HOME):
   code/<name>/{rl,sim}             immutable checkout (git/checkout.sh)
   results/<name>/                  phase outputs and done markers
 """
+
 import argparse
 import json
 import os
@@ -34,7 +35,9 @@ class JobError(Exception):
 
 
 def now_iso(t=None):
-    return datetime.fromtimestamp(time.time() if t is None else t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.fromtimestamp(time.time() if t is None else t, timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
 # ---------------------------------------------------------------- minimal YAML
@@ -57,7 +60,7 @@ def _scalar(s):
     return s
 
 
-_QUOTED = re.compile(r'''^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$''')
+_QUOTED = re.compile(r"""^("(?:[^"\\]|\\.)*"|'[^']*')\s*(?:#.*)?$""")
 
 
 def _strip_comment(val):
@@ -78,7 +81,9 @@ class _Parser:
         self.i = 0
 
     def skip(self):
-        while self.i < len(self.lines) and (not self.lines[self.i][1] or self.lines[self.i][1].startswith("#")):
+        while self.i < len(self.lines) and (
+            not self.lines[self.i][1] or self.lines[self.i][1].startswith("#")
+        ):
             self.i += 1
         return self.i < len(self.lines)
 
@@ -172,14 +177,18 @@ def _int(v, field, problems, minimum):
 def validate_job(data):
     """Return the normalized job dict or raise JobError listing every problem."""
     if not isinstance(data, dict):
-        raise JobError("job file must be a mapping with keys name, rl_sha, sim_sha, threads, priority, phases")
+        raise JobError(
+            "job file must be a mapping with keys name, rl_sha, sim_sha, threads, priority, phases"
+        )
     problems = []
     for k in data:
         if k not in ("name", "rl_sha", "sim_sha", "threads", "priority", "phases"):
             problems.append("unknown field: %s" % k)
     name = str(data.get("name") or "")
     if not NAME_RE.match(name):
-        problems.append("name must be 1-64 chars of letters, digits, '_', '-', '.' and start with a letter or digit")
+        problems.append(
+            "name must be 1-64 chars of letters, digits, '_', '-', '.' and start with a letter or digit"
+        )
     for f in ("rl_sha", "sim_sha"):
         v = str(data.get(f) or "")
         if not SHA_RE.match(v):
@@ -220,12 +229,20 @@ def validate_job(data):
             if not done:
                 problems.append("phase %s: done marker is required" % (pn or n))
             elif done.startswith("/") or re.match(r"^[A-Za-z]:", done) or ".." in Path(done).parts:
-                problems.append("phase %s: done must be a relative path inside the results dir" % (pn or n))
+                problems.append(
+                    "phase %s: done must be a relative path inside the results dir" % (pn or n)
+                )
             norm.append({"name": pn, "run": str(run or ""), "done": done})
     if problems:
         raise JobError(problems)
-    return {"name": name, "rl_sha": str(data["rl_sha"]), "sim_sha": str(data["sim_sha"]),
-            "threads": threads, "priority": priority, "phases": norm}
+    return {
+        "name": name,
+        "rl_sha": str(data["rl_sha"]),
+        "sim_sha": str(data["sim_sha"]),
+        "threads": threads,
+        "priority": priority,
+        "phases": norm,
+    }
 
 
 def load_job_file(path):
@@ -268,7 +285,9 @@ def write_json(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    for attempt in range(50):  # Windows refuses to replace a file a reader has open; POSIX never loops
+    for attempt in range(
+        50
+    ):  # Windows refuses to replace a file a reader has open; POSIX never loops
         try:
             os.replace(str(tmp), str(path))
             return
@@ -288,15 +307,38 @@ def read_json(path):
 def pending_files(paths):
     if not paths.pending.is_dir():
         return []
-    return sorted(p for p in paths.pending.iterdir() if p.is_file() and p.suffix.lower() in (".yaml", ".yml", ".json"))
+    return sorted(
+        p
+        for p in paths.pending.iterdir()
+        if p.is_file() and p.suffix.lower() in (".yaml", ".yml", ".json")
+    )
 
 
 def initial_status(job, submitted_ts, state, **extra):
-    st = {"name": job["name"], "state": state, "threads": job["threads"], "priority": job["priority"],
-          "rl_sha": job["rl_sha"], "sim_sha": job["sim_sha"], "submitted": now_iso(submitted_ts),
-          "started": None, "ended": None, "provenance": None, "error": None,
-          "phases": [{"name": p["name"], "state": "pending", "started": None, "ended": None,
-                      "exit_code": None, "attempts": 0} for p in job["phases"]]}
+    st = {
+        "name": job["name"],
+        "state": state,
+        "threads": job["threads"],
+        "priority": job["priority"],
+        "rl_sha": job["rl_sha"],
+        "sim_sha": job["sim_sha"],
+        "submitted": now_iso(submitted_ts),
+        "started": None,
+        "ended": None,
+        "provenance": None,
+        "error": None,
+        "phases": [
+            {
+                "name": p["name"],
+                "state": "pending",
+                "started": None,
+                "ended": None,
+                "exit_code": None,
+                "attempts": 0,
+            }
+            for p in job["phases"]
+        ],
+    }
     st.update(extra)
     return st
 
@@ -313,8 +355,18 @@ def list_jobs(paths):
         try:
             job = load_job_file(f)
         except (JobError, OSError) as e:
-            out.setdefault(f.stem, {"name": f.stem, "state": "invalid", "error": str(e), "phases": [],
-                                    "threads": None, "priority": None, "submitted": ""})
+            out.setdefault(
+                f.stem,
+                {
+                    "name": f.stem,
+                    "state": "invalid",
+                    "error": str(e),
+                    "phases": [],
+                    "threads": None,
+                    "priority": None,
+                    "submitted": "",
+                },
+            )
             continue
         if job["name"] not in out:
             out[job["name"]] = initial_status(job, f.stat().st_mtime, "pending")
@@ -351,7 +403,10 @@ def default_checkout(paths):
 
     def run(rl_sha, sim_sha, name, logfile):
         with open(str(logfile), "ab") as lf:
-            return subprocess.call(["bash", str(script), rl_sha, sim_sha, name], stdout=lf, stderr=subprocess.STDOUT)
+            return subprocess.call(
+                ["bash", str(script), rl_sha, sim_sha, name], stdout=lf, stderr=subprocess.STDOUT
+            )
+
     return run
 
 
@@ -368,7 +423,7 @@ class System:
         """Field 22 of /proc/<pid>/stat (clock ticks since boot); None if the process is gone."""
         try:
             stat = Path("/proc/%d/stat" % pid).read_text()
-            fields = stat[stat.rindex(")") + 2:].split()  # after 'pid (comm)'; state is field 3
+            fields = stat[stat.rindex(")") + 2 :].split()  # after 'pid (comm)'; state is field 3
             if fields[0] == "Z":
                 return None
             return int(fields[19])
@@ -394,8 +449,14 @@ def default_execute(run, cwd, env, logfile, should_cancel, on_start=None):
     """Run a shell command in its own process group; return its exit code (-15 if cancelled).
     on_start(pgid) is called right after launch so the runner can record the process identity."""
     with open(str(logfile), "ab") as lf:
-        proc = subprocess.Popen(["bash", "-c", run], cwd=str(cwd), env=env, stdout=lf, stderr=subprocess.STDOUT,
-                                start_new_session=(os.name != "nt"))
+        proc = subprocess.Popen(
+            ["bash", "-c", run],
+            cwd=str(cwd),
+            env=env,
+            stdout=lf,
+            stderr=subprocess.STDOUT,
+            start_new_session=(os.name != "nt"),
+        )
         if on_start:
             on_start(proc.pid)
         while True:
@@ -426,11 +487,15 @@ class Runner:
     system: boot_id(), start_time(pid), kill_group(pid); a live phase of the same boot is adopted, not relaunched
     """
 
-    def __init__(self, home=None, cap=None, checkout=None, execute=None, poll=5.0, log=None, system=None):
+    def __init__(
+        self, home=None, cap=None, checkout=None, execute=None, poll=5.0, log=None, system=None
+    ):
         self.system = system or System()
         self.paths = Paths(home)
         self.paths.ensure()
-        self.default_cap = cap if cap is not None else int(os.environ.get("ELDERQ_CAP", DEFAULT_CAP))
+        self.default_cap = (
+            cap if cap is not None else int(os.environ.get("ELDERQ_CAP", DEFAULT_CAP))
+        )
         self.checkout = checkout or default_checkout(self.paths)
         self.execute = execute or default_execute
         self.poll = poll
@@ -462,7 +527,12 @@ class Runner:
         if self.paths.jobs.is_dir():
             for d in sorted(self.paths.jobs.iterdir()):
                 st, job = read_json(d / "status.json"), read_json(d / "job.json")
-                if st and job and st["state"] in ("running", "queued") and st["name"] not in self.active:
+                if (
+                    st
+                    and job
+                    and st["state"] in ("running", "queued")
+                    and st["name"] not in self.active
+                ):
                     found[st["name"]] = (job, st["submitted"], None)
         for f in pending_files(self.paths):
             try:
@@ -491,16 +561,25 @@ class Runner:
                     (self.paths.cancel / name).unlink()
                     continue
                 if job["threads"] > cap:
-                    self._fail_early(job, submitted, src, "thread budget %d exceeds runner cap %d" % (job["threads"], cap))
+                    self._fail_early(
+                        job,
+                        submitted,
+                        src,
+                        "thread budget %d exceeds runner cap %d" % (job["threads"], cap),
+                    )
                     continue
                 if used + job["threads"] > cap:
                     break  # strict priority order: smaller jobs never starve a larger, higher-priority one
                 if src is not None:
                     write_json(self.paths.job_dir(name) / "job.json", job)
-                    write_json(self.paths.job_dir(name) / "status.json",
-                               initial_status(job, time.time(), "queued", submitted=submitted))
+                    write_json(
+                        self.paths.job_dir(name) / "status.json",
+                        initial_status(job, time.time(), "queued", submitted=submitted),
+                    )
                     src.unlink()
-                t = threading.Thread(target=self.run_job, args=(job,), name="job-" + name, daemon=True)
+                t = threading.Thread(
+                    target=self.run_job, args=(job,), name="job-" + name, daemon=True
+                )
                 self.active[name] = (t, job["threads"])
                 used += job["threads"]
                 self.log("start %s (threads %d, used %d/%d)" % (name, job["threads"], used, cap))
@@ -509,8 +588,12 @@ class Runner:
     def _fail_early(self, job, submitted, src, msg):
         d = self.paths.job_dir(job["name"])
         write_json(d / "job.json", job)
-        write_json(d / "status.json", initial_status(job, time.time(), "failed", submitted=submitted,
-                                                     error=msg, ended=now_iso()))
+        write_json(
+            d / "status.json",
+            initial_status(
+                job, time.time(), "failed", submitted=submitted, error=msg, ended=now_iso()
+            ),
+        )
         if src is not None:
             src.unlink()
         self.log("failed %s: %s" % (job["name"], msg))
@@ -591,14 +674,26 @@ class Runner:
             if not (code / "PROVENANCE").exists():
                 rc = self.checkout(job["rl_sha"], job["sim_sha"], name, logs / "checkout.log")
                 if rc != 0 or not (code / "PROVENANCE").exists():
-                    return finish("failed", "checkout failed (exit %s); see: elderq logs %s checkout" % (rc, name))
+                    return finish(
+                        "failed",
+                        "checkout failed (exit %s); see: elderq logs %s checkout" % (rc, name),
+                    )
             try:
-                st["provenance"] = (code / "PROVENANCE").read_text(encoding="utf-8", errors="replace")
+                st["provenance"] = (code / "PROVENANCE").read_text(
+                    encoding="utf-8", errors="replace"
+                )
             except OSError:
                 st["provenance"] = None
             save()
             env = dict(os.environ)
-            env.update({"OMP_NUM_THREADS": str(job["threads"]), "RESULTS": str(res), "CODE": str(code), "JOB": name})
+            env.update(
+                {
+                    "OMP_NUM_THREADS": str(job["threads"]),
+                    "RESULTS": str(res),
+                    "CODE": str(code),
+                    "JOB": name,
+                }
+            )
             for spec, ps in zip(job["phases"], st["phases"]):
                 if cancelled():
                     return finish("cancelled")
@@ -609,20 +704,46 @@ class Runner:
                     continue
                 logfile = logs / (spec["name"] + ".log")
                 if self._adoptable(ps):
-                    self.log("adopting running phase %s of %s (pid %s)" % (spec["name"], name, ps["pid"]))
+                    self.log(
+                        "adopting running phase %s of %s (pid %s)" % (spec["name"], name, ps["pid"])
+                    )
                     rc = self._wait_adopted(ps, cancelled)
-                    if rc is None:  # exit code of an adopted process is unknowable; the done marker decides
-                        rc = 0 if (res / spec["done"]).exists() else "unknown (adopted; no done marker)"
+                    if (
+                        rc is None
+                    ):  # exit code of an adopted process is unknowable; the done marker decides
+                        rc = (
+                            0
+                            if (res / spec["done"]).exists()
+                            else "unknown (adopted; no done marker)"
+                        )
                 else:
-                    ps.update(state="running", started=now_iso(), ended=None, exit_code=None,
-                              attempts=ps.get("attempts", 0) + 1, pid=None, start_time=None, boot_id=None)
+                    ps.update(
+                        state="running",
+                        started=now_iso(),
+                        ended=None,
+                        exit_code=None,
+                        attempts=ps.get("attempts", 0) + 1,
+                        pid=None,
+                        start_time=None,
+                        boot_id=None,
+                    )
                     save()
                     with open(str(logfile), "ab") as lf:
-                        lf.write(("=== %s phase %s attempt %d\n" % (now_iso(), spec["name"], ps["attempts"])).encode())
+                        lf.write(
+                            (
+                                "=== %s phase %s attempt %d\n"
+                                % (now_iso(), spec["name"], ps["attempts"])
+                            ).encode()
+                        )
 
                     def started(pid, ps=ps):
-                        ps.update(pid=pid, start_time=self.system.start_time(pid), boot_id=self.system.boot_id())
+                        ps.update(
+                            pid=pid,
+                            start_time=self.system.start_time(pid),
+                            boot_id=self.system.boot_id(),
+                        )
                         save()
+
                     rc = self.execute(spec["run"], code / "rl", env, logfile, cancelled, started)
                 ps["ended"], ps["exit_code"] = now_iso(), rc
                 if cancelled():
@@ -633,8 +754,11 @@ class Runner:
                     return finish("failed", "phase %s exited with code %s" % (spec["name"], rc))
                 if not (res / spec["done"]).exists():
                     ps["state"] = "failed"
-                    return finish("failed", "phase %s exited 0 but did not create done marker %s"
-                                  % (spec["name"], spec["done"]))
+                    return finish(
+                        "failed",
+                        "phase %s exited 0 but did not create done marker %s"
+                        % (spec["name"], spec["done"]),
+                    )
                 ps["state"] = "done"
                 save()
             finish("done")
@@ -644,14 +768,18 @@ class Runner:
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="elderq job runner")
-    ap.add_argument("mode", choices=["run", "once"], help="run = serve forever; once = drain the queue and exit")
+    ap.add_argument(
+        "mode", choices=["run", "once"], help="run = serve forever; once = drain the queue and exit"
+    )
     ap.add_argument("--home")
-    ap.add_argument("--cap", type=int, help="default thread cap %d (queue/config.json overrides)" % DEFAULT_CAP)
+    ap.add_argument(
+        "--cap", type=int, help="default thread cap %d (queue/config.json overrides)" % DEFAULT_CAP
+    )
     ap.add_argument("--poll", type=float, default=5.0)
     a = ap.parse_args(argv)
     r = Runner(a.home, a.cap, poll=a.poll)
     if a.mode == "once":
-        return 0 if r.drain(timeout=10 ** 9) else 1
+        return 0 if r.drain(timeout=10**9) else 1
     r.serve()
     return 0
 

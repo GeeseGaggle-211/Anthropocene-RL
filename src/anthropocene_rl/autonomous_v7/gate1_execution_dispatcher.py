@@ -5,6 +5,7 @@ exact argv sealed in a VM-materialized freeze candidate, without a shell, and
 records operational progress and resource use.  It neither reads outcomes for
 decision-making nor grants a Gate/readiness/selection decision.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -93,7 +94,11 @@ def _command_out(argv: list[str]) -> Path | None:
 
 
 def _check_argv(argv: Any, *, expected_subcommand: str | None = None) -> list[str]:
-    if not isinstance(argv, list) or not argv or any(not isinstance(item, str) or not item for item in argv):
+    if (
+        not isinstance(argv, list)
+        or not argv
+        or any(not isinstance(item, str) or not item for item in argv)
+    ):
         _fail("reviewed command argv is malformed")
     if not Path(argv[0]).is_absolute():
         _fail("reviewed command interpreter is not absolute")
@@ -118,7 +123,9 @@ class Context:
     capture_bound_per_world: int
 
 
-def _context(materialized_root: Path, rl_root: Path, state_dir: Path, review: Path | None) -> Context:
+def _context(
+    materialized_root: Path, rl_root: Path, state_dir: Path, review: Path | None
+) -> Context:
     root = materialized_root.resolve()
     source_root = rl_root.resolve()
     if not root.is_dir() or root.is_symlink():
@@ -150,7 +157,10 @@ def _context(materialized_root: Path, rl_root: Path, state_dir: Path, review: Pa
     commands = freeze._read_ref(  # noqa: SLF001 - content-addressed proposal loader
         command_ref, root, kind="gate1_post_review_execution_commands"
     )
-    if commands_path.stat().st_size != command_ref["size"] or checkpoint_hash(commands_path) != command_ref["sha256"]:
+    if (
+        commands_path.stat().st_size != command_ref["size"]
+        or checkpoint_hash(commands_path) != command_ref["sha256"]
+    ):
         _fail("execution command artifact differs from the candidate reference")
     if Path(commands.get("review_path", "")).resolve() != review_path:
         _fail("reviewed command artifact names another review path")
@@ -161,21 +171,34 @@ def _context(materialized_root: Path, rl_root: Path, state_dir: Path, review: Pa
     if not isinstance(evaluations, list) or len(evaluations) != EXPECTED_EVALUATION_COUNT:
         _fail("execution command set does not contain exactly 40 node/pane jobs")
     evaluation = freeze._read_ref(  # noqa: SLF001
-        candidate["proposals"]["evaluation"], root,
+        candidate["proposals"]["evaluation"],
+        root,
         kind="gate1_evaluation_claim_protocol_proposal",
     )
     worlds = evaluation.get("cohort", {}).get("worlds")
     bounds = evaluation.get("capture_bounds")
-    if (not isinstance(worlds, list) or len(worlds) != EXPECTED_WORLD_COUNT
-            or len({row.get("id") for row in worlds if isinstance(row, dict)}) != EXPECTED_WORLD_COUNT
-            or not isinstance(bounds, dict)
-            or type(bounds.get("max_canonical_bytes")) is not int
-            or bounds["max_canonical_bytes"] <= 0):
+    if (
+        not isinstance(worlds, list)
+        or len(worlds) != EXPECTED_WORLD_COUNT
+        or len({row.get("id") for row in worlds if isinstance(row, dict)}) != EXPECTED_WORLD_COUNT
+        or not isinstance(bounds, dict)
+        or type(bounds.get("max_canonical_bytes")) is not int
+        or bounds["max_canonical_bytes"] <= 0
+    ):
         _fail("reviewed world inventory or capture bound is malformed")
     return Context(
-        root, source_root, state_dir.resolve(), candidate_path, review_path,
-        candidate, review_body, commands_path, commands, command_set,
-        frozenset(row["id"] for row in worlds), bounds["max_canonical_bytes"],
+        root,
+        source_root,
+        state_dir.resolve(),
+        candidate_path,
+        review_path,
+        candidate,
+        review_body,
+        commands_path,
+        commands,
+        command_set,
+        frozenset(row["id"] for row in worlds),
+        bounds["max_canonical_bytes"],
     )
 
 
@@ -189,8 +212,9 @@ def _state_path(context: Context, name: str) -> Path:
     return context.state_dir / name
 
 
-def _command_receipt(argv: list[str], started_ns: int, ended_ns: int, exit_code: int,
-                     log_path: Path) -> dict[str, Any]:
+def _command_receipt(
+    argv: list[str], started_ns: int, ended_ns: int, exit_code: int, log_path: Path
+) -> dict[str, Any]:
     return {
         "argv": argv,
         "argv_digest": digest({"argv": argv}),
@@ -209,8 +233,13 @@ def _run_sync(context: Context, argv: list[str], log_path: Path) -> dict[str, An
     started = time.time_ns()
     with log_path.open("xb") as log:
         result = subprocess.run(
-            argv, cwd=context.rl_root, env=_base_env(context), shell=False,
-            stdout=log, stderr=subprocess.STDOUT, check=False,
+            argv,
+            cwd=context.rl_root,
+            env=_base_env(context),
+            shell=False,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
         )
     ended = time.time_ns()
     receipt = _command_receipt(argv, started, ended, result.returncode, log_path)
@@ -221,7 +250,8 @@ def _run_sync(context: Context, argv: list[str], log_path: Path) -> dict[str, An
 
 def _node_index(context: Context) -> dict[str, dict[str, Any]]:
     dag = freeze._read_ref(  # noqa: SLF001
-        context.candidate["proposals"]["artifact_dag"], context.materialized_root,
+        context.candidate["proposals"]["artifact_dag"],
+        context.materialized_root,
         kind="gate1_artifact_dag_proposal",
     )
     return {row["id"]: row for row in dag["nodes"]}
@@ -232,10 +262,20 @@ def _validate_preflight_outputs(context: Context) -> dict[str, dict[str, Any]]:
     proposals = context.candidate["proposals"]
     result: dict[str, dict[str, Any]] = {}
     specifications = (
-        ("contract8_comparator", "gate1_contract8_comparator_result", "prior-reference",
-         "contract8_comparator", "contract8_corpus"),
-        ("guarded_bc_comparator", "gate1_guarded_bc_comparator_result", "t2m-guarded-bc-seed6",
-         "guarded_bc_adapter", "guarded_bc_corpus"),
+        (
+            "contract8_comparator",
+            "gate1_contract8_comparator_result",
+            "prior-reference",
+            "contract8_comparator",
+            "contract8_corpus",
+        ),
+        (
+            "guarded_bc_comparator",
+            "gate1_guarded_bc_comparator_result",
+            "t2m-guarded-bc-seed6",
+            "guarded_bc_adapter",
+            "guarded_bc_corpus",
+        ),
     )
     for command_key, kind, node_id, protocol_key, corpus_key in specifications:
         argv = _check_argv(context.command_set[command_key])
@@ -243,10 +283,12 @@ def _validate_preflight_outputs(context: Context) -> dict[str, dict[str, Any]]:
         if path is None:
             _fail(f"{command_key} lacks its reviewed output")
         body = _sealed_json(path, kind)
-        if (body.get("status") != "PASS"
-                or body.get("checkpoint_sha256") != nodes[node_id]["artifact"]["sha256"]
-                or body.get("protocol_sha256") != proposals[protocol_key]["sha256"]
-                or body.get("corpus_sha256") != proposals[corpus_key]["sha256"]):
+        if (
+            body.get("status") != "PASS"
+            or body.get("checkpoint_sha256") != nodes[node_id]["artifact"]["sha256"]
+            or body.get("protocol_sha256") != proposals[protocol_key]["sha256"]
+            or body.get("corpus_sha256") != proposals[corpus_key]["sha256"]
+        ):
             _fail(f"{command_key} output is bound to another checkpoint/protocol/corpus")
         result[command_key] = {"body_digest": body["digest"], **_file_ref(path)}
     worker_argv = _check_argv(context.command_set["capture_current_worker"])
@@ -258,26 +300,38 @@ def _validate_preflight_outputs(context: Context) -> dict[str, dict[str, Any]]:
     return result
 
 
-def _preflight_body(context: Context, outputs: dict[str, dict[str, Any]], *, adopted: bool,
-                    receipts: list[dict[str, Any]], context_note: str | None) -> dict[str, Any]:
-    return _seal({
-        "schema": SCHEMA,
-        "kind": "gate1_dispatch_preflight_receipt",
-        "status": "PASS-OPERATIONAL-PREFLIGHT-ONLY",
-        "candidate_digest": context.candidate["digest"],
-        "candidate": _file_ref(context.candidate_path),
-        "review_digest": context.review["digest"],
-        "review": _file_ref(context.review_path),
-        "execution_commands_digest": context.commands["digest"],
-        "execution_commands": _file_ref(context.commands_path),
-        "source_root": str(context.rl_root),
-        "adopted_existing_outputs": adopted,
-        "context_note": context_note,
-        "commands_executed_by_dispatcher": receipts,
-        "validated_outputs": outputs,
-        "authority": {"checkpoint_evaluation": False, "selection": False,
-                      "readiness": False, "production_gate1": "not-decided"},
-    })
+def _preflight_body(
+    context: Context,
+    outputs: dict[str, dict[str, Any]],
+    *,
+    adopted: bool,
+    receipts: list[dict[str, Any]],
+    context_note: str | None,
+) -> dict[str, Any]:
+    return _seal(
+        {
+            "schema": SCHEMA,
+            "kind": "gate1_dispatch_preflight_receipt",
+            "status": "PASS-OPERATIONAL-PREFLIGHT-ONLY",
+            "candidate_digest": context.candidate["digest"],
+            "candidate": _file_ref(context.candidate_path),
+            "review_digest": context.review["digest"],
+            "review": _file_ref(context.review_path),
+            "execution_commands_digest": context.commands["digest"],
+            "execution_commands": _file_ref(context.commands_path),
+            "source_root": str(context.rl_root),
+            "adopted_existing_outputs": adopted,
+            "context_note": context_note,
+            "commands_executed_by_dispatcher": receipts,
+            "validated_outputs": outputs,
+            "authority": {
+                "checkpoint_evaluation": False,
+                "selection": False,
+                "readiness": False,
+                "production_gate1": "not-decided",
+            },
+        }
+    )
 
 
 def preflight(context: Context, *, adopt_existing: bool, context_note: str | None) -> Path:
@@ -296,13 +350,20 @@ def preflight(context: Context, *, adopt_existing: bool, context_note: str | Non
             if target is None or target.exists():
                 _fail(f"{key} output is absent from argv or already exists")
         for key in ("contract8_comparator", "guarded_bc_comparator", "capture_current_worker"):
-            receipts.append(_run_sync(
-                context, _check_argv(context.command_set[key]),
-                _state_path(context, f"logs/{key}.log"),
-            ))
+            receipts.append(
+                _run_sync(
+                    context,
+                    _check_argv(context.command_set[key]),
+                    _state_path(context, f"logs/{key}.log"),
+                )
+            )
     outputs = _validate_preflight_outputs(context)
     body = _preflight_body(
-        context, outputs, adopted=adopt_existing, receipts=receipts, context_note=context_note,
+        context,
+        outputs,
+        adopted=adopt_existing,
+        receipts=receipts,
+        context_note=context_note,
     )
     path = _state_path(context, "preflight.json")
     _write_new(path, body)
@@ -311,10 +372,12 @@ def preflight(context: Context, *, adopt_existing: bool, context_note: str | Non
 
 def _validate_preflight(context: Context) -> dict[str, Any]:
     body = _sealed_json(_state_path(context, "preflight.json"), "gate1_dispatch_preflight_receipt")
-    if (body.get("status") != "PASS-OPERATIONAL-PREFLIGHT-ONLY"
-            or body.get("candidate_digest") != context.candidate["digest"]
-            or body.get("review_digest") != context.review["digest"]
-            or body.get("execution_commands_digest") != context.commands["digest"]):
+    if (
+        body.get("status") != "PASS-OPERATIONAL-PREFLIGHT-ONLY"
+        or body.get("candidate_digest") != context.candidate["digest"]
+        or body.get("review_digest") != context.review["digest"]
+        or body.get("execution_commands_digest") != context.commands["digest"]
+    ):
         _fail("preflight receipt is bound to another reviewed command set")
     _same_ref(context.candidate_path, body.get("candidate"), "preflight candidate")
     _same_ref(context.review_path, body.get("review"), "preflight review")
@@ -369,8 +432,11 @@ def _directory_bytes(paths: list[Path]) -> int:
         if root.is_file() and not root.is_symlink():
             total += root.stat().st_size
         elif root.is_dir() and not root.is_symlink():
-            total += sum(path.stat().st_size for path in root.rglob("*")
-                         if path.is_file() and not path.is_symlink())
+            total += sum(
+                path.stat().st_size
+                for path in root.rglob("*")
+                if path.is_file() and not path.is_symlink()
+            )
     return total
 
 
@@ -396,9 +462,12 @@ class WorldProgress:
                 body = _sealed_json(path, "gate1_fresh_common_producer_world")
             except DispatchError:
                 continue  # a direct writer may still be completing this file
-            if (body.get("candidate_digest") != self.candidate_digest
-                    or body.get("node") != self.node or body.get("pane") != self.pane
-                    or body.get("world_id") not in self.expected_ids):
+            if (
+                body.get("candidate_digest") != self.candidate_digest
+                or body.get("node") != self.node
+                or body.get("pane") != self.pane
+                or body.get("world_id") not in self.expected_ids
+            ):
                 _fail("streamed world artifact is bound to another reviewed execution")
             if any(other != path and other.name == path.name for other in self.valid):
                 _fail("streamed world artifact identity is duplicated")
@@ -425,8 +494,12 @@ class Active:
 
 def _evaluation_spec(context: Context, index: int) -> tuple[dict[str, Any], list[str], Path, Path]:
     row = context.command_set["checkpoint_evaluations"][index]
-    if (not isinstance(row, dict) or set(row) != {"node", "pane", "out", "command"}
-            or not isinstance(row["node"], str) or not isinstance(row["pane"], str)):
+    if (
+        not isinstance(row, dict)
+        or set(row) != {"node", "pane", "out", "command"}
+        or not isinstance(row["node"], str)
+        or not isinstance(row["pane"], str)
+    ):
         _fail("reviewed checkpoint-evaluation row is malformed")
     argv = _check_argv(row["command"], expected_subcommand="evaluate-reviewed")
     out = _command_out(argv)
@@ -455,18 +528,31 @@ def _start_evaluation(context: Context, index: int, log_path: Path) -> Active:
     log = log_path.open("xb")
     try:
         process = subprocess.Popen(
-            argv, cwd=context.rl_root, env=_base_env(context), shell=False,
-            stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+            argv,
+            cwd=context.rl_root,
+            env=_base_env(context),
+            shell=False,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
     except BaseException:
         log.close()
         raise
     return Active(
-        index=index, node=row["node"], pane=row["pane"], argv=argv, out=out,
-        world_root=world_root, process=process, log_path=log_path, log_handle=log,
+        index=index,
+        node=row["node"],
+        pane=row["pane"],
+        argv=argv,
+        out=out,
+        world_root=world_root,
+        process=process,
+        log_path=log_path,
+        log_handle=log,
         started_ns=time.time_ns(),
-        progress=WorldProgress(context.candidate["digest"], row["node"], row["pane"],
-                               context.world_ids),
+        progress=WorldProgress(
+            context.candidate["digest"], row["node"], row["pane"], context.world_ids
+        ),
     )
 
 
@@ -498,33 +584,45 @@ def _terminate(active: list[Active]) -> None:
 
 def _validate_completed_evaluation(context: Context, job: Active) -> dict[str, Any]:
     body = _sealed_json(job.out, "gate1_fresh_common_producer_evaluation")
-    if (body.get("candidate_digest") != context.candidate["digest"]
-            or body.get("node") != job.node or body.get("pane") != job.pane
-            or body.get("world_count") != EXPECTED_WORLD_COUNT
-            or body.get("producer_scope") != "fresh-common-producer-diagnostic"
-            or body.get("historical_replay_claim") is not False
-            or body.get("selection_allowed") is not False
-            or body.get("readiness_claimed") is not False):
+    if (
+        body.get("candidate_digest") != context.candidate["digest"]
+        or body.get("node") != job.node
+        or body.get("pane") != job.pane
+        or body.get("world_count") != EXPECTED_WORLD_COUNT
+        or body.get("producer_scope") != "fresh-common-producer-diagnostic"
+        or body.get("historical_replay_claim") is not False
+        or body.get("selection_allowed") is not False
+        or body.get("readiness_claimed") is not False
+    ):
         _fail("completed evaluation summary is not the reviewed diagnostic output")
     refs = body.get("world_artifacts")
     if not isinstance(refs, list) or len(refs) != EXPECTED_WORLD_COUNT:
         _fail("completed evaluation lacks exactly 64 world references")
     seen: set[str] = set()
     for ref in refs:
-        if (not isinstance(ref, dict) or set(ref) != {"path", "sha256", "size"}
-                or not isinstance(ref["path"], str)):
+        if (
+            not isinstance(ref, dict)
+            or set(ref) != {"path", "sha256", "size"}
+            or not isinstance(ref["path"], str)
+        ):
             _fail("completed evaluation contains a malformed world reference")
         path = (job.out.parent / ref["path"]).resolve()
         try:
             path.relative_to(job.out.parent.resolve())
         except ValueError as error:
-            raise DispatchError("completed evaluation world reference escapes output root") from error
+            raise DispatchError(
+                "completed evaluation world reference escapes output root"
+            ) from error
         world = _sealed_json(path, "gate1_fresh_common_producer_world")
-        if (path.stat().st_size != ref["size"] or checkpoint_hash(path) != ref["sha256"]
-                or world.get("candidate_digest") != context.candidate["digest"]
-                or world.get("node") != job.node or world.get("pane") != job.pane
-                or world.get("world_id") not in context.world_ids
-                or world["world_id"] in seen):
+        if (
+            path.stat().st_size != ref["size"]
+            or checkpoint_hash(path) != ref["sha256"]
+            or world.get("candidate_digest") != context.candidate["digest"]
+            or world.get("node") != job.node
+            or world.get("pane") != job.pane
+            or world.get("world_id") not in context.world_ids
+            or world["world_id"] in seen
+        ):
             _fail("completed evaluation contains an incompatible world artifact")
         seen.add(world["world_id"])
     if seen != set(context.world_ids):
@@ -537,8 +635,15 @@ def _event(log, event: dict[str, Any]) -> None:
     log.flush()
 
 
-def _monitor_jobs(context: Context, active: list[Active], *, poll_seconds: float,
-                  reserve_bytes: int, event_log, fail_on_low_disk: bool = True) -> list[dict[str, Any]]:
+def _monitor_jobs(
+    context: Context,
+    active: list[Active],
+    *,
+    poll_seconds: float,
+    reserve_bytes: int,
+    event_log,
+    fail_on_low_disk: bool = True,
+) -> list[dict[str, Any]]:
     if not 0 < poll_seconds <= MAX_POLL_SECONDS:
         _fail("poll interval must be in (0, 2] seconds")
     completed = []
@@ -549,16 +654,28 @@ def _monitor_jobs(context: Context, active: list[Active], *, poll_seconds: float
             rss = _process_tree_rss(job.process.pid)
             aggregate_rss += rss
             job.peak_rss_bytes = max(job.peak_rss_bytes, rss)
-            job.minimum_disk_free_bytes = (disk_free if job.minimum_disk_free_bytes is None
-                                           else min(job.minimum_disk_free_bytes, disk_free))
+            job.minimum_disk_free_bytes = (
+                disk_free
+                if job.minimum_disk_free_bytes is None
+                else min(job.minimum_disk_free_bytes, disk_free)
+            )
             valid_worlds = job.progress.scan(job.world_root)
             bytes_written = _directory_bytes([job.world_root, job.out])
-            _event(event_log, {
-                "at_ns": time.time_ns(), "type": "progress", "index": job.index,
-                "node": job.node, "pane": job.pane, "valid_worlds": valid_worlds,
-                "artifact_bytes": bytes_written, "process_tree_rss_bytes": rss,
-                "aggregate_active_rss_bytes": aggregate_rss, "disk_free_bytes": disk_free,
-            })
+            _event(
+                event_log,
+                {
+                    "at_ns": time.time_ns(),
+                    "type": "progress",
+                    "index": job.index,
+                    "node": job.node,
+                    "pane": job.pane,
+                    "valid_worlds": valid_worlds,
+                    "artifact_bytes": bytes_written,
+                    "process_tree_rss_bytes": rss,
+                    "aggregate_active_rss_bytes": aggregate_rss,
+                    "disk_free_bytes": disk_free,
+                },
+            )
             returncode = job.process.poll()
             if returncode is None:
                 continue
@@ -567,17 +684,25 @@ def _monitor_jobs(context: Context, active: list[Active], *, poll_seconds: float
                 _terminate(active)
                 _fail(f"reviewed evaluation {job.node}/{job.pane} failed ({returncode})")
             body = _validate_completed_evaluation(context, job)
-            completed.append({
-                "index": job.index, "node": job.node, "pane": job.pane,
-                "argv": job.argv, "argv_digest": digest({"argv": job.argv}),
-                "started_ns": job.started_ns, "ended_ns": time.time_ns(),
-                "exit_code": 0, "peak_process_tree_rss_bytes": job.peak_rss_bytes,
-                "minimum_disk_free_bytes": job.minimum_disk_free_bytes,
-                "artifact_bytes": _directory_bytes([job.world_root, job.out]),
-                "valid_world_count": len(job.progress.valid),
-                "evaluation_digest": body["digest"],
-                "evaluation": _file_ref(job.out), "log": _file_ref(job.log_path),
-            })
+            completed.append(
+                {
+                    "index": job.index,
+                    "node": job.node,
+                    "pane": job.pane,
+                    "argv": job.argv,
+                    "argv_digest": digest({"argv": job.argv}),
+                    "started_ns": job.started_ns,
+                    "ended_ns": time.time_ns(),
+                    "exit_code": 0,
+                    "peak_process_tree_rss_bytes": job.peak_rss_bytes,
+                    "minimum_disk_free_bytes": job.minimum_disk_free_bytes,
+                    "artifact_bytes": _directory_bytes([job.world_root, job.out]),
+                    "valid_world_count": len(job.progress.valid),
+                    "evaluation_digest": body["digest"],
+                    "evaluation": _file_ref(job.out),
+                    "log": _file_ref(job.log_path),
+                }
+            )
             active.remove(job)
         if fail_on_low_disk and disk_free < reserve_bytes:
             _terminate(active)
@@ -605,8 +730,11 @@ def calibrate(context: Context, *, reserve_bytes: int, poll_seconds: float) -> P
         job = _start_evaluation(context, 0, _state_path(context, "logs/calibration.log"))
         try:
             receipts = _monitor_jobs(
-                context, [job], poll_seconds=poll_seconds,
-                reserve_bytes=reserve_bytes, event_log=events,
+                context,
+                [job],
+                poll_seconds=poll_seconds,
+                reserve_bytes=reserve_bytes,
+                event_log=events,
             )
         except BaseException:
             _terminate([job])
@@ -615,24 +743,27 @@ def calibrate(context: Context, *, reserve_bytes: int, poll_seconds: float) -> P
             raise
     if len(receipts) != 1 or receipts[0]["valid_world_count"] != EXPECTED_WORLD_COUNT:
         _fail("calibration did not produce exactly 64 validated world artifacts")
-    body = _seal({
-        "schema": SCHEMA, "kind": "gate1_dispatch_calibration_receipt",
-        "status": "COMPLETE-OPERATIONAL-CALIBRATION-NOT-OUTCOME-REVIEW",
-        "candidate_digest": context.candidate["digest"],
-        "review_digest": context.review["digest"],
-        "execution_commands_digest": context.commands["digest"],
-        "preflight_digest": preflight_body["digest"],
-        "first_declared_evaluation_index": 0,
-        "world_count": EXPECTED_WORLD_COUNT,
-        "capture_upper_bound_bytes": hard_bound,
-        "disk_reserve_bytes": reserve_bytes,
-        "disk_free_before_bytes": free_before,
-        "poll_seconds": poll_seconds,
-        "progress_log": _file_ref(event_path),
-        "evaluation": receipts[0],
-        "outcome_values_inspected_for_action": False,
-        "authority": {"full_cohort": False, "selection": False, "readiness": False},
-    })
+    body = _seal(
+        {
+            "schema": SCHEMA,
+            "kind": "gate1_dispatch_calibration_receipt",
+            "status": "COMPLETE-OPERATIONAL-CALIBRATION-NOT-OUTCOME-REVIEW",
+            "candidate_digest": context.candidate["digest"],
+            "review_digest": context.review["digest"],
+            "execution_commands_digest": context.commands["digest"],
+            "preflight_digest": preflight_body["digest"],
+            "first_declared_evaluation_index": 0,
+            "world_count": EXPECTED_WORLD_COUNT,
+            "capture_upper_bound_bytes": hard_bound,
+            "disk_reserve_bytes": reserve_bytes,
+            "disk_free_before_bytes": free_before,
+            "poll_seconds": poll_seconds,
+            "progress_log": _file_ref(event_path),
+            "evaluation": receipts[0],
+            "outcome_values_inspected_for_action": False,
+            "authority": {"full_cohort": False, "selection": False, "readiness": False},
+        }
+    )
     _write_new(target, body)
     return target
 
@@ -642,14 +773,16 @@ def _validate_calibration(context: Context) -> dict[str, Any]:
         _state_path(context, "calibration.json"), "gate1_dispatch_calibration_receipt"
     )
     preflight_body = _validate_preflight(context)
-    if (body.get("status") != "COMPLETE-OPERATIONAL-CALIBRATION-NOT-OUTCOME-REVIEW"
-            or body.get("candidate_digest") != context.candidate["digest"]
-            or body.get("review_digest") != context.review["digest"]
-            or body.get("execution_commands_digest") != context.commands["digest"]
-            or body.get("preflight_digest") != preflight_body["digest"]
-            or body.get("first_declared_evaluation_index") != 0
-            or body.get("world_count") != EXPECTED_WORLD_COUNT
-            or body.get("outcome_values_inspected_for_action") is not False):
+    if (
+        body.get("status") != "COMPLETE-OPERATIONAL-CALIBRATION-NOT-OUTCOME-REVIEW"
+        or body.get("candidate_digest") != context.candidate["digest"]
+        or body.get("review_digest") != context.review["digest"]
+        or body.get("execution_commands_digest") != context.commands["digest"]
+        or body.get("preflight_digest") != preflight_body["digest"]
+        or body.get("first_declared_evaluation_index") != 0
+        or body.get("world_count") != EXPECTED_WORLD_COUNT
+        or body.get("outcome_values_inspected_for_action") is not False
+    ):
         _fail("calibration receipt is incomplete or bound to another collection")
     progress = body.get("progress_log")
     if not isinstance(progress, dict):
@@ -658,37 +791,54 @@ def _validate_calibration(context: Context) -> dict[str, Any]:
     evaluation = body.get("evaluation")
     if not isinstance(evaluation, dict) or evaluation.get("index") != 0:
         _fail("calibration receipt does not describe the first reviewed evaluation")
-    _same_ref(Path(evaluation["evaluation"]["path"]), evaluation["evaluation"],
-              "calibration evaluation")
+    _same_ref(
+        Path(evaluation["evaluation"]["path"]), evaluation["evaluation"], "calibration evaluation"
+    )
     return body
 
 
 def _approval(path: Path, context: Context, calibration_body: dict[str, Any]) -> dict[str, Any]:
     body = _sealed_json(path.resolve(), "gate1_dispatch_full_cohort_approval")
     exact = {
-        "schema", "kind", "candidate_digest", "candidate_sha256", "review_digest",
-        "execution_commands_digest", "calibration_digest", "decision", "reviewer_identity",
-        "scope", "max_concurrency", "minimum_disk_reserve_bytes", "storage_safety_factor",
-        "outcome_based_decision", "digest",
+        "schema",
+        "kind",
+        "candidate_digest",
+        "candidate_sha256",
+        "review_digest",
+        "execution_commands_digest",
+        "calibration_digest",
+        "decision",
+        "reviewer_identity",
+        "scope",
+        "max_concurrency",
+        "minimum_disk_reserve_bytes",
+        "storage_safety_factor",
+        "outcome_based_decision",
+        "digest",
     }
     if set(body) != exact:
         _fail("full-cohort approval field set is not exact")
     concurrency = body.get("max_concurrency")
     factor = body.get("storage_safety_factor")
     reserve = body.get("minimum_disk_reserve_bytes")
-    if (body.get("candidate_digest") != context.candidate["digest"]
-            or body.get("candidate_sha256") != checkpoint_hash(context.candidate_path)
-            or body.get("review_digest") != context.review["digest"]
-            or body.get("execution_commands_digest") != context.commands["digest"]
-            or body.get("calibration_digest") != calibration_body["digest"]
-            or body.get("decision") != "approved"
-            or body.get("reviewer_identity") != "root-orchestrator"
-            or body.get("scope") != "remaining-39-reviewed-node-pane-evaluations"
-            or body.get("outcome_based_decision") is not False
-            or type(concurrency) is not int or not 1 <= concurrency <= MAX_REVIEWED_CONCURRENCY
-            or type(reserve) is not int or reserve < 0
-            or isinstance(factor, bool) or not isinstance(factor, (int, float))
-            or not 1 <= float(factor) <= 100):
+    if (
+        body.get("candidate_digest") != context.candidate["digest"]
+        or body.get("candidate_sha256") != checkpoint_hash(context.candidate_path)
+        or body.get("review_digest") != context.review["digest"]
+        or body.get("execution_commands_digest") != context.commands["digest"]
+        or body.get("calibration_digest") != calibration_body["digest"]
+        or body.get("decision") != "approved"
+        or body.get("reviewer_identity") != "root-orchestrator"
+        or body.get("scope") != "remaining-39-reviewed-node-pane-evaluations"
+        or body.get("outcome_based_decision") is not False
+        or type(concurrency) is not int
+        or not 1 <= concurrency <= MAX_REVIEWED_CONCURRENCY
+        or type(reserve) is not int
+        or reserve < 0
+        or isinstance(factor, bool)
+        or not isinstance(factor, (int, float))
+        or not 1 <= float(factor) <= 100
+    ):
         _fail("full-cohort approval is invalid or bound to another calibration")
     return body
 
@@ -719,15 +869,20 @@ def full(context: Context, *, approval_path: Path, poll_seconds: float) -> Path:
             while pending or active:
                 while pending and len(active) < approval["max_concurrency"]:
                     index = pending.pop(0)
-                    active.append(_start_evaluation(
-                        context, index, _state_path(context, f"logs/evaluation-{index:02d}.log")
-                    ))
+                    active.append(
+                        _start_evaluation(
+                            context, index, _state_path(context, f"logs/evaluation-{index:02d}.log")
+                        )
+                    )
                 # Monitor until at least one active job completes, then refill.
                 while active:
                     before = len(active)
                     receipts = _monitor_jobs(
-                        context, active, poll_seconds=poll_seconds,
-                        reserve_bytes=reserve, event_log=events,
+                        context,
+                        active,
+                        poll_seconds=poll_seconds,
+                        reserve_bytes=reserve,
+                        event_log=events,
                     )
                     # _monitor_jobs drains the supplied list; this branch normally
                     # runs one concurrency wave.  It remains fail-fast.
@@ -744,28 +899,35 @@ def full(context: Context, *, approval_path: Path, poll_seconds: float) -> Path:
     if len(completed) != len(indices):
         _fail("full-cohort dispatcher did not complete all remaining reviewed jobs")
     actual_bytes = sum(row["artifact_bytes"] for row in completed)
-    body = _seal({
-        "schema": SCHEMA, "kind": "gate1_dispatch_full_cohort_receipt",
-        "status": "COMPLETE-OPERATIONAL-COLLECTION-NOT-A-GATE-DECISION",
-        "candidate_digest": context.candidate["digest"],
-        "review_digest": context.review["digest"],
-        "execution_commands_digest": context.commands["digest"],
-        "calibration_digest": calibration_body["digest"],
-        "approval_digest": approval["digest"],
-        "approval": _file_ref(approval_path.resolve()),
-        "concurrency": approval["max_concurrency"],
-        "storage_safety_factor": approval["storage_safety_factor"],
-        "projected_remaining_artifact_bytes": projected,
-        "actual_remaining_artifact_bytes": actual_bytes,
-        "minimum_disk_reserve_bytes": reserve,
-        "disk_free_before_bytes": free_before,
-        "poll_seconds": poll_seconds,
-        "progress_log": _file_ref(event_path),
-        "evaluations": sorted(completed, key=lambda row: row["index"]),
-        "outcome_values_inspected_for_action": False,
-        "authority": {"selection": False, "promotion": False, "readiness": False,
-                      "production_gate1": "not-decided"},
-    })
+    body = _seal(
+        {
+            "schema": SCHEMA,
+            "kind": "gate1_dispatch_full_cohort_receipt",
+            "status": "COMPLETE-OPERATIONAL-COLLECTION-NOT-A-GATE-DECISION",
+            "candidate_digest": context.candidate["digest"],
+            "review_digest": context.review["digest"],
+            "execution_commands_digest": context.commands["digest"],
+            "calibration_digest": calibration_body["digest"],
+            "approval_digest": approval["digest"],
+            "approval": _file_ref(approval_path.resolve()),
+            "concurrency": approval["max_concurrency"],
+            "storage_safety_factor": approval["storage_safety_factor"],
+            "projected_remaining_artifact_bytes": projected,
+            "actual_remaining_artifact_bytes": actual_bytes,
+            "minimum_disk_reserve_bytes": reserve,
+            "disk_free_before_bytes": free_before,
+            "poll_seconds": poll_seconds,
+            "progress_log": _file_ref(event_path),
+            "evaluations": sorted(completed, key=lambda row: row["index"]),
+            "outcome_values_inspected_for_action": False,
+            "authority": {
+                "selection": False,
+                "promotion": False,
+                "readiness": False,
+                "production_gate1": "not-decided",
+            },
+        }
+    )
     _write_new(target, body)
     return target
 
@@ -794,15 +956,21 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     context = _context(
-        args.materialized_root, args.rl_root, args.state_dir, args.review,
+        args.materialized_root,
+        args.rl_root,
+        args.state_dir,
+        args.review,
     )
     if args.stage == "preflight":
         path = preflight(
-            context, adopt_existing=args.adopt_existing, context_note=args.context_note,
+            context,
+            adopt_existing=args.adopt_existing,
+            context_note=args.context_note,
         )
     elif args.stage == "calibrate":
         path = calibrate(
-            context, reserve_bytes=args.minimum_disk_reserve_bytes,
+            context,
+            reserve_bytes=args.minimum_disk_reserve_bytes,
             poll_seconds=args.poll_seconds,
         )
     else:

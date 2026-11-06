@@ -26,7 +26,9 @@ import numpy as np
 
 CAP = 500
 CAPTURES_PER_WORLD = 3  # a reservoir sample over each world rollout's founded daughters
-HOLDOUT_EVERY = 10  # entries from worlds with seed % HOLDOUT_EVERY == 0 are the held-out evaluation family
+HOLDOUT_EVERY = (
+    10  # entries from worlds with seed % HOLDOUT_EVERY == 0 are the held-out evaluation family
+)
 
 
 def held_out(entry: dict[str, Any]) -> bool:
@@ -40,7 +42,9 @@ def check_partition(entries: list[dict[str, Any]]) -> None:
     train = {e["file"] for e in entries if not held_out(e)}
     shared = train & {e["file"] for e in entries if held_out(e)}
     if shared:
-        raise AssertionError(f"daughter bank leak: snapshots in both partitions: {sorted(shared)[:3]}")
+        raise AssertionError(
+            f"daughter bank leak: snapshots in both partitions: {sorted(shared)[:3]}"
+        )
 
 
 class Reservoir:
@@ -75,21 +79,34 @@ class DaughterBank:
             return []
         entries = [json.loads(line) for line in self.index.read_text().splitlines() if line.strip()]
         from .protocol import seeds
+
         seeds([entry["seed"] for entry in entries], "daughter bank index")
         return entries
 
     def training_entries(self) -> list[dict[str, Any]]:
-        entries = self.entries(); check_partition(entries)
+        entries = self.entries()
+        check_partition(entries)
         return [e for e in entries if not held_out(e)]
 
     def evaluation_entries(self) -> list[dict[str, Any]]:
-        entries = self.entries(); check_partition(entries)
+        entries = self.entries()
+        check_partition(entries)
         return [e for e in entries if held_out(e)]
 
-    def add(self, snapshot: str | bytes, seed: int, mask: int, turn: int, society: int, camp: int, parent_society: int,
-            movement: bool = False) -> dict[str, Any]:
+    def add(
+        self,
+        snapshot: str | bytes,
+        seed: int,
+        mask: int,
+        turn: int,
+        society: int,
+        camp: int,
+        parent_society: int,
+        movement: bool = False,
+    ) -> dict[str, Any]:
         """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""
         from .protocol import seeds
+
         seeds([seed], "daughter capture")
         raw = base64.b64decode(snapshot) if isinstance(snapshot, str) else bytes(snapshot)
         entries = self.entries()
@@ -97,15 +114,28 @@ class DaughterBank:
         name = hashlib.sha1(raw).hexdigest()[:20] + ".snap"
         if not (self.directory / name).exists():
             tmp = self.directory / (name + ".tmp")
-            tmp.write_bytes(zlib.compress(raw, 6)); os.replace(tmp, self.directory / name)
-        entry = {"id": next_id, "seed": int(seed), "mask": int(mask), "movement": bool(movement), "turn": int(turn),
-                 "society": int(society), "camp": int(camp), "parent_society": int(parent_society), "file": name,
-                 "snapshot_sha256": hashlib.sha256(raw).hexdigest()}
+            tmp.write_bytes(zlib.compress(raw, 6))
+            os.replace(tmp, self.directory / name)
+        entry = {
+            "id": next_id,
+            "seed": int(seed),
+            "mask": int(mask),
+            "movement": bool(movement),
+            "turn": int(turn),
+            "society": int(society),
+            "camp": int(camp),
+            "parent_society": int(parent_society),
+            "file": name,
+            "snapshot_sha256": hashlib.sha256(raw).hexdigest(),
+        }
         entries.append(entry)
-        dropped, entries = entries[:-self.cap] if len(entries) > self.cap else [], entries[-self.cap:]
+        dropped, entries = (
+            entries[: -self.cap] if len(entries) > self.cap else [],
+            entries[-self.cap :],
+        )
         self._write(entries)
         kept = {e["file"] for e in entries}
-        for e in ([] if getattr(self, "retain_snapshots", False) else dropped):
+        for e in [] if getattr(self, "retain_snapshots", False) else dropped:
             if e["file"] in kept:
                 continue
             try:
@@ -122,7 +152,9 @@ class DaughterBank:
             return
         entries = [e for e in entries if int(e["id"]) != int(entry_id)]
         self._write(entries)
-        if not getattr(self, "retain_snapshots", False) and gone[0]["file"] not in {e["file"] for e in entries}:
+        if not getattr(self, "retain_snapshots", False) and gone[0]["file"] not in {
+            e["file"] for e in entries
+        }:
             try:
                 (self.directory / gone[0]["file"]).unlink()
             except FileNotFoundError:
@@ -137,7 +169,9 @@ class DaughterBank:
                 return e
         raise KeyError(f"daughter bank entry {entry_id} is not in {self.directory}")
 
-    def sample(self, rng: np.random.Generator, masks: set[int] | None = None) -> dict[str, Any] | None:
+    def sample(
+        self, rng: np.random.Generator, masks: set[int] | None = None
+    ) -> dict[str, Any] | None:
         """A uniformly drawn training entry (``masks``: only those withheld masks), or None when there is none."""
         pool = [e for e in self.training_entries() if masks is None or int(e["mask"]) in masks]
         return pool[int(rng.integers(len(pool)))] if pool else None

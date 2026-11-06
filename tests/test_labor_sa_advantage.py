@@ -317,8 +317,9 @@ def test_parse_successors_and_target_rules():
     t3 = sa.successor_target(s0, 3, v)
     assert t3[0] == pytest.approx(s0.rewards[0][0] * (1 + G + G * G) + G**3 * s0.row[3])
     assert sa.successor_target(succ[3][0], 3, v) is None  # H1-only: no decision-3 row
-    dead = sa.SuccStream(0, np.ones((2, 4)), np.full(2, 20.0), True,
-                         {1: "live", 2: "terminated"}, {1: 0})
+    dead = sa.SuccStream(
+        0, np.ones((2, 4)), np.full(2, 20.0), True, {1: "live", 2: "terminated"}, {1: 0}
+    )
     assert sa.successor_target(dead, 3, v)[0] == pytest.approx(1 + G)
     asleep = sa.SuccStream(0, np.ones((1, 4)), np.full(1, 20.0), False, {1: "inactive"}, {})
     assert sa.successor_target(asleep, 1, v) is None
@@ -330,8 +331,18 @@ def test_successor_section_full_advantage(tmp_path, monkeypatch):
     payloads.mkdir(parents=True)
     torch.save(toy_shard_v2(), payloads / "advantage-candidates.pt")
     out = tmp_path / "r.json"
-    sa.main(["--payloads", str(tmp_path / "search"), "--out", str(out), "--arm", "p=x",
-             "--margin", "1e-6"])
+    sa.main(
+        [
+            "--payloads",
+            str(tmp_path / "search"),
+            "--out",
+            str(out),
+            "--arm",
+            "p=x",
+            "--margin",
+            "1e-6",
+        ]
+    )
     report = json.loads(out.read_text())
     assert report["successor_observations_in_payload"] is True
     check = report["successor_check"]
@@ -370,9 +381,7 @@ def test_successor_metrics_value_by_hand(tmp_path, monkeypatch):
     data.add(shard, roots)
     root_data, succ_data = data.datasets()
     _, members = _fake_values(None, [root_data, succ_data])
-    rows = sa.successor_rows_table(
-        data.roots, members[0][0], members[0][1], k=1, mode="0"
-    )
+    rows = sa.successor_rows_table(data.roots, members[0][0], members[0][1], k=1, mode="0")
     k = (rows["root"] == "90154/0") & (rows["family"] == "transfer")
     r1 = 12.0  # base 10 + 2
     assert rows["pred"][k][0, 0] == pytest.approx(r1 + G * 2 * r1)

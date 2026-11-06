@@ -29,8 +29,19 @@ import numpy as np
 from . import contracts, data
 from .bridge import Model9Bridge
 
-ROW_KEYS = ("world", "camp", "turn", "society", "parent_society", "prior_population", "population", "qol", "years",
-            "terminated", "trade_utility")
+ROW_KEYS = (
+    "world",
+    "camp",
+    "turn",
+    "society",
+    "parent_society",
+    "prior_population",
+    "population",
+    "qol",
+    "years",
+    "terminated",
+    "trade_utility",
+)
 
 
 def heuristic_rows(seed: int, turns: int, withheld: int = 0) -> dict[str, list]:
@@ -40,7 +51,11 @@ def heuristic_rows(seed: int, turns: int, withheld: int = 0) -> dict[str, list]:
     with Model9Bridge() as bridge:
         step = bridge.reset(seed, withheld=withheld)
         for _ in range(turns):
-            deciding = {int(v["camp"]) for v in step["villages"] if v.get("observation") is not None and not v.get("terminated")}
+            deciding = {
+                int(v["camp"])
+                for v in step["villages"]
+                if v.get("observation") is not None and not v.get("terminated")
+            }
             if not deciding:
                 break
             turn = step["turn"]
@@ -48,11 +63,17 @@ def heuristic_rows(seed: int, turns: int, withheld: int = 0) -> dict[str, list]:
             for v in step["villages"]:
                 if int(v["camp"]) not in deciding:
                     continue
-                rows["world"].append(seed); rows["camp"].append(int(v["camp"])); rows["turn"].append(int(turn))
-                rows["society"].append(int(v["society"])); rows["parent_society"].append(int(v["parentSociety"]))
-                rows["prior_population"].append(float(v["priorPopulation"])); rows["population"].append(float(v["population"]))
-                rows["qol"].append(float(v["qol"])); rows["years"].append(float(v["years"]))
-                rows["terminated"].append(bool(v["terminated"])); rows["trade_utility"].append(float(v.get("tradeUtility", 0.0)))
+                rows["world"].append(seed)
+                rows["camp"].append(int(v["camp"]))
+                rows["turn"].append(int(turn))
+                rows["society"].append(int(v["society"]))
+                rows["parent_society"].append(int(v["parentSociety"]))
+                rows["prior_population"].append(float(v["priorPopulation"]))
+                rows["population"].append(float(v["population"]))
+                rows["qol"].append(float(v["qol"]))
+                rows["years"].append(float(v["years"]))
+                rows["terminated"].append(bool(v["terminated"]))
+                rows["trade_utility"].append(float(v.get("tradeUtility", 0.0)))
     return rows
 
 
@@ -62,7 +83,9 @@ def discounted_returns(batch: dict[str, np.ndarray], reward: np.ndarray) -> np.n
     for rows in data.sequences(batch):
         g = 0.0
         for i in rows[::-1]:
-            g = reward[i] + (0.0 if batch["terminated"][i] else float(data.discount(batch["years"][i])) * g)
+            g = reward[i] + (
+                0.0 if batch["terminated"][i] else float(data.discount(batch["years"][i])) * g
+            )
             out[i] = g
     return out
 
@@ -71,7 +94,8 @@ def later_turns(batch: dict[str, np.ndarray]) -> np.ndarray:
     """Decision turns left in each row's world rollout after the row (the world's last decision turn minus the row's).
     A row with ``n`` later turns has a return covering ``n + 1`` turns unless its village ended first, and then the
     return is complete anyway."""
-    world = np.asarray(batch["world"]); turn = np.asarray(batch["turn"])
+    world = np.asarray(batch["world"])
+    turn = np.asarray(batch["turn"])
     last = {w: int(turn[world == w].max()) for w in np.unique(world)}
     return np.asarray([last[w] - t for w, t in zip(world, turn)])
 
@@ -88,7 +112,11 @@ def reference_scales(batch: dict[str, np.ndarray], full_window: int = 0) -> dict
         entry = {"std": float(np.std(g)), "mean": float(np.mean(g))}
         if full_window > 0 and (remaining >= full_window).any():
             sub = g[remaining >= full_window]
-            entry.update(full_window_std=float(np.std(sub)), full_window_mean=float(np.mean(sub)), full_window_rows=int(len(sub)))
+            entry.update(
+                full_window_std=float(np.std(sub)),
+                full_window_mean=float(np.mean(sub)),
+                full_window_rows=int(len(sub)),
+            )
         report["objectives"][name] = entry
     return report
 
@@ -98,9 +126,13 @@ def main() -> int:
     parser.add_argument("--seeds", default="1000-1059", help="TRAIN seed range")
     parser.add_argument("--turns", type=int, default=45)
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--full-window", type=int, default=20,
-                        help="also report rows with at least this many later turns (20 turns = 400 years); with "
-                             "--turns 45 these are the first 25 turns, the stored reference scales")
+    parser.add_argument(
+        "--full-window",
+        type=int,
+        default=20,
+        help="also report rows with at least this many later turns (20 turns = 400 years); with "
+        "--turns 45 these are the first 25 turns, the stored reference scales",
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     a, b = (int(x) for x in args.seeds.split("-"))
@@ -110,8 +142,15 @@ def main() -> int:
         worlds = list(pool.map(lambda s: heuristic_rows(s, args.turns), seeds))
     batch = {k: np.concatenate([np.asarray(w[k]) for w in worlds]) for k in ROW_KEYS}
     report = reference_scales(batch, args.full_window)
-    report.update({"seeds": args.seeds, "turns": args.turns, "horizon_years": contracts.HORIZON_YEARS,
-                   "worlds": len(seeds), "seconds": time.time() - clock})
+    report.update(
+        {
+            "seeds": args.seeds,
+            "turns": args.turns,
+            "horizon_years": contracts.HORIZON_YEARS,
+            "worlds": len(seeds),
+            "seconds": time.time() - clock,
+        }
+    )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(report, indent=2))
     print(json.dumps(report, indent=1))

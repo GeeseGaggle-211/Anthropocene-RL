@@ -169,7 +169,10 @@ def task_gradient_report(
     from .labor_bc import _batch_loss_and_l1
 
     actor.eval()  # dropout-free encoder; eval keeps the forward deterministic
-    params = {"trunk": actor_trunk_parameters(actor), "gradnorm_w": actor_gradnorm_parameters(actor)}
+    params = {
+        "trunk": actor_trunk_parameters(actor),
+        "gradnorm_w": actor_gradnorm_parameters(actor),
+    }
     spec_w, act_w = inverse_frequency_weights(dataset, inverse_freq_power)
     keys = [k for k, v in dataset.items() if isinstance(v, torch.Tensor)]
     n = int(dataset["target_specialty"].shape[0])
@@ -315,7 +318,11 @@ def _per_staffed_row(report: Mapping[str, Any], rows: int) -> dict[str, Any]:
     for weighting, entry in report["weightings"].items():
         shares = entry["trunk"]["mean_batch_share"]
         intensity = {
-            t: (shares[t] / (report["staffed_rows"][t] / rows) if report["staffed_rows"][t] else None)
+            t: (
+                shares[t] / (report["staffed_rows"][t] / rows)
+                if report["staffed_rows"][t]
+                else None
+            )
             for t in ACTOR_ROLE_TASKS
         }
         out[weighting] = {"share_per_staffed_fraction": intensity}

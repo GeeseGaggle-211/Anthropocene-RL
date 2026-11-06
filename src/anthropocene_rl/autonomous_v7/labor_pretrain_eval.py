@@ -734,9 +734,13 @@ def value_support_metrics(
         }
         for term in ("upper_mass", "upper_contribution", "upper_excess", "top_bin_mass"):
             values = preds.get(f"{name}/{term}")
-            head[term] = None if values is None or not len(values) else weighted_mean(values, weights)
+            head[term] = (
+                None if values is None or not len(values) else weighted_mean(values, weights)
+            )
         excess = preds.get(f"{name}/upper_excess")
-        head["upper_excess_max"] = None if excess is None or not len(excess) else float(excess.max())
+        head["upper_excess_max"] = (
+            None if excess is None or not len(excess) else float(excess.max())
+        )
         report[name] = head
     return report
 
@@ -1914,7 +1918,12 @@ def advantage_magnitude_report(
         gated = np.isin(result["closure"][rows], NSTEP_GATED_CLOSURES)
         head_a_hat = {
             h: nstep_targets(
-                head_value[h], head_reward[h], elapsed, terminal, *common, k=int(k),
+                head_value[h],
+                head_reward[h],
+                elapsed,
+                terminal,
+                *common,
+                k=int(k),
                 discount_years=CRITIC_DISCOUNT_YEARS,
             )["target"]
             - head_value[h]
@@ -2268,9 +2277,7 @@ def critic_dataset_report(
             if len(others):
                 full[others] = extra[name]
             every_head[name] = full
-        advantage_magnitude = advantage_magnitude_report(
-            dataset, rows, every_head, returns, strata
-        )
+        advantage_magnitude = advantage_magnitude_report(dataset, rows, every_head, returns, strata)
         qol_nstep = qol_nstep_calibration(
             dataset,
             rows,
@@ -2297,9 +2304,7 @@ def critic_dataset_report(
             returns["population_years"][rows],
             strata,
             LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"],
-            world_factors={
-                int(w): f for w, f in qol_nstep["world_factors"].items()
-            },
+            world_factors={int(w): f for w, f in qol_nstep["world_factors"].items()},
         )
         population_tail = population_tail_explanation(
             task, dataset, rows, observed_max["population_years"], batch_size
@@ -2309,9 +2314,7 @@ def critic_dataset_report(
         from .labor_model import labor_qol_discount_weight
 
         qol_head = getattr(task, "qol_head", None)
-        weight = (
-            labor_qol_discount_weight() if qol_head is None else qol_head.discount_weight
-        )
+        weight = labor_qol_discount_weight() if qol_head is None else qol_head.discount_weight
         tail_record["qol_tail"] = qol_tail_diagnostics(
             dataset,
             rows,
@@ -2330,11 +2333,7 @@ def critic_dataset_report(
     return {
         **tail_record,
         **({} if relative is None else {"relative": relative}),
-        **(
-            {}
-            if advantage_magnitude is None
-            else {"advantage_magnitude": advantage_magnitude}
-        ),
+        **({} if advantage_magnitude is None else {"advantage_magnitude": advantage_magnitude}),
         **({"loader_corrections": corrections} if corrections else {}),
         **({} if qol_nstep is None else {"qol_nstep": qol_nstep}),
         **({} if population_nstep is None else {"population_nstep": population_nstep}),
@@ -2475,14 +2474,21 @@ def run_critic_calibration(
         fitted = set()
         for member_task in fit_records:
             fitted |= set(member_task.privileged_normalizer.fit_record.get("worlds", []))
-        overlap = sorted(fitted & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()})
+        overlap = sorted(
+            fitted & {int(w) for w in calibration_dataset["row_world"].reshape(-1).tolist()}
+        )
         if overlap:
             raise ValueError(
                 f"calibration worlds {overlap[:5]} fitted the privileged normalizer; not held out"
             )
     calibration = critic_dataset_report(
-        task, costs, calibration_dataset, batch_size, normalizer=normalizer,
-        qol_reference=qol_reference, constant=constant,
+        task,
+        costs,
+        calibration_dataset,
+        batch_size,
+        normalizer=normalizer,
+        qol_reference=qol_reference,
+        constant=constant,
     )
     report: dict[str, Any] = {
         "schema": REPORT_SCHEMA,
@@ -2543,8 +2549,13 @@ def run_critic_calibration(
                 "checkpoint": str(m.path),
                 "sha256": m.sha256,
                 "calibration": critic_dataset_report(
-                    m.task, m.costs, calibration_dataset, batch_size, normalizer=normalizer,
-                    qol_reference=qol_reference, constant=constant,
+                    m.task,
+                    m.costs,
+                    calibration_dataset,
+                    batch_size,
+                    normalizer=normalizer,
+                    qol_reference=qol_reference,
+                    constant=constant,
                 ),
             }
             own["verdict"] = {
@@ -2552,8 +2563,13 @@ def run_critic_calibration(
             }
             if fit_dataset_path is not None:
                 own["fitting"] = critic_dataset_report(
-                    m.task, m.costs, fit_dataset, batch_size, normalizer=normalizer,
-                    qol_reference=qol_reference, constant=constant,
+                    m.task,
+                    m.costs,
+                    fit_dataset,
+                    batch_size,
+                    normalizer=normalizer,
+                    qol_reference=qol_reference,
+                    constant=constant,
                 )
                 own["generalisation_gap"] = _generalisation_gap(own["calibration"], own["fitting"])
             members.append(own)

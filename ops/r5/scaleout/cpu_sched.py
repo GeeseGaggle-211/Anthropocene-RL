@@ -113,27 +113,61 @@ class Scheduler:
             handle.write(line + "\n")
 
     # -- task construction -----------------------------------------------------------------
-    def search_command(self, out: Path, world: int, first: int, turns: int, roots: int,
-                       held_out: bool, source: str) -> list[str]:
+    def search_command(
+        self, out: Path, world: int, first: int, turns: int, roots: int, held_out: bool, source: str
+    ) -> list[str]:
         a = self.args
         command = [
-            a.python, "-m", "anthropocene_rl.autonomous_v7.labor_search",
-            "--normalizer-checkpoint", a.normalizer,
-            "--worlds", str(world),
-            "--source", source,
-            "--turns", str(turns), "--first-turn", str(first),
-            "--roots-per-world", str(roots), "--root-key", "0",
-            "--candidates", str(a.candidates),
-            "--horizons", a.horizons, "--keep", a.keep,
-            "--reeval-streams", str(a.reeval_streams),
-            "--control-fraction", str(a.control_fraction),
-            "--plan-candidates", str(a.plan_candidates),
-            "--plan-steps", str(a.plan_steps),
-            "--plan-fraction", str(a.plan_fraction),
-            "--personality", a.personality, "--personality-key", str(a.personality_key),
-            "--players", str(a.players), "--width", str(a.width), "--height", str(a.height),
-            "--separation", str(a.separation),
-            "--jobs", "1", "--resume", "--out", str(out),
+            a.python,
+            "-m",
+            "anthropocene_rl.autonomous_v7.labor_search",
+            "--normalizer-checkpoint",
+            a.normalizer,
+            "--worlds",
+            str(world),
+            "--source",
+            source,
+            "--turns",
+            str(turns),
+            "--first-turn",
+            str(first),
+            "--roots-per-world",
+            str(roots),
+            "--root-key",
+            "0",
+            "--candidates",
+            str(a.candidates),
+            "--horizons",
+            a.horizons,
+            "--keep",
+            a.keep,
+            "--reeval-streams",
+            str(a.reeval_streams),
+            "--control-fraction",
+            str(a.control_fraction),
+            "--plan-candidates",
+            str(a.plan_candidates),
+            "--plan-steps",
+            str(a.plan_steps),
+            "--plan-fraction",
+            str(a.plan_fraction),
+            "--personality",
+            a.personality,
+            "--personality-key",
+            str(a.personality_key),
+            "--players",
+            str(a.players),
+            "--width",
+            str(a.width),
+            "--height",
+            str(a.height),
+            "--separation",
+            str(a.separation),
+            "--jobs",
+            "1",
+            "--resume",
+            "--out",
+            str(out),
         ]
         if source == "actor":
             command += ["--actor-checkpoint", a.actor, "--actor-samples", str(a.actor_samples)]
@@ -150,10 +184,17 @@ class Scheduler:
         stages = [("reserved-h12", reserved_worlds, splits(a.reserved_splits), True, "h12", 0)]
         stages.append(("fit-h12", fit_worlds, splits(a.fit_splits), False, "h12", 2))
         if a.actor_roots:
-            stages.append(("reserved-actor", reserved_worlds, splits(a.actor_reserved_splits),
-                           True, "actor", 3))
-            stages.append(("fit-actor", fit_worlds, splits(a.actor_fit_splits), False,
-                           "actor", 3))
+            stages.append(
+                (
+                    "reserved-actor",
+                    reserved_worlds,
+                    splits(a.actor_reserved_splits),
+                    True,
+                    "actor",
+                    3,
+                )
+            )
+            stages.append(("fit-actor", fit_worlds, splits(a.actor_fit_splits), False, "actor", 3))
         for stage, worlds, parts, held_out, source, rank in stages:
             for w_index, world in enumerate(worlds):
                 for s_index, (first, turns, roots) in enumerate(parts):
@@ -167,11 +208,14 @@ class Scheduler:
                             slots=1,
                             # Each pass gives every world one stratum (rotated by world index).
                             priority=(rank, (s_index + w_index) % passes, w_index, s_index),
-                            command=self.search_command(out, world, first, turns, roots,
-                                                        held_out, source),
+                            command=self.search_command(
+                                out, world, first, turns, roots, held_out, source
+                            ),
                             out=out,
                             done_file=out / "search_report.json",
-                            log=self.work / "logs" / f"search-{stage}-t{first:02d}-{turns:02d}-w{world}.log",
+                            log=self.work
+                            / "logs"
+                            / f"search-{stage}-t{first:02d}-{turns:02d}-w{world}.log",
                             upload=f"{a.gcs}/search/{rel}",
                             needs_actor=source == "actor",
                         )
@@ -189,12 +233,30 @@ class Scheduler:
                         slots=int(a.panel_jobs),
                         priority=(1, 0, w_index, 0),
                         command=[
-                            a.python, "-m", "anthropocene_rl.autonomous_v7.labor_pretrain_eval",
-                            "autonomous", "--checkpoint", a.actor, "--worlds", str(world),
-                            "--turns", str(a.panel_turns), "--modes", a.panel_modes,
-                            "--players", str(a.players), "--width", str(a.width),
-                            "--height", str(a.height), "--separation", str(a.separation),
-                            "--jobs", str(a.panel_jobs), "--out", str(out),
+                            a.python,
+                            "-m",
+                            "anthropocene_rl.autonomous_v7.labor_pretrain_eval",
+                            "autonomous",
+                            "--checkpoint",
+                            a.actor,
+                            "--worlds",
+                            str(world),
+                            "--turns",
+                            str(a.panel_turns),
+                            "--modes",
+                            a.panel_modes,
+                            "--players",
+                            str(a.players),
+                            "--width",
+                            str(a.width),
+                            "--height",
+                            str(a.height),
+                            "--separation",
+                            str(a.separation),
+                            "--jobs",
+                            str(a.panel_jobs),
+                            "--out",
+                            str(out),
                         ],
                         out=out,
                         done_file=out,
@@ -209,8 +271,13 @@ class Scheduler:
             f"built {len(self.tasks)} tasks: "
             + ", ".join(
                 f"{k}={sum(1 for t in self.tasks if t.key.startswith(k))}"
-                for k in ("search:reserved-h12", "search:fit-h12", "search:reserved-actor",
-                          "search:fit-actor", "panel")
+                for k in (
+                    "search:reserved-h12",
+                    "search:fit-h12",
+                    "search:reserved-actor",
+                    "search:fit-actor",
+                    "panel",
+                )
             )
         )
 
@@ -244,16 +311,25 @@ class Scheduler:
         try:
             done = subprocess.run(
                 ["gcloud", "storage", "ls", f"{self.args.actor_gcs}/DONE"],
-                stdin=subprocess.DEVNULL, capture_output=True, timeout=120,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=120,
             )
             if done.returncode:
                 return False
             actor.parent.mkdir(parents=True, exist_ok=True)
             for name in (actor.name, actor.name + ".sha256"):
                 fetched = subprocess.run(
-                    ["gcloud", "storage", "cp", f"{self.args.actor_gcs}/{name}",
-                     str(actor.parent / (name + ".download"))],
-                    stdin=subprocess.DEVNULL, capture_output=True, timeout=900,
+                    [
+                        "gcloud",
+                        "storage",
+                        "cp",
+                        f"{self.args.actor_gcs}/{name}",
+                        str(actor.parent / (name + ".download")),
+                    ],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    timeout=900,
                 )
                 if fetched.returncode:
                     self.log(f"actor fetch failed: {name}")
@@ -262,7 +338,9 @@ class Scheduler:
             self.log("actor fetch timed out; retrying later")
             return False
         expected = (actor.parent / (actor.name + ".sha256.download")).read_text().split()[0]
-        digest = hashlib.sha256((actor.parent / (actor.name + ".download")).read_bytes()).hexdigest()
+        digest = hashlib.sha256(
+            (actor.parent / (actor.name + ".download")).read_bytes()
+        ).hexdigest()
         if digest != expected:
             self.log(f"actor sha256 mismatch {digest[:16]} != {expected[:16]}; not used")
             return False
@@ -285,21 +363,30 @@ class Scheduler:
         task.attempts += 1
         task.log.parent.mkdir(parents=True, exist_ok=True)
         handle = open(task.log, "a", encoding="utf-8")
-        handle.write(f"\n# attempt {task.attempts} {time.strftime('%FT%TZ', time.gmtime())}\n$ "
-                     + " ".join(task.command) + "\n")
+        handle.write(
+            f"\n# attempt {task.attempts} {time.strftime('%FT%TZ', time.gmtime())}\n$ "
+            + " ".join(task.command)
+            + "\n"
+        )
         handle.flush()
-        child_env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1",
-                         PYTHONUNBUFFERED="1")
+        child_env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", PYTHONUNBUFFERED="1")
         child_env.update(task.env)
         task.proc = subprocess.Popen(
-            task.command, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            cwd=self.args.code, env=child_env, start_new_session=True,
+            task.command,
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            cwd=self.args.code,
+            env=child_env,
+            start_new_session=True,
         )
         handle.close()
         task.started = time.time()
         self.last_launch = task.started
-        self.log(f"launch {task.key} attempt {task.attempts} pid {task.proc.pid} "
-                 f"slots {self.used_slots()}/{self.args.max_slots} mem {self.mem_available_gb():.0f} GB")
+        self.log(
+            f"launch {task.key} attempt {task.attempts} pid {task.proc.pid} "
+            f"slots {self.used_slots()}/{self.args.max_slots} mem {self.mem_available_gb():.0f} GB"
+        )
 
     def reap(self) -> None:
         for task in self.tasks:
@@ -313,8 +400,10 @@ class Scheduler:
             if rc == 0 and task.done():
                 task.durations.append(seconds)
                 with open(self.durations_path, "a", encoding="utf-8") as handle:
-                    handle.write(json.dumps({"task": task.key, "seconds": seconds,
-                                             "attempt": task.attempts}) + "\n")
+                    handle.write(
+                        json.dumps({"task": task.key, "seconds": seconds, "attempt": task.attempts})
+                        + "\n"
+                    )
                 self.log(f"done {task.key} in {seconds / 3600:.2f} h")
                 if task.upload:
                     self.upload(task.out, task.upload)
@@ -323,18 +412,29 @@ class Scheduler:
                 if task.attempts >= self.args.max_attempts:
                     task.failed = True
                     (self.work / "FAILED").mkdir(exist_ok=True)
-                    (self.work / "FAILED" / task.key.replace("/", "_").replace(":", "_")).write_text(
-                        f"rc={rc}\n"
-                    )
+                    (
+                        self.work / "FAILED" / task.key.replace("/", "_").replace(":", "_")
+                    ).write_text(f"rc={rc}\n")
                     self.log(f"FAILED {task.key} after {task.attempts} attempts")
 
     def upload(self, source: Path, dest: str) -> None:
         self.uploads = [p for p in self.uploads if p.poll() is None]
         self.uploads.append(
             subprocess.Popen(
-                ["timeout", "3600", "gcloud", "storage", "rsync", "-r", "--no-user-output-enabled",
-                 str(source), dest],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                [
+                    "timeout",
+                    "3600",
+                    "gcloud",
+                    "storage",
+                    "rsync",
+                    "-r",
+                    "--no-user-output-enabled",
+                    str(source),
+                    dest,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         )
 
@@ -361,7 +461,9 @@ class Scheduler:
         try:
             subprocess.run(
                 ["gcloud", "storage", "cp", "--no-user-output-enabled", str(path), dest],
-                stdin=subprocess.DEVNULL, capture_output=True, timeout=600,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=600,
             )
         except subprocess.TimeoutExpired:
             self.log(f"upload timed out: {path}")
@@ -370,16 +472,27 @@ class Scheduler:
         out = self.work / "panel-report.json"
         try:
             result = subprocess.run(
-                [self.args.python, self.args.panel_report, "--panel", str(self.work / "panel"),
-                 "--modes", self.args.panel_modes, "--out", str(out)],
-                cwd=self.args.code, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                [
+                    self.args.python,
+                    self.args.panel_report,
+                    "--panel",
+                    str(self.work / "panel"),
+                    "--modes",
+                    self.args.panel_modes,
+                    "--out",
+                    str(out),
+                ],
+                cwd=self.args.code,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
                 timeout=1800,
             )
         except subprocess.TimeoutExpired:
             self.log("panel report timed out")
             return
         (self.work / "panel-report.txt").write_text(result.stdout + result.stderr)
-        self.log(f"panel report rc={result.returncode}: {result.stdout.strip().splitlines()[-1:] }")
+        self.log(f"panel report rc={result.returncode}: {result.stdout.strip().splitlines()[-1:]}")
         self.upload(self.work / "panel", f"{self.args.gcs}/panel")
         for name in ("panel-report.json", "panel-report.txt"):
             if (self.work / name).is_file():
@@ -468,8 +581,10 @@ class Scheduler:
                     break
                 self.idle_since = self.idle_since or time.time()
                 if time.time() - self.idle_since > self.args.actor_wait_h * 3600:
-                    self.log(f"actor not available after {self.args.actor_wait_h} h idle; "
-                             f"{len(waiting)} actor-gated task(s) not run")
+                    self.log(
+                        f"actor not available after {self.args.actor_wait_h} h idle; "
+                        f"{len(waiting)} actor-gated task(s) not run"
+                    )
                     break
             else:
                 self.idle_since = None
@@ -498,13 +613,16 @@ def main() -> int:
     p.add_argument("--code", default=env("CODE", ""))
     p.add_argument("--python", default=env("PY", sys.executable))
     p.add_argument("--normalizer", default=env("NORMALIZER", ""))
-    p.add_argument("--gcs", default=env("SCALEOUT_GCS",
-                                        "gs://anthropocene-rl-datasets-508912/model9/r5/scaleout"))
+    p.add_argument(
+        "--gcs",
+        default=env("SCALEOUT_GCS", "gs://anthropocene-rl-datasets-508912/model9/r5/scaleout"),
+    )
     p.add_argument("--fit-worlds", default=env("FIT_WORLDS", "90100-90153,90160-90165"))
     p.add_argument("--reserved-worlds", default=env("RESERVED_WORLDS", "90154-90159"))
     p.add_argument("--fit-splits", default=env("FIT_SPLITS", "0:25:8 25:50:8"))
-    p.add_argument("--reserved-splits",
-                   default=env("RESERVED_SPLITS", "0:13:8 13:25:8 25:38:8 38:50:8"))
+    p.add_argument(
+        "--reserved-splits", default=env("RESERVED_SPLITS", "0:13:8 13:25:8 25:38:8 38:50:8")
+    )
     p.add_argument("--candidates", type=int, default=int(env("CANDIDATES", "14")))
     p.add_argument("--horizons", default=env("HORIZONS", "1,3"))
     p.add_argument("--keep", default=env("KEEP", "all,3"))
@@ -520,13 +638,18 @@ def main() -> int:
     p.add_argument("--height", type=int, default=int(env("HEIGHT", "64")))
     p.add_argument("--separation", type=int, default=int(env("SEPARATION", "9")))
     p.add_argument("--search-extra", default=env("SEARCH_EXTRA", ""))
-    p.add_argument("--actor", default=env("ACTOR", str(Path.home() / "r5" / "scaleout" / "actor" / "actor-bc-pilot.pt")))
+    p.add_argument(
+        "--actor",
+        default=env("ACTOR", str(Path.home() / "r5" / "scaleout" / "actor" / "actor-bc-pilot.pt")),
+    )
     p.add_argument("--actor-gcs", default=env("ACTOR_GCS", ""))
     p.add_argument("--actor-wait-h", type=float, default=float(env("ACTOR_WAIT_H", "6")))
     p.add_argument("--actor-roots", type=int, default=int(env("ACTOR_ROOTS", "0")))
     p.add_argument("--actor-samples", type=int, default=int(env("ACTOR_SAMPLES", "4")))
     p.add_argument("--actor-fit-splits", default=env("ACTOR_FIT_SPLITS", "0:25:2 25:50:2"))
-    p.add_argument("--actor-reserved-splits", default=env("ACTOR_RESERVED_SPLITS", "0:25:4 25:50:4"))
+    p.add_argument(
+        "--actor-reserved-splits", default=env("ACTOR_RESERVED_SPLITS", "0:25:4 25:50:4")
+    )
     p.add_argument("--panel", type=int, default=int(env("PANEL", "1")))
     p.add_argument("--panel-worlds", default=env("PANEL_WORLDS", "2000-2023"))
     p.add_argument("--panel-turns", type=int, default=int(env("PANEL_TURNS", "50")))

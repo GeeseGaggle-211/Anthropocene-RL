@@ -56,8 +56,11 @@ def _dataset(codes, tails, terminal, camps=(4, 4, 8), turns=(0, 1, 0)):
 
 
 def test_living_cutoff_starts_from_its_typed_tail_and_terminal_does_not() -> None:
-    data = _dataset([TAIL_RANDOMIZED, TAIL_RANDOMIZED, TAIL_NONE_TERMINAL], [10.0, 10.0, 0.0],
-                    [False, False, True])
+    data = _dataset(
+        [TAIL_RANDOMIZED, TAIL_RANDOMIZED, TAIL_NONE_TERMINAL],
+        [10.0, 10.0, 0.0],
+        [False, False, True],
+    )
     assert return_tail_method(data) == RETURN_TAIL_RANDOMIZED
     returns = discounted_returns(data)["qol_years"].double()
     assert math.isclose(float(returns[1]), 2.0 + GAMMA * 10.0, rel_tol=1e-6)
@@ -71,7 +74,8 @@ def test_living_cutoff_starts_from_its_typed_tail_and_terminal_does_not() -> Non
 
 def test_living_cutoff_is_never_silently_zero() -> None:
     living_without_tail = _dataset(
-        [TAIL_NONE_TERMINAL, TAIL_NONE_TERMINAL, TAIL_NONE_TERMINAL], [0.0, 0.0, 0.0],
+        [TAIL_NONE_TERMINAL, TAIL_NONE_TERMINAL, TAIL_NONE_TERMINAL],
+        [0.0, 0.0, 0.0],
         [False, False, True],
     )
     with pytest.raises(ValueError, match="living cutoff has no tail"):
@@ -81,8 +85,11 @@ def test_living_cutoff_is_never_silently_zero() -> None:
     )
     with pytest.raises(ValueError, match="terminated trajectory carries a tail"):
         discounted_returns(terminal_with_tail)
-    differing = _dataset([TAIL_RANDOMIZED, TAIL_RANDOMIZED, TAIL_NONE_TERMINAL], [1.0, 2.0, 0.0],
-                         [False, False, True])
+    differing = _dataset(
+        [TAIL_RANDOMIZED, TAIL_RANDOMIZED, TAIL_NONE_TERMINAL],
+        [1.0, 2.0, 0.0],
+        [False, False, True],
+    )
     with pytest.raises(ValueError, match="differs within trajectory"):
         discounted_returns(differing)
     declared_without_arrays = {
@@ -97,15 +104,21 @@ def test_living_cutoff_is_never_silently_zero() -> None:
 
 
 def test_unavailable_tail_rows_are_excluded_and_required_tail_is_enforced() -> None:
-    data = _dataset([TAIL_UNAVAILABLE, TAIL_UNAVAILABLE, TAIL_NONE_TERMINAL], [0.0, 0.0, 0.0],
-                    [False, False, True])
+    data = _dataset(
+        [TAIL_UNAVAILABLE, TAIL_UNAVAILABLE, TAIL_NONE_TERMINAL],
+        [0.0, 0.0, 0.0],
+        [False, False, True],
+    )
     assert critic_target_available(data).tolist() == [False, False, True]
     legacy = {k: v for k, v in data.items() if not k.startswith("tail_")}
     assert critic_target_available(legacy).tolist() == [True, True, True]
     with pytest.raises(ValueError, match="requires randomized-tail targets"):
         labor_bc.pretrain_critic_on_dataset(
-            task_critic=None, cost_critics=None, dataset=legacy,  # type: ignore[arg-type]
-            epochs=0, require_randomized_tail=True,
+            task_critic=None,
+            cost_critics=None,
+            dataset=legacy,  # type: ignore[arg-type]
+            epochs=0,
+            require_randomized_tail=True,
         )
 
 
@@ -163,11 +176,23 @@ def test_continuation_closes_each_cutoff_with_the_anchor_estimator(monkeypatch) 
 
     monkeypatch.setattr(labor_bc, "_teacher_transition", fake_transition)
     result = WorldCollection(world_seed=5000)
-    result.rows = [_row(1, 24, False), _row(2, 24, False), _row(3, 24, False),
-                   _row(4, 20, False), _row(5, 24, True)]
+    result.rows = [
+        _row(1, 24, False),
+        _row(2, 24, False),
+        _row(3, 24, False),
+        _row(4, 20, False),
+        _row(5, 24, True),
+    ]
     entries = labor_bc._collect_teacher_tail(
-        result=result, tail=settings, labor_bridge=None, heur_bridge=None,
-        step={"turn": 25}, options=None, normalizer=None, personality=None, founded={},
+        result=result,
+        tail=settings,
+        labor_bridge=None,
+        heur_bridge=None,
+        step={"turn": 25},
+        options=None,
+        normalizer=None,
+        personality=None,
+        founded={},
         window_turns=25,
     )
     assert calls["n"] == required and result.tail_decisions == required
@@ -185,15 +210,23 @@ def test_continuation_closes_each_cutoff_with_the_anchor_estimator(monkeypatch) 
         else:
             bound = 1e12
         expected = estimate_randomized_tail(
-            discounted, schedule,
+            discounted,
+            schedule,
             bounded_geometric_tail_assumptions(
-                per_turn_absolute_bound=bound, discount=GAMMA,
-                survival_probability=schedule.survival_probability, provenance_id="test",
+                per_turn_absolute_bound=bound,
+                discount=GAMMA,
+                survival_probability=schedule.survival_probability,
+                provenance_id="test",
             ),
         )
-        assert math.isclose(entries[1]["value"][head], expected.estimate, rel_tol=1e-12, abs_tol=1e-12)
         assert math.isclose(
-            entries[1]["standard_error"][head], expected.standard_error, rel_tol=1e-12, abs_tol=1e-12
+            entries[1]["value"][head], expected.estimate, rel_tol=1e-12, abs_tol=1e-12
+        )
+        assert math.isclose(
+            entries[1]["standard_error"][head],
+            expected.standard_error,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
         )
         exact = sum(GAMMA**t * _reward(2, t)[head] for t in range(3))
         assert math.isclose(entries[2]["value"][head], exact, rel_tol=1e-12, abs_tol=1e-12)
@@ -203,7 +236,9 @@ def test_continuation_closes_each_cutoff_with_the_anchor_estimator(monkeypatch) 
     assert record["prefix_terms"] == 25 and record["required_terms"] == required
     assert record["critic_bootstrap_used"] is False and record["dropped_draws"] == 0
     assert record["method_counts"] == {
-        "terminal-exact-in-continuation": 1, "independent-randomized-tail": 1, "unavailable": 2,
+        "terminal-exact-in-continuation": 1,
+        "independent-randomized-tail": 1,
+        "unavailable": 2,
     }
     # Broadcast onto rows, then targets start from the tail.
     labor_bc._attach_tail_rows(result.rows, entries)
@@ -223,8 +258,16 @@ def test_hard_cap_schedule_marks_cutoffs_unavailable_without_continuation(monkey
     result = WorldCollection(world_seed=5000)
     result.rows = [_row(1, 24, False)]
     entries = labor_bc._collect_teacher_tail(
-        result=result, tail=settings, labor_bridge=None, heur_bridge=None, step={"turn": 25},
-        options=None, normalizer=None, personality=None, founded={}, window_turns=25,
+        result=result,
+        tail=settings,
+        labor_bridge=None,
+        heur_bridge=None,
+        step={"turn": 25},
+        options=None,
+        normalizer=None,
+        personality=None,
+        founded={},
+        window_turns=25,
     )
     assert entries[1]["method"] == TAIL_UNAVAILABLE
     assert entries[1]["reason"] == "unresolved-hard-cap"
@@ -242,8 +285,10 @@ def normalizer_path(tmp_path_factory):
 
     path = tmp_path_factory.mktemp("tailnorm") / "norm.pt"
     torch.save(
-        {"feature_contract": BOUNDED_FEATURE_CONTRACT,
-         "normalizer": _fit_test_normalizer().state_dict()},
+        {
+            "feature_contract": BOUNDED_FEATURE_CONTRACT,
+            "normalizer": _fit_test_normalizer().state_dict(),
+        },
         path,
     )
     return path
@@ -258,8 +303,19 @@ def test_live_teacher_shards_carry_typed_tails_and_feed_pretrain_critic(
     # Small declared settings keep the continuation to two decisions for world 5000.
     tail_args = ["--tail-draws", "2", "--tail-rho", "0.91"]
     assert RandomizedTailSettings(draws=2, rho=0.91).schedule(5000).required_terms == 2
-    common = ["--normalizer-checkpoint", str(normalizer_path), "--worlds", "5000", "--turns", "2",
-              "--players", "8", "--jobs", "1", "--allow-dirty"]
+    common = [
+        "--normalizer-checkpoint",
+        str(normalizer_path),
+        "--worlds",
+        "5000",
+        "--turns",
+        "2",
+        "--players",
+        "8",
+        "--jobs",
+        "1",
+        "--allow-dirty",
+    ]
     tailed, legacy = tmp_path / "tailed", tmp_path / "legacy"
     assert ltd.main([*common, *tail_args, "--out", str(tailed)]) == 0
     assert ltd.main([*common, "--return-tail", "truncated-zero", "--out", str(legacy)]) == 0
@@ -285,13 +341,37 @@ def test_live_teacher_shards_carry_typed_tails_and_feed_pretrain_critic(
     assert not torch.equal(tailed_returns["population_years"], window_returns["population_years"])
 
     init = tmp_path / "init.pt"
-    labor_training_main(["initialize", "--normalizer-checkpoint", str(normalizer_path),
-                         "--world-seed", "5000", "--optimizer-seed", "1", "--campaign-r5",
-                         "--out", str(init)])
+    labor_training_main(
+        [
+            "initialize",
+            "--normalizer-checkpoint",
+            str(normalizer_path),
+            "--world-seed",
+            "5000",
+            "--optimizer-seed",
+            "1",
+            "--campaign-r5",
+            "--out",
+            str(init),
+        ]
+    )
     critic = tmp_path / "critic.pt"
-    labor_training_main(["pretrain-critic", "--checkpoint", str(init), "--dataset", str(tailed),
-                         "--require-randomized-tail", "--epochs", "1", "--batch-size", "16",
-                         "--out", str(critic)])
+    labor_training_main(
+        [
+            "pretrain-critic",
+            "--checkpoint",
+            str(init),
+            "--dataset",
+            str(tailed),
+            "--require-randomized-tail",
+            "--epochs",
+            "1",
+            "--batch-size",
+            "16",
+            "--out",
+            str(critic),
+        ]
+    )
     summary = torch.load(critic, map_location="cpu", weights_only=True)[
         "heuristic_critic_pretraining"
     ]
@@ -299,6 +379,17 @@ def test_live_teacher_shards_carry_typed_tails_and_feed_pretrain_critic(
     assert summary["return_tail_settings"]["draws"] == 2
     assert summary["discount_years"] == 400.0
     with pytest.raises(ValueError, match="requires randomized-tail targets"):
-        labor_training_main(["pretrain-critic", "--checkpoint", str(init), "--dataset",
-                             str(legacy), "--require-randomized-tail", "--epochs", "1",
-                             "--out", str(tmp_path / "refused.pt")])
+        labor_training_main(
+            [
+                "pretrain-critic",
+                "--checkpoint",
+                str(init),
+                "--dataset",
+                str(legacy),
+                "--require-randomized-tail",
+                "--epochs",
+                "1",
+                "--out",
+                str(tmp_path / "refused.pt"),
+            ]
+        )

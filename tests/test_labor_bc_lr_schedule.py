@@ -29,7 +29,7 @@ def test_factor_warms_up_then_decays_to_the_floor() -> None:
     values = [lr_schedule_factor(s, total, 0.1, 0.1) for s in range(total + 20)]
     assert values[0] == pytest.approx(0.1) and values[9] == pytest.approx(1.0)
     assert all(b > a for a, b in zip(values[:9], values[1:10]))  # linear warm-up
-    assert all(b <= a + 1e-12 for a, b in zip(values[10:total], values[11:total + 1]))
+    assert all(b <= a + 1e-12 for a, b in zip(values[10:total], values[11 : total + 1]))
     mid = lr_schedule_factor(10 + 45, total, 0.1, 0.1)
     assert mid == pytest.approx(0.1 + 0.9 * 0.5 * (1 + math.cos(math.pi * 0.5)))
     assert values[total] == pytest.approx(0.1) and values[-1] == pytest.approx(0.1)
@@ -42,13 +42,25 @@ def test_cli_default_is_the_historical_constant_rate() -> None:
     args = parser.parse_args(base)
     assert args.lr_schedule == "constant" and lt._bc_lr_schedule_kwargs(args) == {}
     args = parser.parse_args(
-        [*base, "--lr", "3e-5", "--lr-schedule", "warmup-cosine",
-         "--lr-schedule-total-steps", "1000", "--lr-schedule-start-step", "250"]
+        [
+            *base,
+            "--lr",
+            "3e-5",
+            "--lr-schedule",
+            "warmup-cosine",
+            "--lr-schedule-total-steps",
+            "1000",
+            "--lr-schedule-start-step",
+            "250",
+        ]
     )
     assert lt._bc_lr_schedule_kwargs(args) == {
         "lr_schedule": {
-            "kind": "warmup-cosine", "warmup_fraction": 0.1, "final_fraction": 0.1,
-            "start_step": 250, "total_steps": 1000,
+            "kind": "warmup-cosine",
+            "warmup_fraction": 0.1,
+            "final_fraction": 0.1,
+            "start_step": 250,
+            "total_steps": 1000,
         }
     }
 
@@ -93,7 +105,9 @@ def _actor() -> LaborActor:
     torch.manual_seed(11)
     return LaborActor(
         LaborEncoderLayout(
-            15, LABOR_SPECIALTY_FEATURE_WIDTH, LABOR_ACTIVITY_FEATURE_WIDTH,
+            15,
+            LABOR_SPECIALTY_FEATURE_WIDTH,
+            LABOR_ACTIVITY_FEATURE_WIDTH,
             LABOR_RESOURCE_FEATURE_WIDTH,
         )
     )
@@ -113,8 +127,13 @@ def _fit(schedule=None, epochs=4, start_actor=None):
     actor = start_actor or _actor()
     optimizer = _Recording(actor.parameters(), lr=1e-3)
     summary = pretrain_labor_actor_bc(
-        actor=actor, dataset=_dataset(), optimizer=optimizer, epochs=epochs,
-        batch_size=8, lr=1e-3, **({} if schedule is None else {"lr_schedule": schedule}),
+        actor=actor,
+        dataset=_dataset(),
+        optimizer=optimizer,
+        epochs=epochs,
+        batch_size=8,
+        lr=1e-3,
+        **({} if schedule is None else {"lr_schedule": schedule}),
     )
     return actor, optimizer.rates, summary
 

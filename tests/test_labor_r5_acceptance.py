@@ -607,8 +607,8 @@ def test_end_to_end_fitted_critic_reports_groups_unavailable_and_approved_status
     assert td["groups"][0]["gated"] is False  # 6 < 100 windows: reported, not gated
     evidence = _evidence(td_residual=td)
     receipt = _receipt([evidence])
-    assert receipt["preregistered"]["td_position_abs_bias_max"]["status"] == "approved (user 26 Oct)"
-    assert receipt["preregistered"]["seed_rule_default"]["value"] == "mean-with-floor"
-    assert any(
-        c["id"] == "qol:c:td-residual-mae" for c in ra.fit_checks(evidence)["primary"]
+    assert (
+        receipt["preregistered"]["td_position_abs_bias_max"]["status"] == "approved (user 26 Oct)"
     )
+    assert receipt["preregistered"]["seed_rule_default"]["value"] == "mean-with-floor"
+    assert any(c["id"] == "qol:c:td-residual-mae" for c in ra.fit_checks(evidence)["primary"])

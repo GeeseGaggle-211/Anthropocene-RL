@@ -43,7 +43,10 @@ def _result() -> WorldCollection:
 
 
 def _row(turn: int) -> dict[str, torch.Tensor]:
-    return {"row_turn": torch.tensor([turn]), "x": torch.tensor([[0.25, 1e-30]], dtype=torch.float32)}
+    return {
+        "row_turn": torch.tensor([turn]),
+        "x": torch.tensor([[0.25, 1e-30]], dtype=torch.float32),
+    }
 
 
 def _window(checkpointer, result, decisions):
@@ -62,9 +65,15 @@ def test_step_digest_ignores_only_top_level_timings() -> None:
 
 def test_tail_state_round_trips_with_order() -> None:
     state = TeacherTailState(
-        final_turn=12, tracked=[9, 3], active=[3], reasons={9: "b", 3: "a"},
+        final_turn=12,
+        tracked=[9, 3],
+        active=[3],
+        reasons={9: "b", 3: "a"},
         path_rewards={9: {"qol_years": [0.1, 1 / 3]}, 3: {"qol_years": [2.0]}},
-        path_years={9: [20.0], 3: [20.0]}, path_terminal={9: [True], 3: [False]}, done=1, seconds=2.5,
+        path_years={9: [20.0], 3: [20.0]},
+        path_terminal={9: [True], 3: [False]},
+        done=1,
+        seconds=2.5,
     )
     restored = TeacherTailState.from_state(json.loads(json.dumps(state.state_dict())))
     assert restored == state
@@ -79,7 +88,9 @@ def test_checkpoints_are_atomic_keep_the_last_two_and_append_rows(tmp_path: Path
     _window(checkpointer, result, 3)
     assert sorted(p.name for p in work.glob("ckpt-*")) == ["ckpt-000002", "ckpt-000003"]
     assert sorted(p.name for p in (work / "rows").iterdir()) == [
-        "part-000001.pt", "part-000002.pt", "part-000003.pt"
+        "part-000001.pt",
+        "part-000002.pt",
+        "part-000003.pt",
     ]
     point = load_resume_point(work, IDENTITY, {"players": 4})
     assert point.boundary == 3 and point.window_done == 3 and point.founded == {7: 10}
@@ -90,14 +101,18 @@ def test_checkpoints_are_atomic_keep_the_last_two_and_append_rows(tmp_path: Path
     assert state["replay"]["payloads"]["initial"]["7"]["laborSpecialtyAllocation"] == [0.1, 0.9]
     assert state["replay"]["step_digest"] == step_digest({"turn": 14, "villages": []})
     # A tail checkpoint carries the tail loop state; rows are not rewritten.
-    tail = TeacherTailState(13, [7], [7], {}, {7: {"qol_years": [1.0]}}, {7: [20.0]}, {7: [False]}, 1)
+    tail = TeacherTailState(
+        13, [7], [7], {}, {7: {"qol_years": [1.0]}}, {7: [20.0]}, {7: [False]}, 1
+    )
     result.tail_decisions = 1
     WorldCheckpointer(work, IDENTITY, resume=point).tail(result, _transition(13), tail)
     newest = load_resume_point(work, IDENTITY, {})
     assert newest.boundary == 4 and newest.tail_state == tail and newest.state["sessions"] == 2
 
 
-def test_resume_refuses_another_identity_and_falls_back_from_a_torn_checkpoint(tmp_path: Path) -> None:
+def test_resume_refuses_another_identity_and_falls_back_from_a_torn_checkpoint(
+    tmp_path: Path,
+) -> None:
     work = tmp_path / "world"
     result = _result()
     checkpointer = WorldCheckpointer(work, IDENTITY)
@@ -138,11 +153,26 @@ def test_restore_verifies_the_replayed_boundary(tmp_path: Path) -> None:
 
     restored = _result()
     step = point.restore(Bridge({"turn": 12, "villages": [], "nativeMs": 9.0}), restored)
-    assert step["turn"] == 12 and restored.decisions == 1 and restored.counters["total_decisions"] == 1
-    assert calls[0] == ("reset", 90100, {"snapshot": base64.b64encode(b"snap").decode(),
-                                          "continuation": {"startTurn": 10, "trajectoryId": "ROOT", "transient": {
-                                              "schema": 1, "cultivationOperatingFraction": [[5, 4604930618986332160]]}},
-                                          "players": 4, "movement": True})
+    assert (
+        step["turn"] == 12 and restored.decisions == 1 and restored.counters["total_decisions"] == 1
+    )
+    assert calls[0] == (
+        "reset",
+        90100,
+        {
+            "snapshot": base64.b64encode(b"snap").decode(),
+            "continuation": {
+                "startTurn": 10,
+                "trajectoryId": "ROOT",
+                "transient": {
+                    "schema": 1,
+                    "cultivationOperatingFraction": [[5, 4604930618986332160]],
+                },
+            },
+            "players": 4,
+            "movement": True,
+        },
+    )
     assert calls[1][1] == {7: {"schemaVersion": 12, "laborSpecialtyAllocation": [0.1, 0.9]}}
     assert calls[1][2] is None
     with pytest.raises(ContinuationMismatch):

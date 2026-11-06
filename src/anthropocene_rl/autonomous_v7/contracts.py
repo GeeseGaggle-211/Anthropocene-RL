@@ -21,7 +21,12 @@ COMMITMENT_FEATURES = 11
 # Objective components (Docs/ElderCapitalCommitmentsDesign.md, Part 4). Lineage welfare is the interim reward; each
 # component gets its own value head and the advantage is a weighted sum. The default weights reproduce welfare.
 OBJECTIVES: tuple[str, ...] = ("welfare", "population_years", "trade_utility", "qol_years")
-OBJECTIVE_WEIGHTS: dict[str, float] = {"welfare": 1.0, "population_years": 0.0, "trade_utility": 0.0, "qol_years": 0.0}
+OBJECTIVE_WEIGHTS: dict[str, float] = {
+    "welfare": 1.0,
+    "population_years": 0.0,
+    "trade_utility": 0.0,
+    "qol_years": 0.0,
+}
 # Elder personality (docs/MODEL9_PERSONALITY.md): a weighting over OBJECTIVES, an input to the token model's village
 # token and critics. The default personality is OBJECTIVE_WEIGHTS (welfare only), which reproduces non-personality runs.
 PERSONALITY_WIDTH = len(OBJECTIVES)
@@ -33,10 +38,10 @@ PERSONALITY_WIDTH = len(OBJECTIVES)
 # The first build's values (25-turn rollouts, all rows, late returns truncated) were welfare 37864, population_years
 # 50391, trade_utility 17.55, qol_years 64.0. Re-measure when the reward components or the simulator's economy change.
 OBJECTIVE_REFERENCE_SCALES: dict[str, float] = {
-    "welfare": 59318.99,          # person-QoL-years (mean return 136573)
-    "population_years": 85133.98, # person-years (mean 172285)
-    "trade_utility": 26.684,      # person-QoL-years of realised trade gain (mean 6.35; the heuristic trades little)
-    "qol_years": 43.152,          # QoL-years (mean 259.0)
+    "welfare": 59318.99,  # person-QoL-years (mean return 136573)
+    "population_years": 85133.98,  # person-years (mean 172285)
+    "trade_utility": 26.684,  # person-QoL-years of realised trade gain (mean 6.35; the heuristic trades little)
+    "qol_years": 43.152,  # QoL-years (mean 259.0)
 }
 # Contract 11: the trade_utility weight a --learned-trade run uses unless --objective-weights sets it. Trade gains already
 # reach welfare through the goods; this small extra credit speeds learning for economies whose output they cannot use.
@@ -57,7 +62,15 @@ SETS: tuple[tuple[str, int, int], ...] = (
 )
 # Contract 11 trade posture per group: relative value (log-scale Gaussian, clamped to TRADE_VALUE_RANGE), offer gate
 # (0 withhold, 1 offer stock, 2 offer and make to order), and one export labour share in [0, 1].
-TRADE_GROUPS: tuple[str, ...] = ("clothing", "housing", "tents", "pots", "tools", "materials", "food")
+TRADE_GROUPS: tuple[str, ...] = (
+    "clothing",
+    "housing",
+    "tents",
+    "pots",
+    "tools",
+    "materials",
+    "food",
+)
 TRADE_VALUE_RANGE = (0.25, 4.0)
 TRADE_GATES = 3
 TRADE_MAKE = 2
@@ -83,7 +96,11 @@ MOVEMENT_SLOTS = 8  # stay + seven site rows
 # Technology bits (Anthropocene.Simulation.Technology) for SimulationConfig.TrainingWithheldTechnologies.
 HUSBANDRY, CULTIVATION, WATERCRAFT = 1 << 1, 1 << 2, 1 << 3
 # Capability fixtures: the mask withholds every technology but the named one.
-CAPABILITY_MASKS = {"herding": CULTIVATION | WATERCRAFT, "farming": HUSBANDRY | WATERCRAFT, "fishing": HUSBANDRY | CULTIVATION}
+CAPABILITY_MASKS = {
+    "herding": CULTIVATION | WATERCRAFT,
+    "farming": HUSBANDRY | WATERCRAFT,
+    "fishing": HUSBANDRY | CULTIVATION,
+}
 NATIVE_MOVEMENT = -2
 FISSION_POLICIES = 3  # Neutral, Discourage, Encourage
 
@@ -127,7 +144,9 @@ def verify_schema(response: Mapping[str, Any]) -> Schema:
     }
     for key, value in expected.items():
         if response.get(key) != value:
-            raise ValueError(f"model9 schema mismatch for {key}: {response.get(key)!r} != {value!r}")
+            raise ValueError(
+                f"model9 schema mismatch for {key}: {response.get(key)!r} != {value!r}"
+            )
     sets = tuple((s["name"], s["rows"], s["width"]) for s in response["sets"])
     if sets != SETS:
         raise ValueError(f"model9 entity-set layout mismatch: {sets} != {SETS}")
@@ -136,14 +155,20 @@ def verify_schema(response: Mapping[str, Any]) -> Schema:
     features = tuple(response["coreFeatures"])
     if len(features) != response["coreWidth"]:
         raise ValueError("model9 core feature registry is inconsistent")
-    return Schema(core_width=int(response["coreWidth"]), core_features=features, build_hash=str(response["buildHash"]),
-                  decision_diagnostics_schema=int(response.get("decisionDiagnosticsSchema", 0)),
-                  simulator_commit=str(response.get("simulatorCommit", "unknown")),
-                  simulator_source_clean=bool(response.get("simulatorSourceClean", False)),
-                  raw_material_diagnostics_schema=int(response.get("rawMaterialDiagnosticsSchema", 0)),
-                  diagnostic_envelope_schema=int(response.get("diagnosticEnvelopeSchema", 0)),
-                  economic_diagnostics_schema=int(response.get("economicDiagnosticsSchema", 0)),
-                  bridge_build_hash=str(response.get("bridgeBuildHash", "unknown")),
-                  bridge_sha256=str(response.get("bridgeSha256", "unknown")), feature_flags=response.get("featureFlags"),
-                  producer_flags=response.get("producerFlags"), configuration_hash=str(response.get("configurationHash", "unknown")),
-                  players=int(response.get("players", 0)))
+    return Schema(
+        core_width=int(response["coreWidth"]),
+        core_features=features,
+        build_hash=str(response["buildHash"]),
+        decision_diagnostics_schema=int(response.get("decisionDiagnosticsSchema", 0)),
+        simulator_commit=str(response.get("simulatorCommit", "unknown")),
+        simulator_source_clean=bool(response.get("simulatorSourceClean", False)),
+        raw_material_diagnostics_schema=int(response.get("rawMaterialDiagnosticsSchema", 0)),
+        diagnostic_envelope_schema=int(response.get("diagnosticEnvelopeSchema", 0)),
+        economic_diagnostics_schema=int(response.get("economicDiagnosticsSchema", 0)),
+        bridge_build_hash=str(response.get("bridgeBuildHash", "unknown")),
+        bridge_sha256=str(response.get("bridgeSha256", "unknown")),
+        feature_flags=response.get("featureFlags"),
+        producer_flags=response.get("producerFlags"),
+        configuration_hash=str(response.get("configurationHash", "unknown")),
+        players=int(response.get("players", 0)),
+    )

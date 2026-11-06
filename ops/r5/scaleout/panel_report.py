@@ -57,7 +57,9 @@ def judge(report: dict, modes: list[str]) -> dict:
         for metric in METRICS:
             aggregate = vs["ratios"][metric]
             worlds = {w: r[metric] for w, r in vs["per_world"].items()}
-            low = {w: r for w, r in worlds.items() if r is None or r < MANIFEST_GATE["per_world_min"]}
+            low = {
+                w: r for w, r in worlds.items() if r is None or r < MANIFEST_GATE["per_world_min"]
+            }
             checks[f"{metric}_aggregate"] = {
                 "value": aggregate,
                 "threshold": MANIFEST_GATE["aggregate_min"],
@@ -70,7 +72,8 @@ def judge(report: dict, modes: list[str]) -> dict:
                 "pass": not low,
             }
         extra = {
-            w: per_world[w][mode]["starvation_extinctions"] - per_world[w]["h12"]["starvation_extinctions"]
+            w: per_world[w][mode]["starvation_extinctions"]
+            - per_world[w]["h12"]["starvation_extinctions"]
             for w in per_world
         }
         checks["no_additional_starvation_vs_h12"] = {
@@ -119,7 +122,9 @@ def main(argv: list[str] | None = None) -> int:
         "per_world": report["per_world"],
         "note": "pilot (BC on fit8-b01..b04, 1 seed): indicative, not gate evidence",
     }
-    args.out.write_text(json.dumps(result, indent=1, sort_keys=True, default=float), encoding="utf-8")
+    args.out.write_text(
+        json.dumps(result, indent=1, sort_keys=True, default=float), encoding="utf-8"
+    )
     lines = [f"panel worlds={len(worlds)} turns={meta.get('turns')} modes={','.join(modes)}"]
     if h12_vs_h:
         lines.append(

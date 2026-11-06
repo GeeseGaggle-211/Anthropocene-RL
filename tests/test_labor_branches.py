@@ -111,8 +111,10 @@ def test_rows_at_every_decision_and_parse_successors_round_trip():
     row = pair.store.rows[st.row[2]]["tensors"]
     assert row["core"].shape == (1, 4) and row["labor_personality"].shape == (1, 2)
     # successor_target reads them at any decision k' (identity V for the check).
-    v = {h: np.arange(len(pair.store.rows), dtype=float) for h in
-         ("qol_years", "population_years", "feasibility", "settlement_guard")}
+    v = {
+        h: np.arange(len(pair.store.rows), dtype=float)
+        for h in ("qol_years", "population_years", "feasibility", "settlement_guard")
+    }
     for kk in (1, 3, k):
         assert successor_target(st, kk, v) is not None
 
@@ -122,8 +124,16 @@ def test_flag_off_keeps_search_export_decisions():
     native = SyntheticNative()
     fork = native.make_root(0)
     br = Branch(0, 0, record=True)
-    native.extend(br, 3, root_fork=fork, focal=SYNTH_FOCAL, candidate=A,
-                  root_h12=native.root_h12(), root_key=[0], keep_fork=False)
+    native.extend(
+        br,
+        3,
+        root_fork=fork,
+        focal=SYNTH_FOCAL,
+        candidate=A,
+        root_h12=native.root_h12(),
+        root_key=[0],
+        keep_fork=False,
+    )
     rows = {b["decision"]: b["row"] is not None for b in br.boundaries}
     assert rows == {1: True, 2: False, 3: False}
 
@@ -179,8 +189,16 @@ def test_policy_is_applied_and_crn_safe():
 def test_validation_errors():
     native = SyntheticNative()
     fork = native.make_root(0)
-    kw = dict(root_fork=fork, root_h12=native.root_h12(), root_key=[0], focal=SYNTH_FOCAL,
-              society=1, founded={SYNTH_FOCAL: 0}, first_a=A, first_b=B)
+    kw = dict(
+        root_fork=fork,
+        root_h12=native.root_h12(),
+        root_key=[0],
+        focal=SYNTH_FOCAL,
+        society=1,
+        founded={SYNTH_FOCAL: 0},
+        first_a=A,
+        first_b=B,
+    )
     with pytest.raises(ValueError):
         run_paired_branches(native, k=0, **kw)
     with pytest.raises(ValueError):
@@ -211,8 +229,10 @@ def test_cost_estimator_and_refusals(capsys, tmp_path):
 
 def test_synthetic_cli_writes_per_k_differences(tmp_path):
     out = tmp_path / "r.json"
-    assert lhc.main(["synthetic", "--states", "3", "--k", "20", "--streams", "2",
-                     "--out", str(out)]) == 0
+    assert (
+        lhc.main(["synthetic", "--states", "3", "--k", "20", "--streams", "2", "--out", str(out)])
+        == 0
+    )
     import json
 
     data = json.loads(out.read_text(encoding="utf-8"))

@@ -31,10 +31,21 @@ BRIDGE = os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE")
 REPOSITORY = Path(__file__).resolve().parents[1]
 WORLDS = (90100, 90101)
 ARGS = [
-    "--turns", "3", "--players", "4",
-    "--tail-draws", "2", "--tail-rho", "0.95", "--tail-cap", "8",
-    "--tail-schedule-seed-base", "9100567",
-    "--jobs", "1", "--allow-dirty",
+    "--turns",
+    "3",
+    "--players",
+    "4",
+    "--tail-draws",
+    "2",
+    "--tail-rho",
+    "0.95",
+    "--tail-cap",
+    "8",
+    "--tail-schedule-seed-base",
+    "9100567",
+    "--jobs",
+    "1",
+    "--allow-dirty",
 ]
 
 pytestmark = pytest.mark.skipif(
@@ -85,23 +96,40 @@ def normalizer(tmp_path_factory: pytest.TempPathFactory) -> Path:
         if int(bridge.schema_response.get("resumeContinuation") or 0) < 3:
             pytest.skip("model9 bridge predates reset continuation; rebuild integration/")
         step = bridge.reset(50000)
-        live = [v for v in step["villages"] if v.get("observation") is not None and not v.get("terminated")]
+        live = [
+            v
+            for v in step["villages"]
+            if v.get("observation") is not None and not v.get("terminated")
+        ]
         norm = Normalizer.fit_bounded(observation_batch(live))
     path = tmp_path_factory.mktemp("norm") / "normalizer.pt"
-    torch.save({"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": norm.state_dict()}, path)
+    torch.save(
+        {"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": norm.state_dict()}, path
+    )
     return path
 
 
 def _run(out: Path, normalizer: Path, worlds=WORLDS[:1], *, kill=None, resume=False, extra=()):
     env = dict(os.environ, PYTHONPATH=str(REPOSITORY / "src"))
     argv = [
-        sys.executable, "-c", RUNNER, json.dumps(kill),
-        "--normalizer-checkpoint", str(normalizer),
-        "--worlds", ",".join(str(w) for w in worlds), *ARGS, *extra, "--out", str(out),
+        sys.executable,
+        "-c",
+        RUNNER,
+        json.dumps(kill),
+        "--normalizer-checkpoint",
+        str(normalizer),
+        "--worlds",
+        ",".join(str(w) for w in worlds),
+        *ARGS,
+        *extra,
+        "--out",
+        str(out),
     ]
     if resume:
         argv.append("--resume")
-    return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=1800, stdin=subprocess.DEVNULL)
+    return subprocess.run(
+        argv, env=env, capture_output=True, text=True, timeout=1800, stdin=subprocess.DEVNULL
+    )
 
 
 def _arrays(shard: Path) -> dict[str, tuple[str, tuple, bytes]]:
@@ -124,8 +152,17 @@ def _assert_identical(reference: Path, resumed: Path) -> None:
     assert meta["data_digest"] == ref_meta["data_digest"]
     assert meta["payload"] == ref_meta["payload"]
     assert _arrays(resumed) == _arrays(reference)
-    for key in ("rows", "decisions", "native_resolves", "tail_decisions", "tail_native_resolves",
-                "counters", "label_unavailable_reasons", "quarantine", "surviving_camps"):
+    for key in (
+        "rows",
+        "decisions",
+        "native_resolves",
+        "tail_decisions",
+        "tail_native_resolves",
+        "counters",
+        "label_unavailable_reasons",
+        "quarantine",
+        "surviving_camps",
+    ):
         assert meta.get(key) == ref_meta.get(key), key
     assert _tail_record(meta) == _tail_record(ref_meta)
     assert "collection_resume_fallback" not in meta
@@ -144,7 +181,9 @@ def reference(tmp_path_factory: pytest.TempPathFactory, normalizer: Path) -> Pat
     return out
 
 
-def _killed_then_resumed(tmp_path: Path, normalizer: Path, kills, worlds=WORLDS[:1], before_resume=None):
+def _killed_then_resumed(
+    tmp_path: Path, normalizer: Path, kills, worlds=WORLDS[:1], before_resume=None
+):
     out = tmp_path / "out"
     for kill in kills:
         killed = _run(out, normalizer, worlds, kill=kill, resume=out.exists())
@@ -190,7 +229,9 @@ def test_two_kills_then_resume(tmp_path, normalizer, reference) -> None:
     assert meta["collection_checkpoints"]["sessions"] == 3
 
 
-def test_torn_newest_checkpoint_falls_back_to_its_predecessor(tmp_path, normalizer, reference) -> None:
+def test_torn_newest_checkpoint_falls_back_to_its_predecessor(
+    tmp_path, normalizer, reference
+) -> None:
     def tear(out: Path) -> None:
         work = out / "_work" / "world-90100"
         names = sorted(p.name for p in work.glob("ckpt-*"))
@@ -212,9 +253,15 @@ def test_published_worlds_are_kept_and_the_rest_resume(tmp_path, normalizer, ref
         published["meta"] = (out / "world-90100" / "meta.json").read_bytes()
 
     out, resumed = _killed_then_resumed(
-        tmp_path, normalizer, [{"after_checkpoint": [90101, 4]}], worlds=WORLDS, before_resume=remember
+        tmp_path,
+        normalizer,
+        [{"after_checkpoint": [90101, 4]}],
+        worlds=WORLDS,
+        before_resume=remember,
     )
-    assert (out / "world-90100" / "meta.json").read_bytes() == published["meta"]  # skipped, untouched
+    assert (out / "world-90100" / "meta.json").read_bytes() == published[
+        "meta"
+    ]  # skipped, untouched
     for world in WORLDS:
         _assert_identical(reference / f"world-{world}", out / f"world-{world}")
     manifest = json.loads((out / "dataset.json").read_text())

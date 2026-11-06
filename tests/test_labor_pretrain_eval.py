@@ -485,7 +485,9 @@ def test_divergence_report_pools_worlds_and_keeps_per_world_copies() -> None:
             result = ev.camp_divergence(
                 _teacher(),
                 _actor(
-                    specialty_counts=_counts(Gatherer=10 - farmers - 2, Farmer=farmers, Craftsperson=2)
+                    specialty_counts=_counts(
+                        Gatherer=10 - farmers - 2, Farmer=farmers, Craftsperson=2
+                    )
                 ),
             )
             acc.add(result, {"residents": 10.0, "housing_w": 5.0, "clothing_w": 5.0})
@@ -515,13 +517,16 @@ def test_divergence_report_pools_worlds_and_keeps_per_world_copies() -> None:
     )
     assert report["window"]["turns"] == [5, 25]
     assert report["actor_turn_world_mean"]["3"]["worlds"] == 2
-    assert "specialty" in ev.summarize_divergence(
-        dict(report, worlds=[2000, 2001], turns=8)
-    )
+    assert "specialty" in ev.summarize_divergence(dict(report, worlds=[2000, 2001], turns=8))
 
 
 def test_divergence_world_policy_and_defaults() -> None:
-    assert ev.SCALEOUT_RESET_DEFAULTS == {"players": 16, "width": 128, "height": 64, "separation": 9}
+    assert ev.SCALEOUT_RESET_DEFAULTS == {
+        "players": 16,
+        "width": 128,
+        "height": 64,
+        "separation": 9,
+    }
     ev.check_divergence_worlds([2000, 2001], False)
     for bad in ([3000], [90154], [90159]):
         with pytest.raises(ValueError):

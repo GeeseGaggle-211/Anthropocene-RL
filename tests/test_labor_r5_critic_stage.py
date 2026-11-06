@@ -32,12 +32,19 @@ def _args(tmp_path: Path, *extra: str):
     return ra.argument_parser().parse_args(
         [
             "run",
-            "--normalizer-checkpoint", str(tmp_path / "n.pt"),
-            "--privileged-normalizer", str(tmp_path / "p.pt"),
-            "--fit-data", str(tmp_path / "fit-a"), str(tmp_path / "fit-b"),
-            "--calibration-data", str(tmp_path / "cal"),
-            "--attempt-id", "critic-stage-test",
-            "--out", str(tmp_path / "out"),
+            "--normalizer-checkpoint",
+            str(tmp_path / "n.pt"),
+            "--privileged-normalizer",
+            str(tmp_path / "p.pt"),
+            "--fit-data",
+            str(tmp_path / "fit-a"),
+            str(tmp_path / "fit-b"),
+            "--calibration-data",
+            str(tmp_path / "cal"),
+            "--attempt-id",
+            "critic-stage-test",
+            "--out",
+            str(tmp_path / "out"),
             *extra,
         ]
     )
@@ -84,8 +91,17 @@ def test_gap_fit_data_must_be_a_subset_of_the_fitting_data(tmp_path) -> None:
 def test_evaluate_refuses_mixed_stage_inputs(tmp_path) -> None:
     parser = ra.argument_parser()
     base = [
-        "evaluate", "--arm", "a", "--seed", "0", "--checkpoint", "c.pt",
-        "--calibration-data", "cal", "--out", str(tmp_path / "e.json"),
+        "evaluate",
+        "--arm",
+        "a",
+        "--seed",
+        "0",
+        "--checkpoint",
+        "c.pt",
+        "--calibration-data",
+        "cal",
+        "--out",
+        str(tmp_path / "e.json"),
     ]
     with pytest.raises(ValueError, match="needs --advantage and --reserved-payloads"):
         ra.command_evaluate(parser.parse_args(base))
@@ -93,8 +109,13 @@ def test_evaluate_refuses_mixed_stage_inputs(tmp_path) -> None:
         ra.command_evaluate(parser.parse_args([*base, "--stage", "critic", "--advantage", "a.pt"]))
     with pytest.raises(ValueError, match="go together"):
         ra.evaluate_fit(
-            arm="a", seed=0, checkpoint=Path("c.pt"), advantage=None,
-            calibration_data=Path("cal"), fit_data=None, reserved_payloads=[Path("r")],
+            arm="a",
+            seed=0,
+            checkpoint=Path("c.pt"),
+            advantage=None,
+            calibration_data=Path("cal"),
+            fit_data=None,
+            reserved_payloads=[Path("r")],
         )
 
 
@@ -118,9 +139,9 @@ def _record_commands(monkeypatch) -> list[list[str]]:
 
 
 def _module(command: list[str]) -> str:
-    return command[command.index("-m") + 1].rsplit(".", 1)[-1] + ":" + command[
-        command.index("-m") + 2
-    ]
+    return (
+        command[command.index("-m") + 1].rsplit(".", 1)[-1] + ":" + command[command.index("-m") + 2]
+    )
 
 
 def test_critic_stage_skips_the_a_fit_and_evaluates_v_only(tmp_path, monkeypatch) -> None:
@@ -148,8 +169,10 @@ def test_critic_stage_skips_the_a_fit_and_evaluates_v_only(tmp_path, monkeypatch
     commands.clear()
     full = _args(
         tmp_path,
-        "--fit-payloads", str(tmp_path / "fp"),
-        "--reserved-payloads", str(tmp_path / "rp"),
+        "--fit-payloads",
+        str(tmp_path / "fp"),
+        "--reserved-payloads",
+        str(tmp_path / "rp"),
     )
     path = ra.run_fit(full, arm, 0)
     assert path.name == "evidence.json"
@@ -168,7 +191,9 @@ def test_critic_stage_determinism_probe_has_no_a_probe(tmp_path, monkeypatch) ->
         command = [str(c) for c in command]
         assert "labor_advantage" not in " ".join(command)
         out = Path(command[command.index("--out") + 1])
-        torch.save({"task_critic": {"w": torch.ones(2)}, "cost_critics": {"w": torch.zeros(2)}}, out)
+        torch.save(
+            {"task_critic": {"w": torch.ones(2)}, "cost_critics": {"w": torch.zeros(2)}}, out
+        )
 
     monkeypatch.setattr(ra, "_run", run)
     args = _args(tmp_path, "--stage", "critic")
@@ -296,11 +321,18 @@ def test_driver_script_runs_the_critic_stage_without_payloads(tmp_path) -> None:
         **os.environ,
         "PYTHON": stub.as_posix(),
         "ARGS_OUT": (tmp_path / "args.txt").as_posix(),
-        "NORMALIZER": "n.pt", "PRIV_NORMALIZER": "p.pt",
-        "FIT_DATA": "fa:fb", "CAL_DATA": "c1 c2", "OUT": (tmp_path / "out").as_posix(),
-        "ATTEMPT_ID": "t", "STAGE": "critic", "GAP_FIT_DATA": "fa", "LR": "1e-4",
+        "NORMALIZER": "n.pt",
+        "PRIV_NORMALIZER": "p.pt",
+        "FIT_DATA": "fa:fb",
+        "CAL_DATA": "c1 c2",
+        "OUT": (tmp_path / "out").as_posix(),
+        "ATTEMPT_ID": "t",
+        "STAGE": "critic",
+        "GAP_FIT_DATA": "fa",
+        "LR": "1e-4",
         "CRITIC_ARGS": "--qol-loss-weight 30 --tail-normalize world-factor",
-        "JOBS": "1", "THREADS": "1",
+        "JOBS": "1",
+        "THREADS": "1",
     }
     env.pop("FIT_PAYLOADS", None)
     env.pop("RESERVED_PAYLOADS", None)
@@ -336,7 +368,9 @@ def _with_tail_fail(record: dict) -> dict:
         summary = record["stability"].get(label)
         if summary is not None:
             summary["checks"]["population_tail"] = {
-                "mandatory": True, "status": "FAIL", "upper_excess": 0.032,
+                "mandatory": True,
+                "status": "FAIL",
+                "upper_excess": 0.032,
             }
     return record
 
@@ -382,13 +416,24 @@ def test_population_tail_trips_the_seed_gate_only_when_gated(tmp_path, monkeypat
         work = Path(args.out) / arm.name / f"seed-{seed}"
         work.mkdir(parents=True, exist_ok=True)
         path = work / "evidence-critic.json"
-        path.write_text(json.dumps(_with_tail_fail(_critic_evidence(arm.name, seed, arm.privileged))))
+        path.write_text(
+            json.dumps(_with_tail_fail(_critic_evidence(arm.name, seed, arm.privileged)))
+        )
         return path
 
     monkeypatch.setattr(ra, "run_fit", run_fit)
     monkeypatch.setattr(ra, "source_record", lambda *a, **k: {"commit": "test"})
-    args = _args(tmp_path, "--stage", "critic", "--determinism-steps", "0", "--jobs", "1",
-                 "--population-tail", policy)
+    args = _args(
+        tmp_path,
+        "--stage",
+        "critic",
+        "--determinism-steps",
+        "0",
+        "--jobs",
+        "1",
+        "--population-tail",
+        policy,
+    )
     ra.command_run(args)
     gate = json.loads((tmp_path / "out" / "seed-gate.json").read_text())
     receipt = json.loads((tmp_path / "out" / "critic-receipt.json").read_text())
@@ -398,7 +443,9 @@ def test_population_tail_trips_the_seed_gate_only_when_gated(tmp_path, monkeypat
         assert not gate["tripped"] and len(calls) == 10
         assert receipt["critic_stage"]["arms"]["privileged-e4"]["status"] == "PASS"
         flags = receipt["arms"]["privileged-e4"]["advisory"]["0"]
-        assert any(a["check"] == "advisory:population-tail" and a["status"] == "FLAG" for a in flags)
+        assert any(
+            a["check"] == "advisory:population-tail" and a["status"] == "FLAG" for a in flags
+        )
     else:
         assert gate["tripped"] and gate["reason"] == "stability-fail" and len(calls) == 2
         assert receipt["machine_verdict"] == "FAIL"
@@ -414,15 +461,22 @@ def _no_report(record: dict) -> dict:
 
 def _receipt_for(evidence):
     return ra.build_receipt(
-        evidence, arms=ra.DEFAULT_ARMS, seeds=list(range(5)), seed_rule="mean-with-floor",
-        required_seeds=5, determinism=CRITIC_DETERMINISM, configuration={"stage": "critic"},
-        attempt_id="t", source={"commit": "test"},
+        evidence,
+        arms=ra.DEFAULT_ARMS,
+        seeds=list(range(5)),
+        seed_rule="mean-with-floor",
+        required_seeds=5,
+        determinism=CRITIC_DETERMINISM,
+        configuration={"stage": "critic"},
+        attempt_id="t",
+        source={"commit": "test"},
     )
 
 
 def _regression(receipt, arm="privileged-e4"):
     return {
-        r["id"]: r for r in receipt["arms"][arm][ra.GATE_ID]["checks"]
+        r["id"]: r
+        for r in receipt["arms"][arm][ra.GATE_ID]["checks"]
         if r["id"].startswith("regression:")
     }
 
@@ -439,7 +493,11 @@ def test_regression_reference_is_the_seed_matched_control_arm() -> None:
     assert "regression:control" not in rows and rows  # no HOLD for a missing report
     assert all(r["status"] == "PASS" for r in rows.values())
     reference = receipt["regression_reference"]
-    assert reference["privileged-e4/seed-3"] == {"kind": "control-arm", "arm": "control-e4", "seed": 3}
+    assert reference["privileged-e4/seed-3"] == {
+        "kind": "control-arm",
+        "arm": "control-e4",
+        "seed": 3,
+    }
     assert reference["control-e4/seed-3"]["kind"] == "self (reference arm)"
     assert ra.critic_stage_summary(receipt)["status"] == "PASS"
 
@@ -456,19 +514,36 @@ def test_regression_reference_is_the_seed_matched_control_arm() -> None:
 
 
 def test_a_supplied_control_report_still_wins_and_a_missing_seed_holds() -> None:
-    evidence = [_critic_evidence("privileged-e4", 0, True), _critic_evidence("control-e4", 0, False)]
+    evidence = [
+        _critic_evidence("privileged-e4", 0, True),
+        _critic_evidence("control-e4", 0, False),
+    ]
     receipt = ra.build_receipt(
-        evidence, arms=ra.DEFAULT_ARMS, seeds=[0], seed_rule="mean-with-floor",
-        required_seeds=1, determinism=CRITIC_DETERMINISM, configuration={},
-        attempt_id="t", source={"commit": "test"},
+        evidence,
+        arms=ra.DEFAULT_ARMS,
+        seeds=[0],
+        seed_rule="mean-with-floor",
+        required_seeds=1,
+        determinism=CRITIC_DETERMINISM,
+        configuration={},
+        attempt_id="t",
+        source={"commit": "test"},
     )
     assert receipt["regression_reference"]["privileged-e4/seed-0"] == {"kind": "control-report"}
-    lonely = [_no_report(_critic_evidence("privileged-e4", 1, True)),
-              _no_report(_critic_evidence("control-e4", 2, False))]
+    lonely = [
+        _no_report(_critic_evidence("privileged-e4", 1, True)),
+        _no_report(_critic_evidence("control-e4", 2, False)),
+    ]
     receipt = ra.build_receipt(
-        lonely, arms=ra.DEFAULT_ARMS, seeds=[1, 2], seed_rule="mean-with-floor",
-        required_seeds=1, determinism=CRITIC_DETERMINISM, configuration={},
-        attempt_id="t", source={"commit": "test"},
+        lonely,
+        arms=ra.DEFAULT_ARMS,
+        seeds=[1, 2],
+        seed_rule="mean-with-floor",
+        required_seeds=1,
+        determinism=CRITIC_DETERMINISM,
+        configuration={},
+        attempt_id="t",
+        source={"commit": "test"},
     )
     assert receipt["regression_reference"]["privileged-e4/seed-1"] is None
     rows = {r["id"]: r for r in receipt["arms"]["privileged-e4"][ra.GATE_ID]["checks"]}

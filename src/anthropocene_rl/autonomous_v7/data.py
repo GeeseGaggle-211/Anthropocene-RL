@@ -11,10 +11,17 @@ import numpy as np
 
 from . import contracts
 
-OBSERVATION_KEYS = ["core", "core_present", "movement_mask", "clothing_route_mask", "shelter_route_mask", "economy_mix_mask"] + [
-    key for name, _, _ in contracts.SETS for key in (name, name + "_present")
-]
-OPTIONAL_KEYS = {key for name in ("regions", "trade", "activities") for key in (name, name + "_present")}
+OBSERVATION_KEYS = [
+    "core",
+    "core_present",
+    "movement_mask",
+    "clothing_route_mask",
+    "shelter_route_mask",
+    "economy_mix_mask",
+] + [key for name, _, _ in contracts.SETS for key in (name, name + "_present")]
+OPTIONAL_KEYS = {
+    key for name in ("regions", "trade", "activities") for key in (name, name + "_present")
+}
 
 
 def normalize_optional(arrays: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -24,28 +31,60 @@ def normalize_optional(arrays: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     for name, rows, width in contracts.SETS:
         out.setdefault(name, np.zeros((n, rows, width), np.float32))
         out.setdefault(name + "_present", np.zeros((n, rows), bool))
-    native = np.zeros((n, contracts.REGION_MOVEMENT_SLOTS), bool); native[:, contracts.REGION_NATIVE] = True
+    native = np.zeros((n, contracts.REGION_MOVEMENT_SLOTS), bool)
+    native[:, contracts.REGION_NATIVE] = True
     out.setdefault("region_movement_mask", native)
     out.setdefault("commit_hold_mask", np.zeros(n, bool))
-    out.setdefault("personality", np.tile(np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32), (n, 1)))
+    out.setdefault(
+        "personality",
+        np.tile(
+            np.asarray([contracts.OBJECTIVE_WEIGHTS[k] for k in contracts.OBJECTIVES], np.float32),
+            (n, 1),
+        ),
+    )
     return out
+
+
 LABEL_KEYS = [
-    "strategic", "strategic_mask", "service_levels", "service_mask", "clothing_route", "clothing_route_label_mask",
-    "shelter_route", "shelter_route_label_mask", "movement", "movement_label_mask", "fission_policy", "repair",
+    "strategic",
+    "strategic_mask",
+    "service_levels",
+    "service_mask",
+    "clothing_route",
+    "clothing_route_label_mask",
+    "shelter_route",
+    "shelter_route_label_mask",
+    "movement",
+    "movement_label_mask",
+    "fission_policy",
+    "repair",
 ]
 OUTCOME_KEYS = [
-    "camp", "turn", "society", "parent_society", "prior_population", "population", "qol", "nutrition", "years",
-    "welfare", "terminated",
+    "camp",
+    "turn",
+    "society",
+    "parent_society",
+    "prior_population",
+    "population",
+    "qol",
+    "nutrition",
+    "years",
+    "welfare",
+    "terminated",
 ]
 
 
 def load_world(directory: Path) -> dict[str, np.ndarray]:
     meta = json.loads((directory / "meta.json").read_text())
     from .protocol import scan
+
     scan(meta, "dataset metadata")
     # Sets and masks added after a shard was written (contracts 10-12) are optional: to_tensors treats them as absent.
-    arrays = {key: np.load(directory / f"{key}.npy") for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS
-              if key not in OPTIONAL_KEYS or (directory / f"{key}.npy").exists()}
+    arrays = {
+        key: np.load(directory / f"{key}.npy")
+        for key in OBSERVATION_KEYS + LABEL_KEYS + OUTCOME_KEYS
+        if key not in OPTIONAL_KEYS or (directory / f"{key}.npy").exists()
+    }
     for key in ("region_movement_mask", "commit_hold_mask", "trade_utility"):
         if (directory / f"{key}.npy").exists():
             arrays[key] = np.load(directory / f"{key}.npy")
@@ -67,37 +106,67 @@ def load_world(directory: Path) -> dict[str, np.ndarray]:
 BRANCH_KEYS = ("world", "personality", "alt_kind", "founded_turn", "bootstrap_index", "calibration")
 
 
-def load(directories: Iterable[Path], *, strict: bool = False, report: dict | None = None,
-         declared_sources=None, calibration_manifest=None) -> dict[str, np.ndarray]:
+def load(
+    directories: Iterable[Path],
+    *,
+    strict: bool = False,
+    report: dict | None = None,
+    declared_sources=None,
+    calibration_manifest=None,
+) -> dict[str, np.ndarray]:
     directories = sorted(directories)
     from .protocol import scan
+
     for directory in directories:
-        if (directory / "meta.json").exists(): scan(json.loads((directory / "meta.json").read_text()))
+        if (directory / "meta.json").exists():
+            scan(json.loads((directory / "meta.json").read_text()))
     verified, metadata = {}, []
     if strict:
         from .teacher_data import verify_dataset, verify_shard
         from . import provenance as prov
+
         for directory in directories:
             root = directory.parent
-            if root not in verified: verified[root] = verify_dataset(root)
+            if root not in verified:
+                verified[root] = verify_dataset(root)
             metadata.append(verify_shard(directory))
         ids = [m["trajectory_id"] for m in metadata]
-        if len(ids) != len(set(ids)): raise prov.ProvenanceError("duplicate teacher trajectory")
+        if len(ids) != len(set(ids)):
+            raise prov.ProvenanceError("duplicate teacher trajectory")
         records = [v["source_record"] for v in verified.values()]
-        checked = prov.check([("native_teacher", r["learner_commit"], r["source_run"]) for r in records],
-                             "reject", "native teacher", declared=declared_sources)
-        proof = {**checked, "schema": 1, "kind": "native_teacher", "verified": True,
-                 "datasets": list(verified.values()), "records": records,
-                 "dataset_refs": [{"path": str((root / "dataset.json").resolve()),
-                                    "sha256": prov.checkpoint_hash(root / "dataset.json")} for root in verified]}
+        checked = prov.check(
+            [("native_teacher", r["learner_commit"], r["source_run"]) for r in records],
+            "reject",
+            "native teacher",
+            declared=declared_sources,
+        )
+        proof = {
+            **checked,
+            "schema": 1,
+            "kind": "native_teacher",
+            "verified": True,
+            "datasets": list(verified.values()),
+            "records": records,
+            "dataset_refs": [
+                {
+                    "path": str((root / "dataset.json").resolve()),
+                    "sha256": prov.checkpoint_hash(root / "dataset.json"),
+                }
+                for root in verified
+            ],
+        }
         proof["digest"] = prov.digest(proof)
-        if report is not None: report.update(proof)
+        if report is not None:
+            report.update(proof)
     worlds = [load_world(d) for d in directories if (d / "meta.json").exists()]
     if strict:
-        for i, world in enumerate(worlds): world["world"] = np.full(len(world["camp"]), i, np.int64)
+        for i, world in enumerate(worlds):
+            world["world"] = np.full(len(world["camp"]), i, np.int64)
     if calibration_manifest:
         from .calibration import assert_training_rows
-        for world in worlds: assert_training_rows(calibration_manifest, world)
+
+        for world in worlds:
+            assert_training_rows(calibration_manifest, world)
     worlds = [normalize_optional(w) for w in worlds if len(w["camp"]) > 0]
     if not worlds:
         raise ValueError("no teacher shards found")
@@ -118,7 +187,9 @@ def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray
     for i in np.argsort(data["turn"], kind="stable"):
         key = (int(data["world"][i]), int(data["camp"][i]))
         # Branch shards start mid-episode, so their settlements carry the turn they were founded on the full path.
-        first_turn.setdefault(key, int(data["founded_turn"][i]) if "founded_turn" in data else int(data["turn"][i]))
+        first_turn.setdefault(
+            key, int(data["founded_turn"][i]) if "founded_turn" in data else int(data["turn"][i])
+        )
     groups: dict[tuple[int, int, int], list[int]] = {}
     for i in range(len(reward)):
         world, camp, turn = int(data["world"][i]), int(data["camp"][i]), int(data["turn"][i])
@@ -129,7 +200,11 @@ def lineage_rewards(data: dict[str, np.ndarray], qol: bool = True) -> np.ndarray
     for rows in groups.values():
         p = np.array([max(0, data["prior_population"][i]) for i in rows], dtype=np.float64)
         alive = np.array([not data["terminated"][i] for i in rows])
-        q = (np.array([data["qol"][i] for i in rows], dtype=np.float64) if qol else np.ones(len(rows))) * alive
+        q = (
+            np.array([data["qol"][i] for i in rows], dtype=np.float64)
+            if qol
+            else np.ones(len(rows))
+        ) * alive
         q_lineage = float((p * q).sum() / p.sum()) if p.sum() > 0 else 0.0
         for i, pi, a in zip(rows, p, alive):
             reward[i] = pi * q_lineage * float(data["years"][i]) if a else 0.0
@@ -141,13 +216,22 @@ def reward_components(data: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     lineage population-years (P x dt for living settlements) and (contract 11) the village's own realised trade
     utility, in person-QoL-years on true valuations; self-interested: a partner's gain is never credited."""
     n = len(data["camp"])
-    trade = np.asarray(data["trade_utility"], dtype=np.float64) if "trade_utility" in data else np.zeros(n)
+    trade = (
+        np.asarray(data["trade_utility"], dtype=np.float64)
+        if "trade_utility" in data
+        else np.zeros(n)
+    )
     # qol_years: the lineage QoL over the interval regardless of headcount (living settlements); welfare is P times it.
     welfare = lineage_rewards(data)
     p = np.maximum(1.0, np.asarray(data["prior_population"], dtype=np.float64))
     alive = ~np.asarray(data["terminated"], dtype=bool)
     qol_years = np.where(alive & (np.asarray(data["prior_population"]) > 0), welfare / p, 0.0)
-    return {"welfare": welfare, "population_years": lineage_rewards(data, qol=False), "trade_utility": trade, "qol_years": qol_years}
+    return {
+        "welfare": welfare,
+        "population_years": lineage_rewards(data, qol=False),
+        "trade_utility": trade,
+        "qol_years": qol_years,
+    }
 
 
 def sequences(data: dict[str, np.ndarray]) -> list[np.ndarray]:
@@ -162,8 +246,13 @@ def discount(years: np.ndarray) -> np.ndarray:
     return np.exp(-np.asarray(years, dtype=np.float64) / contracts.HORIZON_YEARS)
 
 
-def lambda_returns(data: dict[str, np.ndarray], reward: np.ndarray, value: np.ndarray | None, lam: float = 0.95,
-                   bootstrap: np.ndarray | None = None) -> np.ndarray:
+def lambda_returns(
+    data: dict[str, np.ndarray],
+    reward: np.ndarray,
+    value: np.ndarray | None,
+    lam: float = 0.95,
+    bootstrap: np.ndarray | None = None,
+) -> np.ndarray:
     """TD(lambda) returns in raw welfare units. ``value`` (raw units, per row) bootstraps truncated sequences and the
     lambda mixture; without it the truncated tail bootstraps from a stationary geometric continuation. ``bootstrap``
     (raw units, per row; NaN where absent) is the value of the observation after a truncated sequence's last row

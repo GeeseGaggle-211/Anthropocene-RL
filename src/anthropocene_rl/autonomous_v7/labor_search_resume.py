@@ -110,7 +110,7 @@ def _boundary(path: Path) -> int | None:
     if not path.is_dir() or not name.startswith(PREFIX) or name.endswith(".tmp"):
         return None
     try:
-        return int(name[len(PREFIX):])
+        return int(name[len(PREFIX) :])
     except ValueError:
         return None
 
@@ -130,7 +130,9 @@ class SearchResumePoint:
     def boundary(self) -> int:
         return int(self.state["boundary"])
 
-    def restore(self, bridge: Any, world: int, reset_kwargs: Mapping[str, Any]) -> Mapping[str, Any]:
+    def restore(
+        self, bridge: Any, world: int, reset_kwargs: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
         """Reset from the boundary ``b - 1`` snapshot, replay decision ``b - 1``, verify it."""
         replay = self.state["replay"]
         continuation = dict(self.state["continuation"])
@@ -187,7 +189,9 @@ def load_search_resume_point(
             )
         if state.get("identity") != dict(identity):
             saved = state.get("identity") or {}
-            differing = sorted(k for k in set(saved) | set(identity) if saved.get(k) != identity.get(k))
+            differing = sorted(
+                k for k in set(saved) | set(identity) if saved.get(k) != identity.get(k)
+            )
             raise CheckpointIdentityError(
                 f"{path}: checkpoint belongs to another search run; differing fields {differing}"
             )

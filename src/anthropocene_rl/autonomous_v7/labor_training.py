@@ -188,8 +188,7 @@ def _task_values(
     with torch.no_grad():
         logits = critic(tensors)
         return {
-            name: critic.expectation(name, logits[name]).detach().cpu()
-            for name in LABOR_OBJECTIVES
+            name: critic.expectation(name, logits[name]).detach().cpu() for name in LABOR_OBJECTIVES
         }
 
 
@@ -358,8 +357,16 @@ def _execute_single_step_detailed(
             float(nonlabor_lp[row]),
         )
 
-    retry_rows: dict[int, tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], float,
-                                dict[str, float], dict[str, float]]] = {}
+    retry_rows: dict[
+        int,
+        tuple[
+            dict[str, torch.Tensor],
+            dict[str, torch.Tensor],
+            float,
+            dict[str, float],
+            dict[str, float],
+        ],
+    ] = {}
 
     def retry_factory(
         camp: int, catalog: LaborCatalog, attempt: LaborAttempt
@@ -537,11 +544,15 @@ def _sample_world_step(
 
 
 def _bootstrap_values(
-    step: Mapping[str, Any], normalizer: Any, task_critic: LaborTaskCritic,
-    cost_critics: LaborCostCritics, personality: LaborPersonality | WorldPersonalities,
+    step: Mapping[str, Any],
+    normalizer: Any,
+    task_critic: LaborTaskCritic,
+    cost_critics: LaborCostCritics,
+    personality: LaborPersonality | WorldPersonalities,
 ) -> dict[int, dict[str, float]]:
     live = [
-        village for village in step["villages"]
+        village
+        for village in step["villages"]
         if village.get("observation") is not None and not village.get("terminated")
     ]
     if not live:
@@ -617,8 +628,7 @@ def collect_labor_rollout(
                 ):
                     for camp_id, diag in bridge._bridge.economic_diagnostics.items():
                         trans_id = (
-                            diag.get("transitionId")
-                            or f"{seed}:{camp_id}:{int(step['turn'])-1}"
+                            diag.get("transitionId") or f"{seed}:{camp_id}:{int(step['turn']) - 1}"
                         )
                         if trans_id not in economic_trace.transition_ids:
                             economic_trace.transition_ids.append(trans_id)
@@ -698,9 +708,7 @@ def build_labor_training_batch(
             next_value = {name: 0.0 for name in (*LABOR_OBJECTIVES, *LABOR_COSTS)}
         else:
             tail = bootstrap.get(key)
-            if not isinstance(tail, Mapping) or set(tail) != set(
-                (*LABOR_OBJECTIVES, *LABOR_COSTS)
-            ):
+            if not isinstance(tail, Mapping) or set(tail) != set((*LABOR_OBJECTIVES, *LABOR_COSTS)):
                 raise ValueError(
                     "living labor sequence requires a complete four-head successor bootstrap"
                 )
@@ -737,9 +745,7 @@ def build_labor_training_batch(
                     retry_mask=torch.tensor([retry]),
                     next_value=torch.tensor([next_value[name]]),
                     next_advantage=torch.tensor([next_advantage[name]]),
-                    outer_discount=torch.tensor([
-                        math.exp(-row.years / contracts.HORIZON_YEARS)
-                    ]),
+                    outer_discount=torch.tensor([math.exp(-row.years / contracts.HORIZON_YEARS)]),
                     outer_continuation=torch.tensor([0.0 if row.terminated else 1.0]),
                     lam=lam,
                 )
@@ -789,9 +795,7 @@ def build_labor_training_batch(
         {name: torch.tensor(retry_advantages[name]) for name in LABOR_COSTS},
         personality=personality,
         cost_multipliers=cost_multipliers,
-        row_weights=initial_weights.index_select(
-            0, torch.tensor(retry_parent, dtype=torch.long)
-        ),
+        row_weights=initial_weights.index_select(0, torch.tensor(retry_parent, dtype=torch.long)),
     )
     initial_tensor_rows = [row.initial_tensors for row in rows]
     initial_labor_rows = [row.initial_labor_sample for row in rows]
@@ -825,15 +829,11 @@ def build_labor_training_batch(
     )
     task_targets = {
         "initial": dict(initial_targets),
-        "retry": {
-            name: torch.tensor(retry_task_targets[name]) for name in LABOR_OBJECTIVES
-        },
+        "retry": {name: torch.tensor(retry_task_targets[name]) for name in LABOR_OBJECTIVES},
     }
     cost_targets = {
         "initial": dict(initial_cost_targets),
-        "retry": {
-            name: torch.tensor(retry_cost_targets[name]) for name in LABOR_COSTS
-        },
+        "retry": {name: torch.tensor(retry_cost_targets[name]) for name in LABOR_COSTS},
     }
     return batch, task_targets, cost_targets
 
@@ -865,16 +865,15 @@ def _state_dict_rollout(
     return {
         "kind": LABOR_ROLLOUT_KIND,
         "metadata": dict(metadata),
-        "batch": {
-            name: getattr(batch, name)
-            for name in batch.__dataclass_fields__
-        },
+        "batch": {name: getattr(batch, name) for name in batch.__dataclass_fields__},
         "task_targets": dict(task_targets),
         "cost_targets": dict(cost_targets),
     }
 
 
-def _load_rollout(path: Path) -> tuple[
+def _load_rollout(
+    path: Path,
+) -> tuple[
     LaborAttemptPolicyBatch,
     dict[str, dict[str, torch.Tensor]],
     dict[str, dict[str, torch.Tensor]],
@@ -902,9 +901,9 @@ def _load_rollout(path: Path) -> tuple[
     return batch, task, costs, metadata
 
 
-def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
-    LaborEncoderLayout, LaborActor, LaborTaskCritic, LaborCostCritics, Any
-]:
+def _models_from_checkpoint(
+    state: Mapping[str, Any],
+) -> tuple[LaborEncoderLayout, LaborActor, LaborTaskCritic, LaborCostCritics, Any]:
     layout = LaborEncoderLayout.from_state(state.get("labor_encoder_layout"))
     actor = LaborActor(layout)
     task = LaborTaskCritic(
@@ -915,9 +914,7 @@ def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
     )
     costs = LaborCostCritics(layout)
     # Also applies the contract's optional FiLM bound to all four encoders.
-    _, normalizer = load_labor_checkpoint_models(
-        state, actor, task, costs, expected_layout=layout
-    )
+    _, normalizer = load_labor_checkpoint_models(state, actor, task, costs, expected_layout=layout)
     return layout, actor, task, costs, normalizer
 
 
@@ -1103,9 +1100,7 @@ def _validate_training_data_separation(
     if source["sourcePolicyDigest"] != batch.behavior_policy_digest:
         raise ValueError("labor train anchor is off-policy for this frozen behavior rollout")
     rollout_worlds = set(
-        checked_seeds(
-            rollout_metadata.get("worldSeeds", []), "labor rollout training worlds"
-        )
+        checked_seeds(rollout_metadata.get("worldSeeds", []), "labor rollout training worlds")
     )
     if not rollout_worlds:
         raise ValueError("labor rollout has no bound training worlds")
@@ -1400,9 +1395,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
     personality = labor_checkpoint_personality(state)
 
-    critic_optimizer = torch.optim.Adam(
-        list(task.parameters()) + list(costs.parameters()), lr=3e-4
-    )
+    critic_optimizer = torch.optim.Adam(list(task.parameters()) + list(costs.parameters()), lr=3e-4)
     critic_optimizer.load_state_dict(state["critic_optimizer"])
 
     sampling = torch.Generator()
@@ -1484,9 +1477,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     if device.type != "cpu":
         bc_summary["device"] = device_record(device)
 
-    actor_lr = float(
-        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
-    )
+    actor_lr = float(state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4))
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
 
     trainer_state = _trainer_checkpoint(
@@ -1506,9 +1497,7 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
         critic_training_independent_unit_ids=state["critic_training_independent_unit_ids"],
     )
     trainer_state["heuristic_bc_pretraining"] = bc_summary
-    _carry_family_schedules(
-        trainer_state, state, "actor", bc_summary.get("family_weight_schedule")
-    )
+    _carry_family_schedules(trainer_state, state, "actor", bc_summary.get("family_weight_schedule"))
     _save_checkpoint(args.out, trainer_state)
 
 
@@ -1853,9 +1842,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             raise
         if validation is not None:
             summary["validation"]["datasets"] = [str(p) for p in args.validation_dataset]
-            summary["validation"]["dataset_digest"] = validation["collection"].get(
-                "dataset_digest"
-            )
+            summary["validation"]["dataset_digest"] = validation["collection"].get("dataset_digest")
         summary["dataset_digest"] = teacher["collection"]["dataset_digest"]
         if teacher["collection"].get("family_weighting") is not None:
             summary.setdefault("family_weighting", {})["loader_shares"] = teacher["collection"][
@@ -1913,9 +1900,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             tail=_pretrain_critic_tail(args),
         )
 
-    actor_lr = float(
-        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
-    )
+    actor_lr = float(state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4))
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
     actor_optimizer.load_state_dict(state["actor_optimizer"])
 
@@ -1950,6 +1935,7 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
         "critic",
         (summary.get("family_weighting") or {}).get("schedule"),
     )
+
     def rebuild_with_best() -> dict[str, Any]:
         task.load_state_dict(best_sink["task"])
         costs.load_state_dict(best_sink["costs"])
@@ -2071,8 +2057,10 @@ def _command_collect(args: argparse.Namespace) -> None:
         rows,
         bootstrap,
         personality=personality,
-        cost_multipliers={"feasibility": args.feasibility_multiplier,
-                          "settlement_guard": args.guard_multiplier},
+        cost_multipliers={
+            "feasibility": args.feasibility_multiplier,
+            "settlement_guard": args.guard_multiplier,
+        },
         behavior_policy_sha256=policy_sha,
         critic_sha256=critic_sha,
         normalization_sha256=norm_sha,
@@ -2318,8 +2306,9 @@ def _command_privileged_audit(args: argparse.Namespace) -> None:
     print(json.dumps({name: f["dead_fields"] for name, f in report["families"].items()}))
 
 
-
-def _fit_normalizer_world(seed: int, turns: int, options_state: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+def _fit_normalizer_world(
+    seed: int, turns: int, options_state: Mapping[str, Any]
+) -> list[Mapping[str, Any]]:
     """One world's teacher-driven observations for fit-normalizer (picklable, for --jobs)."""
     from .labor_bc import LaborResetOptions
 
@@ -2343,7 +2332,9 @@ def _fit_normalizer_world(seed: int, turns: int, options_state: Mapping[str, Any
                 break
 
             snap = labor_bridge._bridge.capture()
-            heur_bridge.reset(seed, movement=options.movement, withheld=options.withheld, snapshot=snap)
+            heur_bridge.reset(
+                seed, movement=options.movement, withheld=options.withheld, snapshot=snap
+            )
             h_step = heur_bridge.step({})
             h_villages = {int(v["camp"]): v for v in h_step.get("villages", [])}
             econ_by_camp = h_step.get("economicDiagnostics") or {}
@@ -2359,6 +2350,7 @@ def _fit_normalizer_world(seed: int, turns: int, options_state: Mapping[str, Any
 
             step, _ = labor_bridge.step_labor(actions)
     return all_live
+
 
 def _command_fit_normalizer(args: argparse.Namespace) -> None:
     from .labor_worlds import require_training_worlds
@@ -2384,7 +2376,14 @@ def _command_fit_normalizer(args: argparse.Namespace) -> None:
 
         with ProcessPoolExecutor(max_workers=min(jobs, len(worlds))) as pool:
             # map preserves world order, so the pooled rows are identical to the serial path.
-            per_world = list(pool.map(_fit_normalizer_world, [int(w) for w in worlds], [turns] * len(worlds), [options_state] * len(worlds)))
+            per_world = list(
+                pool.map(
+                    _fit_normalizer_world,
+                    [int(w) for w in worlds],
+                    [turns] * len(worlds),
+                    [options_state] * len(worlds),
+                )
+            )
     all_live: list[Mapping[str, Any]] = [row for rows in per_world for row in rows]
 
     if not all_live:
@@ -2530,14 +2529,19 @@ def argument_parser() -> argparse.ArgumentParser:
         "--worlds", default=None, help="comma-separated local diagnostic seeds"
     )
     pretrain_bc.add_argument(
-        "--dataset", type=Path, action="append", default=None,
+        "--dataset",
+        type=Path,
+        action="append",
+        default=None,
         help=(
             "published labor dataset directory (alternative to --worlds); repeat to aggregate "
             "the teacher data with learner-state (DAgger) rounds at equal source mass"
         ),
     )
     pretrain_bc.add_argument(
-        "--dataset-list", type=Path, default=None,
+        "--dataset-list",
+        type=Path,
+        default=None,
         help="text file with one labor dataset directory per line (added after --dataset)",
     )
     pretrain_bc.add_argument("--players", type=int, default=8)
@@ -2545,7 +2549,9 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_bc.add_argument("--height", type=int, default=None)
     pretrain_bc.add_argument("--separation", type=int, default=None)
     pretrain_bc.add_argument(
-        "--no-movement", action="store_true", default=False,
+        "--no-movement",
+        action="store_true",
+        default=False,
         help="named mechanical fixture only; movement is on for real data",
     )
     pretrain_bc.add_argument("--turns", type=int, default=25)
@@ -2590,82 +2596,115 @@ def argument_parser() -> argparse.ArgumentParser:
         "none (default) keeps the historical loss",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-inner", choices=("none", "gradnorm"), default="none",
+        "--gradnorm-inner",
+        choices=("none", "gradnorm"),
+        default="none",
         help="grouped only: none keeps the role weights inside activity fixed at "
         "--gradnorm-init; gradnorm equalises them too",
     )
     pretrain_bc.add_argument("--gradnorm-inner-min-weight", type=float, default=None)
     pretrain_bc.add_argument(
-        "--gradnorm-inner-max-weight", type=float, default=None,
+        "--gradnorm-inner-max-weight",
+        type=float,
+        default=None,
         help="grouped only: cap of a role weight inside activity (default: ActorGroupedGradNorm)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-alpha", type=float, default=0.0,
+        "--gradnorm-alpha",
+        type=float,
+        default=0.0,
         help="GradNorm asymmetry alpha (0: pure gradient-norm equalisation)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-lr", type=float, default=0.25,
+        "--gradnorm-lr",
+        type=float,
+        default=0.25,
         help="log-space step of each weight toward its ideal per update, in (0, 1] (0.25)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-ema", type=float, default=0.1,
+        "--gradnorm-ema",
+        type=float,
+        default=0.1,
         help="EMA rate of the task gradient norms and losses, in (0, 1] (0.1)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-init", choices=("uniform", "sqrt", "share"), default="uniform",
+        "--gradnorm-init",
+        choices=("uniform", "sqrt", "share"),
+        default="uniform",
         help="initial role weights: uniform per role, sqrt of the resident share, or share "
         "(the current loss); normalised to the current loss scale",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-min-rows", type=int, default=4,
+        "--gradnorm-min-rows",
+        type=int,
+        default=4,
         help="a role's weight is updated only when the batch staffs it in this many rows (4)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-min-weight", type=float, default=None,
+        "--gradnorm-min-weight",
+        type=float,
+        default=None,
         help="weight clamp floor (default: flat 0.01 per task, grouped 0.1 per group)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-max-weight", type=float, default=None,
+        "--gradnorm-max-weight",
+        type=float,
+        default=None,
         help="weight clamp cap (default: flat 100 per task, grouped 3 per group)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-every", type=int, default=1,
+        "--gradnorm-every",
+        type=int,
+        default=1,
         help="controller update every N optimizer steps (1)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-shared", choices=("trunk", "last-layer"), default="trunk",
+        "--gradnorm-shared",
+        choices=("trunk", "last-layer"),
+        default="trunk",
         help="parameters the task gradient norms are measured on: the whole actor encoder "
         "(default) or its last global attention layer + output norm (cheaper, biased against "
         "the role activity tasks)",
     )
     pretrain_bc.add_argument(
-        "--gradnorm-hold-below", type=float, default=0.05,
+        "--gradnorm-hold-below",
+        type=float,
+        default=0.05,
         help="hold a task whose resident-scale-normalised gradient norm is below this fraction "
         "of the median (solved/constant heads such as fission and trade gate); 0 disables",
     )
     pretrain_bc.add_argument("--allow-vm-scale", action="store_true", default=False)
     pretrain_bc.add_argument(
-        "--drop-reserved-worlds", action="store_true", default=False,
+        "--drop-reserved-worlds",
+        action="store_true",
+        default=False,
         help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
         "dataset (recorded in the summary)",
     )
     pretrain_bc.add_argument(
-        "--family-weight-decay", choices=("none", "linear", "cosine"), default=None,
+        "--family-weight-decay",
+        choices=("none", "linear", "cosine"),
+        default=None,
         help="decay of each family up-weight toward 1 as 1 + (w - 1) s(t) (default cosine when "
         "--family-weights is set); keyed on the global optimizer step and continued from the "
         "input checkpoint's schedule across rounds",
     )
     pretrain_bc.add_argument(
-        "--family-weight-decay-epochs", type=float, default=None,
+        "--family-weight-decay-epochs",
+        type=float,
+        default=None,
         help="epochs over which s goes from 1 to 0 (default: the continued schedule's, else this "
         "fit's --epochs)",
     )
     pretrain_bc.add_argument(
-        "--family-weight-restart", action="store_true", default=False,
+        "--family-weight-restart",
+        action="store_true",
+        default=False,
         help="start the family weight schedule at full weight instead of continuing it",
     )
     pretrain_bc.add_argument(
-        "--family-weights", default=None,
+        "--family-weights",
+        default=None,
         help="up-weight scenario-family rows of --dataset (labor_scenarios): 'default' (the "
         "proposed weights), 'family=w,...' or 'default,family=w'; each row takes its max family "
         "weight, then every (source, world) keeps its mass",
@@ -2687,7 +2726,10 @@ def argument_parser() -> argparse.ArgumentParser:
         "--worlds", default=None, help="comma-separated local diagnostic seeds"
     )
     pretrain_critic.add_argument(
-        "--dataset", type=Path, action="append", default=None,
+        "--dataset",
+        type=Path,
+        action="append",
+        default=None,
         help="published labor_teacher_data directory (alternative to --worlds); repeat only with "
         "--learner-state-continuations",
     )
@@ -2710,7 +2752,9 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic.add_argument("--height", type=int, default=None)
     pretrain_critic.add_argument("--separation", type=int, default=None)
     pretrain_critic.add_argument(
-        "--no-movement", action="store_true", default=False,
+        "--no-movement",
+        action="store_true",
+        default=False,
         help="named mechanical fixture only; movement is on for real data",
     )
     pretrain_critic.add_argument("--turns", type=int, default=25)
@@ -2720,27 +2764,36 @@ def argument_parser() -> argparse.ArgumentParser:
     pretrain_critic.add_argument("--max-grad-norm", type=float, default=1.0)
     pretrain_critic.add_argument("--allow-vm-scale", action="store_true", default=False)
     pretrain_critic.add_argument(
-        "--drop-reserved-worlds", action="store_true", default=False,
+        "--drop-reserved-worlds",
+        action="store_true",
+        default=False,
         help="drop shards of the reserved held-out worlds 90154-90159 instead of refusing the "
         "dataset (recorded in the summary)",
     )
     pretrain_critic.add_argument(
-        "--family-weight-decay", choices=("none", "linear", "cosine"), default=None,
+        "--family-weight-decay",
+        choices=("none", "linear", "cosine"),
+        default=None,
         help="decay of each family up-weight toward 1 as 1 + (w - 1) s(t) (default cosine when "
         "--family-weights is set); keyed on the global optimizer step and continued from the "
         "input checkpoint's schedule across rounds",
     )
     pretrain_critic.add_argument(
-        "--family-weight-decay-epochs", type=float, default=None,
+        "--family-weight-decay-epochs",
+        type=float,
+        default=None,
         help="epochs over which s goes from 1 to 0 (default: the continued schedule's, else this "
         "fit's --epochs)",
     )
     pretrain_critic.add_argument(
-        "--family-weight-restart", action="store_true", default=False,
+        "--family-weight-restart",
+        action="store_true",
+        default=False,
         help="start the family weight schedule at full weight instead of continuing it",
     )
     pretrain_critic.add_argument(
-        "--family-weights", default=None,
+        "--family-weights",
+        default=None,
         help="up-weight scenario-family rows of --dataset (labor_scenarios): 'default' (the "
         "proposed weights), 'family=w,...' or 'default,family=w'; each row takes its max family "
         "weight, then every (source, world) keeps its mass",
@@ -2932,8 +2985,12 @@ def argument_parser() -> argparse.ArgumentParser:
     fit_normalizer.add_argument("--width", type=int, default=None)
     fit_normalizer.add_argument("--height", type=int, default=None)
     fit_normalizer.add_argument("--separation", type=int, default=None)
-    fit_normalizer.add_argument("--no-movement", action="store_true", help="named mechanical fixture only")
-    fit_normalizer.add_argument("--jobs", type=int, default=1, help="parallel worlds (rows pooled in world order)")
+    fit_normalizer.add_argument(
+        "--no-movement", action="store_true", help="named mechanical fixture only"
+    )
+    fit_normalizer.add_argument(
+        "--jobs", type=int, default=1, help="parallel worlds (rows pooled in world order)"
+    )
     fit_normalizer.add_argument("--allow-vm-scale", action="store_true", default=False)
     fit_normalizer.add_argument("--out", type=Path, required=True)
     fit_normalizer.set_defaults(handler=_command_fit_normalizer)
@@ -2943,11 +3000,17 @@ def argument_parser() -> argparse.ArgumentParser:
         help="fit frozen per-family privileged moments on fitting-world teacher shards",
     )
     fit_privileged.add_argument(
-        "--dataset", type=Path, action="append", required=True,
+        "--dataset",
+        type=Path,
+        action="append",
+        required=True,
         help="published privileged teacher dataset on fitting worlds (repeatable)",
     )
     fit_privileged.add_argument(
-        "--calibration-dataset", type=Path, action="append", default=None,
+        "--calibration-dataset",
+        type=Path,
+        action="append",
+        default=None,
         help="calibration dataset whose worlds must not be fitted (repeatable)",
     )
     fit_privileged.add_argument("--report", type=Path, default=None, help="dead-mask report JSON")

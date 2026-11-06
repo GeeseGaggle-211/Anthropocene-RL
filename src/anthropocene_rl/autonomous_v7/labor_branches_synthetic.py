@@ -138,9 +138,9 @@ class SyntheticNative(NativeSearch):
     def execute(self, catalogs, payloads):
         self.work.labor_steps += 1
         u = action_vector(payloads[SYNTH_FOCAL])
-        noise = 0.1 * np.random.default_rng(
-            [NOISE_TAG, self.seed, self.state["turn"]]
-        ).normal(size=3)
+        noise = 0.1 * np.random.default_rng([NOISE_TAG, self.seed, self.state["turn"]]).normal(
+            size=3
+        )
         x = 0.8 * self.state["x"] + u + noise
         self.state = {"x": x, "turn": self.state["turn"] + 1}
         terminal = self.death_radius is not None and float(np.linalg.norm(x)) > self.death_radius

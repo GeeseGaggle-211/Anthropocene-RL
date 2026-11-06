@@ -1065,8 +1065,7 @@ def saturation_components(
             else {}
         ),
         "alarm": bool(
-            early_unexpected > th.saturation_alarm_early
-            or rest_unexpected > th.saturation_alarm
+            early_unexpected > th.saturation_alarm_early or rest_unexpected > th.saturation_alarm
         ),
     }
 
@@ -2177,11 +2176,7 @@ class StabilityMonitor:
                 **({"advisories": self.advisories} if self.advisories else {}),
                 **({"loss_balancing": self.loss_balancing} if self.loss_balancing else {}),
                 **({"grad_clip": "per-encoder"} if self.clip_groups is not None else {}),
-                **(
-                    {"validation": self.validation.report()}
-                    if self.validation is not None
-                    else {}
-                ),
+                **({"validation": self.validation.report()} if self.validation is not None else {}),
             }
         )
 

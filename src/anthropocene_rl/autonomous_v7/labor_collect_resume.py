@@ -140,7 +140,7 @@ def _boundary_of(path: Path) -> int | None:
     if not path.is_dir() or not name.startswith(CHECKPOINT_PREFIX) or name.endswith(".tmp"):
         return None
     try:
-        return int(name[len(CHECKPOINT_PREFIX):])
+        return int(name[len(CHECKPOINT_PREFIX) :])
     except ValueError:
         return None
 
@@ -261,7 +261,13 @@ class WorldCheckpointer:
             self.window_done = 0
             self.prior_wall = 0.0
             self.sessions = 1
-            self.overhead = {"count": 0, "seconds": 0.0, "bytes": 0, "max_seconds": 0.0, "max_bytes": 0}
+            self.overhead = {
+                "count": 0,
+                "seconds": 0.0,
+                "bytes": 0,
+                "max_seconds": 0.0,
+                "max_bytes": 0,
+            }
         else:
             state = resume.state
             self.parts = [dict(p) for p in state["parts"]]
@@ -286,14 +292,16 @@ class WorldCheckpointer:
     def begin(self, result: Any, step: Mapping[str, Any]) -> None:
         trajectory = result.reset_identity.get("fingerprint")
         if not isinstance(trajectory, str) or not trajectory:
-            raise ValueError("collection checkpoints need the reset fingerprint (episode trajectory id)")
+            raise ValueError(
+                "collection checkpoints need the reset fingerprint (episode trajectory id)"
+            )
         self.continuation = {"startTurn": int(step["turn"]), "trajectoryId": trajectory}
         self.founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
 
     def window(self, result: Any, transition: Any, founded: Mapping[int, int], done: int) -> None:
         started = time.perf_counter()
         self.founded = {int(c): int(t) for c, t in founded.items()}
-        new_rows = result.rows[self.rows_recorded:]
+        new_rows = result.rows[self.rows_recorded :]
         name = f"part-{done:06d}.pt"
         path = self.directory / "rows" / name
         buffer = _torch_bytes(new_rows)
