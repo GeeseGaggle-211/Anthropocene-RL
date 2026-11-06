@@ -59,13 +59,26 @@ to fractions of assigned resident time; the actor serializer decodes masked
 labor samples, exponentiates trade-value latents and applies sigmoid to trade
 share. For example, actor latent `log(3)` and heuristic trade request `3` agree.
 Wire trade requests `1.5` and `3` are different actions and are not multiplied
-to match. Different requested shares that happen to compile to the same physical
-result can also remain different inputs under this existing request-based
-contract. No batch-statistic fitting or normalization change is introduced.
+to match. Since the merge onto `feature/r5-ppo` the adapter is PR 12's
+population-aware v3 contract over critic layout v2: specialty shares are
+apportioned with the pre-action root catalog's population (largest remainder)
+and unstaffed roles encode as idle, so requests with identical apportioned
+residents, staffed-role activity and nonlabor posture encode identically. The
+retry is encoded with the same root catalog as its initial action. See
+`docs/LABOR_ACTION_ADAPTER.md`. No batch-statistic fitting or normalization change is introduced.
 
-New collection artifacts include the full adapter contract and its digest;
-replay rejects mismatches. The existing 349-feature layout remains unchanged,
-and older rollouts without the additional adapter metadata remain readable.
+The adapter requires an explicit binding (`expected_layout`,
+`expected_adapter_digest`). The PPO path loads no checkpoint that consumes
+action features, so `labor_training collect` is their producer:
+`_producer_action_binding` supplies the binding once, the same values are
+written to the rollout metadata (`actionAdapterContract`,
+`actionAdapterDigest`), and `_load_rollout` compares them with the running
+adapter whenever the rollout carries action features (a rollout with features
+but no recorded binding is refused). Library callers that pass no binding get
+rows without action features. The vectors use the 349-feature layout v2;
+`action_feature_contract` records its version. A future consumer that loads an
+action-conditioned checkpoint must bind to that checkpoint's recorded layout
+and adapter digest, not to the running code.
 
 Independent-return anchors now store separate raw privilege for parent and
 ranking-successor rows, bound to the same normalizer digest. Anchor training

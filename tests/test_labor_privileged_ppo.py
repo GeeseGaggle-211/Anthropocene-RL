@@ -19,7 +19,7 @@ from test_labor_value_calibration import _write
 
 from anthropocene_rl.autonomous_v7 import labor_training as training
 from anthropocene_rl.autonomous_v7.bridge import observation_batch
-from anthropocene_rl.autonomous_v7.labor_advantage import action_features
+from anthropocene_rl.autonomous_v7.labor_advantage import action_features, action_layout_state
 from anthropocene_rl.autonomous_v7.labor_bridge import LABOR_REGISTRY_DIGEST, LaborAttempt
 from anthropocene_rl.autonomous_v7.labor_model import (
     LaborActor,
@@ -55,7 +55,12 @@ def _batch(rows, bootstrap=None, actor=None, task=None, costs=None):
     )
 
 
-def _collect_one(monkeypatch, retry, models=None):
+_PRODUCER = object()
+
+
+def _collect_one(monkeypatch, retry, models=None, action_binding=_PRODUCER):
+    if action_binding is _PRODUCER:
+        action_binding = training._producer_action_binding()[0]
     village = dict(
         _village(1),
         camp=7,
@@ -86,7 +91,7 @@ def _collect_one(monkeypatch, retry, models=None):
         initial = LaborAttempt.from_payload(_attempt_payload(catalog, rejected=retry), catalogs[7])
         retried = {7: retry_factory(7, catalogs[7], initial)} if retry else {}
         final = dataclasses.replace(initial, attempt=1, remaining_proposals=0) if retry else initial
-        captured.update(initial=retained, retry=retried)
+        captured.update(initial=retained, retry=retried, catalog=catalogs[7])
         return SimpleNamespace(
             step=next_step, initial_attempts={7: initial}, final_attempts={7: final}, retry=retried
         )
@@ -104,6 +109,7 @@ def _collect_one(monkeypatch, retry, models=None):
         world_seed=50000,
         world_index=0,
         founded_turns={7: 0},
+        action_binding=action_binding,
     )
     tail = training._bootstrap_values(next_step, normalizer, task, costs, LaborPersonality())
     return actor, task, costs, rows[0], tail, captured
@@ -121,12 +127,16 @@ def test_collection_retry_bootstrap_and_replay_are_aligned(monkeypatch, tmp_path
     for key, value in row.initial_actor_outputs.items():
         assert not value.requires_grad
         assert torch.equal(value, actor(row.initial_tensors)[key])
-    expected = action_features(captured["initial"][7].payload)
+    # Layout v2: the encoder apportions with the root catalog's population, and
+    # the retry is encoded with the same pre-action catalog as the initial action.
+    population = captured["catalog"].population
+    expected = action_features(captured["initial"][7].payload, population=population)
     np.testing.assert_array_equal(row.initial_action_features["features"][0], expected)
     if retry:
         combined = dict(captured["initial"][7].payload, **captured["retry"][7].payload)
         np.testing.assert_array_equal(
-            row.retry_action_features["features"][0], action_features(combined)
+            row.retry_action_features["features"][0],
+            action_features(combined, population=population),
         )
         # Last 49 entries are the retained movement/fission/trade posture.
         assert torch.equal(
@@ -137,8 +147,14 @@ def test_collection_retry_bootstrap_and_replay_are_aligned(monkeypatch, tmp_path
     assert tail[7]["qol_years"] == pytest.approx(float(expected_tail["qol_years"][0]))
     batch, tt, ct = _batch([row], {(50000, 7): tail[7]})
     assert len(batch.retry_privileged_raw["privileged_core"]) == int(retry)
+    assert batch.action_feature_contract == action_layout_state()["version"]
+    unbound = tmp_path / "unbound.pt"
+    torch.save(training._state_dict_rollout(batch, tt, ct, {}), unbound)
+    with pytest.raises(ValueError, match="lack their action adapter binding"):
+        training._load_rollout(unbound)
     path = tmp_path / "rollout.pt"
-    torch.save(training._state_dict_rollout(batch, tt, ct, {}), path)
+    metadata = training._producer_action_binding()[1]
+    torch.save(training._state_dict_rollout(batch, tt, ct, metadata), path)
     restored, _, _, _ = training._load_rollout(path)
     assert restored.privileged_normalizer_digest == task.privileged_normalizer.digest()
     assert torch.equal(
@@ -150,6 +166,28 @@ def test_collection_retry_bootstrap_and_replay_are_aligned(monkeypatch, tmp_path
         training._critic_td_losses(
             task, costs, dataclasses.replace(batch, privileged_normalizer_digest="0" * 64), tt, ct
         )
+
+
+def test_collection_without_adapter_binding_constructs_no_action_features(
+    monkeypatch, tmp_path
+):
+    *_, row, tail, _ = _collect_one(monkeypatch, True, action_binding=None)
+    assert row.initial_action_features is None and row.retry_action_features is None
+    batch, tt, ct = _batch([row], {(50000, 7): tail[7]})
+    assert batch.initial_action_features is None and batch.action_feature_contract is None
+    path = tmp_path / "rollout.pt"
+    torch.save(training._state_dict_rollout(batch, tt, ct, {}), path)
+    training._load_rollout(path)
+
+
+def test_producer_binding_is_the_recorded_metadata_and_checked_by_the_adapter():
+    from anthropocene_rl.autonomous_v7.labor_action_adapter import action_adapter_digest
+
+    binding, metadata = training._producer_action_binding()
+    assert binding["expected_adapter_digest"] == metadata["actionAdapterDigest"]
+    assert binding["expected_layout"] == metadata["actionAdapterContract"]["criticLayout"]
+    assert metadata["actionAdapterDigest"] == action_adapter_digest()
+    assert binding["expected_layout"] == action_layout_state()
 
 
 def test_warmup_counts_world_decisions_not_camps_and_bootstraps(monkeypatch):

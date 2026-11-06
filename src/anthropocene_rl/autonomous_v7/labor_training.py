@@ -372,7 +372,15 @@ def _execute_single_step_detailed(
     world_seed: int,
     world_index: int,
     founded_turns: dict[int, int],
+    action_binding: Mapping[str, Any] | None = None,
 ) -> tuple[Mapping[str, Any], list[LaborRolloutRow], dict[int, bool]]:
+    """Resolve one world decision; ``action_binding`` gates action-feature rows.
+
+    ``action_binding`` is the ``expected_layout``/``expected_adapter_digest``
+    pair the canonical adapter checks (see :func:`_producer_action_binding`).
+    It is passed in by the artifact producer, never rebuilt here. Without it no
+    action features are constructed and the rows carry none.
+    """
     live = [
         village
         for village in step["villages"]
@@ -486,15 +494,28 @@ def _execute_single_step_detailed(
         row = row_by_camp[camp]
         retry = retry_rows.get(camp)
         outcome = outcomes[camp]
-        from .labor_action_adapter import canonical_action_features
-
-        initial_features = canonical_action_features(retained[camp].payload, catalogs[camp])[None]
+        initial_features = None
         retry_features = None
-        if retry is not None:
-            # Non-labor posture is retained from the initial action, not resampled.
-            retry_payload = dict(retained[camp].payload)
-            retry_payload.update(execution.retry[camp].payload)
-            retry_features = {"features": canonical_action_features(retry_payload, catalogs[camp])[None]}
+        if action_binding is not None:
+            from .labor_action_adapter import canonical_action_features
+
+            # One pre-action root catalog (masks and population) per parent:
+            # the retry is encoded with the same catalog as the initial action.
+            catalog = catalogs[camp]
+            initial_features = {
+                "features": canonical_action_features(
+                    retained[camp].payload, catalog, **action_binding
+                )[None]
+            }
+            if retry is not None:
+                # Non-labor posture is retained from the initial action, not resampled.
+                retry_payload = dict(retained[camp].payload)
+                retry_payload.update(execution.retry[camp].payload)
+                retry_features = {
+                    "features": canonical_action_features(
+                        retry_payload, catalog, **action_binding
+                    )[None]
+                }
         rows.append(
             LaborRolloutRow(
                 world_seed=world_seed,
@@ -507,7 +528,7 @@ def _execute_single_step_detailed(
                 retry_privileged_raw=None if raw is None or retry is None else _one_row(raw, row),
                 initial_actor_outputs=_one_row(output, row),
                 retry_actor_outputs=retry_outputs.get(camp),
-                initial_action_features={"features": initial_features},
+                initial_action_features=initial_features,
                 retry_action_features=retry_features,
                 privileged_normalizer_digest=(
                     None if raw is None else task_critic.privileged_normalizer.digest()
@@ -554,6 +575,7 @@ def _sample_world_step(
     world_index: int,
     founded_turns: dict[int, int],
     max_self_destruct_rewinds: int = 0,
+    action_binding: Mapping[str, Any] | None = None,
 ) -> tuple[Mapping[str, Any], list[LaborRolloutRow]]:
     if max_self_destruct_rewinds <= 0:
         next_step, rows, _ = _execute_single_step_detailed(
@@ -568,6 +590,7 @@ def _sample_world_step(
             world_seed=world_seed,
             world_index=world_index,
             founded_turns=founded_turns,
+            action_binding=action_binding,
         )
         return next_step, rows
 
@@ -589,6 +612,7 @@ def _sample_world_step(
             world_seed=world_seed,
             world_index=world_index,
             founded_turns=founded_turns,
+            action_binding=action_binding,
         )
         if not attempt_rows:
             bridge.drop(fork)
@@ -655,8 +679,13 @@ def collect_labor_rollout(
     max_self_destruct_rewinds: int = 0,
     allow_vm_scale: bool = False,
     warmup_decisions: int | None = None,
+    action_binding: Mapping[str, Any] | None = None,
 ) -> tuple[list[LaborRolloutRow], dict[tuple[int, int], dict[str, float]]]:
-    """Collect diagnostic local worlds without performing any optimizer step."""
+    """Collect diagnostic local worlds without performing any optimizer step.
+
+    ``action_binding`` (see :func:`_producer_action_binding`) enables the
+    diagnostic action-feature rows; without it none are constructed.
+    """
 
     if warmup_decisions is not None:
         turns = _warmup_limit(warmup_decisions)
@@ -696,6 +725,7 @@ def collect_labor_rollout(
                     world_index=world_index,
                     founded_turns=founded,
                     max_self_destruct_rewinds=max_self_destruct_rewinds,
+                    action_binding=action_binding,
                 )
                 if (
                     economic_trace is not None
@@ -751,6 +781,7 @@ def build_labor_training_batch(
     dict[str, dict[str, torch.Tensor]],
 ]:
     """Freeze four-head GAE/targets while preserving the parent decision denominator."""
+    from .labor_advantage import ACTION_LAYOUT_VERSION
 
     if not rows:
         raise ValueError("labor training batch requires rollout rows")
@@ -928,7 +959,7 @@ def build_labor_training_batch(
             example=rows[0].initial_action_features,
         ),
         action_feature_contract=(
-            None if rows[0].initial_action_features is None else "labor-action-semantic-vector-v1"
+            None if rows[0].initial_action_features is None else ACTION_LAYOUT_VERSION
         ),
     )
     task_targets = {
@@ -995,9 +1026,16 @@ def _load_rollout(path: Path) -> tuple[
     batch_state = state.get("batch")
     if not isinstance(metadata, dict) or not isinstance(batch_state, dict):
         raise ValueError("labor rollout metadata/batch is missing")
-    if "actionAdapterDigest" in metadata or "actionAdapterContract" in metadata:
+    # Load-time check of the producer binding (_producer_action_binding):
+    # recorded action features are consumable only by the adapter that wrote
+    # them. A rollout carrying features must record the binding; one without
+    # features is checked only if it records one.
+    has_features = batch_state.get("initial_action_features") is not None
+    if has_features or "actionAdapterDigest" in metadata or "actionAdapterContract" in metadata:
         from .labor_action_adapter import action_adapter_contract, action_adapter_digest
 
+        if "actionAdapterDigest" not in metadata or "actionAdapterContract" not in metadata:
+            raise ValueError("labor rollout action features lack their action adapter binding")
         if (
             metadata.get("actionAdapterDigest") != action_adapter_digest()
             or metadata.get("actionAdapterContract") != action_adapter_contract()
@@ -2161,6 +2199,32 @@ def _save_critic_checkpoints(
         _save_checkpoint(out, best_state)
 
 
+def _producer_action_binding() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Adapter binding for a rollout that produces action features, plus its metadata.
+
+    The PPO path has no checkpoint that consumes action features: the trainer
+    checkpoint holds state-value critics only, and no advantage head is loaded
+    here (docs/LABOR_PRIVILEGED_PPO.md). Per docs/LABOR_ACTION_ADAPTER.md, a
+    caller without a checkpoint passes the current layout and digest explicitly
+    and persists them with the feature data. The collector is that producer:
+    the binding returned here is exactly the one written into the rollout
+    metadata, and the meaningful comparison happens when the rollout is
+    consumed (:func:`_load_rollout`), not here. A future consumer that loads an
+    action-conditioned checkpoint must instead bind to that checkpoint's
+    recorded layout and adapter digest.
+    """
+    from .labor_action_adapter import action_adapter_contract, action_adapter_digest
+
+    contract = action_adapter_contract()
+    adapter_digest = action_adapter_digest()
+    binding = {
+        "expected_layout": contract["criticLayout"],
+        "expected_adapter_digest": adapter_digest,
+    }
+    metadata = {"actionAdapterContract": contract, "actionAdapterDigest": adapter_digest}
+    return binding, metadata
+
+
 def _command_collect(args: argparse.Namespace) -> None:
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
@@ -2184,6 +2248,7 @@ def _command_collect(args: argparse.Namespace) -> None:
                 "scope": "labor-rollout-economic-trace",
             },
         )
+    action_binding, action_metadata = _producer_action_binding()
     rows, bootstrap = collect_labor_rollout(
         actor=actor,
         task_critic=task,
@@ -2197,6 +2262,7 @@ def _command_collect(args: argparse.Namespace) -> None:
         warmup_decisions=getattr(args, "warmup_decisions", None),
         max_self_destruct_rewinds=getattr(args, "max_self_destruct_rewinds", 0),
         allow_vm_scale=getattr(args, "allow_vm_scale", False),
+        action_binding=action_binding,
     )
     behavior = labor_behavior_configuration(personality)
     policy_sha = behavior_policy_digest(actor, behavior)
@@ -2213,12 +2279,9 @@ def _command_collect(args: argparse.Namespace) -> None:
         normalization_sha256=norm_sha,
         lam=args.lam,
     )
-    from .labor_action_adapter import action_adapter_contract, action_adapter_digest
-
     metadata = {
         "schemaVersion": 1,
-        "actionAdapterContract": action_adapter_contract(),
-        "actionAdapterDigest": action_adapter_digest(),
+        **action_metadata,
         "sourceCheckpointSha256": checkpoint_hash(args.checkpoint),
         "worldSeeds": worlds,
         "turns": args.turns,
