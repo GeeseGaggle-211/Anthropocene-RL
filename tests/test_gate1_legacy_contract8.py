@@ -106,7 +106,12 @@ def test_pinned_contract8_loader_preserves_fixture_outputs_without_upgrade(tmp_p
     with torch.no_grad():
         actual = deterministic_mode(actor(to_tensors(batch(), normalizer)))
     for key in expected:
-        assert np.array_equal(actual[key], expected[key])
+        if expected[key].dtype.kind == "f":
+            # Frozen on Windows; Linux CPU kernels differ in the last float32 bits
+            # (about 1e-7). An upgrade or a different adapter moves these far more.
+            np.testing.assert_allclose(actual[key], expected[key], rtol=0, atol=1e-6)
+        else:
+            assert np.array_equal(actual[key], expected[key])
 
 
 def test_contract8_loader_rejects_missing_or_synthesized_tensor():
