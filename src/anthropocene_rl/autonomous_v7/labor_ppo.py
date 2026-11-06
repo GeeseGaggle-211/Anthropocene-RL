@@ -732,6 +732,14 @@ class LaborAttemptPolicyBatch:
     behavior_policy_digest: str
     advantage_critic_digest: str
     normalization_binding_digest: str
+    initial_privileged_raw: Mapping[str, torch.Tensor] | None = None
+    retry_privileged_raw: Mapping[str, torch.Tensor] | None = None
+    privileged_normalizer_digest: str | None = None
+    initial_actor_outputs: Mapping[str, torch.Tensor] | None = None
+    retry_actor_outputs: Mapping[str, torch.Tensor] | None = None
+    initial_action_features: Mapping[str, torch.Tensor] | None = None
+    retry_action_features: Mapping[str, torch.Tensor] | None = None
+    action_feature_contract: str | None = None
 
     def __post_init__(self) -> None:
         n = len(self.behaviour_initial_labor_logp)
@@ -791,6 +799,65 @@ class LaborAttemptPolicyBatch:
                 for value in values.values()
             ):
                 raise ValueError(f"{label} must contain {m} row-aligned tensors")
+
+        for label, values, count in (
+            ("initial_privileged_raw", self.initial_privileged_raw, n),
+            ("retry_privileged_raw", self.retry_privileged_raw, m),
+            ("initial_actor_outputs", self.initial_actor_outputs, n),
+            ("retry_actor_outputs", self.retry_actor_outputs, m),
+            ("initial_action_features", self.initial_action_features, n),
+            ("retry_action_features", self.retry_action_features, m),
+        ):
+            if values is not None and (not values or any(
+                not isinstance(value, torch.Tensor) or value.ndim < 1
+                or (len(value) != count and not (name == "movement_codes" and value.ndim == 1))
+                or value.requires_grad
+                for name, value in values.items()
+            )):
+                raise ValueError(f"{label} must contain detached row-aligned tensors")
+        from .labor_privileged import validate_raw
+
+        if (self.initial_privileged_raw is None) != (self.retry_privileged_raw is None):
+            raise ValueError("privileged rollout requires both initial and retry arrays")
+        if self.initial_privileged_raw is not None:
+            binding = self.privileged_normalizer_digest
+            if (
+                not isinstance(binding, str) or len(binding) != 64
+                or any(c not in "0123456789abcdef" for c in binding)
+            ):
+                raise ValueError("privileged rollout requires a SHA-256 normalization binding")
+            validate_raw(self.initial_privileged_raw, context="initial PPO privileged arrays")
+            if m:
+                validate_raw(self.retry_privileged_raw, context="retry PPO privileged arrays")
+            elif set(self.retry_privileged_raw) != set(self.initial_privileged_raw) or any(
+                value.shape != (0, *self.initial_privileged_raw[name].shape[1:])
+                or value.dtype != self.initial_privileged_raw[name].dtype
+                for name, value in self.retry_privileged_raw.items()
+            ):
+                raise ValueError("empty retry privileged arrays differ from the initial schema")
+        elif self.privileged_normalizer_digest is not None:
+            raise ValueError("privileged binding without raw rollout arrays")
+        if (self.initial_action_features is None) != (self.retry_action_features is None):
+            raise ValueError("action features require both initial and retry arrays")
+        if self.initial_action_features is not None:
+            from .labor_advantage import ACTION_FEATURE_WIDTH, ACTION_LAYOUT_VERSION
+
+            if self.action_feature_contract != ACTION_LAYOUT_VERSION:
+                raise ValueError("rollout action feature contract differs")
+            for values, count in (
+                (self.initial_action_features, n), (self.retry_action_features, m)
+            ):
+                if set(values) != {"features"}:
+                    raise ValueError("rollout action feature fields differ")
+                features = values["features"]
+                if (
+                    features.shape != (count, ACTION_FEATURE_WIDTH)
+                    or not features.is_floating_point()
+                    or not bool(torch.isfinite(features).all())
+                ):
+                    raise ValueError("rollout action features must be finite N x 349 tensors")
+        elif self.action_feature_contract is not None:
+            raise ValueError("action feature contract without feature arrays")
 
     @property
     def parent_count(self) -> int:
