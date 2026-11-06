@@ -1,0 +1,2 @@
+@reboot sleep 90; bash /home/suyashbhatt11_gmail_com/g0loop.sh > /dev/null 2>&1
+@reboot sleep 120; bash /home/suyashbhatt11_gmail_com/r5/loop.sh > /dev/null 2>&1

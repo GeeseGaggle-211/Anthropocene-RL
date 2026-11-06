@@ -1,0 +1,19 @@
+# /etc/systemd/system/anthropocene-auto-shutdown.timer
+[Unit]
+Description=Eight-hour Anthropocene VM cost guardrail
+
+[Timer]
+OnBootSec=8h
+AccuracySec=1min
+Unit=anthropocene-auto-shutdown.service
+
+[Install]
+WantedBy=timers.target
+
+# /etc/systemd/system/anthropocene-auto-shutdown.service
+[Unit]
+Description=Stop the Anthropocene training VM after the maximum session window
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/shutdown -h now "Anthropocene 8-hour cost guardrail"

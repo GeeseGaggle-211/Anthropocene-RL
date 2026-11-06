@@ -1,0 +1,19 @@
+# r5 CPU-VM preemption/batch tally (UTC)
+2026-10-26T08:05Z approx  boot after preemption (observed uptime at 10:11Z = 2:06)
+2026-10-26T12:34Z fit50-b01/b02 start (10-world, jobs 8)
+2026-10-26T15:31Z PREEMPTED (fit50-b01/b02 ran 2h57m; 1 shard, 90110, published; all lost)
+2026-10-26T16:14Z VM RUNNING (g0-autostart5); 16:17Z fit50 batches relaunched
+2026-10-26T16:22Z fit50 stopped by decision (8-world layout); fit8-b01 16:22:36Z, fit8-b02 16:23:36Z start
+2026-10-26T17:03Z PREEMPTED (fit8-b01/b02 ran 40 min; all lost)
+2026-10-26T18:15:45Z VM RUNNING again
+2026-10-26T18:19:57Z relaunch confirmed: workers=18 LOAD=14.57 W=18 | 2026-10-26T18:17:22+00:00 moved partial fit8-b01 aside;2026-10-26T18:17:22+00:00 batch fit8-b01 start worlds=90100-90107 ;2026-10-26T18:18:22+00:00 moved partial fit8-b02 aside;2026-10-26T18:18:22+00:00 batch fit8-b02 start worlds=90108-90115 ;
+2026-10-26T18:39:55Z set-scheduling: STANDARD rejected without --no-preemptible; applied with --no-preemptible, in place (no recreate); VM restarted on-demand 18:39:41Z
+2026-10-26T18:39:55Z note: stopped by operator at ~18:38Z for the switch (fit8-b01/b02 ran 20 min since 18:17Z, at decision ~17; lost)
+2026-10-26T18:42:10Z on-demand: driver relaunched fit8-b01 (18:42:10Z) and fit8-b02 (18:43:10Z); 18:46Z W=18 load 15.55, 97 GB avail
+2026-10-26T19:05:09Z HOLD set 19:02Z (STOP + driver main killed); fit8-b01/b02 continue
+2026-10-27T01:02:47Z ALERT batchdone fit8-b01
+2026-10-27T00:50:51Z fit8-b01 published (worlds 2.5-6.1 h); poller alert 01:02Z missed by operator
+2026-10-27T01:56Z HOLD released; r5e driver (worker-based concurrency) installed
+2026-10-27T02:05Z poll3 paused; waiter for fit8-b02 publish (2-min checks, alerts included)
+2026-10-27T02:40:30Z GUEST-TERMINATED (guestTerminate by system; on-demand); fit8-b03/b04 ~40 min in (resumable), fit8-b02 90111 lost after ~6.2 h tail
+2026-10-27T02:45Z restart (max-run 40h); cause of 02:40 stop = anthropocene-auto-shutdown.timer (OnBootSec=8h); next fire 10:45:25Z. b03/b04 resumed 02:47-02:49Z from decisions 22-36; b02 old moved aside
