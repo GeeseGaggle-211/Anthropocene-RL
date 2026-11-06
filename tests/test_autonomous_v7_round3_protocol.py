@@ -436,8 +436,13 @@ def test_actual_ppo_entrypoint_resumes_effective_promoted_warmup_without_repeati
 
     from anthropocene_rl.autonomous_v7 import bridge as bridge_module
     from anthropocene_rl.autonomous_v7 import checkpoint
+    from anthropocene_rl.autonomous_v7 import model as model_module
 
     monkeypatch.setenv("ANTHROPOCENE_REGION_HEAD", "hierarchical")
+    # run_manifest records the bridge binary's hash; a placeholder file stands in for
+    # the built DLL (absent on CI), so the real hashing path still runs.
+    (tmp_path / "bridge.dll").write_bytes(b"placeholder bridge binary")
+    monkeypatch.setenv("ANTHROPOCENE_MODEL9_BRIDGE", str(tmp_path / "bridge.dll"))
     held, inputs = promotion_inputs(tmp_path)
     promoted = promotion.promote(inputs, held)
     promoted.update(core_width=188, privileged_width=0)
@@ -465,6 +470,8 @@ def test_actual_ppo_entrypoint_resumes_effective_promoted_warmup_without_repeati
         monkeypatch.setattr(ppo, name, Net)
     monkeypatch.setattr(ppo, "VectorCritic", Vector)
     monkeypatch.setattr(ppo.Normalizer, "from_state", lambda state: None)
+    # ppo.main loads the normalizer through the strict checkpoint boundary; stub it too.
+    monkeypatch.setattr(model_module, "load_checkpoint_normalizer", lambda state, **kw: None)
     monkeypatch.setattr(checkpoint, "restore_actor", lambda actor, state, *a, **kw: ([], []))
 
     class Probe:

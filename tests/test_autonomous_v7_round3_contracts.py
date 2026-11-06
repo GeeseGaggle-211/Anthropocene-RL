@@ -115,6 +115,10 @@ def test_frozen_run_probes_live_binary_once_without_actor_rng_or_rollout_state(
 
     monkeypatch.delenv("ANTHROPOCENE_SIM_COMMIT", raising=False)
     monkeypatch.setattr(prov, "code_commit", lambda: "a" * 40)
+    # run_manifest records the bridge binary's hash; a placeholder file stands in for
+    # the built DLL (absent on CI), so the real hashing path still runs.
+    (tmp_path / "bridge.dll").write_bytes(b"placeholder bridge binary")
+    monkeypatch.setenv("ANTHROPOCENE_MODEL9_BRIDGE", str(tmp_path / "bridge.dll"))
     schema = types.SimpleNamespace(
         build_hash="build-one", simulator_commit="b" * 40, simulator_source_clean=True
     )

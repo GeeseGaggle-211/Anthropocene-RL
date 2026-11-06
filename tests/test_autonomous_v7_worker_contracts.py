@@ -293,7 +293,9 @@ def test_collection_proof_rejected_before_flatten_or_optimization(worker, monkey
         "flatten",
         lambda *a: pytest.fail("untrusted collection must not reach optimizer input"),
     )
-    hyper = types.SimpleNamespace(personality="default", log_std_floor=-2)
+    hyper = types.SimpleNamespace(
+        personality="default", log_std_floor=-2, learner_contract="legacy"
+    )
     with pytest.raises(prov.ProvenanceError, match="before optimization"):
         ppo.iteration(
             actor,
