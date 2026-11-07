@@ -676,6 +676,21 @@ def test_control_twin_of_h12_encodes_bitwise_equal_and_has_zero_advantage() -> N
         _labor_tensors(batch=1), [h12, twin], population=population
     )
     assert all(plan.advantage[n][0] == plan.advantage[n][1] for n in la.COMPONENTS)
+    # The tie must not depend on identical rows of one batch scoring identically
+    # (Linux CPU kernels do not guarantee it): perturb outputs by row position.
+    base_forward = head.forward
+
+    def row_noisy(contexts, features, root_index):
+        out = base_forward(contexts, features, root_index)
+        bump = 1e-6 * torch.arange(len(features), dtype=torch.float32)
+        return {name: value + bump for name, value in out.items()}
+
+    head.forward = row_noisy
+    plan = la.AdvantageRanker(task, costs, head, full_fraction=0.0).plan(
+        _labor_tensors(batch=1), [h12, twin], population=population
+    )
+    assert all(plan.advantage[n][0] == plan.advantage[n][1] for n in la.COMPONENTS)
+    del head.forward
     # Reparameterized forward: H12-concentrated output gives the same specialty and
     # activity blocks, the unstaffed row exactly neutral.
     torch.manual_seed(0)
