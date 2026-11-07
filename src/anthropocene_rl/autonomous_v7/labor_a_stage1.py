@@ -811,7 +811,7 @@ def fit_stage1(
     digest_before = labor_critic_digest(task_critic, cost_critics)
     params_before = _critic_snapshot(task_critic, cost_critics)
     fit_worlds, held_worlds = la.split_worlds(
-        candidates.worlds, config.holdout_fraction, config.seed
+        candidates.worlds, config.holdout_fraction, config.split_seed
     )
     fit_set, held_set = candidates.subset(fit_worlds), candidates.subset(held_worlds)
     fit_t = targets.for_roots([r.root_id for r in fit_set.roots])
@@ -1595,6 +1595,12 @@ def argument_parser() -> argparse.ArgumentParser:
     fit.add_argument("--batch-roots", type=int, default=32)
     fit.add_argument("--lr", type=float, default=3e-4)
     fit.add_argument("--holdout-fraction", type=float, default=0.2)
+    fit.add_argument(
+        "--split-seed",
+        type=int,
+        default=0,
+        help="seed of the fit/held-out world split, shared by every fit seed",
+    )
     fit.add_argument("--support-floor", type=int, default=la.BLOCK_SUPPORT_FLOOR)
     fit.add_argument("--huber-se-multiplier", type=float, default=la.HUBER_SE_MULTIPLIER)
     fit.add_argument(
@@ -1637,6 +1643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             lr=args.lr,
             holdout_fraction=args.holdout_fraction,
             seed=seed,
+            split_seed=args.split_seed,
             target_source=LAMBDA_TARGET_SOURCE,
             support_floor=args.support_floor,
             huber_se_multiplier=args.huber_se_multiplier,
