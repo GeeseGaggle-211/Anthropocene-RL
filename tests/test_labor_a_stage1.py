@@ -540,6 +540,41 @@ def test_gate_report_schema_with_two_seeds_and_ppo_dry_run() -> None:
         s1.stage1_gate_report(heads, task, costs, data.candidates, targets, summaries)
 
 
+def test_world_split_is_independent_of_the_fit_seed() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data(worlds=tuple(range(90100, 90110)), roots=3)
+    worlds = data.candidates.worlds
+    # The fixture is only a regression witness if the seed-keyed splits differ.
+    assert la.split_worlds(worlds, 0.2, 0) != la.split_worlds(worlds, 0.2, 1)
+    heads, summaries = [], []
+    for seed in (0, 1):
+        config = _config(epochs=2, seed=seed)
+        assert config.split_seed == 0
+        head, summary = la.fit_advantage_head(
+            task, costs, data.candidates, config, targets=targets, stability=None
+        )
+        heads.append(head)
+        summaries.append(summary)
+    assert summaries[0]["heldout_worlds"] == summaries[1]["heldout_worlds"]
+    assert summaries[0]["fit_worlds"] == summaries[1]["fit_worlds"]
+    assert summaries[0]["heldout_worlds"] == la.split_worlds(worlds, 0.2, 0)[1]
+    # The default evaluation set (the held-out fit worlds) no longer overlaps any fit.
+    held = data.candidates.subset(summaries[0]["heldout_worlds"])
+    report = s1.stage1_gate_report(heads, task, costs, held, targets, summaries)
+    assert report["gates"]["seed_agreement"]["seeds"] == 2
+    # An explicit split seed selects a different, still shared, split.
+    other = _config(epochs=1, seed=1, split_seed=1)
+    _, other_summary = la.fit_advantage_head(
+        task, costs, data.candidates, other, targets=targets, stability=None
+    )
+    assert other_summary["heldout_worlds"] == la.split_worlds(worlds, 0.2, 1)[1]
+    assert other.state_dict()["split_seed"] == 1
+    # Stage-1 payloads written before the field split by the fit seed.
+    legacy = {k: v for k, v in _config(seed=3).state_dict().items() if k != "split_seed"}
+    assert la.AdvantageFitConfig.from_state(legacy).split_seed == 3
+    assert la.AdvantageFitConfig.from_state(_config(seed=3).state_dict()).split_seed == 0
+
+
 def test_command_line_fits_seeds_and_writes_the_gate_report(tmp_path) -> None:
     from test_labor_qol_head import _normalizer
 
@@ -621,6 +656,64 @@ def test_command_line_fits_seeds_and_writes_the_gate_report(tmp_path) -> None:
                 "0",
             ]
         )
+
+
+def test_command_line_default_eval_uses_the_common_heldout_worlds(tmp_path) -> None:
+    from test_labor_qol_head import _normalizer
+
+    from anthropocene_rl.autonomous_v7.labor_model import (
+        LaborCostCritics,
+        LaborEncoderLayout,
+        LaborQoLHead,
+        LaborTaskCritic,
+        labor_checkpoint_payload,
+    )
+
+    layout = LaborEncoderLayout(*_layout(False).state_dict().values())
+    torch.manual_seed(0)
+    checkpoint = labor_checkpoint_payload(
+        LaborActor(layout),
+        LaborTaskCritic(layout, qol_head=LaborQoLHead()),
+        LaborCostCritics(layout),
+        _normalizer(),
+        layout,
+    )
+    torch.save(checkpoint, tmp_path / "critic.pt")
+    fit_dir = tmp_path / "fit"
+    fit_dir.mkdir()
+    torch.save(
+        s1.synthetic_stage1_shard(worlds=tuple(range(90100, 90110)), roots_per_world=3),
+        fit_dir / "a.pt",
+    )
+    base = [
+        "fit",
+        "--checkpoint",
+        str(tmp_path / "critic.pt"),
+        "--payloads",
+        str(fit_dir),
+        "--out",
+        str(tmp_path / "a1.pt"),
+        "--report",
+        str(tmp_path / "gates.json"),
+        "--epochs",
+        "2",
+        "--seeds",
+        "0,1",
+        "--support-floor",
+        "1",
+    ]
+    # No --eval-payloads: the gate evaluates on the held-out fit worlds, which both
+    # seeds must have held out (this used to raise "overlap the advantage fit worlds").
+    assert s1.main(base) in (0, 1)
+    report = json.loads((tmp_path / "gates.json").read_text())
+    worlds = list(range(90100, 90110))
+    assert report["worlds"] == la.split_worlds(worlds, 0.2, 0)[1]
+    for name in ("a1.pt", "a1.seed1.pt"):
+        state = torch.load(tmp_path / name, map_location="cpu", weights_only=True)
+        assert state["config"]["split_seed"] == 0
+    assert s1.main([*base, "--split-seed", "1"]) in (0, 1)
+    report = json.loads((tmp_path / "gates.json").read_text())
+    assert report["worlds"] == la.split_worlds(worlds, 0.2, 1)[1]
 
 
 # --- review round 2: unstaffed roles, signal rules, provisional constants -----------------

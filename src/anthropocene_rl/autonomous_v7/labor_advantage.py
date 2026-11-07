@@ -1658,6 +1658,11 @@ class AdvantageFitConfig:
     huber_se_multiplier: float = HUBER_SE_MULTIPLIER
     masked_blocks: tuple[str, ...] = STAGE1_MASKED_BLOCKS
     support_floor: int = BLOCK_SUPPORT_FLOOR
+    # Seed of the fit/held-out world split of the stage-1 source, independent of the
+    # fit ``seed`` so every fit seed trains and is evaluated on the same worlds (seed
+    # agreement and the gate's default held-out set need one common split). The pair
+    # source still splits by ``seed`` and ignores this field.
+    split_seed: int = 0
 
     def __post_init__(self) -> None:
         if set(self.horizons) != set(COMPONENTS):
@@ -1680,6 +1685,7 @@ class AdvantageFitConfig:
                 huber_se_multiplier=self.huber_se_multiplier,
                 masked_blocks=list(self.masked_blocks),
                 support_floor=self.support_floor,
+                split_seed=self.split_seed,
             )
         return state
 
@@ -1711,6 +1717,9 @@ class AdvantageFitConfig:
         }
         if "masked_blocks" in data:
             data["masked_blocks"] = tuple(str(b) for b in data["masked_blocks"])
+        if data.get("target_source", PAIR_TARGET_SOURCE) != PAIR_TARGET_SOURCE:
+            # Stage-1 payloads written before ``split_seed`` split by the fit seed.
+            data.setdefault("split_seed", data.get("seed", 0))
         return cls(**data)
 
     @staticmethod
