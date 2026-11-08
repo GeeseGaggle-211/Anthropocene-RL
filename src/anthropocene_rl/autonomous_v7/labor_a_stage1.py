@@ -101,12 +101,21 @@ legacy pair fit (``fit_advantage_head`` with the pair source) and
 ``labor_advantage_eval`` see: numbers from those tools before this change are not
 directly comparable with numbers after it.
 
-Gates (:func:`stage1_gate_report`): thresholds are the approved values below; see the
-report's ``definitions``. Per-objective gates may be ``NO_SIGNAL`` (excluded from the
-verdict) only for the cost heads; for qol_years and population_years no signal FAILS.
-The provisional constants (support floor 30 rows, variance floor 0.25 x pooled, SE
-floor 1e-3 head units, Huber c = 1.345) are written into every report under
-``provisional_constants``.
+Early stopping (:func:`fit_stage1`). The outer fit worlds are split again (fraction
+``inner_fraction``, key ``labor_advantage.INNER_SPLIT_TAG`` with ``split_seed``) into
+training worlds and an inner validation set disjoint from the outer held-out and gate
+worlds; the epoch with the best inner informative-pair ordering is restored.
+
+Gates (:func:`stage1_gate_report`, schema v2, Amendment A of 8 Nov 2026). Stage-1 A is
+only a warm start for stage 2. ``status`` is PASS iff the blocking gates pass (V
+non-regression and harness stability); ``warm_start`` decides per objective head whether
+stage 2 loads it or starts it at exactly zero (``WARM_START_*`` thresholds). The original
+spec-table gates are reported under ``diagnostics`` with their approved thresholds below;
+there per-objective gates may be ``NO_SIGNAL`` only for the cost heads (for qol_years and
+population_years no signal FAILS). ``diagnostics.a_vs_v_one_step`` compares A with V's
+own one-step advantage on survivors. The provisional constants (support floor 30 rows,
+variance floor 0.25 x pooled, SE floor 1e-3 head units, Huber c = 1.345) are written
+into every report under ``provisional_constants``.
 """
 
 from __future__ import annotations
@@ -140,14 +149,25 @@ from .labor_advantage import (
 from .labor_sa_advantage import SuccessorData, SuccStream, parse_successors, successor_target
 
 TARGET_SCHEMA = "labor-a-stage1-targets-v1"
-GATE_SCHEMA = "labor-a-stage1-gates-v1"
+GATE_SCHEMA = "labor-a-stage1-gates-v2"
 LAMBDA = 0.95
 ONE_STEP_WEIGHT = 1.0 - LAMBDA  # 0.05
 K_STEP_WEIGHT = LAMBDA  # 0.95
 DISCOUNT_YEARS = 400.0
 ONE_STEP, FOLDED = "one-step", "folded"
 
-# Approved gate thresholds (spec table).
+# Amendment A (8 Nov 2026): stage-1 A is only a warm start for stage 2. These safety
+# thresholds decide, per objective head on the gate evaluation worlds, whether stage 2
+# loads that head or starts it at exactly zero.
+WARM_START_SIGNAL = 0.10  # share of eval candidates with |y| > 2 SE ('all', every row)
+WARM_START_SIGNAL_SE = 2.0
+WARM_START_ORDERING = 0.55  # ordering:<head> (informative pairs, controls excluded, 'all')
+WARM_START_SLOPE_RANGE = (0.25, 2.0)  # calibration:<head> world-balanced slope on 'all'
+WARM_START_SEED = 0  # the warm-start checkpoint is the head fitted with this seed
+INNER_SELECTION_FALLBACK = ("qol_years", "population_years")
+WARM_START_SCHEMA = "labor-a-stage1-warm-start-v1"
+
+# Approved gate thresholds (spec table); diagnostic only since Amendment A.
 CALIBRATION_SLOPE_RANGE = (0.8, 1.2)
 CALIBRATION_BIAS_FRACTION = 0.25  # |bias| < 0.25 x realised within-root spread
 ORDERING_SIGN_ACCURACY = 0.65  # informative pairs, controls excluded
@@ -787,6 +807,55 @@ def _same(a: Mapping[str, torch.Tensor], b: Mapping[str, torch.Tensor]) -> bool:
     )
 
 
+def signal_share(targets: StageOneTargets, j: int) -> float | None:
+    """Share of target rows (every candidate, controls included, both survival classes)
+    with ``|y_j| > WARM_START_SIGNAL_SE x se_j``; None without rows."""
+    if not len(targets):
+        return None
+    y, se = targets.y[:, j], targets.se[:, j]
+    return float(np.mean(np.abs(y) > WARM_START_SIGNAL_SE * se))
+
+
+def inner_selection_heads(targets: StageOneTargets) -> tuple[list[str], dict[str, float | None]]:
+    """Heads whose early-stopping ordering counts: train-world signal share at least
+    ``WARM_START_SIGNAL``; qol_years and population_years when none qualifies."""
+    shares = {name: signal_share(targets, j) for j, name in enumerate(COMPONENTS)}
+    chosen = [n for n in COMPONENTS if shares[n] is not None and shares[n] >= WARM_START_SIGNAL]
+    return (chosen or list(INNER_SELECTION_FALLBACK)), shares
+
+
+def _pair_metrics_for(
+    head: LaborAdvantageHead,
+    contexts: Mapping[str, torch.Tensor] | None,
+    roots: Sequence[Root],
+    targets: StageOneTargets,
+    names: Sequence[str],
+) -> dict[str, dict[str, Any] | None]:
+    """``pair_metrics`` (informative pairs, controls excluded) per named objective."""
+    if not roots or not len(targets) or contexts is None:
+        return {name: None for name in names}
+    rows = evaluation_rows(roots, targets, anchored_predictions(head, contexts, roots))
+    return {name: pair_metrics(rows, COMPONENTS.index(name)) for name in names}
+
+
+def weighted_ordering(
+    metrics: Mapping[str, Mapping[str, Any] | None], names: Sequence[str]
+) -> float | None:
+    """Pair-count-weighted mean of the named objectives' ordering accuracies."""
+    num, den = 0.0, 0
+    for name in names:
+        m = metrics.get(name)
+        if m is None or m["accuracy"] is None or not m["pairs"]:
+            continue
+        num += float(m["accuracy"]) * int(m["pairs"])
+        den += int(m["pairs"])
+    return None if den == 0 else num / den
+
+
+def _accuracy(metrics: Mapping[str, Any] | None) -> float | None:
+    return None if metrics is None else metrics["accuracy"]
+
+
 def fit_stage1(
     task_critic: nn.Module,
     cost_critics: nn.Module,
@@ -796,8 +865,20 @@ def fit_stage1(
     *,
     stability: Any = "auto",
     frozen_actor: nn.Module | None = None,
+    eval_worlds: Sequence[int] | None = None,
 ) -> tuple[LaborAdvantageHead, dict[str, Any]]:
-    """Fit A on stage-1 targets of fitting worlds (anchored Huber, V frozen)."""
+    """Fit A on stage-1 targets of training worlds (anchored Huber, V frozen).
+
+    Worlds are split three ways: the outer held-out worlds (``holdout_fraction``,
+    ``split_seed``; reported, and the default gate evaluation set), an inner validation
+    set carved from the outer fit worlds (``inner_fraction``, ``split_seed`` keyed by
+    ``labor_advantage.INNER_SPLIT_TAG``) and the training worlds (the rest). Early
+    stopping selects the epoch with the best inner-validation ordering (pair-count-
+    weighted informative-pair accuracy over the heads with train-world signal; ties to
+    the earlier epoch) and restores that state. ``inner_fraction = 0`` trains every
+    epoch and keeps the last. ``eval_worlds`` (the gate evaluation worlds, when they
+    are not the outer held-out set) must be disjoint from every fit world.
+    """
     from .labor_device import module_device
     from .labor_stability import StabilityMonitor, resolve_stability
     from .labor_value_calibration import labor_critic_digest
@@ -813,18 +894,48 @@ def fit_stage1(
     fit_worlds, held_worlds = la.split_worlds(
         candidates.worlds, config.holdout_fraction, config.split_seed
     )
+    train_worlds, inner_worlds = la.split_worlds(
+        fit_worlds, config.inner_fraction, config.split_seed, tag=la.INNER_SPLIT_TAG
+    )
+    evaluation = held_worlds if eval_worlds is None else sorted({int(w) for w in eval_worlds})
+    if set(evaluation) & set(fit_worlds):
+        raise ValueError("evaluation worlds overlap the advantage fit worlds")
+    if (
+        set(inner_worlds) & set(held_worlds)
+        or set(inner_worlds) & set(evaluation)
+        or set(inner_worlds) & set(train_worlds)
+        or sorted(set(train_worlds) | set(inner_worlds)) != fit_worlds
+    ):
+        raise AssertionError("inner validation worlds must be disjoint from train/held/eval")
+    for label, worlds in (
+        ("fit", fit_worlds),
+        ("held", held_worlds),
+        ("train", train_worlds),
+        ("inner", inner_worlds),
+    ):
+        if list(worlds) != sorted(worlds):
+            raise AssertionError(f"{label} worlds must be sorted")
     fit_set, held_set = candidates.subset(fit_worlds), candidates.subset(held_worlds)
-    fit_t = targets.for_roots([r.root_id for r in fit_set.roots])
+    train_set, inner_set = candidates.subset(train_worlds), candidates.subset(inner_worlds)
+    train_t = targets.for_roots([r.root_id for r in train_set.roots])
+    inner_t = targets.for_roots([r.root_id for r in inner_set.roots])
     held_t = targets.for_roots([r.root_id for r in held_set.roots])
-    tensors, privileged = fit_set.root_tensors()
-    v_before = la.state_values(task_critic, cost_critics, tensors, privileged)
+    fit_tensors, fit_privileged = fit_set.root_tensors()
+    v_before = la.state_values(task_critic, cost_critics, fit_tensors, fit_privileged)
+    tensors, privileged = train_set.root_tensors()
     contexts = la.critic_contexts(task_critic, cost_critics, tensors, privileged)
     h_contexts = None
     if held_set.roots:
         h_tensors, h_priv = held_set.root_tensors()
         h_contexts = la.critic_contexts(task_critic, cost_critics, h_tensors, h_priv)
-    support = block_support(fit_set.roots, fit_t)
+    i_contexts = None
+    if inner_set.roots:
+        i_tensors, i_priv = inner_set.root_tensors()
+        i_contexts = la.critic_contexts(task_critic, cost_critics, i_tensors, i_priv)
+    support = block_support(train_set.roots, train_t)
     masked, low_support = masked_blocks_for(support, config)
+    selection, train_signal = inner_selection_heads(train_t)
+    early_stopping = bool(inner_set.roots)
 
     torch.manual_seed(config.seed)
     head = LaborAdvantageHead.for_critics(
@@ -832,26 +943,29 @@ def fit_stage1(
     )
     head.set_masked_blocks(masked)
     head.to(device)
-    flat = la._flatten(fit_set.roots)
+    flat = la._flatten(train_set.roots)
     features = flat.features.to(device)
     root_index = flat.root_index.to(device)
-    position = {r.root_id: i for i, r in enumerate(fit_set.roots)}
+    position = {r.root_id: i for i, r in enumerate(train_set.roots)}
     by_root: dict[int, list[int]] = defaultdict(list)
-    for row, root_id in enumerate(fit_t.root_id.tolist()):
+    for row, root_id in enumerate(train_t.root_id.tolist()):
         by_root[position[root_id]].append(row)
     row_i = np.asarray(
         [
             flat.offsets[position[r]] + int(c)
-            for r, c in zip(fit_t.root_id, fit_t.candidate, strict=True)
+            for r, c in zip(train_t.root_id, train_t.candidate, strict=True)
         ],
         dtype=np.int64,
     )
     row_h = np.asarray(
-        [flat.offsets[position[r]] + int(h) for r, h in zip(fit_t.root_id, fit_t.h12, strict=True)],
+        [
+            flat.offsets[position[r]] + int(h)
+            for r, h in zip(train_t.root_id, train_t.h12, strict=True)
+        ],
         dtype=np.int64,
     )
-    y_all = torch.as_tensor(fit_t.y, dtype=torch.float32)
-    se_all = torch.as_tensor(fit_t.se, dtype=torch.float32)
+    y_all = torch.as_tensor(train_t.y, dtype=torch.float32)
+    se_all = torch.as_tensor(train_t.se, dtype=torch.float32)
     trainable = sorted(by_root)
     optimizer = torch.optim.AdamW(head.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     rng = np.random.default_rng([la.SHUFFLE_TAG, int(config.seed)])
@@ -876,7 +990,27 @@ def fit_stage1(
             },
             applicable={"advantage_overfit": True},
         )
+    # The monitor's per-epoch ranking compares train with the inner validation set (its
+    # overfit alarm is report-only); with no inner set (inner_fraction = 0) it keeps the
+    # historical outer held-out set.
+    if early_stopping:
+        monitor_label, monitor_roots, monitor_ctx, monitor_t = (
+            "inner",
+            inner_set.roots,
+            i_contexts,
+            inner_t,
+        )
+    else:
+        monitor_label, monitor_roots, monitor_ctx, monitor_t = (
+            "heldout",
+            held_set.roots,
+            h_contexts,
+            held_t,
+        )
+    curve_names = list(dict.fromkeys([*selection, *SIGNAL_REQUIRED]))
     history: list[float] = []
+    curve: list[dict[str, Any]] = []
+    best: tuple[int, float, dict[str, torch.Tensor]] | None = None
     for epoch_number in range(config.epochs if trainable else 0):
         order = [trainable[i] for i in rng.permutation(len(trainable))]
         total = 0.0
@@ -886,7 +1020,7 @@ def fit_stage1(
             members = torch.cat(
                 [
                     torch.arange(
-                        flat.offsets[r], flat.offsets[r] + len(fit_set.roots[r].candidates)
+                        flat.offsets[r], flat.offsets[r] + len(train_set.roots[r].candidates)
                     )
                     for r in batch
                 ]
@@ -923,32 +1057,54 @@ def fit_stage1(
                 continue
             total += float(loss.detach()) * len(batch)
         history.append(total / max(1, len(order)))
-        if monitor is not None:
-            acc = {
-                label: {
-                    name: sign_accuracy(head, ctx, roots, t, name)
-                    for name in ("qol_years", "population_years")
-                }
-                for label, roots, ctx, t in (
-                    ("train", fit_set.roots, contexts, fit_t),
-                    ("heldout", held_set.roots, h_contexts, held_t),
+        if monitor is None and not early_stopping:
+            continue
+        train_m = _pair_metrics_for(head, contexts, train_set.roots, train_t, curve_names)
+        other_m = _pair_metrics_for(head, monitor_ctx, monitor_roots, monitor_t, curve_names)
+        record: dict[str, Any] = {
+            "epoch": epoch_number,
+            "loss": history[-1],
+            "train": weighted_ordering(train_m, selection),
+            "train_per_head": {n: _accuracy(train_m[n]) for n in curve_names},
+        }
+        if early_stopping:
+            record["inner"] = weighted_ordering(other_m, selection)
+            record["inner_per_head"] = {n: _accuracy(other_m[n]) for n in curve_names}
+            metric = record["inner"]
+            if metric is not None and (best is None or metric > best[1]):
+                best = (
+                    epoch_number,
+                    float(metric),
+                    {k: v.detach().clone() for k, v in head.state_dict().items()},
                 )
-            }
+        curve.append(record)
+        if monitor is not None:
             monitor.epoch_ranking(
                 epoch_number,
-                acc["train"]["qol_years"],
-                acc["heldout"]["qol_years"],
-                population_years={k: acc[k]["population_years"] for k in acc},
+                _accuracy(train_m["qol_years"]),
+                _accuracy(other_m["qol_years"]),
+                population_years={
+                    "train": _accuracy(train_m["population_years"]),
+                    monitor_label: _accuracy(other_m["population_years"]),
+                },
                 loss=history[-1],
             )
-    v_after = la.state_values(task_critic, cost_critics, tensors, privileged)
+    last_epoch = len(history) - 1 if history else None
+    if early_stopping and best is not None:
+        head.load_state_dict(best[2])
+        selected_epoch, selection_rule = best[0], "best-inner-ordering-earliest-tie"
+    elif early_stopping:
+        selected_epoch, selection_rule = last_epoch, "no-inner-signal-kept-last"
+    else:
+        selected_epoch, selection_rule = last_epoch, "disabled-kept-last"
+    v_after = la.state_values(task_critic, cost_critics, fit_tensors, fit_privileged)
     params_after = _critic_snapshot(task_critic, cost_critics)
     digest_after = labor_critic_digest(task_critic, cost_critics)
     v_guard = {
         "digest_identical": digest_after == digest_before,
         "parameters_identical": _same(params_before, params_after),
         "outputs_identical": all(torch.equal(v_before[n], v_after[n]) for n in COMPONENTS),
-        "rows_checked": int(tensors["core"].shape[0]),
+        "rows_checked": int(fit_tensors["core"].shape[0]),
     }
     v_guard["identical"] = all(
         v_guard[k] for k in ("digest_identical", "parameters_identical", "outputs_identical")
@@ -959,16 +1115,24 @@ def fit_stage1(
         "target_source": LAMBDA_TARGET_SOURCE,
         "loss": "anchored-huber-inverse-noise-variance",
         "huber_se_multiplier": config.huber_se_multiplier,
+        "seed": int(config.seed),
+        "split_seed": int(config.split_seed),
+        "inner_fraction": float(config.inner_fraction),
         "fit_worlds": fit_worlds,
+        "train_worlds": train_worlds,
+        "inner_worlds": inner_worlds,
         "heldout_worlds": held_worlds,
         "fit_roots": len(fit_set.roots),
+        "train_roots": len(train_set.roots),
+        "inner_roots": len(inner_set.roots),
         "heldout_roots": len(held_set.roots),
         "trainable_roots": len(trainable),
-        "fit_rows": len(fit_t),
+        "fit_rows": len(train_t),
         "fit_rows_by_survival": {
-            "survivors": int(fit_t.survivor.sum()),
-            "non_survivors": int((~fit_t.survivor).sum()),
+            "survivors": int(train_t.survivor.sum()),
+            "non_survivors": int((~train_t.survivor).sum()),
         },
+        "inner_rows": len(inner_t),
         "heldout_rows": len(held_t),
         "targets": targets.summary(),
         "block_support": support,
@@ -976,6 +1140,20 @@ def fit_stage1(
         "masked_blocks": masked,
         "masked_for_low_support": low_support,
         "loss_history": history,
+        "early_stopping": {
+            "enabled": early_stopping,
+            "rule": selection_rule,
+            "selection_metric": "pair-count-weighted informative-pair ordering accuracy "
+            "(controls excluded) over selection_heads on the inner validation worlds",
+            "selection_heads": selection,
+            "train_signal_share": train_signal,
+            "signal_threshold": WARM_START_SIGNAL,
+            "best_epoch": selected_epoch,
+            "best_inner_ordering": None if best is None else best[1],
+            "epochs_trained": len(history),
+            "monitor_ranking_set": monitor_label,
+            "curve": curve,
+        },
         "critic_digest": digest_before,
         "v_guard": v_guard,
         "parameters": la.parameter_counts(head),
@@ -1033,12 +1211,19 @@ def seed_agreement(
     heads: Sequence[LaborAdvantageHead],
     contexts: Mapping[str, torch.Tensor],
     roots: Sequence[Root],
+    *,
+    predictions: Sequence[Mapping[str, list[np.ndarray]]] | None = None,
 ) -> dict[str, Any]:
     """Mean within-root Spearman correlation of anchored A between every pair of seeds
-    (roots with >= 3 candidates and non-constant predictions); the minimum over pairs."""
+    (roots with >= 3 candidates and non-constant predictions); the minimum over pairs.
+    ``predictions`` (one :func:`anchored_predictions` per head) skips the forward."""
     from .labor_sa_advantage import _corr, _rank
 
-    preds = [anchored_predictions(h, contexts, roots) for h in heads]
+    preds = (
+        [anchored_predictions(h, contexts, roots) for h in heads]
+        if predictions is None
+        else list(predictions)
+    )
     out: dict[str, Any] = {}
     for name in COMPONENTS:
         pairs = {}
@@ -1209,6 +1394,200 @@ def provisional_constants() -> dict[str, Any]:
     }
 
 
+def warm_start_thresholds() -> dict[str, Any]:
+    """Amendment A safety thresholds (judged on the gate evaluation worlds)."""
+    return {
+        "signal_share": WARM_START_SIGNAL,
+        "signal_se": WARM_START_SIGNAL_SE,
+        "ordering": WARM_START_ORDERING,
+        "slope_range": list(WARM_START_SLOPE_RANGE),
+    }
+
+
+def _missing(value: Any) -> bool:
+    return value is None or not math.isfinite(float(value))
+
+
+def warm_start_decision(
+    signal: float | None, ordering: float | None, slope: float | None
+) -> tuple[str, list[str]]:
+    """``load`` when signal >= WARM_START_SIGNAL, ordering >= WARM_START_ORDERING and
+    the slope lies in WARM_START_SLOPE_RANGE (inclusive); otherwise ``zero`` with the
+    reasons. A missing or NaN value sends the head to ``zero``."""
+    reasons: list[str] = []
+    if _missing(signal):
+        reasons.append("signal share missing")
+    elif signal < WARM_START_SIGNAL:
+        reasons.append(f"signal share {signal:.4f} < {WARM_START_SIGNAL}")
+    if _missing(ordering):
+        reasons.append("ordering missing (no informative pairs)")
+    elif ordering < WARM_START_ORDERING:
+        reasons.append(f"ordering {ordering:.4f} < {WARM_START_ORDERING}")
+    lo, hi = WARM_START_SLOPE_RANGE
+    if _missing(slope):
+        reasons.append("calibration slope missing")
+    elif not lo <= slope <= hi:
+        reasons.append(f"calibration slope {slope:.4f} outside [{lo}, {hi}]")
+    return ("zero" if reasons else "load"), reasons
+
+
+def warm_start_section(
+    metrics: Mapping[str, Mapping[str, float | None]],
+    *,
+    blocking_failed: Sequence[str] = (),
+    unavailable: str | None = None,
+) -> dict[str, Any]:
+    """Per-head warm-start decisions. ``metrics[name]`` holds ``signal``, ``ordering``
+    and ``slope``. A failed blocking gate (or ``unavailable``: no seed-0 head) makes
+    every head ``none`` and the status ``none``; otherwise the status is ``full`` (every
+    head loads), ``all_zero`` (none loads) or ``partial``."""
+    heads: dict[str, Any] = {}
+    for name in COMPONENTS:
+        m = metrics.get(name, {})
+        values = {k: m.get(k) for k in ("signal", "ordering", "slope")}
+        if blocking_failed:
+            decision, reasons = "none", [f"blocking gate failed: {g}" for g in blocking_failed]
+        elif unavailable is not None:
+            decision, reasons = "none", [unavailable]
+        else:
+            decision, reasons = warm_start_decision(**values)
+        heads[name] = {"decision": decision, **values, "reasons": reasons}
+    decisions = [h["decision"] for h in heads.values()]
+    if "none" in decisions:
+        status = "none"
+    elif all(d == "load" for d in decisions):
+        status = "full"
+    elif all(d == "zero" for d in decisions):
+        status = "all_zero"
+    else:
+        status = "partial"
+    return {
+        "status": status,
+        "seed": WARM_START_SEED,
+        "heads": heads,
+        "thresholds": warm_start_thresholds(),
+    }
+
+
+def zero_heads(head: LaborAdvantageHead, names: Sequence[str]) -> LaborAdvantageHead:
+    """A copy of ``head`` whose named objectives' OUTPUT layer (``heads[name][2]``, the
+    final ``Linear(hidden, 1)``) has weight and bias exactly 0: that head's raw output is
+    the constant 0, so its anchored A is exactly 0 for every action. Every other
+    parameter is copied bit for bit."""
+    out = copy.deepcopy(head)
+    unknown = [n for n in names if n not in COMPONENTS]
+    if unknown:
+        raise ValueError(f"unknown objective heads {unknown}")
+    with torch.no_grad():
+        for name in names:
+            layer = out.heads[name][2]
+            if not isinstance(layer, nn.Linear) or layer.out_features != 1:
+                raise AssertionError(f"{name}: unexpected advantage output layer {layer}")
+            layer.weight.zero_()
+            layer.bias.zero_()
+    return out
+
+
+def warm_start_payload(
+    head: LaborAdvantageHead,
+    report: Mapping[str, Any],
+    *,
+    critic_digest: str,
+    config: AdvantageFitConfig,
+    fit: Mapping[str, Any],
+    task_context: str | None = None,
+) -> dict[str, Any] | None:
+    """The stage-2 warm-start checkpoint (``labor_advantage.advantage_checkpoint_payload``
+    of the seed-0 head with every ``zero`` head's output layer zeroed, plus a
+    ``warm_start`` metadata block). None when the report's warm-start status is
+    ``none``. Loads with ``labor_advantage.load_advantage_head``."""
+    section = report["warm_start"]
+    if section["status"] == "none":
+        return None
+    zeroed = [n for n in COMPONENTS if section["heads"][n]["decision"] == "zero"]
+    if any(section["heads"][n]["decision"] not in ("load", "zero") for n in COMPONENTS):
+        raise AssertionError("warm-start decisions must be load or zero")
+    warm = zero_heads(head, zeroed)
+    payload = la.advantage_checkpoint_payload(
+        warm, critic_digest=critic_digest, config=config, fit=fit, task_context=task_context
+    )
+    payload["warm_start"] = _json_safe(
+        {
+            "schema": WARM_START_SCHEMA,
+            "status": section["status"],
+            "seed": section["seed"],
+            "decisions": {n: section["heads"][n]["decision"] for n in COMPONENTS},
+            "heads": section["heads"],
+            "zeroed_output_layers": [f"heads.{n}.2" for n in zeroed],
+            "gate_report_schema": report["schema"],
+            "gate_status": report["status"],
+            "eval_worlds": report["worlds"],
+            "thresholds": section["thresholds"],
+        }
+    )
+    return payload
+
+
+def a_vs_v_one_step(
+    prediction: Mapping[str, list[np.ndarray]],
+    roots: Sequence[Root],
+    targets: StageOneTargets,
+    successor_data: StageOneData,
+    task_critic: nn.Module,
+    cost_critics: nn.Module,
+) -> dict[str, Any]:
+    """Diagnostic: stage-1 A versus V's own anchored one-step advantage on survivors.
+
+    ``A_V1(a) - A_V1(h12) = T1_a - T1_h12`` with ``T1 = r_0 + g_0 V(s_1)`` (V(s) cancels),
+    built by :func:`build_stage1_targets` itself with ``lam = 0`` (same streams, reward
+    and discount conventions as the stage-1 target) and V = the fit's frozen critic
+    (``task_critic``/``cost_critics``). Both predictors are scored on the same survivor
+    rows (those where A_V1 exists) and therefore the same informative pairs. Report only.
+    """
+    v1 = build_stage1_targets(
+        successor_data, critic_values(task_critic, cost_critics), lam=0.0
+    ).for_roots([r.root_id for r in roots])
+    one_step = {
+        (str(r), int(c)): v1.y[i]
+        for i, (r, c) in enumerate(zip(v1.root_id, v1.candidate, strict=True))
+    }
+    keys = list(zip(targets.root_id.tolist(), targets.candidate.tolist(), strict=True))
+    available = np.asarray([(str(r), int(c)) in one_step for r, c in keys], dtype=bool)
+    survivors = targets.select(targets.survivor & available)
+    position = {r.root_id: i for i, r in enumerate(roots)}
+    av1: dict[str, list[np.ndarray]] = {
+        n: [np.full(len(r.candidates), np.nan) for r in roots] for n in COMPONENTS
+    }
+    for n in COMPONENTS:
+        for r, root in enumerate(roots):
+            av1[n][r][root.h12] = 0.0
+    for r_id, c in zip(survivors.root_id.tolist(), survivors.candidate.tolist(), strict=True):
+        y1 = one_step[(str(r_id), int(c))]
+        for j, n in enumerate(COMPONENTS):
+            av1[n][position[str(r_id)]][int(c)] = y1[j]
+    rows_a = evaluation_rows(roots, survivors, prediction)
+    rows_v = evaluation_rows(roots, survivors, av1)
+    heads: dict[str, Any] = {}
+    for j, name in enumerate(COMPONENTS):
+        out = {}
+        for label, rows in (("stage1_a", rows_a), ("a_v1", rows_v)):
+            order = pair_metrics(rows, j)
+            out[label] = {
+                "ordering": order["accuracy"],
+                "pairs": order["pairs"],
+                "slope": calibration_metrics(rows, j)["world_balanced"]["slope"],
+            }
+        heads[name] = out
+    return {
+        "status": "REPORT_ONLY",
+        "split": "survivors",
+        "rows": len(survivors),
+        "survivor_rows_without_one_step": int((targets.survivor & ~available).sum()),
+        "critic": "the fit's frozen critic (task_critic + cost_critics), not an ensemble",
+        "heads": heads,
+    }
+
+
 def stage1_gate_report(
     heads: Sequence[LaborAdvantageHead],
     task_critic: nn.Module,
@@ -1220,16 +1599,25 @@ def stage1_gate_report(
     actor: nn.Module | None = None,
     ppo_epochs: int = PPO_DRY_RUN_EPOCHS,
     stability_abort: Mapping[str, Any] | None = None,
+    successor_data: StageOneData | None = None,
 ) -> dict[str, Any]:
-    """Every gate of the spec table on the evaluation roots (``heads[0]`` is the primary
-    head; the others are the extra seeds). A gate with no informative data is
-    ``NO_SIGNAL`` and listed, not passed; ``status`` is PASS only when every gate that
-    has signal passes, every seed's V guard holds and the stability harness admitted."""
+    """Amendment A gate report (schema v2) on the evaluation roots.
+
+    ``heads[0]`` is the primary head (its metrics fill ``calibration``/``ordering``);
+    the others are the extra seeds. ``status`` is PASS iff the blocking gates pass: V
+    non-regression (every seed's V guard identical) and harness stability (no stability
+    abort, every evaluated prediction finite). ``warm_start`` decides per objective head
+    of the seed-0 fit whether stage 2 loads it or starts it at exactly zero. Every gate
+    of the original spec table is under ``diagnostics`` with its original PASS/FAIL
+    (``diagnostic_failed``), report only. ``successor_data`` (the evaluation worlds'
+    export-v2 data) enables ``diagnostics.a_vs_v_one_step``."""
     from .labor_bc import SEALED_WORLDS
     from .labor_privileged import RESERVED_HELDOUT_WORLDS
 
     if not heads:
         raise ValueError("the gate report needs at least one fitted head")
+    if len(heads) != len(fit_summaries):
+        raise ValueError("one fit summary per head")
     worlds = candidates.worlds
     if any(w in SEALED_WORLDS for w in worlds):
         raise ValueError("sealed worlds 3000-3059 are never evaluated here")
@@ -1241,9 +1629,8 @@ def stage1_gate_report(
     head = heads[0]
     tensors, privileged = candidates.root_tensors()
     contexts = la.critic_contexts(task_critic, cost_critics, tensors, privileged)
-    rows = evaluation_rows(
-        candidates.roots, targets, anchored_predictions(head, contexts, candidates.roots)
-    )
+    predictions = [anchored_predictions(h, contexts, candidates.roots) for h in heads]
+    rows = evaluation_rows(candidates.roots, targets, predictions[0])
     splits = _splits(rows)
     gates: dict[str, Any] = {}
     calibration: dict[str, Any] = {}
@@ -1330,7 +1717,7 @@ def stage1_gate_report(
         bool(guards) and all(g.get("identical") for g in guards), per_seed=guards
     )
     if len(heads) >= 2:
-        agreement = seed_agreement(heads, contexts, candidates.roots)
+        agreement = seed_agreement(heads, contexts, candidates.roots, predictions=predictions)
         mins = [v["min"] for v in agreement.values() if v["min"] is not None]
         gates["seed_agreement"] = _gate(
             None if not mins else min(mins) >= SEED_RANK_CORRELATION,
@@ -1372,9 +1759,87 @@ def stage1_gate_report(
             "status": "REPORT_ONLY",
         }
     gating = {k: v["status"] for k, v in gates.items() if k != "ppo_readiness"}
-    failed = sorted(k for k, s in gating.items() if s in ("FAIL", "NOT_RUN"))
+    diagnostic_failed = sorted(k for k, s in gating.items() if s in ("FAIL", "NOT_RUN"))
     no_signal = sorted(k for k, s in gating.items() if s == "NO_SIGNAL")
+
+    # --- Amendment A blocking gates -----------------------------------------------------
+    nonfinite = {
+        str(fit_summaries[i].get("seed", i)): sorted(
+            name
+            for name in COMPONENTS
+            if not all(np.all(np.isfinite(block)) for block in predictions[i][name])
+        )
+        for i in range(len(heads))
+    }
+    nonfinite = {k: v for k, v in nonfinite.items() if v}
+    harness_ok = stability_abort is None and not nonfinite
+    blocking = {
+        "v_non_regression": {
+            "status": gates["v_non_regression"]["status"],
+            "per_seed": guards,
+        },
+        "harness_stability": {
+            "status": "PASS" if harness_ok else "FAIL",
+            "stability_abort": stability_abort,
+            "predictions_finite": not nonfinite,
+            "nonfinite_heads_by_seed": nonfinite,
+            # Reported, never blocking (Amendment A).
+            "report_only": stability,
+        },
+    }
+    blocking_failed = sorted(k for k, v in blocking.items() if v["status"] != "PASS")
+
+    # --- warm start (the seed-0 head) ---------------------------------------------------
+    seeds = [s.get("seed") for s in fit_summaries]
+    ws_index = next((i for i, s in enumerate(seeds) if s == WARM_START_SEED), None)
+    ws_metrics: dict[str, dict[str, float | None]] = {}
+    if ws_index is not None:
+        ws_rows = (
+            rows
+            if ws_index == 0
+            else evaluation_rows(candidates.roots, targets, predictions[ws_index])
+        )
+        for j, name in enumerate(COMPONENTS):
+            if ws_index == 0:
+                order_value = ordering[name]["all"]["no_controls"]["accuracy"]
+                slope = calibration[name]["all"]["world_balanced"]["slope"]
+            else:
+                order_value = pair_metrics(ws_rows, j)["accuracy"]
+                slope = calibration_metrics(ws_rows, j)["world_balanced"]["slope"]
+            ws_metrics[name] = {
+                "signal": signal_share(targets, j),
+                "ordering": order_value,
+                "slope": slope,
+            }
+    else:
+        ws_metrics = {
+            name: {"signal": signal_share(targets, j), "ordering": None, "slope": None}
+            for j, name in enumerate(COMPONENTS)
+        }
+    warm_start = warm_start_section(
+        ws_metrics,
+        blocking_failed=blocking_failed,
+        unavailable=None if ws_index is not None else f"seed {WARM_START_SEED} was not fitted",
+    )
+
+    # --- A versus V's one-step advantage (report only) ----------------------------------
+    if successor_data is None:
+        a_vs_v = {"status": "NOT_RUN", "reason": "no evaluation successor data given"}
+    else:
+        # The warm-start (seed-0) head when fitted, else the primary head.
+        a_index = 0 if ws_index is None else ws_index
+        a_vs_v = a_vs_v_one_step(
+            predictions[a_index],
+            candidates.roots,
+            targets,
+            successor_data,
+            task_critic,
+            cost_critics,
+        )
+        a_vs_v["head_seed"] = fit_summaries[a_index].get("seed")
+
     reserved = set(RESERVED_HELDOUT_WORLDS)
+    status = "PASS" if not blocking_failed else "FAIL"
     return _json_safe(
         {
             "schema": GATE_SCHEMA,
@@ -1383,16 +1848,34 @@ def stage1_gate_report(
             "roots": len(candidates.roots),
             "targets": targets.summary(),
             "provisional_constants": provisional_constants(),
-            "thresholds": {
-                "calibration_slope_range": list(CALIBRATION_SLOPE_RANGE),
-                "calibration_abs_bias_over_spread": CALIBRATION_BIAS_FRACTION,
-                "ordering_sign_accuracy": ORDERING_SIGN_ACCURACY,
-                "no_single_path_sign_accuracy_floor": PATH_SIGN_ACCURACY_FLOOR,
-                "seed_rank_correlation": SEED_RANK_CORRELATION,
-                "overfit_gap": OVERFIT_GAP,
-                "overfit_heldout_drop": OVERFIT_HELDOUT_DROP,
-            },
             "definitions": {
+                "status": "PASS iff every blocking gate passes (Amendment A, 8 Nov 2026): "
+                "stage-1 A is only a warm start for stage 2",
+                "blocking": "v_non_regression (every seed's frozen-V guard identical) and "
+                "harness_stability (no stability-monitor abort, every evaluated anchored "
+                "prediction of every seed finite); the overfit alarm and the monitor's "
+                "'admitted' are reported under harness_stability.report_only, not blocking",
+                "warm_start": f"per objective head of the seed-{WARM_START_SEED} fit, on the "
+                "gate evaluation worlds: 'load' iff signal share >= "
+                f"{WARM_START_SIGNAL} (share of every evaluated candidate row, controls and "
+                f"both survival classes included, with |y| > {WARM_START_SIGNAL_SE} SE), "
+                f"ordering >= {WARM_START_ORDERING} (diagnostic ordering:<head> value: "
+                "informative pairs, controls excluded, split 'all') and world-balanced "
+                f"calibration slope in [{WARM_START_SLOPE_RANGE[0]}, "
+                f"{WARM_START_SLOPE_RANGE[1]}] (split 'all'); otherwise 'zero' (stage 2 "
+                "starts that head's output layer at exactly 0, so its A is exactly 0); a "
+                "missing or NaN value is 'zero'; a failed blocking gate makes every head "
+                "'none' (no warm start). Status: full / partial / all_zero / none",
+                "diagnostics": "every gate of the original stage-1 spec table with its "
+                "original PASS/FAIL and thresholds (diagnostic_failed); report only",
+                "a_vs_v_one_step": "stage-1 A versus V's own anchored one-step advantage "
+                "A_V1 = (r_0 + g_0 V(s_1)) - H12's on the same root and streams (V(s) "
+                "cancels), from build_stage1_targets with lambda = 0 and the fit's frozen "
+                "critic, scored on the same rows and informative pairs. Survivors only: a "
+                "non-survivor's stage-1 target is itself this V-bootstrapped one-step "
+                "return, so the comparison would be circular. The survivor target still "
+                f"weights the one-step term by 1 - lambda = {ONE_STEP_WEIGHT:.2f} and, on "
+                "the same streams, shares its step-0 reward with A_V1. Report only",
                 "rows": "non-H12 candidates with targets, plus one H12 anchor row (y = 0, "
                 "prediction 0) per (root, estimator class) group; prediction = A(a) - A(h12)",
                 "calibration": "world-balanced; slope of realised y on predicted after "
@@ -1403,8 +1886,30 @@ def stage1_gate_report(
                 "per_family": "pairs of a family member with H12",
                 "splits": "all / survivors (folded estimator) / non_survivors (one-step)",
                 "gates_evaluated_on": "split 'all'",
+                "early_stopping": "fit summaries: best epoch by inner-validation ordering "
+                "(worlds carved from the outer fit worlds, disjoint from these evaluation "
+                "worlds)",
             },
-            "gates": gates,
+            "status": status,
+            "blocking": blocking,
+            "blocking_failed": blocking_failed,
+            "warm_start": warm_start,
+            "diagnostics": {
+                "status": "PASS" if not diagnostic_failed else "FAIL",
+                "gates": gates,
+                "diagnostic_failed": diagnostic_failed,
+                "no_signal": no_signal,
+                "thresholds": {
+                    "calibration_slope_range": list(CALIBRATION_SLOPE_RANGE),
+                    "calibration_abs_bias_over_spread": CALIBRATION_BIAS_FRACTION,
+                    "ordering_sign_accuracy": ORDERING_SIGN_ACCURACY,
+                    "no_single_path_sign_accuracy_floor": PATH_SIGN_ACCURACY_FLOOR,
+                    "seed_rank_correlation": SEED_RANK_CORRELATION,
+                    "overfit_gap": OVERFIT_GAP,
+                    "overfit_heldout_drop": OVERFIT_HELDOUT_DROP,
+                },
+                "a_vs_v_one_step": a_vs_v,
+            },
             "calibration": calibration,
             "ordering": ordering,
             "family_calibration": family_calibration,
@@ -1412,9 +1917,6 @@ def stage1_gate_report(
                 {k: v for k, v in s.items() if k not in ("loss_history", "stability")}
                 for s in fit_summaries
             ],
-            "failed": failed,
-            "no_signal": no_signal,
-            "status": "PASS" if not failed else "FAIL",
         }
     )
 
@@ -1601,6 +2103,13 @@ def argument_parser() -> argparse.ArgumentParser:
         default=0,
         help="seed of the fit/held-out world split, shared by every fit seed",
     )
+    fit.add_argument(
+        "--inner-fraction",
+        type=float,
+        default=0.2,
+        help="fraction of the fit worlds held out as the inner early-stopping validation "
+        "set (0: no early stopping, keep the last epoch)",
+    )
     fit.add_argument("--support-floor", type=int, default=la.BLOCK_SUPPORT_FLOOR)
     fit.add_argument("--huber-se-multiplier", type=float, default=la.HUBER_SE_MULTIPLIER)
     fit.add_argument(
@@ -1610,6 +2119,13 @@ def argument_parser() -> argparse.ArgumentParser:
         help="actor for the PPO-readiness dry run (skipped without)",
     )
     fit.add_argument("--ppo-epochs", type=int, default=PPO_DRY_RUN_EPOCHS)
+    fit.add_argument(
+        "--warm-start-out",
+        type=Path,
+        default=None,
+        help="stage-2 warm-start checkpoint: the seed-0 head (0 must be in --seeds) with "
+        "every 'zero' head's output layer zeroed; not written when the warm start is 'none'",
+    )
     add_stability_arguments(fit)
     add_device_argument(fit)
     return parser
@@ -1621,6 +2137,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .labor_value_calibration import labor_critic_digest
 
     args = argument_parser().parse_args(argv)
+    seeds = [int(s) for s in str(args.seeds).split(",") if s.strip()]
+    if not seeds:
+        raise ValueError("at least one seed")
+    if args.warm_start_out is not None and WARM_START_SEED not in seeds:
+        raise ValueError(
+            f"--warm-start-out writes the seed-{WARM_START_SEED} head; "
+            f"--seeds {args.seeds} does not fit it"
+        )
     device = setup(getattr(args, "device", "cpu"))
     task, costs = la._load_critics(args.checkpoint)
     task.to(device)
@@ -1632,10 +2156,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     fit_data = load_stage1_data(args.payloads)
     fit_targets = build_stage1_targets(fit_data, values)
-    seeds = [int(s) for s in str(args.seeds).split(",") if s.strip()]
-    if not seeds:
-        raise ValueError("at least one seed")
-    heads, summaries, abort = [], [], None
+    eval_data = load_stage1_data(args.eval_payloads) if args.eval_payloads else None
+    heads, summaries, configs, abort = [], [], [], None
     for seed in seeds:
         config = AdvantageFitConfig(
             epochs=args.epochs,
@@ -1647,6 +2169,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             target_source=LAMBDA_TARGET_SOURCE,
             support_floor=args.support_floor,
             huber_se_multiplier=args.huber_se_multiplier,
+            inner_fraction=args.inner_fraction,
         )
         try:
             head, summary = la.fit_advantage_head(
@@ -1657,6 +2180,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stability=stability_config_from_args(args),
                 frozen_actor=la._load_actor(args.checkpoint),
                 targets=fit_targets,
+                eval_worlds=None if eval_data is None else eval_data.candidates.worlds,
             )
         except StabilityAbort as error:
             abort = {"seed": seed, "summary": error.summary}
@@ -1666,6 +2190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         head.to("cpu")
         heads.append(head)
         summaries.append(summary)
+        configs.append(config)
         payload = la.advantage_checkpoint_payload(
             head,
             critic_digest=labor_critic_digest(task, costs),
@@ -1686,19 +2211,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     if abort is not None and not heads:
         args.report.write_text(
             json.dumps(
-                {"schema": GATE_SCHEMA, "status": "FAIL", "stability_abort": _json_safe(abort)},
+                {
+                    "schema": GATE_SCHEMA,
+                    "status": "FAIL",
+                    "blocking_failed": ["harness_stability"],
+                    "warm_start": {"status": "none", "seed": WARM_START_SEED},
+                    "stability_abort": _json_safe(abort),
+                },
                 indent=1,
             ),
             encoding="utf-8",
         )
+        if args.warm_start_out is not None:
+            print("no warm-start checkpoint written: the stability harness aborted the fit")
         return 1
-    if args.eval_payloads:
-        eval_data = load_stage1_data(args.eval_payloads)
+    if eval_data is not None:
         eval_set = eval_data.candidates
         eval_targets = build_stage1_targets(eval_data, values)
+        successor_data = eval_data
     else:
         eval_set = fit_data.candidates.subset(summaries[0]["heldout_worlds"])
         eval_targets = fit_targets
+        successor_data = fit_data
     actor = None
     if args.actor_checkpoint is not None:
         actor = la._load_actor(args.actor_checkpoint)
@@ -1712,18 +2246,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         actor=actor,
         ppo_epochs=args.ppo_epochs,
         stability_abort=abort,
+        successor_data=successor_data,
     )
     args.report.write_text(json.dumps(report, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    warm = report["warm_start"]
     print(
         json.dumps(
             {
                 "status": report["status"],
-                "failed": report["failed"],
-                "no_signal": report["no_signal"],
+                "blocking_failed": report["blocking_failed"],
+                "warm_start": warm["status"],
+                "decisions": {n: h["decision"] for n, h in warm["heads"].items()},
+                "diagnostic_failed": report["diagnostics"]["diagnostic_failed"],
+                "no_signal": report["diagnostics"]["no_signal"],
             },
             indent=1,
         )
     )
+    if args.warm_start_out is not None:
+        index = next((i for i, s in enumerate(summaries) if s.get("seed") == WARM_START_SEED), None)
+        payload = (
+            None
+            if index is None
+            else warm_start_payload(
+                heads[index],
+                report,
+                critic_digest=labor_critic_digest(task, costs),
+                config=configs[index],
+                fit=summaries[index],
+                task_context=la.task_context_record(task),
+            )
+        )
+        if payload is None:
+            reasons = sorted({r for h in warm["heads"].values() for r in h["reasons"]})
+            print("no warm-start checkpoint written (warm start 'none'): " + "; ".join(reasons))
+        else:
+            payload["state_dict"] = cpu_copy(payload["state_dict"])
+            args.warm_start_out.parent.mkdir(parents=True, exist_ok=True)
+            torch.save(payload, args.warm_start_out)
     return 0 if report["status"] == "PASS" else 1
 
 
