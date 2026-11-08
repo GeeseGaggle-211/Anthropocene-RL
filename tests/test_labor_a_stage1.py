@@ -365,7 +365,7 @@ def test_fit_masks_trade_blocks_and_holds_unsupported_blocks_at_zero() -> None:
     # Synthetic search perturbs every block (random actions), including trade value/share.
     assert support["trade_value_log"] > 0 and support["specialty_share"] > 0
     floor = support["fission_onehot"] + 1
-    config = _config(epochs=3, support_floor=floor)
+    config = _config(epochs=3, support_floor=floor, inner_fraction=0.0)
     head, summary = la.fit_advantage_head(
         task, costs, data.candidates, config, targets=targets, stability=None
     )
@@ -482,7 +482,7 @@ def test_gate_report_schema_with_two_seeds_and_ppo_dry_run() -> None:
     )
     json.dumps(report)  # plain JSON
     assert report["schema"] == s1.GATE_SCHEMA and report["reserved_worlds_only"]
-    assert report["thresholds"] == {
+    assert report["diagnostics"]["thresholds"] == {
         "calibration_slope_range": [0.8, 1.2],
         "calibration_abs_bias_over_spread": 0.25,
         "ordering_sign_accuracy": 0.65,
@@ -491,7 +491,7 @@ def test_gate_report_schema_with_two_seeds_and_ppo_dry_run() -> None:
         "overfit_gap": 0.10,
         "overfit_heldout_drop": 0.03,
     }
-    gates = report["gates"]
+    gates = report["diagnostics"]["gates"]
     expected = {
         f"{g}:{n}" for g in ("calibration", "ordering", "no_single_path") for n in la.COMPONENTS
     }
@@ -525,16 +525,21 @@ def test_gate_report_schema_with_two_seeds_and_ppo_dry_run() -> None:
     assert ppo["actor_untouched"]
     assert all(torch.equal(actor_before[k], v) for k, v in actor.state_dict().items())
     # End to end on the planted structure (same structure seed, unseen worlds/actions):
-    # every gate with signal passes.
-    assert report["status"] == "PASS", report["failed"]
+    # every diagnostic gate with signal passes, and every head loads.
+    assert report["status"] == "PASS", report["blocking_failed"]
+    # The overfit alarm reads the whole training trajectory (past the restored best
+    # epoch, on the small inner set), so the old stability gate may FAIL: report only.
+    assert set(report["diagnostics"]["diagnostic_failed"]) <= {"stability"}
+    assert report["warm_start"]["status"] == "full"
     assert gates["ordering:qol_years"]["value"] >= s1.ORDERING_SIGN_ACCURACY
     assert gates["calibration:qol_years"]["status"] == "PASS"
     no_actor = s1.stage1_gate_report(
         heads[:1], task, costs, reserved.candidates, reserved_targets, summaries[:1]
     )
-    assert no_actor["gates"]["ppo_readiness"]["status"] == "SKIPPED"
-    assert no_actor["gates"]["seed_agreement"]["status"] == "NOT_RUN"
-    assert "seed_agreement" in no_actor["failed"]
+    assert no_actor["diagnostics"]["gates"]["ppo_readiness"]["status"] == "SKIPPED"
+    assert no_actor["diagnostics"]["gates"]["seed_agreement"]["status"] == "NOT_RUN"
+    assert "seed_agreement" in no_actor["diagnostics"]["diagnostic_failed"]
+    assert no_actor["status"] == "PASS"  # seed agreement is diagnostic only
     # The fit worlds are never gate worlds.
     with pytest.raises(ValueError, match="overlap"):
         s1.stage1_gate_report(heads, task, costs, data.candidates, targets, summaries)
@@ -561,7 +566,7 @@ def test_world_split_is_independent_of_the_fit_seed() -> None:
     # The default evaluation set (the held-out fit worlds) no longer overlaps any fit.
     held = data.candidates.subset(summaries[0]["heldout_worlds"])
     report = s1.stage1_gate_report(heads, task, costs, held, targets, summaries)
-    assert report["gates"]["seed_agreement"]["seeds"] == 2
+    assert report["diagnostics"]["gates"]["seed_agreement"]["seeds"] == 2
     # An explicit split seed selects a different, still shared, split.
     other = _config(epochs=1, seed=1, split_seed=1)
     _, other_summary = la.fit_advantage_head(
@@ -633,7 +638,8 @@ def test_command_line_fits_seeds_and_writes_the_gate_report(tmp_path) -> None:
     assert code in (0, 1)
     report = json.loads((tmp_path / "gates.json").read_text())
     assert report["schema"] == s1.GATE_SCHEMA and report["worlds"] == [90154]
-    assert report["gates"]["ppo_readiness"]["status"] == "REPORT_ONLY"
+    assert report["diagnostics"]["gates"]["ppo_readiness"]["status"] == "REPORT_ONLY"
+    assert code == (0 if report["status"] == "PASS" else 1)
     assert (tmp_path / "a1.pt").exists() and (tmp_path / "a1.seed1.pt").exists()
     state = torch.load(tmp_path / "a1.pt", map_location="cpu", weights_only=True)
     assert state["config"]["target_source"] == la.LAMBDA_TARGET_SOURCE
@@ -812,15 +818,20 @@ def test_task_objectives_without_signal_fail_and_cost_heads_may_have_none() -> N
     for j in (la.COMPONENTS.index("qol_years"), la.COMPONENTS.index("feasibility")):
         rt.y[:, j] = 0.0
     report = s1.stage1_gate_report([head], task, costs, reserved.candidates, rt, [summary])
-    gates = report["gates"]
+    diagnostics = report["diagnostics"]
+    gates = diagnostics["gates"]
     for g in ("calibration", "ordering", "no_single_path"):
         assert gates[f"{g}:qol_years"]["status"] == "FAIL"
         assert gates[f"{g}:qol_years"]["no_signal"] is True
-        assert f"{g}:qol_years" in report["failed"]
+        assert f"{g}:qol_years" in diagnostics["diagnostic_failed"]
         assert gates[f"{g}:feasibility"]["status"] == "NO_SIGNAL"
-        assert f"{g}:feasibility" in report["no_signal"]
-        assert f"{g}:feasibility" not in report["failed"]
-    assert report["status"] == "FAIL"
+        assert f"{g}:feasibility" in diagnostics["no_signal"]
+        assert f"{g}:feasibility" not in diagnostics["diagnostic_failed"]
+    assert diagnostics["status"] == "FAIL"
+    # Amendment A: diagnostic failures never block; a head without signal starts at zero.
+    assert report["status"] == "PASS"
+    assert report["warm_start"]["heads"]["qol_years"]["decision"] == "zero"
+    assert report["warm_start"]["heads"]["feasibility"]["decision"] == "zero"
     assert report["provisional_constants"] == {
         "block_support_floor_rows": 30,
         "variance_floor_fraction_of_pooled": 0.25,
@@ -828,3 +839,570 @@ def test_task_objectives_without_signal_fail_and_cost_heads_may_have_none() -> N
         "huber_se_multiplier": 1.345,
         "status": "provisional",
     }
+
+
+# --- Amendment A (8 Nov 2026): inner early stopping, warm start, A versus V ------------------
+
+
+def test_inner_split_is_disjoint_sorted_and_deterministic() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data(worlds=tuple(range(90100, 90112)), roots=2)
+    config = _config(epochs=2)
+    assert config.inner_fraction == 0.2
+    head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, config, targets=targets, stability=None
+    )
+    fit, held = la.split_worlds(data.candidates.worlds, 0.2, 0)
+    train, inner = summary["train_worlds"], summary["inner_worlds"]
+    assert summary["fit_worlds"] == fit and summary["heldout_worlds"] == held
+    assert (train, inner) == la.split_worlds(fit, 0.2, 0, tag=la.INNER_SPLIT_TAG)
+    assert inner and not set(inner) & set(held) and not set(inner) & set(train)
+    assert sorted(set(train) | set(inner)) == fit
+    for worlds in (train, inner, held, fit):
+        assert worlds == sorted(worlds)
+    assert summary["early_stopping"]["enabled"]
+    assert summary["early_stopping"]["monitor_ranking_set"] == "inner"
+    assert len(summary["early_stopping"]["curve"]) == 2
+    # Deterministic: a second fit gives the same split and the same head bit for bit.
+    head2, summary2 = la.fit_advantage_head(
+        task, costs, data.candidates, config, targets=targets, stability=None
+    )
+    assert summary2["inner_worlds"] == inner and summary2["train_worlds"] == train
+    assert all(torch.equal(v, head2.state_dict()[k]) for k, v in head.state_dict().items())
+    # The inner set never overlaps the gate evaluation worlds.
+    with pytest.raises(ValueError, match="overlap"):
+        la.fit_advantage_head(
+            task,
+            costs,
+            data.candidates,
+            config,
+            targets=targets,
+            stability=None,
+            eval_worlds=[inner[0]],
+        )
+    _, ok = la.fit_advantage_head(
+        task,
+        costs,
+        data.candidates,
+        _config(epochs=1),
+        targets=targets,
+        stability=None,
+        eval_worlds=list(la.RESERVED_HELDOUT_WORLDS),
+    )
+    assert ok["inner_worlds"] == inner
+
+
+def test_inner_fraction_zero_reproduces_the_old_training_trajectory() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data()
+    config = _config(epochs=4, inner_fraction=0.0)
+    _head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, config, targets=targets, stability=None
+    )
+    assert summary["train_worlds"] == summary["fit_worlds"] and summary["inner_worlds"] == []
+    es = summary["early_stopping"]
+    assert not es["enabled"] and es["rule"] == "disabled-kept-last"
+    assert es["best_epoch"] == 3 and es["curve"] == []
+    assert summary["fit_rows"] == len(
+        targets.for_roots([r.root_id for r in data.candidates.subset(summary["fit_worlds"]).roots])
+    )
+    # Bitwise against the pre-amendment implementation (5473199), when git can serve it.
+    import importlib.util
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    try:
+        source = subprocess.run(
+            ["git", "show", "5473199:src/anthropocene_rl/autonomous_v7/labor_a_stage1.py"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        pytest.skip("pre-amendment source not available from git")
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "old_stage1.py"
+        path.write_bytes(source)
+        name = "anthropocene_rl.autonomous_v7._old_stage1_reference"
+        spec = importlib.util.spec_from_file_location(name, path)
+        old = importlib.util.module_from_spec(spec)
+        sys.modules[name] = old
+        try:
+            spec.loader.exec_module(old)
+        finally:
+            sys.modules.pop(name, None)
+    for stability in (None, "auto"):
+        new_head, new_summary = s1.fit_stage1(
+            task, costs, data.candidates, targets, config, stability=stability
+        )
+        old_head, old_summary = old.fit_stage1(
+            task, costs, data.candidates, targets, config, stability=stability
+        )
+        new_state, old_state = new_head.state_dict(), old_head.state_dict()
+        assert all(torch.equal(new_state[k], old_state[k]) for k in old_state)
+        assert new_summary["loss_history"] == old_summary["loss_history"]
+        if stability is not None:
+            assert (
+                new_summary["stability"]["checks"]["advantage_overfit"]["epochs"]
+                == old_summary["stability"]["checks"]["advantage_overfit"]["epochs"]
+            )
+
+
+def test_early_stopping_restores_the_best_inner_epoch() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data()
+    fit, _ = la.split_worlds(data.candidates.worlds, 0.2, 0)
+    _, inner = la.split_worlds(fit, 0.2, 0, tag=la.INNER_SPLIT_TAG)
+    # Inner worlds carry the negated planted structure: learning the training worlds
+    # makes the inner ordering fall, so it peaks before the last epoch.
+    flipped = copy.deepcopy(targets)
+    flipped.y[np.isin(flipped.world, inner)] *= -1.0
+    epochs = 12
+    head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, _config(epochs=epochs), targets=flipped, stability=None
+    )
+    es = summary["early_stopping"]
+    best = es["best_epoch"]
+    curve = [r["inner"] for r in es["curve"]]
+    assert es["rule"] == "best-inner-ordering-earliest-tie"
+    assert best < epochs - 1 and curve[best] > curve[-1]
+    assert best == int(np.argmax(curve))  # earliest maximum
+    assert es["best_inner_ordering"] == curve[best]
+    assert set(es["selection_heads"]) == set(la.COMPONENTS)  # every head has train signal
+    # The same fit stopped after the best epoch ends in exactly the restored state.
+    short, short_summary = la.fit_advantage_head(
+        task,
+        costs,
+        data.candidates,
+        _config(epochs=best + 1),
+        targets=flipped,
+        stability=None,
+    )
+    assert short_summary["early_stopping"]["best_epoch"] == best
+    assert all(torch.equal(v, short.state_dict()[k]) for k, v in head.state_dict().items())
+    tensors, priv = data.candidates.root_tensors()
+    contexts = la.critic_contexts(task, costs, tensors, priv)
+    a = s1.anchored_predictions(head, contexts, data.candidates.roots)
+    b = s1.anchored_predictions(short, contexts, data.candidates.roots)
+    for name in la.COMPONENTS:
+        assert all(np.array_equal(x, y) for x, y in zip(a[name], b[name], strict=True))
+
+
+def test_inner_selection_heads_fall_back_to_the_task_objectives() -> None:
+    _, targets = _fit_data(worlds=(90100, 90101), roots=2)
+    heads, shares = s1.inner_selection_heads(targets)
+    assert heads == list(la.COMPONENTS) and all(v >= s1.WARM_START_SIGNAL for v in shares.values())
+    quiet = copy.deepcopy(targets)
+    quiet.y[:] = 0.0
+    heads, shares = s1.inner_selection_heads(quiet)
+    assert heads == ["qol_years", "population_years"] and set(shares.values()) == {0.0}
+    metrics = {
+        "qol_years": {"accuracy": 1.0, "pairs": 3},
+        "population_years": {"accuracy": 0.5, "pairs": 1},
+        "feasibility": None,
+    }
+    assert s1.weighted_ordering(metrics, ["qol_years", "population_years", "feasibility"]) == (
+        pytest.approx(0.875)
+    )
+    assert s1.weighted_ordering({"qol_years": None}, ["qol_years"]) is None
+
+
+def test_warm_start_decision_rule_at_each_threshold_boundary() -> None:
+    eps = 1e-9
+    sig, order = s1.WARM_START_SIGNAL, s1.WARM_START_ORDERING
+    lo, hi = s1.WARM_START_SLOPE_RANGE
+    assert (sig, order, lo, hi) == (0.10, 0.55, 0.25, 2.0)
+    good = {"signal": 0.5, "ordering": 0.8, "slope": 1.0}
+
+    def decide(**kw):
+        return s1.warm_start_decision(**(good | kw))
+
+    assert decide() == ("load", [])
+    for key, ok, bad in (
+        ("signal", sig, sig - eps),
+        ("signal", sig + eps, sig - eps),
+        ("ordering", order, order - eps),
+        ("ordering", order + eps, order - eps),
+        ("slope", lo, lo - eps),
+        ("slope", lo + eps, lo - eps),
+        ("slope", hi, hi + eps),
+        ("slope", hi - eps, hi + eps),
+    ):
+        assert decide(**{key: ok})[0] == "load", (key, ok)
+        decision, reasons = decide(**{key: bad})
+        assert decision == "zero" and len(reasons) == 1 and key.split("_")[0] in reasons[0]
+    for key in good:
+        for missing in (None, float("nan")):
+            decision, reasons = decide(**{key: missing})
+            assert decision == "zero" and "missing" in reasons[0]
+    # Section statuses.
+    names = la.COMPONENTS
+    all_good = {n: good for n in names}
+    assert s1.warm_start_section(all_good)["status"] == "full"
+    one_bad = all_good | {names[2]: good | {"ordering": 0.5}}
+    section = s1.warm_start_section(one_bad)
+    assert section["status"] == "partial" and section["seed"] == 0
+    assert section["heads"][names[2]]["decision"] == "zero"
+    assert section["heads"][names[2]]["ordering"] == 0.5
+    assert s1.warm_start_section({n: {} for n in names})["status"] == "all_zero"
+    # A failed blocking gate: every head is none, whatever its metrics.
+    blocked = s1.warm_start_section(all_good, blocking_failed=["harness_stability"])
+    assert blocked["status"] == "none"
+    assert all(h["decision"] == "none" for h in blocked["heads"].values())
+    assert all("harness_stability" in h["reasons"][0] for h in blocked["heads"].values())
+    assert set(section["thresholds"]) == {"signal_share", "signal_se", "ordering", "slope_range"}
+
+
+def test_zeroed_heads_give_exactly_zero_and_loaded_heads_are_unchanged() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data()
+    head, _ = la.fit_advantage_head(
+        task, costs, data.candidates, _config(epochs=3), targets=targets, stability=None
+    )
+    before = {k: v.clone() for k, v in head.state_dict().items()}
+    zero = ["population_years", "feasibility"]
+    warm = s1.zero_heads(head, zero)
+    assert all(torch.equal(before[k], v) for k, v in head.state_dict().items())  # copy
+    tensors, priv = data.candidates.root_tensors()
+    contexts = la.critic_contexts(task, costs, tensors, priv)
+    roots = data.candidates.roots
+    flat = la._flatten(roots)
+    with torch.no_grad():
+        raw = warm(contexts, flat.features, flat.root_index)
+    pred, orig = (s1.anchored_predictions(h, contexts, roots) for h in (warm, head))
+    for name in la.COMPONENTS:
+        if name in zero:
+            assert torch.equal(raw[name], torch.zeros_like(raw[name]))
+            assert all(np.all(block == 0.0) for block in pred[name])
+            assert torch.equal(
+                warm.heads[name][2].weight, torch.zeros_like(warm.heads[name][2].weight)
+            )
+        else:
+            assert all(np.array_equal(a, b) for a, b in zip(pred[name], orig[name], strict=True))
+    state = warm.state_dict()
+    for key, value in before.items():
+        zeroed = any(key.startswith(f"heads.{n}.2.") for n in zero)
+        assert torch.equal(state[key], torch.zeros_like(value) if zeroed else value), key
+    with pytest.raises(ValueError, match="unknown"):
+        s1.zero_heads(head, ["nope"])
+
+
+def _cli_checkpoint(tmp_path):
+    from test_labor_qol_head import _normalizer
+
+    from anthropocene_rl.autonomous_v7.labor_model import (
+        LaborCostCritics,
+        LaborEncoderLayout,
+        LaborQoLHead,
+        LaborTaskCritic,
+        labor_checkpoint_payload,
+    )
+
+    layout = LaborEncoderLayout(*_layout(False).state_dict().values())
+    torch.manual_seed(0)
+    checkpoint = labor_checkpoint_payload(
+        LaborActor(layout),
+        LaborTaskCritic(layout, qol_head=LaborQoLHead()),
+        LaborCostCritics(layout),
+        _normalizer(),
+        layout,
+    )
+    torch.save(checkpoint, tmp_path / "critic.pt")
+    fit_dir, eval_dir = tmp_path / "fit", tmp_path / "eval"
+    fit_dir.mkdir()
+    eval_dir.mkdir()
+    torch.save(
+        s1.synthetic_stage1_shard(worlds=tuple(range(90100, 90106)), roots_per_world=2),
+        fit_dir / "a.pt",
+    )
+    torch.save(
+        s1.synthetic_stage1_shard(worlds=(90154,), roots_per_world=3, seed=3), eval_dir / "r.pt"
+    )
+    return [
+        "fit",
+        "--checkpoint",
+        str(tmp_path / "critic.pt"),
+        "--payloads",
+        str(fit_dir),
+        "--eval-payloads",
+        str(eval_dir),
+        "--out",
+        str(tmp_path / "a1.pt"),
+        "--report",
+        str(tmp_path / "gates.json"),
+        "--epochs",
+        "2",
+        "--support-floor",
+        "1",
+    ]
+
+
+def test_warm_start_file_round_trips_and_follows_the_report(tmp_path) -> None:
+    base = _cli_checkpoint(tmp_path)
+    out = tmp_path / "warm.pt"
+    with pytest.raises(ValueError, match="seed-0"):
+        s1.main([*base, "--seeds", "1,2", "--warm-start-out", str(out)])
+    assert not out.exists()
+    # Seed 0 need not be first: the warm start is the seed-0 head (a1.seed0.pt).
+    code = s1.main([*base, "--seeds", "1,0", "--warm-start-out", str(out)])
+    report = json.loads((tmp_path / "gates.json").read_text())
+    assert report["schema"] == "labor-a-stage1-gates-v2"
+    assert code == (0 if report["status"] == "PASS" else 1)
+    assert report["status"] == "PASS" and report["blocking_failed"] == []
+    assert set(report["blocking"]) == {"v_non_regression", "harness_stability"}
+    assert report["blocking"]["harness_stability"]["predictions_finite"]
+    ws = report["warm_start"]
+    assert set(ws) == {"status", "seed", "heads", "thresholds"} and ws["seed"] == 0
+    assert ws["status"] in ("full", "partial", "all_zero")
+    for h in ws["heads"].values():
+        assert set(h) == {"decision", "signal", "ordering", "slope", "reasons"}
+        assert h["decision"] in ("load", "zero")
+    diagnostics = report["diagnostics"]
+    assert {
+        "status",
+        "gates",
+        "diagnostic_failed",
+        "no_signal",
+        "thresholds",
+        "a_vs_v_one_step",
+    } <= (set(diagnostics))
+    assert diagnostics["a_vs_v_one_step"]["split"] == "survivors"
+    assert "gates" not in report and "failed" not in report
+    task, costs = la._load_critics(tmp_path / "critic.pt")
+    state = torch.load(out, map_location="cpu", weights_only=True)
+    warm, config = la.load_advantage_head(state, task, costs)  # the existing loader
+    assert config.seed == 0 and config.inner_fraction == 0.2
+    meta = state["warm_start"]
+    assert meta["gate_report_schema"] == s1.GATE_SCHEMA and meta["eval_worlds"] == [90154]
+    assert meta["decisions"] == {n: h["decision"] for n, h in ws["heads"].items()}
+    assert meta["thresholds"] == ws["thresholds"] and meta["status"] == ws["status"]
+    seed0 = torch.load(tmp_path / "a1.seed0.pt", map_location="cpu", weights_only=True)
+    source, _ = la.load_advantage_head(seed0, task, costs)
+    source_state, warm_state = source.state_dict(), warm.state_dict()
+    for key, value in source_state.items():
+        name = key.split(".")[1] if key.startswith("heads.") else None
+        if (
+            name is not None
+            and key.startswith(f"heads.{name}.2.")
+            and meta["decisions"][name] == "zero"
+        ):
+            assert torch.equal(warm_state[key], torch.zeros_like(value)), key
+        else:
+            assert torch.equal(warm_state[key], value), key
+    assert warm.masked_blocks == source.masked_blocks
+
+
+def test_no_warm_start_file_when_a_blocking_gate_fails(tmp_path, monkeypatch, capsys) -> None:
+    base = _cli_checkpoint(tmp_path)
+    out = tmp_path / "warm.pt"
+    real = s1.stage1_gate_report
+
+    def aborted(*args, **kwargs):
+        return real(*args, **{**kwargs, "stability_abort": {"seed": 0, "summary": "forced"}})
+
+    monkeypatch.setattr(s1, "stage1_gate_report", aborted)
+    code = s1.main([*base, "--seeds", "0", "--warm-start-out", str(out)])
+    report = json.loads((tmp_path / "gates.json").read_text())
+    assert code == 1 and report["status"] == "FAIL"
+    assert report["blocking_failed"] == ["harness_stability"]
+    assert report["warm_start"]["status"] == "none"
+    assert all(h["decision"] == "none" for h in report["warm_start"]["heads"].values())
+    assert not out.exists()
+    assert "no warm-start checkpoint written" in capsys.readouterr().out
+
+
+def test_nonfinite_predictions_fail_harness_stability_and_block_every_head() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data()
+    head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, _config(epochs=2), targets=targets, stability=None
+    )
+    broken = copy.deepcopy(head)
+    with torch.no_grad():
+        broken.heads["settlement_guard"][2].bias.fill_(float("nan"))
+    reserved, rt = _fit_data(worlds=tuple(la.RESERVED_HELDOUT_WORLDS), seed=7, roots=3)
+    report = s1.stage1_gate_report([broken], task, costs, reserved.candidates, rt, [summary])
+    harness = report["blocking"]["harness_stability"]
+    assert harness["status"] == "FAIL" and not harness["predictions_finite"]
+    assert harness["nonfinite_heads_by_seed"] == {"0": ["settlement_guard"]}
+    assert report["status"] == "FAIL" and report["warm_start"]["status"] == "none"
+    assert {h["decision"] for h in report["warm_start"]["heads"].values()} == {"none"}
+    assert (
+        s1.warm_start_payload(broken, report, critic_digest="x", config=_config(), fit={}) is None
+    )
+    # Without the fault the same report passes, and the advantage-overfit alarm and
+    # 'admitted' are reported but never blocking.
+    ok = s1.stage1_gate_report([head], task, costs, reserved.candidates, rt, [summary])
+    assert ok["status"] == "PASS"
+    assert ok["blocking"]["harness_stability"]["report_only"] == [{"monitor": "off"}]
+    assert ok["diagnostics"]["a_vs_v_one_step"]["status"] == "NOT_RUN"
+
+
+def _exact_v_shard(worlds, seed):
+    """A noise-free synthetic shard whose decision-1 V is exactly the K-step continuation
+    (V(s_1) = r_1 + g r_2 + g^2 V(s_3)), so the folded target equals the one-step return."""
+    shard = s1.synthetic_stage1_shard(
+        worlds=worlds, roots_per_world=3, noise=0.0, seed=seed, final_horizon=3
+    )
+    core = shard["successor_tensors"]["core"].double()
+    scale = np.asarray([la.REFERENCE_SCALES[n] for n in la.COMPONENTS])
+    for root in shard["roots"]:
+        for cand in root["candidates"]:
+            for stream in cand["successor_streams"]:
+                rows = {b["decision"]: b["row"] for b in stream["boundaries"]}
+                rewards = np.asarray(stream["step_rewards"]) / scale
+                if 3 in rows:
+                    tail = rewards[1] + G * rewards[2] + G * G * core[rows[3], :4].numpy()
+                else:
+                    tail = rewards[0] * (1 + G) + G * G * 5.0 * rewards[0]
+                core[rows[1], :4] = torch.as_tensor(tail)
+    shard["successor_tensors"]["core"] = core.float()
+    return shard
+
+
+def test_a_versus_v_one_step_is_exact_with_exact_v_and_survivors_only(monkeypatch) -> None:
+    eval_data = s1.stage1_data([_exact_v_shard(tuple(la.RESERVED_HELDOUT_WORLDS[:3]), 7)])
+    targets = s1.build_stage1_targets(eval_data, s1.synthetic_values)
+    # Exact V: on survivors the folded target is the one-step return.
+    one = s1.build_stage1_targets(eval_data, s1.synthetic_values, lam=0.0)
+    surv = targets.survivor
+    assert surv.any() and (~surv).any()
+    assert np.allclose(targets.y[surv], one.y[surv], atol=1e-5)
+    task, costs = _plain_critics()
+    data, fit_t = _fit_data()
+    head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, _config(epochs=2), targets=fit_t, stability=None
+    )
+    # V of the diagnostic is the fit's frozen critic; here it is the exact synthetic V.
+    calls = []
+
+    def exact(task_critic, cost_critics, batch_size=256):
+        calls.append((task_critic, cost_critics))
+        return s1.synthetic_values
+
+    monkeypatch.setattr(s1, "critic_values", exact)
+    report = s1.stage1_gate_report(
+        [head], task, costs, eval_data.candidates, targets, [summary], successor_data=eval_data
+    )
+    assert calls == [(task, costs)]
+    diag = report["diagnostics"]["a_vs_v_one_step"]
+    assert diag["status"] == "REPORT_ONLY" and diag["split"] == "survivors"
+    assert diag["rows"] == int(surv.sum()) and diag["survivor_rows_dropped"] == 0
+    for name in la.COMPONENTS:
+        heads = diag["heads"][name]
+        a = heads["stage1_a"]
+        for label in ("a_v1", "a_v1_same_streams"):
+            v1 = heads[label]
+            assert v1["pairs"] > 0 and v1["pairs"] == a["pairs"]  # same informative pairs
+            assert v1["ordering"] == 1.0
+            assert v1["slope"] == pytest.approx(1.0, abs=1e-3)
+    # The diagnostic never moves the verdict or the warm start.
+    plain = s1.stage1_gate_report([head], task, costs, eval_data.candidates, targets, [summary])
+    assert plain["status"] == report["status"]
+    assert plain["warm_start"] == report["warm_start"]
+    definition = report["definitions"]["a_vs_v_one_step"]
+    assert "Survivors only" in definition and "circular" in definition
+    assert "stream 0 only" in definition and "shares their realised r_0" in definition
+
+
+def test_a_v1_uses_stream_zero_only_and_the_default_target_is_unchanged(monkeypatch) -> None:
+    worlds = tuple(la.RESERVED_HELDOUT_WORLDS[:3])
+    shard = _exact_v_shard(worlds, 7)
+    perturbed = copy.deepcopy(shard)
+    rng = np.random.default_rng(11)
+    changed = 0
+    for root in perturbed["roots"]:
+        for cand in root["candidates"]:
+            for stream in cand["successor_streams"]:
+                if stream["stream"] >= 1 and not cand["is_h12"]:
+                    stream["step_rewards"][0] = [
+                        r + float(rng.normal()) * la.REFERENCE_SCALES[n]
+                        for r, n in zip(stream["step_rewards"][0], la.COMPONENTS, strict=True)
+                    ]
+                    changed += 1
+    assert changed > 0
+    base, moved = s1.stage1_data([shard]), s1.stage1_data([perturbed])
+    roots = base.candidates.roots
+    v = s1.synthetic_values
+    # Stream 0 only: the re-evaluation rewards never enter.
+    a0 = s1.one_step_advantages(base, v, roots, stream0_only=True)
+    m0 = s1.one_step_advantages(moved, v, roots, stream0_only=True)
+    assert a0.keys() == m0.keys() and all(np.array_equal(a0[k], m0[k]) for k in a0)
+    # Same streams: they do.
+    a1 = s1.one_step_advantages(base, v, roots, stream0_only=False)
+    m1 = s1.one_step_advantages(moved, v, roots, stream0_only=False)
+    assert any(not np.array_equal(a1[k], m1[k]) for k in a1)
+    # The default stage-1 target is unchanged by the new keyword.
+    default = s1.build_stage1_targets(base, v)
+    explicit = s1.build_stage1_targets(base, v, only_streams=None)
+    for name in ("y", "se", "candidate", "survivor", "source", "streams"):
+        assert np.array_equal(getattr(default, name), getattr(explicit, name))
+    assert default.dropped == explicit.dropped
+    # Through the diagnostic: the same targets and A, re-evaluation rewards perturbed.
+    monkeypatch.setattr(s1, "critic_values", lambda task, costs, batch_size=256: v)
+    targets = s1.build_stage1_targets(base, v)
+    prediction = {
+        n: [np.arange(len(r.candidates), dtype=np.float64) for r in roots] for n in la.COMPONENTS
+    }
+    for n in la.COMPONENTS:
+        for r, root in enumerate(roots):
+            prediction[n][r] -= prediction[n][r][root.h12]
+    before = s1.a_vs_v_one_step(prediction, roots, targets, base, None, None)
+    after = s1.a_vs_v_one_step(prediction, roots, targets, moved, None, None)
+    assert before["rows"] == after["rows"] > 0
+    for n in la.COMPONENTS:
+        assert after["heads"][n]["a_v1"] == before["heads"][n]["a_v1"]
+        assert after["heads"][n]["stage1_a"] == before["heads"][n]["stage1_a"]
+    assert any(
+        after["heads"][n]["a_v1_same_streams"] != before["heads"][n]["a_v1_same_streams"]
+        for n in la.COMPONENTS
+    )
+    # A survivor without a stream-0 one-step value is dropped from all three and counted.
+    no_zero = copy.deepcopy(shard)
+    root = no_zero["roots"][0]
+    victim = next(
+        c for c in root["candidates"] if not c["is_h12"] and len(c["successor_streams"]) > 1
+    )
+    for stream in victim["successor_streams"]:
+        if stream["stream"] == 0:
+            for b in stream["boundaries"]:
+                b["status"] = "inactive"
+    dropped_data = s1.stage1_data([no_zero])
+    dropped_targets = s1.build_stage1_targets(dropped_data, v)
+    diag = s1.a_vs_v_one_step(
+        prediction, dropped_data.candidates.roots, dropped_targets, dropped_data, None, None
+    )
+    assert diag["survivor_rows_dropped"] == 1
+    assert diag["survivor_rows_dropped_by_reason"] == {
+        "a_v1_missing": 1,
+        "a_v1_same_streams_missing": 0,
+    }
+    assert diag["rows"] == int(dropped_targets.survivor.sum()) - 1
+
+
+def test_old_stage1_checkpoints_without_inner_fraction_still_load() -> None:
+    task, costs = _plain_critics()
+    data, targets = _fit_data()
+    config = _config(epochs=1, inner_fraction=0.3)
+    head, summary = la.fit_advantage_head(
+        task, costs, data.candidates, config, targets=targets, stability=None
+    )
+    payload = la.advantage_checkpoint_payload(
+        head, critic_digest=labor_critic_digest(task, costs), config=config, fit=summary
+    )
+    assert payload["config"]["inner_fraction"] == 0.3
+    _restored, restored_config = la.load_advantage_head(payload, task, costs)
+    assert restored_config == config
+    legacy = dict(payload)
+    legacy["config"] = {k: v for k, v in payload["config"].items() if k != "inner_fraction"}
+    old_head, old_config = la.load_advantage_head(legacy, task, costs)
+    assert old_config.inner_fraction == 0.0  # no early stopping, the old behaviour
+    assert all(torch.equal(v, old_head.state_dict()[k]) for k, v in head.state_dict().items())
+    # Pair-source configs keep their historical state dict exactly.
+    assert "inner_fraction" not in la.AdvantageFitConfig().state_dict()
+    with pytest.raises(ValueError, match="inner fraction"):
+        _config(inner_fraction=1.0)
