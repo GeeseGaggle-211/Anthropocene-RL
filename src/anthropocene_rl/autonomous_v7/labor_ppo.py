@@ -621,6 +621,11 @@ class AttemptPolicyTerms:
     current_initial_labor_head_logp: Mapping[str, torch.Tensor] | None = None
     current_initial_nonlabor_head_logp: Mapping[str, torch.Tensor] | None = None
     initial_surrogate: str = "joint"
+    # Exact current-minus-behaviour log-ratios (``initial_ratio``/``retry_ratio`` are
+    # their exponentials). The KL audit falls back to these where the ratio
+    # underflowed to 0: log(0) = -inf turned a large but finite KL into inf.
+    initial_log_ratio: torch.Tensor | None = None
+    retry_log_ratio: torch.Tensor | None = None
 
 
 def attempt_policy_terms(
@@ -752,8 +757,10 @@ def attempt_policy_terms(
 
     initial_joint = current_initial_labor_logp + current_initial_nonlabor_logp
     behaviour_initial_joint = behaviour_initial_labor_logp + behaviour_initial_nonlabor_logp
-    initial_ratio = torch.exp(initial_joint - behaviour_initial_joint)
-    retry_ratio = torch.exp(current_retry_labor_logp - behaviour_retry_labor_logp)
+    initial_log_ratio = initial_joint - behaviour_initial_joint
+    retry_log_ratio = current_retry_labor_logp - behaviour_retry_labor_logp
+    initial_ratio = torch.exp(initial_log_ratio)
+    retry_ratio = torch.exp(retry_log_ratio)
     if not bool(torch.isfinite(initial_ratio).all()) or not bool(torch.isfinite(retry_ratio).all()):
         raise FloatingPointError("non-finite labor PPO ratio")
 
@@ -807,6 +814,8 @@ def attempt_policy_terms(
         if current_initial_nonlabor_head_logp is None
         else dict(current_initial_nonlabor_head_logp),
         "joint" if initial_head_advantage is None else "per-head",
+        initial_log_ratio,
+        retry_log_ratio,
     )
 
 
@@ -1334,11 +1343,22 @@ def labor_policy_minibatch_terms(
     )
 
 
+def _audit_log_ratio(ratio: torch.Tensor, log_ratio: torch.Tensor | None) -> torch.Tensor:
+    """``log(ratio)``, except where the ratio underflowed to 0 (log-ratio below ~-104
+    in float32): there the exact log-ratio, so k3 stays finite instead of inf. Every
+    positive ratio keeps its historical ``log(ratio)`` value bit for bit."""
+
+    logged = torch.log(ratio)
+    if log_ratio is None:
+        return logged
+    return torch.where(ratio > 0, logged, log_ratio)
+
+
 def _audit_nonnegative_kl(terms: AttemptPolicyTerms) -> torch.Tensor:
-    initial_log_ratio = torch.log(terms.initial_ratio)
+    initial_log_ratio = _audit_log_ratio(terms.initial_ratio, terms.initial_log_ratio)
     parent = torch.expm1(initial_log_ratio) - initial_log_ratio
     if len(terms.retry_ratio):
-        retry_log_ratio = torch.log(terms.retry_ratio)
+        retry_log_ratio = _audit_log_ratio(terms.retry_ratio, terms.retry_log_ratio)
         retry = torch.expm1(retry_log_ratio) - retry_log_ratio
         # This audit receives already-local retry parent mappings only inside
         # AttemptPolicyTerms' parent surrogate.  The mean of edge estimates is
