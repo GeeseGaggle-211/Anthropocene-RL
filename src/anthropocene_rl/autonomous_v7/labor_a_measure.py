@@ -106,6 +106,7 @@ def _measure(args: argparse.Namespace) -> dict[str, Any]:
     layout, actor, task, costs, normalizer = training._models_from_checkpoint(state)
     personality = labor_checkpoint_personality(state)
     batch, _task_targets, _cost_targets, rollout_metadata = training._load_rollout(args.rollout)
+    reset_record = training._log_rollout_reset(rollout_metadata, "labor_a_measure")
     behavior = training.labor_behavior_configuration(personality)
     checkpoint_sha = checkpoint_hash(args.checkpoint)
     if rollout_metadata.get("sourceCheckpointSha256") != checkpoint_sha:
@@ -250,6 +251,8 @@ def _measure(args: argparse.Namespace) -> dict[str, Any]:
                 "parentsPerWorld": {str(w): n for w, n in sorted(per_world.items())},
                 "terminated": int(sum(bool(r.get("terminated")) for r in decisions)),
                 "costMultipliers": dict(batch.cost_multipliers or {}),
+                "resetOptions": reset_record["rolloutResetOptions"],
+                "resetOptionsSource": reset_record["rolloutResetOptionsSource"],
                 "scope": rollout_metadata.get("scope"),
             },
             "config": {

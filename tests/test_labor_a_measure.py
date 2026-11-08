@@ -78,6 +78,8 @@ def test_measure_equals_train_gae_iteration_zero_without_saving(e2e):  # noqa: F
     assert "decision" in warmup
     assert result["rollout"]["parents"] == 5 and result["rollout"]["retries"] == 2
     assert result["rollout"]["parentsPerWorld"] == {"50000": 2, "50001": 2, "50002": 1}
+    assert result["rollout"]["resetOptions"] == training.LEGACY_COLLECT_RESET.state_dict()
+    assert result["rollout"]["resetOptionsSource"] == "legacy-default-bridge.reset(seed)"
     assert result["storedStateTrainWouldWrite"]["measuredIteration"] == 0
     assert {"load", "setup", "prepareAndD7", "dryRunKL", "finish", "total"} <= set(
         result["seconds"]

@@ -22,6 +22,7 @@ import copy
 import json
 import math
 import os
+import sys
 import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
@@ -34,7 +35,7 @@ import torch
 
 from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
-from .labor_bc import extract_heuristic_labor_action
+from .labor_bc import LaborResetOptions, extract_heuristic_labor_action
 from .labor_bridge import (
     LABOR_ACTIVITY_FEATURE_WIDTH,
     LABOR_REGISTRY_DIGEST,
@@ -731,11 +732,17 @@ def collect_labor_rollout(
     allow_vm_scale: bool = False,
     warmup_decisions: int | None = None,
     action_binding: Mapping[str, Any] | None = None,
+    reset_options: LaborResetOptions | None = None,
 ) -> tuple[list[LaborRolloutRow], dict[tuple[int, int], dict[str, float]]]:
     """Collect diagnostic local worlds without performing any optimizer step.
 
     ``action_binding`` (see :func:`_producer_action_binding`) enables the
     diagnostic action-feature rows; without it none are constructed.
+
+    ``reset_options`` (default None) is the native world configuration. None keeps
+    the historical ``bridge.reset(seed)`` call exactly (8 players, movement off, the
+    native Small world: :data:`LEGACY_COLLECT_RESET`); otherwise every world is reset
+    with ``bridge.reset(seed, **reset_options.reset_kwargs())`` as BC/search/DAgger do.
     """
 
     if warmup_decisions is not None:
@@ -759,7 +766,11 @@ def collect_labor_rollout(
             else bridge_factory()
         )
         try:
-            step = bridge.reset(seed)
+            step = (
+                bridge.reset(seed)
+                if reset_options is None
+                else bridge.reset(seed, **reset_options.reset_kwargs())
+            )
             founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
             world_personality = personality_for_world(declared, seed)
             for _ in range(turns):
@@ -2299,7 +2310,52 @@ def _producer_action_binding() -> tuple[dict[str, Any], dict[str, Any]]:
     return binding, metadata
 
 
+# What collect's historical ``bridge.reset(seed)`` means (Model9Bridge.reset defaults).
+LEGACY_COLLECT_RESET = LaborResetOptions(players=8, movement=False)
+
+
+def _collect_reset_options(args: argparse.Namespace) -> LaborResetOptions | None:
+    """collect's world options, with pretrain-bc's names and meanings.
+
+    None (no option given) keeps the historical ``bridge.reset(seed)`` call, which is
+    movement-off: a named mechanical fixture (``LaborResetOptions``). Any world option
+    (``--players/--width/--height/--separation``) requires an explicit ``--movement``
+    (training worlds) or ``--no-movement`` (fixture), because pretrain-bc's default is
+    movement on and collect's historical default is off: neither is assumed silently.
+    """
+    movement = getattr(args, "movement", None)
+    sizes = {
+        name: getattr(args, name, None) for name in ("players", "width", "height", "separation")
+    }
+    if movement is None and all(value is None for value in sizes.values()):
+        return None
+    if movement is None:
+        raise ValueError(
+            "collect world options need an explicit --movement (training worlds) or "
+            "--no-movement (mechanical fixture)"
+        )
+    return LaborResetOptions(
+        players=8 if sizes["players"] is None else int(sizes["players"]),
+        movement=bool(movement),
+        width=sizes["width"],
+        height=sizes["height"],
+        separation=sizes["separation"],
+    )
+
+
+def _log_rollout_reset(metadata: Mapping[str, Any], context: str) -> dict[str, Any]:
+    """Log (stderr) the rollout's recorded world options; older rollouts lack them."""
+    record = {
+        "context": context,
+        "rolloutResetOptions": metadata.get("resetOptions", "not recorded (older rollout)"),
+        "rolloutResetOptionsSource": metadata.get("resetOptionsSource", "not recorded"),
+    }
+    print(json.dumps(record, sort_keys=True), file=sys.stderr)
+    return record
+
+
 def _command_collect(args: argparse.Namespace) -> None:
+    reset_options = _collect_reset_options(args)  # refuse ambiguous options before any work
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     _, actor, task, costs, normalizer = _models_from_checkpoint(state)
@@ -2337,6 +2393,7 @@ def _command_collect(args: argparse.Namespace) -> None:
         max_self_destruct_rewinds=getattr(args, "max_self_destruct_rewinds", 0),
         allow_vm_scale=getattr(args, "allow_vm_scale", False),
         action_binding=action_binding,
+        reset_options=reset_options,
     )
     behavior = labor_behavior_configuration(personality)
     policy_sha = behavior_policy_digest(actor, behavior)
@@ -2359,6 +2416,13 @@ def _command_collect(args: argparse.Namespace) -> None:
         "sourceCheckpointSha256": checkpoint_hash(args.checkpoint),
         "worldSeeds": worlds,
         "turns": args.turns,
+        # The native world configuration every world was reset with.
+        "resetOptions": (
+            LEGACY_COLLECT_RESET if reset_options is None else reset_options
+        ).state_dict(),
+        "resetOptionsSource": (
+            "legacy-default-bridge.reset(seed)" if reset_options is None else "explicit"
+        ),
         "behaviorConfiguration": behavior,
         "behaviorPolicyDigest": policy_sha,
         "advantageCriticDigest": critic_sha,
@@ -2408,6 +2472,7 @@ def _command_train(args: argparse.Namespace) -> None:
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
     personality = labor_checkpoint_personality(state)
     batch, task_targets, cost_targets, rollout_metadata = _load_rollout(args.rollout)
+    _log_rollout_reset(rollout_metadata, "labor train")
     behavior = labor_behavior_configuration(personality)
     if rollout_metadata.get("sourceCheckpointSha256") != checkpoint_hash(args.checkpoint):
         raise ValueError("labor rollout belongs to another checkpoint")
@@ -3505,6 +3570,21 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--guard-multiplier", type=float, default=1.0)
     collect.add_argument("--max-self-destruct-rewinds", type=int, default=0)
     collect.add_argument("--allow-vm-scale", action="store_true", default=False)
+    # World options (pretrain-bc's names). None of them: the historical bridge.reset(seed)
+    # (8 players, movement off, Small world). Any of them: an explicit movement switch.
+    collect.add_argument("--players", type=int, default=None)
+    collect.add_argument("--width", type=int, default=None)
+    collect.add_argument("--height", type=int, default=None)
+    collect.add_argument("--separation", type=int, default=None)
+    collect_movement = collect.add_mutually_exclusive_group()
+    collect_movement.add_argument(
+        "--movement", dest="movement", action="store_const", const=True, default=None,
+        help="movement on (the training worlds); required with any world option",
+    )
+    collect_movement.add_argument(
+        "--no-movement", dest="movement", action="store_const", const=False,
+        help="named mechanical fixture only (movement off)",
+    )
     collect.add_argument(
         "--economic-trace",
         type=Path,
