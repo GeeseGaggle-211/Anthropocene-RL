@@ -125,7 +125,7 @@ import copy
 import json
 import math
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -377,12 +377,17 @@ def build_stage1_targets(
     variance_floor_fraction: float = VARIANCE_FLOOR_FRACTION,
     se_abs_floor: float = SE_ABS_FLOOR,
     discount_years: float = DISCOUNT_YEARS,
+    only_streams: Collection[int] | None = None,
 ) -> StageOneTargets:
     """Per-candidate, per-objective folded lambda-return targets ``y = G_a - G_h12``.
 
     See the module docstring for the definitions. ``values`` maps the successor dataset
     to raw-unit V per head (:func:`critic_values` / :func:`ensemble_values`).
+    ``only_streams`` (default: every stream) restricts every candidate and H12 to the
+    listed successor streams before anything else (``{0}``: the independent stream-0
+    estimator of :func:`a_vs_v_one_step`).
     """
+    keep_stream = (lambda s: True) if only_streams is None else set(only_streams).__contains__
     roots = data.candidates.roots
     _require_population(roots)
     if not 0.0 <= float(lam) <= 1.0:
@@ -414,7 +419,7 @@ def build_stage1_targets(
         k = data.final_decision[root.root_id]
         streams = data.successors.get(root.root_id, {})
         h12 = root.candidates[root.h12]
-        h_t = {s: targets_of(e, k) for s, e in streams.get(h12.index, {}).items()}
+        h_t = {s: targets_of(e, k) for s, e in streams.get(h12.index, {}).items() if keep_stream(s)}
         for cand in root.candidates:
             if cand.is_h12:
                 continue
@@ -423,7 +428,7 @@ def build_stage1_targets(
             if cand.index not in streams:
                 prelim.append((root, cand, survivor, {}, {}, "no-successor-streams"))
                 continue
-            c_t = {s: targets_of(e, k) for s, e in streams[cand.index].items()}
+            c_t = {s: targets_of(e, k) for s, e in streams[cand.index].items() if keep_stream(s)}
             one, fold = {}, {}
             for s, (t1, tk) in c_t.items():
                 if s not in h_t:
@@ -1538,53 +1543,102 @@ def a_vs_v_one_step(
 ) -> dict[str, Any]:
     """Diagnostic: stage-1 A versus V's own anchored one-step advantage on survivors.
 
-    ``A_V1(a) - A_V1(h12) = T1_a - T1_h12`` with ``T1 = r_0 + g_0 V(s_1)`` (V(s) cancels),
-    built by :func:`build_stage1_targets` itself with ``lam = 0`` (same streams, reward
-    and discount conventions as the stage-1 target) and V = the fit's frozen critic
-    (``task_critic``/``cost_critics``). Both predictors are scored on the same survivor
-    rows (those where A_V1 exists) and therefore the same informative pairs. Report only.
+    ``A_V1(a) - A_V1(h12) = T1_a - T1_h12`` with ``T1 = r_0 + g_0 V(s_1)`` (V(s) cancels)
+    and V = the fit's frozen critic (``task_critic``/``cost_critics``), from
+    :func:`one_step_advantages` (``build_stage1_targets`` with ``lam = 0``: the stage-1
+    reward and discount code path). Primary ``a_v1`` uses stream 0 only, the independent
+    first-action stream, so it shares no realised reward with the survivor target (which
+    averages the re-evaluation streams). ``a_v1_same_streams`` uses the target's own
+    streams and shares their realised r_0 with the target (secondary, flattered). All
+    three predictors are scored on exactly the same survivor rows (rows where either A_V1
+    is missing are dropped from all three and counted) and so the same informative pairs.
+    Report only.
     """
-    v1 = build_stage1_targets(
-        successor_data, critic_values(task_critic, cost_critics), lam=0.0
-    ).for_roots([r.root_id for r in roots])
-    one_step = {
-        (str(r), int(c)): v1.y[i]
-        for i, (r, c) in enumerate(zip(v1.root_id, v1.candidate, strict=True))
+    # One critic pass over the successor rows, shared by both variants.
+    v_raw = (
+        critic_values(task_critic, cost_critics)(successor_data.successor_dataset)
+        if successor_data.successor_rows
+        else {h: np.zeros(0) for h in COMPONENTS}
+    )
+    variants = {
+        label: one_step_advantages(
+            successor_data, lambda _data: v_raw, roots, stream0_only=stream0_only
+        )
+        for label, stream0_only in (("a_v1", True), ("a_v1_same_streams", False))
     }
-    keys = list(zip(targets.root_id.tolist(), targets.candidate.tolist(), strict=True))
-    available = np.asarray([(str(r), int(c)) in one_step for r, c in keys], dtype=bool)
+    keys = [
+        (str(r), int(c))
+        for r, c in zip(targets.root_id.tolist(), targets.candidate.tolist(), strict=True)
+    ]
+    present = {
+        label: np.asarray([key in values for key in keys], dtype=bool)
+        for label, values in variants.items()
+    }
+    available = present["a_v1"] & present["a_v1_same_streams"]
     survivors = targets.select(targets.survivor & available)
     position = {r.root_id: i for i, r in enumerate(roots)}
-    av1: dict[str, list[np.ndarray]] = {
-        n: [np.full(len(r.candidates), np.nan) for r in roots] for n in COMPONENTS
-    }
-    for n in COMPONENTS:
-        for r, root in enumerate(roots):
-            av1[n][r][root.h12] = 0.0
-    for r_id, c in zip(survivors.root_id.tolist(), survivors.candidate.tolist(), strict=True):
-        y1 = one_step[(str(r_id), int(c))]
-        for j, n in enumerate(COMPONENTS):
-            av1[n][position[str(r_id)]][int(c)] = y1[j]
-    rows_a = evaluation_rows(roots, survivors, prediction)
-    rows_v = evaluation_rows(roots, survivors, av1)
+    predictions: dict[str, Mapping[str, list[np.ndarray]]] = {"stage1_a": prediction}
+    for label, values in variants.items():
+        pred: dict[str, list[np.ndarray]] = {
+            n: [np.full(len(r.candidates), np.nan) for r in roots] for n in COMPONENTS
+        }
+        for n in COMPONENTS:
+            for r, root in enumerate(roots):
+                pred[n][r][root.h12] = 0.0
+        for r_id, c in zip(survivors.root_id.tolist(), survivors.candidate.tolist(), strict=True):
+            y1 = values[(str(r_id), int(c))]
+            for j, n in enumerate(COMPONENTS):
+                pred[n][position[str(r_id)]][int(c)] = y1[j]
+        predictions[label] = pred
+    rows = {label: evaluation_rows(roots, survivors, pred) for label, pred in predictions.items()}
     heads: dict[str, Any] = {}
     for j, name in enumerate(COMPONENTS):
         out = {}
-        for label, rows in (("stage1_a", rows_a), ("a_v1", rows_v)):
-            order = pair_metrics(rows, j)
+        for label, label_rows in rows.items():
+            order = pair_metrics(label_rows, j)
             out[label] = {
                 "ordering": order["accuracy"],
                 "pairs": order["pairs"],
-                "slope": calibration_metrics(rows, j)["world_balanced"]["slope"],
+                "slope": calibration_metrics(label_rows, j)["world_balanced"]["slope"],
             }
         heads[name] = out
+    surv = targets.survivor
     return {
         "status": "REPORT_ONLY",
         "split": "survivors",
         "rows": len(survivors),
-        "survivor_rows_without_one_step": int((targets.survivor & ~available).sum()),
+        "survivor_rows_dropped": int((surv & ~available).sum()),
+        "survivor_rows_dropped_by_reason": {
+            "a_v1_missing": int((surv & ~present["a_v1"]).sum()),
+            "a_v1_same_streams_missing": int((surv & ~present["a_v1_same_streams"]).sum()),
+        },
         "critic": "the fit's frozen critic (task_critic + cost_critics), not an ensemble",
+        "a_v1_streams": "stream 0 only (independent of the target's re-evaluation streams)",
+        "a_v1_same_streams_streams": "the target's own streams (shares realised r_0)",
         "heads": heads,
+    }
+
+
+def one_step_advantages(
+    successor_data: StageOneData,
+    values: ValuesFn,
+    roots: Sequence[Root],
+    *,
+    stream0_only: bool,
+) -> dict[tuple[str, int], np.ndarray]:
+    """Anchored one-step advantages ``T1_a - T1_h12`` per (root, candidate), reference
+    units, from :func:`build_stage1_targets` with ``lam = 0`` and V = ``values`` (the
+    fit's frozen critic in :func:`a_vs_v_one_step`); ``stream0_only`` restricts candidate
+    and H12 to stream 0 (otherwise the same streams as the stage-1 target)."""
+    one = build_stage1_targets(
+        successor_data,
+        values,
+        lam=0.0,
+        only_streams=(0,) if stream0_only else None,
+    ).for_roots([r.root_id for r in roots])
+    return {
+        (str(r), int(c)): one.y[i]
+        for i, (r, c) in enumerate(zip(one.root_id, one.candidate, strict=True))
     }
 
 
@@ -1869,13 +1923,18 @@ def stage1_gate_report(
                 "diagnostics": "every gate of the original stage-1 spec table with its "
                 "original PASS/FAIL and thresholds (diagnostic_failed); report only",
                 "a_vs_v_one_step": "stage-1 A versus V's own anchored one-step advantage "
-                "A_V1 = (r_0 + g_0 V(s_1)) - H12's on the same root and streams (V(s) "
-                "cancels), from build_stage1_targets with lambda = 0 and the fit's frozen "
-                "critic, scored on the same rows and informative pairs. Survivors only: a "
-                "non-survivor's stage-1 target is itself this V-bootstrapped one-step "
-                "return, so the comparison would be circular. The survivor target still "
-                f"weights the one-step term by 1 - lambda = {ONE_STEP_WEIGHT:.2f} and, on "
-                "the same streams, shares its step-0 reward with A_V1. Report only",
+                "A_V1 = (r_0 + g_0 V(s_1)) minus H12's on the same root (V(s) cancels), "
+                "from build_stage1_targets with lambda = 0 and the fit's frozen critic. "
+                "a_v1 (primary) uses stream 0 only, the independent first-action stream, "
+                "so it shares no realised reward with the survivor target (re-evaluation "
+                "streams). a_v1_same_streams (secondary) uses the target's own streams and "
+                "shares their realised r_0 with the target, which flatters it. stage1_a, "
+                "a_v1 and a_v1_same_streams are scored on exactly the same survivor rows "
+                "and informative pairs; rows where either A_V1 is missing are dropped from "
+                "all three and counted. Survivors only: a non-survivor's stage-1 target is "
+                "itself the V-bootstrapped one-step return, so the comparison would be "
+                "circular. The survivor target weights the one-step term by 1 - lambda = "
+                f"{ONE_STEP_WEIGHT:.2f}. Report only",
                 "rows": "non-H12 candidates with targets, plus one H12 anchor row (y = 0, "
                 "prediction 0) per (root, estimator class) group; prediction = A(a) - A(h12)",
                 "calibration": "world-balanced; slope of realised y on predicted after "

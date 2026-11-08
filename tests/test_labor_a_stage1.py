@@ -1291,18 +1291,97 @@ def test_a_versus_v_one_step_is_exact_with_exact_v_and_survivors_only(monkeypatc
     assert calls == [(task, costs)]
     diag = report["diagnostics"]["a_vs_v_one_step"]
     assert diag["status"] == "REPORT_ONLY" and diag["split"] == "survivors"
-    assert diag["rows"] == int(surv.sum())
+    assert diag["rows"] == int(surv.sum()) and diag["survivor_rows_dropped"] == 0
     for name in la.COMPONENTS:
-        v1, a = diag["heads"][name]["a_v1"], diag["heads"][name]["stage1_a"]
-        assert v1["pairs"] > 0 and v1["pairs"] == a["pairs"]  # same informative pairs
-        assert v1["ordering"] == 1.0
-        assert v1["slope"] == pytest.approx(1.0, abs=1e-3)
+        heads = diag["heads"][name]
+        a = heads["stage1_a"]
+        for label in ("a_v1", "a_v1_same_streams"):
+            v1 = heads[label]
+            assert v1["pairs"] > 0 and v1["pairs"] == a["pairs"]  # same informative pairs
+            assert v1["ordering"] == 1.0
+            assert v1["slope"] == pytest.approx(1.0, abs=1e-3)
     # The diagnostic never moves the verdict or the warm start.
     plain = s1.stage1_gate_report([head], task, costs, eval_data.candidates, targets, [summary])
     assert plain["status"] == report["status"]
     assert plain["warm_start"] == report["warm_start"]
-    assert "Survivors only" in report["definitions"]["a_vs_v_one_step"]
-    assert "circular" in report["definitions"]["a_vs_v_one_step"]
+    definition = report["definitions"]["a_vs_v_one_step"]
+    assert "Survivors only" in definition and "circular" in definition
+    assert "stream 0 only" in definition and "shares their realised r_0" in definition
+
+
+def test_a_v1_uses_stream_zero_only_and_the_default_target_is_unchanged(monkeypatch) -> None:
+    worlds = tuple(la.RESERVED_HELDOUT_WORLDS[:3])
+    shard = _exact_v_shard(worlds, 7)
+    perturbed = copy.deepcopy(shard)
+    rng = np.random.default_rng(11)
+    changed = 0
+    for root in perturbed["roots"]:
+        for cand in root["candidates"]:
+            for stream in cand["successor_streams"]:
+                if stream["stream"] >= 1 and not cand["is_h12"]:
+                    stream["step_rewards"][0] = [
+                        r + float(rng.normal()) * la.REFERENCE_SCALES[n]
+                        for r, n in zip(stream["step_rewards"][0], la.COMPONENTS, strict=True)
+                    ]
+                    changed += 1
+    assert changed > 0
+    base, moved = s1.stage1_data([shard]), s1.stage1_data([perturbed])
+    roots = base.candidates.roots
+    v = s1.synthetic_values
+    # Stream 0 only: the re-evaluation rewards never enter.
+    a0 = s1.one_step_advantages(base, v, roots, stream0_only=True)
+    m0 = s1.one_step_advantages(moved, v, roots, stream0_only=True)
+    assert a0.keys() == m0.keys() and all(np.array_equal(a0[k], m0[k]) for k in a0)
+    # Same streams: they do.
+    a1 = s1.one_step_advantages(base, v, roots, stream0_only=False)
+    m1 = s1.one_step_advantages(moved, v, roots, stream0_only=False)
+    assert any(not np.array_equal(a1[k], m1[k]) for k in a1)
+    # The default stage-1 target is unchanged by the new keyword.
+    default = s1.build_stage1_targets(base, v)
+    explicit = s1.build_stage1_targets(base, v, only_streams=None)
+    for name in ("y", "se", "candidate", "survivor", "source", "streams"):
+        assert np.array_equal(getattr(default, name), getattr(explicit, name))
+    assert default.dropped == explicit.dropped
+    # Through the diagnostic: the same targets and A, re-evaluation rewards perturbed.
+    monkeypatch.setattr(s1, "critic_values", lambda task, costs, batch_size=256: v)
+    targets = s1.build_stage1_targets(base, v)
+    prediction = {
+        n: [np.arange(len(r.candidates), dtype=np.float64) for r in roots] for n in la.COMPONENTS
+    }
+    for n in la.COMPONENTS:
+        for r, root in enumerate(roots):
+            prediction[n][r] -= prediction[n][r][root.h12]
+    before = s1.a_vs_v_one_step(prediction, roots, targets, base, None, None)
+    after = s1.a_vs_v_one_step(prediction, roots, targets, moved, None, None)
+    assert before["rows"] == after["rows"] > 0
+    for n in la.COMPONENTS:
+        assert after["heads"][n]["a_v1"] == before["heads"][n]["a_v1"]
+        assert after["heads"][n]["stage1_a"] == before["heads"][n]["stage1_a"]
+    assert any(
+        after["heads"][n]["a_v1_same_streams"] != before["heads"][n]["a_v1_same_streams"]
+        for n in la.COMPONENTS
+    )
+    # A survivor without a stream-0 one-step value is dropped from all three and counted.
+    no_zero = copy.deepcopy(shard)
+    root = no_zero["roots"][0]
+    victim = next(
+        c for c in root["candidates"] if not c["is_h12"] and len(c["successor_streams"]) > 1
+    )
+    for stream in victim["successor_streams"]:
+        if stream["stream"] == 0:
+            for b in stream["boundaries"]:
+                b["status"] = "inactive"
+    dropped_data = s1.stage1_data([no_zero])
+    dropped_targets = s1.build_stage1_targets(dropped_data, v)
+    diag = s1.a_vs_v_one_step(
+        prediction, dropped_data.candidates.roots, dropped_targets, dropped_data, None, None
+    )
+    assert diag["survivor_rows_dropped"] == 1
+    assert diag["survivor_rows_dropped_by_reason"] == {
+        "a_v1_missing": 1,
+        "a_v1_same_streams_missing": 0,
+    }
+    assert diag["rows"] == int(dropped_targets.survivor.sum()) - 1
 
 
 def test_old_stage1_checkpoints_without_inner_fraction_still_load() -> None:
