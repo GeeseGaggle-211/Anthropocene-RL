@@ -1,8 +1,10 @@
 """Stage 2 of the labor A(s, a) head: from the teacher's Q to the actor's Q (library only).
 
-Approved A(s,a) spec (rev 33, D1-D7), stage 2. PPO-loop integration is owned elsewhere;
-this module is a set of pure, deterministic functions that loop can call. It does not
-touch ``labor_ppo``, ``labor_advantage`` or ``labor_search`` and depends only on their
+Approved A(s,a) spec (rev 33, D1-D7), stage 2. PPO-loop integration is owned elsewhere
+(``labor_a_ppo``, WP-A1); this module is a set of pure, deterministic functions that loop
+can call. It does not modify ``labor_ppo``, ``labor_advantage`` or ``labor_search``; its only
+call into ``labor_ppo`` is :func:`per_head_surrogate`, which delegates to the PPO loop's
+per-head surrogate (WP-A1: one implementation). It otherwise depends only on their
 public API at 90eee94 (``LaborAdvantageHead``, ``REFERENCE_SCALES``, ``COMPONENTS``) and on
 ``labor_sa_advantage.SuccStream``/``successor_target`` as the branch record format.
 
@@ -36,8 +38,8 @@ variance, multiplied by the caller into ``PairBatch.weight``/``SingleBatch.weigh
 control variate subtracts the state-only Abar(s) and adds the per-head E_h correction;
 the warm-up switch is one-way and raises an alarm instead of reverting.
 
-INTEGRATION (for the PPO loop; this module never calls ``labor_ppo``)
----------------------------------------------------------------------
+INTEGRATION (for the PPO loop; see ``labor_a_ppo`` for what WP-A1 implemented)
+-------------------------------------------------------------------------------
 
 Units. Three units appear and must not be mixed:
 
@@ -71,7 +73,7 @@ Call order per PPO iteration:
 5. Policy update:
    * ``WarmupSwitch.phase == "warmup"``: per-objective ``paired_policy_advantages`` ->
      ``combine_labor_advantages`` -> advantages for BOTH sampled actions at each branched
-     state, row weight 1/p, small KL-capped steps (``WARMUP_KL_CAP``, TODO). No GAE, never
+     state, row weight 1/p, small KL-capped steps (``WARMUP_KL_CAP``). No GAE, never
      the single-path TD error.
    * ``"gae"``: GAE as today. Then A for the executed action and Abar(s) (mean of A over
      the actor's samples at s, i.e. the anchor; ~0 after centring), both combined ->
@@ -89,20 +91,32 @@ Call order per PPO iteration:
 7. ``WarmupSwitch.update(WarmupReport(...))`` with V calibration on actor-visited states,
    per-world TD split (``per_world_td``) and the K-epoch dry-run approx-KL.
 
-What ``labor_ppo`` must newly expose (it does not change here):
+What ``labor_ppo`` exposes for this (WP-A0 94ba951 and WP-A1):
 
-* per-head log-probs instead of the joints, for current and behaviour policies:
-  ``labor_log_prob`` already returns ``specialty``/``activity`` and ``nonlabor_log_prob``
-  returns ``movement``/``fission``/``trade_value``/``trade_gate``/``trade_share``, but
-  ``attempt_policy_terms`` and ``LaborAttemptPolicyBatch`` carry only
-  ``*_initial_labor_logp`` and ``*_initial_nonlabor_logp`` joints (``RetainedLaborAction``
-  stores scalar ``behavior_labor_logp``/``behavior_nonlabor_logp``). The behaviour
-  per-head split must be retained at rollout time (or rescored with a snapshot of the
-  behaviour actor); it cannot be recovered from the joint.
-* a per-head-advantage variant of ``attempt_policy_terms`` (parent-summed
-  ``per_head_surrogate`` on the initial edge; retry edge unchanged);
-* the actor output (distribution parameters) per row, so E_h can be formed;
-* per-row personality weights and cost multipliers used for GAE, to combine A identically.
+* per-head behaviour log-probs retained at rollout
+  (``LaborAttemptPolicyBatch.behaviour_initial_{labor,nonlabor}_head_logp``, keys
+  ``LABOR_POLICY_HEADS``/``NONLABOR_POLICY_HEADS``, checked to sum to the stored joints;
+  ``require_behaviour_head_logp``) and the current per-head log-probs
+  (``AttemptPolicyTerms.current_initial_*_head_logp``);
+* the per-head initial-edge surrogate ``labor_ppo._per_head_initial_surrogate``
+  (``update_labor_policy(per_head_surrogate=True, initial_head_advantage=...)``). It is the
+  ONE implementation; this module's :func:`per_head_surrogate` calls through to it (and
+  returns the head SUM where labor_ppo reports the head mean; same gradient). Factored
+  heads (``trade_gate``: seven independent trade-group categoricals) can be split into
+  per-group terms with their own coefficients;
+* the control-variate hook ``update_labor_policy(initial_correction=...)``: per training
+  minibatch it returns ``labor_ppo.InitialCorrection`` (the ``sum_h eta_h E_h`` term added to
+  the initial edge, plus factored-head splits). The callable runs its own actor forward on
+  the minibatch, so the actor output per row is available to form E_h; the KL audit never
+  calls it;
+* the GAE combination inputs: ``batch.cost_multipliers`` (``require_cost_multipliers``) and
+  per-row personality weights (``row_personality_weights``).
+
+The wiring itself lives in ``labor_a_ppo`` (``train --a-mode gae``). It departs from the
+call order above in two places: continuous heads use a score-function estimator with M
+keyed draws and a leave-one-out baseline instead of a reparameterised draw (the action
+encoder's apportionment is NumPy and not differentiable), and D7 is lagged by one
+iteration with the exact streamed gradient-variance trace instead of a random projection.
 """
 
 from __future__ import annotations
@@ -838,21 +852,23 @@ def per_head_surrogate(
     log pi_h. Clipping uses the joint ratio, as ``labor_ppo._clipped_surrogate``. When all
     heads share one advantage the gradient equals the joint surrogate's gradient. Under
     ratio 1 (first epoch) the gradient is exactly sum_h grad log pi_h * c_h.
+
+    Since WP-A1 this calls through to the one implementation the PPO loop uses,
+    ``labor_ppo._per_head_initial_surrogate`` (ratio r_h = stopgrad(r) exp(logp_h -
+    stopgrad(logp_h)): the same forward value and gradient as the formula above), and
+    returns the per-head SUM (labor_ppo reports the head mean; the gradient is the same).
     """
+    from .labor_ppo import _per_head_initial_surrogate
+
     heads = list(advantages)
     if set(heads) != set(current_logp) or set(heads) != set(behaviour_logp):
         raise ValueError("advantages and log-probs must name the same heads")
     if not 0.0 < clip < 1.0:
         raise ValueError("clip must be in (0, 1)")
     old = sum(behaviour_logp[h].detach() for h in heads)
-    total = None
-    for h in heads:
-        joint = current_logp[h] + sum(current_logp[j].detach() for j in heads if j != h)
-        ratio = torch.exp(joint - old)
-        adv = advantages[h].detach()
-        term = torch.minimum(ratio * adv, ratio.clamp(1.0 - clip, 1.0 + clip) * adv)
-        total = term if total is None else total + term
-    return total
+    ratio = torch.exp(sum(current_logp[h] for h in heads) - old)
+    mean = _per_head_initial_surrogate(ratio, current_logp, advantages, clip, heads=heads)
+    return mean.detach() * len(heads) + (mean - mean.detach())
 
 
 # ---------------------------------------------------------------------------
@@ -964,12 +980,15 @@ WARMUP_DECISIONS = 9  # the warm-up covers the first nine decisions (spec); see 
 # TODO(spec): confirm V's gate uses the same numbers as A's.
 V_SLOPE_BAND = (0.8, 1.2)
 V_BIAS_FRACTION = 0.25
-# TODO(measure): per-world TD split bound (|mean TD| / spread per world); unset -> fails.
-TD_SPLIT_BIAS_FRACTION: float | None = None
-# TODO(measure): approx-KL bound for the K-epoch dry run; unset -> fails.
-DRY_RUN_KL_BOUND: float | None = None
-# TODO(measure): KL cap for the warm-up's small updates (used by the PPO loop, not here).
-WARMUP_KL_CAP: float | None = None
+# Per-world TD split bound, evaluated per value component: in every world,
+# |mean TD(0)| <= 0.05 x that component's realised spread (Amendment B5, 8 Nov 2026).
+TD_SPLIT_BIAS_FRACTION: float | None = 0.05
+# Approx-KL bound for the K-epoch dry run (equal to the PPO target_kl).
+# Provisional until measured.
+DRY_RUN_KL_BOUND: float | None = 0.02
+# KL cap for the warm-up's small updates (for a PPO loop that takes warm-up steps; WP-A1
+# runs the switch as telemetry only and takes none). Provisional until measured.
+WARMUP_KL_CAP: float | None = 0.005
 
 
 @dataclass(frozen=True)
@@ -997,15 +1016,34 @@ def per_world_td(world: Any, td: Any) -> dict[int, dict[str, float]]:
 
 @dataclass(frozen=True)
 class WarmupReport:
-    """Plain-number inputs for one switch evaluation (per objective where relevant)."""
+    """Plain-number inputs for one switch evaluation, per value component.
 
-    calibration_slope: Mapping[str, float]
-    calibration_bias: Mapping[str, float]
+    ``realised_spread[name]`` is component ``name``'s realised-return spread. A component
+    with zero spread had no events (e.g. a cost that never fired): it is excluded from the
+    calibration and TD gates and reported as "no events", never failed; but a report in
+    which no component has events cannot pass (no vacuous pass).
+
+    ``td_by_world[name]`` maps world -> mean TD(0) of component ``name``, in the same raw
+    units as its spread (the TD split is evaluated per component, against that
+    component's spread). ``calibration_slope``/``calibration_bias`` may hold None for a
+    component whose slope is not measurable (zero prediction variance): that fails the
+    gate. ``dry_run_kl`` None means "not measured" and fails the KL gate (fail closed).
+    """
+
+    calibration_slope: Mapping[str, float | None]
+    calibration_bias: Mapping[str, float | None]
     realised_spread: Mapping[str, float]
-    td_by_world: Mapping[int, float]  # |mean TD| per world (any one unit)
-    td_spread: float  # the same unit's realised spread
-    dry_run_kl: Sequence[float]  # approx-KL per epoch, K epochs, updates not applied
+    td_by_world: Mapping[str, Mapping[int, float]]
+    dry_run_kl: Sequence[float] | None  # approx-KL per epoch, K epochs, updates not applied
     dry_run_clip_fraction: Sequence[float] = ()  # report only
+
+    def with_events(self) -> list[str]:
+        """Components with a positive realised spread, in report order."""
+        return [n for n in self.realised_spread if float(self.realised_spread[n]) > 0.0]
+
+    def without_events(self) -> list[str]:
+        """Components with zero realised spread ("no events"), in report order."""
+        return [n for n in self.realised_spread if not float(self.realised_spread[n]) > 0.0]
 
 
 @dataclass(frozen=True)
@@ -1016,6 +1054,7 @@ class WarmupDecision:
     reasons: list[str]
     streak: int
     alarm: bool = False  # in ``gae``: the gates failed again (V degraded online)
+    no_events: tuple[str, ...] = ()  # components excluded from the gates (zero spread)
 
 
 @dataclass
@@ -1023,7 +1062,11 @@ class WarmupSwitch:
     """One-way state machine: stays in ``warmup`` until ``consecutive`` reports in a row
     pass all three gates (V calibration, per-world TD split, dry-run KL), then ``gae``
     for good. An unset threshold fails its gate (fail closed). After the switch a failing
-    report never reverts the phase; it raises ``alarm`` on the decision instead."""
+    report never reverts the phase; it raises ``alarm`` on the decision instead.
+
+    Components with zero realised spread are excluded from the calibration and TD gates
+    (reported as "no events"); at least one component must have events for either gate
+    to pass."""
 
     thresholds: WarmupThresholds = field(default_factory=WarmupThresholds)
     phase: str = "warmup"
@@ -1034,34 +1077,51 @@ class WarmupSwitch:
         t = self.thresholds
         reasons: list[str] = []
         lo, hi = t.slope_band
-        calibration = bool(report.calibration_slope)
-        for name, slope in report.calibration_slope.items():
+        active = report.with_events()
+        for name in report.without_events():
+            reasons.append(f"{name}: no events (zero realised spread); excluded from the gates")
+        if not active:
+            reasons.append("no value component has events; calibration and TD gates cannot pass")
+        calibration = bool(active)
+        for name in active:
+            spread = float(report.realised_spread[name])
+            slope = report.calibration_slope.get(name)
+            bias = report.calibration_bias.get(name)
+            if slope is None or bias is None:
+                calibration = False
+                reasons.append(f"V calibration {name} not measurable")
+                continue
             if not (lo <= float(slope) <= hi):
                 calibration = False
-                reasons.append(f"V slope {name}={slope:.3g} outside [{lo}, {hi}]")
-            spread = float(report.realised_spread[name])
-            bias = abs(float(report.calibration_bias[name]))
-            if not spread > 0 or bias >= t.bias_fraction * spread:
+                reasons.append(f"V slope {name}={float(slope):.3g} outside [{lo}, {hi}]")
+            if abs(float(bias)) >= t.bias_fraction * spread:
                 calibration = False
                 reasons.append(
-                    f"V bias {name}={bias:.3g} >= {t.bias_fraction} x spread {spread:.3g}"
+                    f"V bias {name}={abs(float(bias)):.3g} >= {t.bias_fraction} x spread "
+                    f"{spread:.3g}"
                 )
-        if not report.calibration_slope:
-            reasons.append("no V calibration measured")
         if t.td_split_fraction is None:
             td = False
             reasons.append("TD split threshold unset (TODO measure)")
         else:
-            bound = t.td_split_fraction * float(report.td_spread)
-            bad = {w: v for w, v in report.td_by_world.items() if abs(float(v)) > bound}
-            td = bool(report.td_by_world) and not bad and report.td_spread > 0
-            if bad:
-                reasons.append(f"TD split fails in worlds {sorted(bad)}")
-            if not report.td_by_world:
-                reasons.append("no per-world TD split")
+            td = bool(active)
+            for name in active:
+                worlds = report.td_by_world.get(name) or {}
+                if not worlds:
+                    td = False
+                    reasons.append(f"no per-world TD split for {name}")
+                    continue
+                bound = t.td_split_fraction * float(report.realised_spread[name])
+                bad = sorted(w for w, v in worlds.items() if abs(float(v)) > bound)
+                if bad:
+                    td = False
+                    reasons.append(f"TD split {name} fails in worlds {bad}")
         if t.kl_bound is None:
             kl = False
             reasons.append("dry-run KL bound unset (TODO measure)")
+        elif report.dry_run_kl is None:
+            kl = False
+            reasons.append("dry-run KL not measured")
         else:
             kl = bool(report.dry_run_kl) and max(float(x) for x in report.dry_run_kl) <= t.kl_bound
             if not kl:
@@ -1076,6 +1136,14 @@ class WarmupSwitch:
             if self.streak >= max(1, int(self.thresholds.consecutive)):
                 self.phase = "gae"
         alarm = self.phase == "gae" and not passed
-        decision = WarmupDecision(self.phase, passed, gates, reasons, self.streak, alarm)
+        decision = WarmupDecision(
+            self.phase,
+            passed,
+            gates,
+            reasons,
+            self.streak,
+            alarm,
+            tuple(report.without_events()),
+        )
         self.history.append(decision)
         return decision

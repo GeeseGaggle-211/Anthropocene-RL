@@ -22,6 +22,7 @@ import copy
 import json
 import math
 import os
+import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -310,6 +311,9 @@ class LaborRolloutRow:
     # NONLABOR_POLICY_HEADS), retained from the same log_prob calls as the joints.
     behavior_initial_labor_head_logp: dict[str, float] | None = None
     behavior_initial_nonlabor_head_logp: dict[str, float] | None = None
+    # Pre-action decision-boundary population of the parent (its root catalog's), the
+    # specialty apportionment input of the A(s,a) action encoding (WP-A1).
+    initial_population: int | None = None
 
 
 def _transition_rewards(
@@ -569,6 +573,7 @@ def _execute_single_step_detailed(
                 behavior_initial_nonlabor_head_logp={
                     name: float(value[row]) for name, value in nonlabor_head_lp.items()
                 },
+                initial_population=int(catalogs[camp].population),
                 initial_task_values={
                     name: float(value[row]) for name, value in initial_task.items()
                 },
@@ -671,6 +676,20 @@ def _sample_world_step(
             current_step = bridge.restore(fork)
 
     return current_step, accumulated_rows
+
+
+def _decision_rewards(row: LaborRolloutRow) -> dict[str, float]:
+    """The decision's total raw reward per value component, over both attempt edges.
+
+    Task objectives: the physical reward (recorded once). Feasibility: initial plus retry
+    cost. Settlement guard: its single value. ``build_labor_training_batch``'s GAE uses
+    exactly these rewards on its initial/execution edges.
+    """
+    return {
+        **{name: float(row.physical_task_rewards[name]) for name in LABOR_OBJECTIVES},
+        "feasibility": float(row.feasibility_initial) + float(row.feasibility_retry),
+        "settlement_guard": float(row.settlement_guard),
+    }
 
 
 def _bootstrap_values(
@@ -2347,9 +2366,14 @@ def _command_collect(args: argparse.Namespace) -> None:
         "samplingGeneratorStateBefore": before_rng,
         "samplingGeneratorStateAfter": sampling.get_state(),
         "scope": "local-diagnostic-rollout-not-readiness",
+        # Parent order (= batch order). ``population`` and ``rewards`` (per value
+        # component, the decision's total reward over both edges) feed WP-A1's A
+        # encoding and warm-up telemetry; consumers ignore them otherwise.
         "decisionRows": [
             {"world": row.world_seed, "camp": row.camp_id, "turn": row.turn,
-             "years": row.years, "terminated": row.terminated}
+             "years": row.years, "terminated": row.terminated,
+             "population": row.initial_population,
+             "rewards": _decision_rewards(row)}
             for row in rows
         ],
         "tailSemantics": "frozen-source-state-value-bootstrap",
@@ -2395,6 +2419,8 @@ def _command_train(args: argparse.Namespace) -> None:
         raise ValueError("labor rollout normalization binding is stale")
     if getattr(args, "per_head_surrogate", False):
         batch.require_behaviour_head_logp()  # refuse before any critic step
+    # WP-A1: None in --a-mode off (the default), which touches nothing below.
+    a_run = _a_setup(args, state, batch, rollout_metadata)
 
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
     critic_optimizer = torch.optim.Adam(
@@ -2469,6 +2495,11 @@ def _command_train(args: argparse.Namespace) -> None:
         not torch.equal(value, actor.state_dict()[name]) for name, value in actor_before.items()
     ):
         raise AssertionError("critic update changed actor parameters")
+    a_prepared = None
+    if a_run is not None:
+        # A from the frozen snapshot, with the pre-update (behaviour) actor; D7 measures
+        # this batch for the NEXT iteration's eta.
+        a_prepared = _a_prepare(a_run, actor, batch, state)
     actor_stats: dict[str, Any]
     if warmup is not None:
         actor_stats = {"actorGateOpen": False, "reason": "critic-warmup-requires-fresh-calibration"}
@@ -2485,7 +2516,20 @@ def _command_train(args: argparse.Namespace) -> None:
         shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
         per_head = bool(getattr(args, "per_head_surrogate", False))
         extra: dict[str, Any] = {}
-        if per_head:
+        if a_prepared is not None:
+            if getattr(args, "a_telemetry_dry_run", False):
+                a_run["dryRunKL"] = _a_dry_run_kl(
+                    a_prepared, actor, actor_optimizer, batch, state, args, gate, behavior
+                )
+            extra = {
+                "per_head_surrogate": True,
+                "initial_head_advantage": a_prepared.coefficients(),
+                "initial_correction": a_prepared.correction_fn(actor),
+            }
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor_heads(  # noqa: E731
+                actor, tensors, sample
+            )
+        elif per_head:
             extra = {"per_head_surrogate": True}
             nonlabor_scorer = lambda tensors, sample: _score_nonlabor_heads(  # noqa: E731
                 actor, tensors, sample
@@ -2549,7 +2593,247 @@ def _command_train(args: argparse.Namespace) -> None:
     }
     if warmup is not None:
         next_state["last_update"]["criticWarmup"] = dict(warmup)
+    if a_run is not None:
+        assert a_prepared is not None
+        _a_finish(a_run, a_prepared, next_state, state, task, costs, batch, rollout_metadata)
     _save_checkpoint(args.out, next_state)
+
+
+# ---------------------------------------------------------------------------
+# WP-A1: --a-mode gae (labor_a_ppo); --a-mode off never reaches these helpers
+# ---------------------------------------------------------------------------
+
+
+def _a_setup(
+    args: argparse.Namespace,
+    state: Mapping[str, Any],
+    batch: LaborAttemptPolicyBatch,
+    rollout_metadata: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate the A arguments; in gae mode load the frozen A and the lagged eta."""
+    from . import labor_a_ppo as ap
+
+    mode = getattr(args, "a_mode", "off")
+    if mode not in ap.A_MODES:
+        raise ValueError(f"--a-mode must be one of {list(ap.A_MODES)}")
+    a_paths = (getattr(args, "a_warm_start", None), getattr(args, "a_critic", None))
+    if mode == "off":
+        if any(path is not None for path in a_paths) or getattr(
+            args, "a_telemetry_dry_run", False
+        ):
+            raise ValueError(
+                "--a-warm-start/--a-critic/--a-telemetry-dry-run require --a-mode gae"
+            )
+        return None
+    if any(path is None for path in a_paths):
+        raise ValueError("--a-mode gae requires --a-warm-start and --a-critic")
+    draws = int(getattr(args, "a_draws", ap.DEFAULT_DRAWS))
+    d7_rows = int(getattr(args, "a_d7_rows", ap.DEFAULT_D7_ROWS))
+    if draws < 2 or d7_rows < 2:
+        raise ValueError("--a-draws and --a-d7-rows must be >= 2")
+    # Refuse before any critic step: the A path needs WP-A0's plumbing.
+    batch.require_behaviour_head_logp()
+    batch.require_cost_multipliers()
+    decisions = rollout_metadata.get("decisionRows")
+    if (
+        not isinstance(decisions, list)
+        or len(decisions) != batch.parent_count
+        or any(not isinstance(row, Mapping) or row.get("population") is None for row in decisions)
+    ):
+        raise ValueError(
+            "labor rollout predates recorded parent populations (A's action encoding); "
+            "recollect the rollout"
+        )
+    warm_start = torch.load(args.a_warm_start, map_location="cpu", weights_only=True)
+    critic_state = torch.load(args.a_critic, map_location="cpu", weights_only=True)
+    frozen = ap.load_frozen_a(
+        warm_start,
+        critic_state,
+        normalization_binding_digest=batch.normalization_binding_digest,
+    )
+    stored = state.get(ap.A_STATE_KEY)
+    eta, source = ap.eta_for_iteration(stored, iteration=int(state["iteration"]), frozen=frozen)
+    return {
+        "frozen": frozen,
+        "eta": eta,
+        "etaSource": source,
+        "stored": stored,
+        "draws": draws,
+        "d7Rows": d7_rows,
+        "populations": [int(row["population"]) for row in decisions],
+        "warmStartSha256": checkpoint_hash(args.a_warm_start),
+        "criticCheckpointSha256": checkpoint_hash(args.a_critic),
+        "dryRunKL": None,
+        "seconds": {},
+    }
+
+
+def _a_prepare(
+    a_run: dict[str, Any],
+    actor: LaborActor,
+    batch: LaborAttemptPolicyBatch,
+    state: Mapping[str, Any],
+) -> Any:
+    """A's per-iteration quantities and the D7 measurement on this batch."""
+    from . import labor_a_ppo as ap
+
+    clock = time.perf_counter()
+    prepared = ap.prepare_iteration(
+        a_run["frozen"],
+        actor,
+        batch,
+        a_run["populations"],
+        eta=a_run["eta"],
+        key=(int(state["optimizer_seed"]), int(state["iteration"])),
+        draws=a_run["draws"],
+    )
+    a_run["seconds"]["prepare"] = time.perf_counter() - clock
+    a_run["seconds"].update({f"prepare.{k}": v for k, v in prepared.seconds.items()})
+    measurements, seconds = ap.measure_d7(prepared, actor, rows=a_run["d7Rows"])
+    a_run["seconds"]["d7"] = seconds
+    a_run["measurements"] = measurements
+    a_run["nextEta"] = ap.eta_from_measurements(measurements)
+    return prepared
+
+
+def _a_dry_run_kl(
+    prepared: Any,
+    actor: LaborActor,
+    actor_optimizer: torch.optim.Optimizer,
+    batch: LaborAttemptPolicyBatch,
+    state: Mapping[str, Any],
+    args: argparse.Namespace,
+    gate: LaborActorGate,
+    behavior: Mapping[str, object],
+) -> list[float]:
+    """Approx-KL after each of the K epochs of the same update, run on copies.
+
+    The actor, its Adam state and the shuffle stream are copied; nothing is applied
+    to the real ones. No rollback (target KL 1e30), so the K-epoch KL is measured as is.
+    """
+    shadow = copy.deepcopy(actor)
+    optimizer = torch.optim.Adam(shadow.parameters(), lr=args.actor_lr)
+    optimizer.load_state_dict(copy.deepcopy(actor_optimizer.state_dict()))
+    rng = np.random.default_rng()
+    rng.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+    stats = update_labor_policy(
+        policy_module=shadow,
+        labor_actor=shadow,
+        optimizer=optimizer,
+        batch=batch,
+        nonlabor_scorer=lambda tensors, sample: _score_nonlabor_heads(shadow, tensors, sample),
+        per_head_surrogate=True,
+        initial_head_advantage=prepared.coefficients(),
+        initial_correction=prepared.correction_fn(shadow),
+        rng=rng,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        clip=args.clip,
+        entropy_weight=args.entropy_weight,
+        max_grad_norm=args.max_grad_norm,
+        target_kl=1e30,
+        audit_rows=args.audit_rows,
+        actor_gate=gate,
+        behavior_configuration=behavior,
+    )
+    kl = list(stats["sampledNonnegativeKL"])
+    per_epoch, cursor = [], 0
+    for epoch in stats["epochCoverage"]:
+        cursor += int(epoch["processed"]["minibatches"])
+        per_epoch.append(float(kl[cursor - 1]))
+    return per_epoch
+
+
+def _a_finish(
+    a_run: dict[str, Any],
+    prepared: Any,
+    next_state: dict[str, Any],
+    state: Mapping[str, Any],
+    task: LaborTaskCritic,
+    costs: LaborCostCritics,
+    batch: LaborAttemptPolicyBatch,
+    rollout_metadata: Mapping[str, Any],
+) -> None:
+    """Telemetry, the frozen-A guard and the persisted (lagged) D7 state."""
+    from . import labor_a_ppo as ap
+
+    frozen = a_run["frozen"]
+    frozen.assert_unchanged()
+    online = {
+        **_task_values(task, batch.initial_tensors, batch.initial_privileged_raw),
+        **_cost_values(costs, batch.initial_tensors, batch.initial_privileged_raw),
+    }
+    report, detail = ap.warmup_report(online, rollout_metadata, dry_run_kl=a_run["dryRunKL"])
+    switch = ap.switch_state(a_run["stored"])
+    warmup: dict[str, Any] = {**detail, "effect": "telemetry-only-never-changes-training"}
+    if report is not None:
+        decision = switch.update(report)
+        warmup["decision"] = {
+            "phase": decision.phase,
+            "passed": decision.passed,
+            "gates": dict(decision.gates),
+            "reasons": list(decision.reasons),
+            "streak": decision.streak,
+            "alarm": decision.alarm,
+            "noEvents": list(decision.no_events),
+        }
+    measurements = {
+        head: {key: ap.json_number(value) for key, value in values.items()}
+        for head, values in a_run["measurements"].items()
+    }
+    next_state[ap.A_STATE_KEY] = {
+        "schema": ap.A_STATE_SCHEMA,
+        "mode": "gae",
+        "criticDigest": frozen.critic_digest,
+        "headDigest": frozen.head_digest,
+        "warmStartSha256": a_run["warmStartSha256"],
+        "criticCheckpointSha256": a_run["criticCheckpointSha256"],
+        "draws": int(a_run["draws"]),
+        "d7Rows": int(a_run["d7Rows"]),
+        "threshold": float(ap.D7_MIN_VARIANCE_REDUCTION),
+        "measuredIteration": int(state["iteration"]),
+        "nextEta": dict(a_run["nextEta"]),
+        "measurements": measurements,
+        "warmupSwitch": {"phase": switch.phase, "streak": int(switch.streak)},
+    }
+    next_state["last_update"]["aControlVariate"] = {
+        "mode": "gae",
+        "etaUsed": dict(prepared.eta),
+        "etaSource": a_run["etaSource"],
+        "nextEta": dict(a_run["nextEta"]),
+        "d7": measurements,
+        "frozen": {**frozen.record(), "unchangedAfterIteration": True},
+        "counts": dict(prepared.counts),
+        "draws": int(a_run["draws"]),
+        "warmup": warmup,
+        "scope": "A frozen; eta lagged one iteration; retry edges eta = 0",
+    }
+    # Wall-clock timings are non-authoritative: printed, never written to the checkpoint.
+    print(
+        json.dumps(
+            {
+                "aControlVariate": {
+                    "etaUsed": prepared.eta,
+                    "nextEta": a_run["nextEta"],
+                    "d7": {
+                        head: {
+                            key: values[key]
+                            for key in (
+                                "varianceVOnly",
+                                "varianceControlVariate",
+                                "reduction",
+                                "admit",
+                            )
+                        }
+                        for head, values in measurements.items()
+                    },
+                    "warmup": warmup.get("decision", warmup.get("status")),
+                    "seconds": a_run["seconds"],
+                }
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def _command_fit_privileged_normalizer(args: argparse.Namespace) -> None:
@@ -3252,6 +3536,36 @@ def argument_parser() -> argparse.ArgumentParser:
         help="WP-A0 plumbing (off by default): per-head initial-edge surrogate with every "
         "head's coefficient = the stored GAE (eta = 0), gradient-equal to the joint path; "
         "requires a rollout with per-head behaviour log-probs",
+    )
+    train.add_argument(
+        "--a-mode",
+        choices=("off", "gae"),
+        default="off",
+        help="WP-A1: off (default, bitwise today's PPO) or gae = GAE plus the frozen stage-1 "
+        "A(s,a) per-head control variate on the heads D7 admitted on the previous iteration's "
+        "batch (needs --a-warm-start and --a-critic)",
+    )
+    train.add_argument(
+        "--a-warm-start", type=Path, default=None,
+        help="labor_a_stage1 --warm-start-out artifact (A, never trained here)",
+    )
+    train.add_argument(
+        "--a-critic", type=Path, default=None,
+        help="labor checkpoint holding the critic A was fitted on (frozen context provider)",
+    )
+    train.add_argument(
+        "--a-draws", type=int, default=16,
+        help="draws per row for the sampled heads' E_h estimator (default 16)",
+    )
+    train.add_argument(
+        "--a-d7-rows", type=int, default=64,
+        help="rows of the batch used for the D7 per-head variance measurement (default 64)",
+    )
+    train.add_argument(
+        "--a-telemetry-dry-run",
+        action="store_true",
+        help="gae telemetry: run the K-epoch update on copies to report the dry-run KL "
+        "(never applied; default off: 'not measured')",
     )
     train.add_argument("--out", type=Path, required=True)
     train.set_defaults(handler=_command_train)

@@ -527,6 +527,8 @@ def _per_head_initial_surrogate(
     current_heads: Mapping[str, torch.Tensor],
     head_advantage: Mapping[str, torch.Tensor],
     clip: float,
+    sub_heads: Mapping[str, tuple[torch.Tensor, torch.Tensor]] | None = None,
+    heads: Sequence[str] = INITIAL_POLICY_HEADS,
 ) -> torch.Tensor:
     """Initial-edge clipped surrogate with one advantage coefficient per head [N].
 
@@ -540,12 +542,33 @@ def _per_head_initial_surrogate(
     coefficient c_h = A the value equals the joint surrogate value up to float rounding
     of the mean and the gradient equals the joint surrogate's gradient (same per-row
     upstream factor into every head log-prob; only autograd accumulation order differs).
+
+    ``sub_heads`` (default None: unchanged) splits a factored head into independent
+    factors with their own coefficients: ``sub_heads[h] = (logp [N, G], coef [N, G])``
+    where ``logp[:, g]`` is factor g's current log-prob (the factors sum to logp_h, e.g.
+    the seven trade groups of ``trade_gate``). Head h's term is then the factor terms
+    ``min(r_g c_g, clip(r_g) c_g)``, ``r_g = stopgrad(r) exp(logp_g - stopgrad(logp_g))``,
+    with value their mean over factors and gradient their sum; with every c_g = c_h it
+    has head h's gradient (sum_g grad logp_g = grad logp_h).
+
+    ``heads`` (default ``INITIAL_POLICY_HEADS``) names the heads summed over; the stage-2
+    library's ``labor_a_stage2.per_head_surrogate`` calls through with its own head names.
     """
 
     ratio_value = initial_ratio.detach()
     value_sum: torch.Tensor | None = None
     carrier: torch.Tensor | None = None
-    for name in INITIAL_POLICY_HEADS:
+    for name in heads:
+        if sub_heads is not None and name in sub_heads:
+            logp, coefficient = sub_heads[name]
+            factor_ratio = ratio_value[:, None] * torch.exp(logp - logp.detach())
+            factor_term = _clipped_surrogate(factor_ratio, coefficient.detach(), clip)
+            factor_detached = factor_term.detach()
+            detached = factor_detached.mean(dim=1)
+            head_carrier = (factor_term - factor_detached).sum(dim=1)
+            value_sum = detached if value_sum is None else value_sum + detached
+            carrier = head_carrier if carrier is None else carrier + head_carrier
+            continue
         logp = current_heads[name]
         head_ratio = ratio_value * torch.exp(logp - logp.detach())
         term = _clipped_surrogate(head_ratio, head_advantage[name].detach(), clip)
@@ -553,7 +576,26 @@ def _per_head_initial_surrogate(
         value_sum = detached if value_sum is None else value_sum + detached
         carrier = term - detached if carrier is None else carrier + (term - detached)
     assert value_sum is not None and carrier is not None
-    return value_sum / len(INITIAL_POLICY_HEADS) + carrier
+    return value_sum / len(heads) + carrier
+
+
+@dataclass(frozen=True)
+class InitialCorrection:
+    """The A(s,a) control variate's initial-edge additions for one parent minibatch.
+
+    ``term`` [n]: per-parent ``sum_h eta_h E_h(s_i)``-type term ADDED to the initial-edge
+    surrogate (maximised, averaged over parents with the rest of the objective); its
+    gradient is the per-head correction ``sum_h eta_h grad E_h``. ``sub_heads``: factored
+    heads' per-factor current log-probs and coefficients for
+    :func:`_per_head_initial_surrogate` (None: no factored head is split).
+    """
+
+    term: torch.Tensor
+    sub_heads: Mapping[str, tuple[torch.Tensor, torch.Tensor]] | None = None
+
+
+# Called with the minibatch's parent indices (into the batch).
+InitialCorrectionFn = Callable[[torch.Tensor], InitialCorrection]
 
 
 @dataclass(frozen=True)
@@ -602,6 +644,7 @@ def attempt_policy_terms(
     behaviour_initial_labor_head_logp: Mapping[str, torch.Tensor] | None = None,
     behaviour_initial_nonlabor_head_logp: Mapping[str, torch.Tensor] | None = None,
     initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
+    initial_correction: InitialCorrection | None = None,
 ) -> AttemptPolicyTerms:
     """Build the actual two-edge PPO objective with a parent denominator.
 
@@ -619,6 +662,11 @@ def attempt_policy_terms(
     ``initial_advantage`` is still validated but not used on the initial edge.
     The retry edge, the ratios, the entropy and the parent denominator are the
     same in both modes.
+
+    ``initial_correction`` (default None; per-head mode only) is the A(s,a) control
+    variate's minibatch addition (:class:`InitialCorrection`): its factored-head split
+    goes into the per-head surrogate and its ``term`` is added to each parent's
+    initial-edge surrogate before the retry edge is accumulated.
     """
 
     n = len(current_initial_labor_logp)
@@ -709,17 +757,35 @@ def attempt_policy_terms(
     if not bool(torch.isfinite(initial_ratio).all()) or not bool(torch.isfinite(retry_ratio).all()):
         raise FloatingPointError("non-finite labor PPO ratio")
 
+    if initial_correction is not None and initial_head_advantage is None:
+        raise ValueError("an initial control-variate correction requires per-head advantages")
     if initial_head_advantage is None:
         parent_surrogate = _clipped_surrogate(initial_ratio, initial_advantage, clip)
     else:
         assert current_initial_labor_head_logp is not None
         assert current_initial_nonlabor_head_logp is not None
+        sub_heads = None if initial_correction is None else initial_correction.sub_heads
+        if sub_heads is not None:
+            for name, (logp, coefficient) in sub_heads.items():
+                if (
+                    name not in INITIAL_POLICY_HEADS
+                    or logp.ndim != 2
+                    or len(logp) != n
+                    or coefficient.shape != logp.shape
+                ):
+                    raise ValueError(f"{name} factor log-probs/coefficients must be [N, G]")
         parent_surrogate = _per_head_initial_surrogate(
             initial_ratio,
             {**current_initial_labor_head_logp, **current_initial_nonlabor_head_logp},
             initial_head_advantage,
             clip,
+            sub_heads,
         )
+        if initial_correction is not None:
+            correction = _vector(initial_correction.term, n, "initial control-variate term")
+            if not bool(torch.isfinite(correction).all()):
+                raise FloatingPointError("non-finite initial control-variate term")
+            parent_surrogate = parent_surrogate + correction
     parent_entropy = initial_labor_entropy + initial_nonlabor_entropy
     if m:
         retry_surrogate = _clipped_surrogate(retry_ratio, retry_advantage, clip)
@@ -1160,6 +1226,7 @@ def labor_policy_minibatch_terms(
     clip: float,
     entropy_weight: float,
     initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
+    initial_correction: InitialCorrectionFn | None = None,
 ) -> AttemptPolicyTerms:
     """Recompute one parent minibatch under the current policy.
 
@@ -1170,6 +1237,10 @@ def labor_policy_minibatch_terms(
     ``INITIAL_POLICY_HEADS``; default None) selects the per-head initial-edge
     surrogate, which needs the batch's retained behaviour heads and a mapping-form
     non-labor scorer. The retry edge is unchanged.
+
+    ``initial_correction`` (default None) is called once with ``parent_index`` and
+    returns the A(s,a) control variate's :class:`InitialCorrection` for these parents;
+    it requires ``initial_head_advantage``.
     """
 
     if (
@@ -1186,6 +1257,8 @@ def labor_policy_minibatch_terms(
     initial_labor_sample = _rows(batch.initial_labor_sample, parent_index)
     initial_nonlabor_sample = _rows(batch.initial_nonlabor_sample, parent_index)
     behaviour_labor_heads = behaviour_nonlabor_heads = head_advantage = None
+    if initial_correction is not None and initial_head_advantage is None:
+        raise ValueError("an initial control-variate correction requires per-head advantages")
     if initial_head_advantage is not None:
         labor_heads, nonlabor_heads = batch.require_behaviour_head_logp()
         behaviour_labor_heads = {
@@ -1255,6 +1328,9 @@ def labor_policy_minibatch_terms(
         behaviour_initial_labor_head_logp=behaviour_labor_heads,
         behaviour_initial_nonlabor_head_logp=behaviour_nonlabor_heads,
         initial_head_advantage=head_advantage,
+        initial_correction=(
+            None if initial_correction is None else initial_correction(parent_index)
+        ),
     )
 
 
@@ -1290,6 +1366,7 @@ def update_labor_policy(
     behavior_configuration: Mapping[str, object],
     per_head_surrogate: bool = False,
     initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
+    initial_correction: InitialCorrectionFn | None = None,
 ) -> dict[str, object]:
     """Run one frozen-behavior PPO update with transactional KL rollback.
 
@@ -1305,12 +1382,18 @@ def update_labor_policy(
     every head), whose gradient equals the joint path's. The KL audit and the
     retry edge are the same in both modes; the reported loss is the head-mean
     value (see :func:`_per_head_initial_surrogate`).
+
+    ``initial_correction`` (default None; requires ``per_head_surrogate``) adds the
+    A(s,a) control variate's correction to every TRAINING minibatch's initial edge
+    (:class:`InitialCorrection`); the fixed KL audit never calls it.
     """
 
     if not isinstance(per_head_surrogate, bool):
         raise ValueError("per_head_surrogate must be a boolean")
     if initial_head_advantage is not None and not per_head_surrogate:
         raise ValueError("per-head advantages were supplied but per_head_surrogate is off")
+    if initial_correction is not None and not per_head_surrogate:
+        raise ValueError("a control-variate correction was supplied but per_head_surrogate is off")
     head_advantage = None
     if per_head_surrogate:
         head_advantage = (
@@ -1362,6 +1445,7 @@ def update_labor_policy(
                 clip=clip,
                 entropy_weight=entropy_weight,
                 initial_head_advantage=head_advantage,
+                initial_correction=initial_correction,
             )
             optimizer.zero_grad()
             terms.loss.backward()
@@ -1423,6 +1507,10 @@ def update_labor_policy(
             "coefficients": "explicit" if initial_head_advantage is not None else "gae-all-heads",
             "lossValue": "head-mean of per-head initial terms; gradient is their sum",
         }
+        if initial_correction is not None:
+            stats["initialSurrogate"]["controlVariateCorrection"] = (
+                "added to each training minibatch's initial edge; not to the KL audit"
+            )
     return stats
 
 

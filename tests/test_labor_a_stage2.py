@@ -461,21 +461,29 @@ def test_per_sample_gradients_and_keyed_projection() -> None:
 
 
 def _report(slope=1.0, bias=0.1, td=(0.05, 0.02), kl=(0.01, 0.02)) -> s2.WarmupReport:
+    # World labels only; per value component since Amendment B5 (8 Nov 2026).
     return s2.WarmupReport(
         calibration_slope={"qol_years": slope, "population_years": 1.05},
         calibration_bias={"qol_years": bias, "population_years": 0.0},
         realised_spread={"qol_years": 1.0, "population_years": 1.0},
-        td_by_world={90154: td[0], 90155: td[1]},
-        td_spread=1.0,
+        td_by_world={
+            "qol_years": {50001: td[0], 50002: td[1]},
+            "population_years": {50001: 0.0, 50002: 0.0},
+        },
         dry_run_kl=kl,
     )
 
 
 def test_warmup_switch_fails_closed_and_latches() -> None:
-    default = s2.WarmupSwitch()
-    d = default.update(_report())
+    # An unset threshold still fails its gate closed.
+    unset = s2.WarmupSwitch(s2.WarmupThresholds(td_split_fraction=None, kl_bound=None))
+    d = unset.update(_report())
     assert d.phase == "warmup" and not d.gates["td_split"] and not d.gates["dry_run_kl"]
     assert any("unset" in r for r in d.reasons)
+    # Amendment B5 defaults: TD split 0.05 x spread, dry-run KL 0.02.
+    assert s2.WarmupSwitch().update(_report()).passed  # |0.05| <= 0.05 x spread 1.0
+    assert not s2.WarmupSwitch().update(_report(td=(0.06, 0.02))).gates["td_split"]
+    assert not s2.WarmupSwitch().update(_report(kl=(0.01, 0.03))).gates["dry_run_kl"]
     sw = s2.WarmupSwitch(s2.WarmupThresholds(td_split_fraction=0.1, kl_bound=0.05, consecutive=2))
     assert sw.update(_report(slope=1.3)).gates["v_calibration"] is False
     assert sw.update(_report(td=(0.2, 0.0))).gates["td_split"] is False
@@ -623,4 +631,5 @@ def test_warmup_alarm_after_the_one_way_switch() -> None:
     bad = sw.update(_report(slope=2.0))
     assert bad.phase == "gae" and bad.alarm and not bad.passed
     assert not sw.update(_report()).alarm
-    assert not s2.WarmupSwitch().update(_report()).alarm  # no alarm while warming up
+    unset = s2.WarmupThresholds(td_split_fraction=None, kl_bound=None)
+    assert not s2.WarmupSwitch(unset).update(_report()).alarm  # no alarm while warming up
