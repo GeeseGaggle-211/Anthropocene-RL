@@ -2,24 +2,26 @@
 # r5 A(s,a) wiring, first native PPO collect for the local D7 measurement (CPU VM
 # anthropocene-trainer-60, c3d-highcpu-60 Spot, us-central1-c).
 #
-# One process: labor_training collect (code 64bf8a5, WP-A1) from the composed start
-# checkpoint (stage-1 critic privileged-e4 seed 0 + DAgger F1 actor; built locally by
-# labor_compose_checkpoint) on the fresh worlds 91000-91003 (not in any critic-training,
-# A-fit/eval, sealed 3000-3059 or reserved 90154-90159 set), 10 decisions per world.
+# One process: labor_training collect (WP-A1 plus collect world options) from the composed
+# start checkpoint (stage-1 critic privileged-e4 seed 0 + DAgger F1 actor; built locally by
+# labor_compose_checkpoint) on the fresh worlds 91000-91002 (not in any critic-training,
+# A-fit/eval, sealed 3000-3059 or reserved 90154-90159 set), 8 decisions per world.
 #
-# Why ONE 4-world collect and not 4 single-world collects: `train` and labor_a_measure consume
+# Why ONE multi-world collect and not one collect per world: `train` and labor_a_measure consume
 # exactly one rollout file (one batch, one sourceCheckpointSha256, one sampling-generator
-# before/after); there is no batch-merge path in train. Four single-world collects would each
-# start from the checkpoint's identical sampling-generator state (the same noise stream reused
-# on every world) and would need a merge that train never does. 4 worlds exceed
-# LOCAL_WORLD_LIMIT=3, so the collect passes --allow-vm-scale (it only lifts the 1..3 world-count
-# cap; the reserved/sealed guards still apply). Worlds run sequentially inside the process.
+# before/after); there is no batch-merge path in train. Single-world collects would each start
+# from the checkpoint's identical sampling-generator state (the same noise stream reused on
+# every world) and would need a merge that train never does. The collect passes
+# --allow-vm-scale (it only lifts the LOCAL_WORLD_LIMIT 1..3 world-count cap; 3 worlds are
+# within it; the reserved/sealed guards still apply). Worlds run sequentially in the process.
 #
-# NOTE (world configuration): collect_labor_rollout at 64bf8a5 calls bridge.reset(seed) with
-# Model9Bridge.reset's defaults: 8 players, movement=False, the native Small world. The critic,
-# A and the F1 actor were fitted on 16 players, 128x64, separation 9, movement on (search, BC,
-# DAgger, panel). labor_bc.LaborResetOptions calls a movement-disabled reset "a named mechanical
-# fixture only". The collect CLI has no reset options, so this job cannot change it.
+# World configuration: the training worlds the critic, A and the F1 actor were fitted on,
+# read from the fit-h12 search source.json reset_options ({players 16, width 128, height 64,
+# separation 9, movement true, withheld 0}) and the panel/DAgger configs (16 / 128x64 / 9, no
+# --no-movement): collect --players 16 --width 128 --height 64 --separation 9 --movement.
+# Without these flags collect keeps its historical bridge.reset(seed) (8 players, movement
+# off, the Small world: a mechanical fixture). The rollout records them (resetOptions) and
+# the job checks them after the collect.
 #
 # Conventions follow actor_diag_job.sh / actor_panel_job.sh / reserved_succ_job.sh: code tarball
 # (git archive) with commit-id check and best-effort snapshot commit, the shared venv, the shared
@@ -36,7 +38,8 @@
 # the collect gets the budget minus UPLOAD_RESERVE_S and reports FAIL:timeout when it hits it.
 #
 # Required env: none (defaults below). Optional: SHA CODE_GCS CKPT_GCS CKPT_SHA256 DEST WORK
-#   CODEROOT PY BRIDGE BRIDGE_SHA256 WORLDS TURNS JOB_TIMEOUT UPLOAD_RESERVE_S MIN_MEM_GB
+#   CODEROOT PY BRIDGE BRIDGE_SHA256 WORLDS TURNS PLAYERS WIDTH HEIGHT SEPARATION MOVEMENT
+#   JOB_TIMEOUT UPLOAD_RESERVE_S MIN_MEM_GB
 #
 # Launch (detached; rerun the same line after a VM stop: a present rollout is not recollected):
 #   setsid nohup bash $HOME/d7_collect_job.sh > $HOME/r5/d7-run.out 2>&1 < /dev/null &
@@ -48,9 +51,9 @@ if [ "${D7_UNDER_TIMEOUT:-0}" != "1" ]; then
   exec timeout --signal=TERM --kill-after=120 "$JOB_TIMEOUT" bash "$0" "$@"
 fi
 
-SHA="${SHA:-64bf8a5e88a19dbdec85fa4839589aa13bb076f6}"
+SHA="${SHA:-252732fddde5e5770dfd381338bad253741567e9}"
 GCS_ROOT="${GCS_ROOT:-gs://anthropocene-rl-datasets-508912/model9/r5}"
-CODE_GCS="${CODE_GCS:-$GCS_ROOT/code/rl-awire-64bf8a5.tar.gz}"
+CODE_GCS="${CODE_GCS:-$GCS_ROOT/code/rl-awire-${SHA:0:7}.tar.gz}"
 CKPT_GCS="${CKPT_GCS:-$GCS_ROOT/d7-run/checkpoint-start.pt}"
 CKPT_SHA256="${CKPT_SHA256:-14e749b0a50415f9f1b95d306bf3d8c19a810a29ef0f2755181d856566ba6483}"
 DEST="${DEST:-$GCS_ROOT/d7-run/out}"
@@ -60,8 +63,12 @@ CODE="$CODEROOT/rl"
 PY="${PY:-$HOME/m9-bench/venv/bin/python}"
 BRIDGE="${BRIDGE:-$HOME/code/r5s841c38e/rl/integration/bin/model9/Anthropocene.Model9Bridge.dll}"
 BRIDGE_SHA256="${BRIDGE_SHA256:-99131dce9c7f0d0d66988b05c3c3e9adea6f6ad3407ce4cd0366d6a14b25eb6b}"
-WORLDS="${WORLDS:-91000,91001,91002,91003}"
-TURNS="${TURNS:-10}"
+WORLDS="${WORLDS:-91000,91001,91002}"
+TURNS="${TURNS:-8}"
+# The training worlds (see the header); MOVEMENT=--movement or --no-movement (fixture).
+PLAYERS="${PLAYERS:-16}"; WIDTH="${WIDTH:-128}"; HEIGHT="${HEIGHT:-64}"; SEPARATION="${SEPARATION:-9}"
+MOVEMENT="${MOVEMENT:---movement}"
+case "$MOVEMENT" in --movement) MOVEMENT_ON=True ;; --no-movement) MOVEMENT_ON=False ;; *) echo "bad MOVEMENT $MOVEMENT" >&2; exit 2 ;; esac
 UPLOAD_RESERVE_S="${UPLOAD_RESERVE_S:-900}"
 MIN_MEM_GB="${MIN_MEM_GB:-8}"
 START_S=$(date +%s)
@@ -77,7 +84,7 @@ sha256_of() { sha256sum "$1" | cut -d' ' -f1; }
 gcs_put() { timeout 600 gcloud storage cp --no-user-output-enabled "$1" "$2" < /dev/null || { log "upload failed: $1 -> $2"; return 1; }; }
 remote_has() { timeout 120 gcloud storage ls "$1" > /dev/null 2>&1 < /dev/null; }
 mem_available_gb() { awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo; }
-TAG="rollout-$(echo "$WORLDS" | tr ',' '-')-t$TURNS"
+TAG="rollout-$(echo "$WORLDS" | tr ',' '-')-t$TURNS-p$PLAYERS"
 ROLLOUT="$WORK/out/$TAG.pt"
 
 # Duplicate guards (before the EXIT trap: a refused duplicate must not write EXIT_STATUS).
@@ -159,6 +166,7 @@ stage_code() {
   case "$where" in "$CODE"/src/*) ;; *) die "anthropocene_rl resolves to $where, not $CODE/src" ;; esac
   help_text=$(cd "$CODE" && "$PY" -m anthropocene_rl.autonomous_v7.labor_training collect --help < /dev/null 2>&1 || true)
   case "$help_text" in *--allow-vm-scale*) ;; *) die "code $SOURCE_COMMIT lacks labor_training collect --allow-vm-scale" ;; esac
+  case "$help_text" in *--movement*--separation*|*--separation*--movement*) ;; *) die "code $SOURCE_COMMIT lacks collect world options (--players/--separation/--movement)" ;; esac
   (cd "$CODE" && "$PY" -c 'from anthropocene_rl.autonomous_v7 import labor_a_ppo' < /dev/null) >> "$LOG_FILE" 2>&1 \
     || die "code $SOURCE_COMMIT lacks labor_a_ppo (WP-A1)"
   log "code $SOURCE_COMMIT in $CODE; bridge sha256 $(sha256_of "$BRIDGE" | cut -c1-16); free mem $(mem_available_gb) GB; free disk $(df -BG --output=avail "$WORK" | tail -1 | tr -d ' ') ; cpus $(getconf _NPROCESSORS_ONLN)"
@@ -217,22 +225,38 @@ stage_collect() {
   log "collect worlds=$WORLDS turns=$TURNS budget=${budget}s (mem $(mem_available_gb) GB) -> $ROLLOUT"
   (cd "$CODE" && nice -n 10 timeout --signal=TERM --kill-after=60 "$budget" "$PY" -m anthropocene_rl.autonomous_v7.labor_training \
       collect --checkpoint "$CKPT" --worlds "$WORLDS" --turns "$TURNS" --allow-vm-scale \
+      --players "$PLAYERS" --width "$WIDTH" --height "$HEIGHT" --separation "$SEPARATION" "$MOVEMENT" \
       --out "$ROLLOUT" >> "$clog" 2>&1 < /dev/null) || rc=$?
   local minutes; minutes=$(awk -v s="$(( $(date +%s) - start ))" 'BEGIN{printf "%.1f", s/60}')
   gcs_put "$clog" "$DEST/logs/collect-$LAUNCH.log" || true
   if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then CUR_STAGE=timeout; die "collect hit its ${budget}s deadline after $minutes min"; fi
   [ "$rc" -eq 0 ] && [ -s "$ROLLOUT" ] || die "collect failed rc=$rc after $minutes min (log $clog)"
-  (cd "$CODE" && "$PY" - "$ROLLOUT" <<'PY') > "$WORK/out/$TAG.summary.json" 2>> "$LOG_FILE" || die "rollout does not load"
+  (cd "$CODE" && "$PY" - "$ROLLOUT" "$WORLDS" "$TURNS" "$CKPT_SHA256" "$PLAYERS" "$WIDTH" "$HEIGHT" "$SEPARATION" "$MOVEMENT_ON" <<'PY') > "$WORK/out/$TAG.summary.json" 2>> "$LOG_FILE" || die "rollout does not load or differs from the requested collect"
 import json, sys
 from collections import Counter
 from anthropocene_rl.autonomous_v7 import labor_training as T
-batch, _, _, meta = T._load_rollout(sys.argv[1])
+path, worlds, turns, ckpt, players, width, height, separation, movement = sys.argv[1:]
+batch, _, _, meta = T._load_rollout(path)
 batch.require_behaviour_head_logp(); batch.require_cost_multipliers()
 rows = meta["decisionRows"]
 assert len(rows) == batch.parent_count and all(r.get("population") is not None for r in rows)
+expected_worlds = [int(w) for w in worlds.split(",")]
+assert meta["worldSeeds"] == expected_worlds, meta["worldSeeds"]
+assert int(meta["turns"]) == int(turns), meta["turns"]
+assert meta["sourceCheckpointSha256"] == ckpt, meta["sourceCheckpointSha256"]
+expected_reset = {"players": int(players), "movement": movement == "True", "withheld": 0,
+                  "width": int(width), "height": int(height), "separation": int(separation)}
+assert meta.get("resetOptions") == expected_reset, meta.get("resetOptions")
+assert meta.get("resetOptionsSource") == "explicit", meta.get("resetOptionsSource")
+per_world = Counter(int(r["world"]) for r in rows)
+assert set(per_world) <= set(expected_worlds), per_world
+assert all(per_world[w] > 0 for w in expected_worlds), f"a world produced no decisions: {per_world}"
 print(json.dumps({"parents": batch.parent_count, "retries": int(len(batch.retry_parent)),
-                  "parentsPerWorld": dict(sorted(Counter(str(r["world"]) for r in rows).items())),
+                  "parentsPerWorld": {str(w): per_world[w] for w in expected_worlds},
+                  "decisionTurnsPerWorld": {str(w): len({r["turn"] for r in rows if int(r["world"]) == w})
+                                            for w in expected_worlds},
                   "worldSeeds": meta["worldSeeds"], "turns": meta["turns"],
+                  "resetOptions": meta["resetOptions"],
                   "sourceCheckpointSha256": meta["sourceCheckpointSha256"],
                   "terminated": sum(bool(r["terminated"]) for r in rows)}, sort_keys=True))
 PY
@@ -251,6 +275,7 @@ stage_final() {
   cat > "$WORK/config-$LAUNCH.json" <<JSON
 {"schema": "r5-d7-collect-run-v1", "source_commit": "$SOURCE_COMMIT", "checkpoint_sha256": "$CKPT_SHA256",
  "bridge_sha256": "$BRIDGE_SHA256", "worlds": "$WORLDS", "turns": $TURNS, "allow_vm_scale": true,
+ "reset": {"players": $PLAYERS, "width": $WIDTH, "height": $HEIGHT, "separation": $SEPARATION, "movement": "$MOVEMENT"},
  "rollout": "$DEST/$TAG.pt", "collect_minutes": "${COLLECT_MINUTES:-reused}", "launch": "$LAUNCH",
  "omp_threads": 1, "nice": 10, "job_timeout": "$JOB_TIMEOUT"}
 JSON
@@ -259,7 +284,7 @@ JSON
   log "done; EXIT_STATUS 0 (uploaded last by the exit handler); the VM is left running"
 }
 
-log "start launch=$LAUNCH sha=$SHA worlds=$WORLDS turns=$TURNS dest=$DEST cap=$JOB_TIMEOUT"
+log "start launch=$LAUNCH sha=$SHA worlds=$WORLDS turns=$TURNS reset=$PLAYERS/${WIDTH}x$HEIGHT/sep$SEPARATION/$MOVEMENT dest=$DEST cap=$JOB_TIMEOUT"
 rm -f "$WORK/EXIT_STATUS"
 stage_code
 stage_checkpoint
