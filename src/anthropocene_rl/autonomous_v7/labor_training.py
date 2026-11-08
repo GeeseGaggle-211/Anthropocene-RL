@@ -84,6 +84,8 @@ from .labor_personality import (
     personality_for_world,
 )
 from .labor_ppo import (
+    LABOR_POLICY_HEADS,
+    NONLABOR_POLICY_HEADS,
     LaborActorGate,
     LaborAttemptPolicyBatch,
     RetainedLaborAction,
@@ -264,6 +266,16 @@ def _score_nonlabor(
     )
 
 
+def _score_nonlabor_heads(
+    actor: LaborActor,
+    tensors: Mapping[str, torch.Tensor],
+    sample: Mapping[str, torch.Tensor],
+) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    """:func:`_score_nonlabor` keeping the per-head mapping (same operations)."""
+    output = actor(tensors)
+    return nonlabor_log_prob(output, sample), nonlabor_entropy(output)["joint"]
+
+
 @dataclass
 class LaborRolloutRow:
     world_seed: int
@@ -294,6 +306,10 @@ class LaborRolloutRow:
     initial_action_features: dict[str, torch.Tensor] | None = None
     retry_action_features: dict[str, torch.Tensor] | None = None
     privileged_normalizer_digest: str | None = None
+    # Behaviour per-head initial-edge log-probs (labor_ppo.LABOR_POLICY_HEADS /
+    # NONLABOR_POLICY_HEADS), retained from the same log_prob calls as the joints.
+    behavior_initial_labor_head_logp: dict[str, float] | None = None
+    behavior_initial_nonlabor_head_logp: dict[str, float] | None = None
 
 
 def _transition_rewards(
@@ -398,8 +414,18 @@ def _execute_single_step_detailed(
         output = actor(tensors)
         initial_labor = sample_labor_policy(output, tensors, generator=generator)
         initial_nonlabor = sample_nonlabor_policy(output, generator=generator)
-        labor_lp = labor_log_prob(output, initial_labor, tensors)["joint"].detach().cpu()
-        nonlabor_lp = nonlabor_log_prob(output, initial_nonlabor)["joint"].detach().cpu()
+        # One scoring call per edge (no generator use); the per-head split is kept
+        # for the A(s,a) control variate alongside the historical joints.
+        labor_scored = labor_log_prob(output, initial_labor, tensors)
+        nonlabor_scored = nonlabor_log_prob(output, initial_nonlabor)
+        labor_lp = labor_scored["joint"].detach().cpu()
+        nonlabor_lp = nonlabor_scored["joint"].detach().cpu()
+        labor_head_lp = {
+            name: labor_scored[name].detach().cpu() for name in LABOR_POLICY_HEADS
+        }
+        nonlabor_head_lp = {
+            name: nonlabor_scored[name].detach().cpu() for name in NONLABOR_POLICY_HEADS
+        }
         if task_critic is not None:
             initial_task = _task_values(task_critic, tensors, raw)
         else:
@@ -537,6 +563,12 @@ def _execute_single_step_detailed(
                 initial_nonlabor_sample=_one_row(initial_nonlabor, row),
                 behavior_initial_labor_logp=float(labor_lp[row]),
                 behavior_initial_nonlabor_logp=float(nonlabor_lp[row]),
+                behavior_initial_labor_head_logp={
+                    name: float(value[row]) for name, value in labor_head_lp.items()
+                },
+                behavior_initial_nonlabor_head_logp={
+                    name: float(value[row]) for name, value in nonlabor_head_lp.items()
+                },
                 initial_task_values={
                     name: float(value[row]) for name, value in initial_task.items()
                 },
@@ -961,6 +993,15 @@ def build_labor_training_batch(
         action_feature_contract=(
             None if rows[0].initial_action_features is None else ACTION_LAYOUT_VERSION
         ),
+        behaviour_initial_labor_head_logp=_optional_head_logp(
+            rows, "behavior_initial_labor_head_logp", LABOR_POLICY_HEADS
+        ),
+        behaviour_initial_nonlabor_head_logp=_optional_head_logp(
+            rows, "behavior_initial_nonlabor_head_logp", NONLABOR_POLICY_HEADS
+        ),
+        # Exactly what combine_labor_advantages used above (it accepts only
+        # finite nonnegative numbers and applies float()).
+        cost_multipliers={name: float(cost_multipliers[name]) for name in LABOR_COSTS},
     )
     task_targets = {
         "initial": dict(initial_targets),
@@ -975,6 +1016,20 @@ def build_labor_training_batch(
         },
     }
     return batch, task_targets, cost_targets
+
+
+def _optional_head_logp(
+    rows: Sequence[LaborRolloutRow], name: str, heads: Sequence[str]
+) -> dict[str, torch.Tensor] | None:
+    """Per-head behaviour log-probs as [N] float32 vectors (the joints' dtype)."""
+    values = [getattr(row, name) for row in rows]
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError(f"{name} is only present on some rollout rows")
+    if any(set(value) != set(heads) for value in values):
+        raise ValueError(f"{name} must be exactly {list(heads)}")
+    return {head: torch.tensor([value[head] for value in values]) for head in heads}
 
 
 def _row_personality_weights(rows: Sequence[LaborRolloutRow]) -> torch.Tensor:
@@ -2338,6 +2393,8 @@ def _command_train(args: argparse.Namespace) -> None:
         raise ValueError("labor rollout advantages came from other critic weights")
     if batch.normalization_binding_digest != _normalization_digest(normalizer):
         raise ValueError("labor rollout normalization binding is stale")
+    if getattr(args, "per_head_surrogate", False):
+        batch.require_behaviour_head_logp()  # refuse before any critic step
 
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
     critic_optimizer = torch.optim.Adam(
@@ -2426,12 +2483,24 @@ def _command_train(args: argparse.Namespace) -> None:
     else:
         shuffle = np.random.default_rng()
         shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+        per_head = bool(getattr(args, "per_head_surrogate", False))
+        extra: dict[str, Any] = {}
+        if per_head:
+            extra = {"per_head_surrogate": True}
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor_heads(  # noqa: E731
+                actor, tensors, sample
+            )
+        else:
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor(  # noqa: E731
+                actor, tensors, sample
+            )
         actor_stats = update_labor_policy(
             policy_module=actor,
             labor_actor=actor,
             optimizer=actor_optimizer,
             batch=batch,
-            nonlabor_scorer=lambda tensors, sample: _score_nonlabor(actor, tensors, sample),
+            nonlabor_scorer=nonlabor_scorer,
+            **extra,
             rng=shuffle,
             epochs=args.epochs,
             batch_size=args.batch_size,
@@ -3177,6 +3246,13 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--max-grad-norm", type=float, default=1.0)
     train.add_argument("--target-kl", type=float, default=0.02)
     train.add_argument("--audit-rows", type=int, default=64)
+    train.add_argument(
+        "--per-head-surrogate",
+        action="store_true",
+        help="WP-A0 plumbing (off by default): per-head initial-edge surrogate with every "
+        "head's coefficient = the stored GAE (eta = 0), gradient-equal to the joint path; "
+        "requires a rollout with per-head behaviour log-probs",
+    )
     train.add_argument("--out", type=Path, required=True)
     train.set_defaults(handler=_command_train)
 
