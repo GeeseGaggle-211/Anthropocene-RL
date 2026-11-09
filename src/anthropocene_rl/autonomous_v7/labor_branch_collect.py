@@ -27,9 +27,11 @@ Common random numbers
   Recorded retries are reused for every camp whose initial attempt the rollout saw
   rejected; any other retry is a keyed actor sample (same key in both branches).
 * Decisions >= 1: camp ``c`` at decision ``j`` of stream ``s`` samples with
-  ``torch.Generator`` seeded from ``(CONTINUATION_TAG, seed, world, root turn, focal, s, j,
-  c)`` and retries with ``RETRY_TAG``: independent of the branch and of the action, so two
-  identical states draw identical actions, and differing states share the same noise.
+  ``torch.Generator`` seeded from ``(CONTINUATION_TAG, seed, world, root turn, s, j, c)``
+  and retries with ``RETRY_TAG``: independent of the branch, the focal camp and the action,
+  so two identical states draw identical actions and differing states share the same
+  noise. Hence branch ``a`` (the same joint action for every focal camp of a decision) is
+  run ONCE per stream and shared by all of that decision's selected camps.
 * No branch draw touches the rollout's sampling generator; branching never changes the
   rollout itself (the rollout's post-decision state is forked before the branches run,
   restored after, and its physical digest is checked against the rollout's successor).
@@ -330,6 +332,7 @@ class BranchTelemetry:
     branched_states: int = 0
     shadow_steps: int = 0
     branch_steps: int = 0
+    branch_runs: int = 0  # world branches run (one shared a per stream + one b per focal)
     forks: int = 0
     restores: int = 0
     world_seconds: float = 0.0
@@ -354,6 +357,7 @@ class BranchTelemetry:
                 "shadow": self.shadow_steps,
                 "branch": self.branch_steps,
             },
+            "branchRuns": self.branch_runs,
             "forks": self.forks,
             "restores": self.restores,
             "seconds": {
@@ -490,15 +494,15 @@ class PairedBranchCollector:
         return execution
 
     # -- model helpers ----------------------------------------------------------
-    def _view(self, step: Mapping[str, Any], only: int | None = None) -> dict[str, Any] | None:
+    def _view(self, step: Mapping[str, Any], only: set[int] | None = None) -> dict | None:
         """Live villages, catalogs and actor/critic tensors of every live camp (or of the
-        camp ``only``: rows are built independently, so its row is the same)."""
+        camps in ``only``: rows are built independently, so their rows are the same)."""
         from . import labor_training as lt
 
         live = [
             v for v in step["villages"]
             if v.get("observation") is not None and not v.get("terminated")
-            and (only is None or int(v["camp"]) == int(only))
+            and (only is None or int(v["camp"]) in only)
         ]
         if not live:
             return None
@@ -657,18 +661,25 @@ class PairedBranchCollector:
         )
 
     def after_decision(self, plan: _Plan, execution: Any) -> None:
-        """Run every selected pair from the pre-decision fork, then return the bridge to
-        the rollout's successor (checked) and drop both forks."""
+        """Run the selected pairs from the pre-decision fork, then return the bridge to the
+        rollout's successor (checked) and drop both forks.
+
+        Branch ``a`` is the same joint action for every focal camp of this decision and
+        continuation keys do not name the focal camp, so ONE ``a`` run per stream serves
+        all of them (each focal camp reads its own rewards/values from it); each focal
+        camp gets its own ``b`` run. Cost per decision: (m + 1) k S world steps for m
+        selected camps, not 2 m k S."""
         from .labor_search import physical_digest
 
         clock = time.perf_counter()
         post = self._fork()
         self.telemetry.restore_seconds += time.perf_counter() - clock
         rollout_digest = physical_digest(execution.step)
+        started = time.perf_counter()
         try:
-            for camp, _probability, info in plan.selected:
-                self.records.append(self._pair(plan, execution, camp, info, rollout_digest))
+            self.records.extend(self._pairs(plan, execution, rollout_digest))
         finally:
+            self.telemetry.branch_seconds += time.perf_counter() - started
             clock = time.perf_counter()
             back = self._restore(post)
             if self.config.verify_restore and physical_digest(back) != rollout_digest:
@@ -680,82 +691,98 @@ class PairedBranchCollector:
             self.bridge.drop(plan.pre_fork)
             self.telemetry.restore_seconds += time.perf_counter() - clock
 
-    # -- one pair -----------------------------------------------------------------
+    # -- the pairs of one decision ------------------------------------------------------
     @torch.no_grad()
-    def _pair(self, plan: _Plan, execution: Any, focal: int, info: dict, rollout_digest: str):
+    def _pairs(self, plan: _Plan, execution: Any, rollout_digest: str) -> list[dict]:
         from . import labor_training as lt
 
-        started = time.perf_counter()
-        steps_before = self.telemetry.branch_steps
         c = self.config
-        row = plan.rows[focal]
-        catalog = plan.catalogs[focal]
-        output_row = lt._one_row(plan.output, row)
-        tensors_row = lt._one_row(plan.tensors, row)
-        a_retained = plan.retained[focal]
-        # The executed payload itself (never re-serialized: a one-row float32 sigmoid/exp
-        # may differ from the batch kernel by an ulp), scored under the behaviour policy.
-        a = self._scored(
-            output_row, tensors_row, a_retained.labor_sample, a_retained.nonlabor_sample,
-            a_retained.payload,
-        )
-        b = self._second_sample(plan, focal, output_row, tensors_row, a)
+        focals = [camp for camp, _p, _info in plan.selected]
         rollout_retries = dict(getattr(execution, "retry", {}) or {})
         villages = {int(v["camp"]): v for v in plan.live}
-        branches: dict[str, list[dict[str, Any]]] = {"a": [], "b": []}
-        for name in ("a", "b"):
+
+        def retry0(stream: int, keyed: set[int]):
+            def factory(camp, catalog, attempt):
+                if camp in rollout_retries and camp not in keyed:
+                    return rollout_retries[camp]
+                key = (c.seed, self.world, plan.turn, stream, 0, camp)
+                return self._keyed_retry(villages[camp], catalog, attempt, key)
+
+            return factory
+
+        clock = time.perf_counter()
+        steps = self.telemetry.branch_steps
+        shared_a = [
+            self._branch(plan, focals, stream, dict(plan.retained), retry0(stream, set()),
+                         digest_first=(stream == 0))
+            for stream in range(int(c.streams))
+        ]
+        a_cost = {"nativeSteps": self.telemetry.branch_steps - steps,
+                  "seconds": time.perf_counter() - clock, "sharedBy": len(focals)}
+        a_first = shared_a[0]["digest0"]
+        records = []
+        for focal, _probability, info in plan.selected:
+            clock = time.perf_counter()
+            steps = self.telemetry.branch_steps
+            row = plan.rows[focal]
+            catalog = plan.catalogs[focal]
+            output_row = lt._one_row(plan.output, row)
+            tensors_row = lt._one_row(plan.tensors, row)
+            a_retained = plan.retained[focal]
+            # The executed payload itself (never re-serialized: a one-row float32 sigmoid or
+            # exp may differ from the batch kernel by an ulp), scored under the behaviour
+            # policy.
+            a = self._scored(
+                output_row, tensors_row, a_retained.labor_sample, a_retained.nonlabor_sample,
+                a_retained.payload,
+            )
+            b = self._second_sample(plan, focal, output_row, tensors_row, a)
+            b_runs = []
             for stream in range(int(c.streams)):
                 first = dict(plan.retained)
-                if name == "b":
-                    first[focal] = self._retained(b)
-
-                def retry0(camp, catalog_, attempt, *, _name=name, _stream=stream):
-                    if camp in rollout_retries and not (_name == "b" and camp == focal):
-                        return rollout_retries[camp]
-                    key = (c.seed, self.world, plan.turn, focal, _stream, 0, camp)
-                    return self._keyed_retry(villages[camp], catalog_, attempt, key)
-
-                branches[name].append(
-                    self._branch(plan, focal, stream, first, retry0,
-                                 digest_first=(name == "a" and stream == 0))
-                )
-        a_first = branches["a"][0]["decisions"][0].get("digest")
-        targets = branch_targets(branches, int(c.horizon), lam=float(c.lam),
-                                 discount_years=float(c.discount_years))
-        record = {
-            "world": self.world,
-            "worldIndex": self.world_index,
-            "turn": plan.turn,
-            "camp": focal,
-            "population": int(catalog.population),
-            "continuation": c.continuation,
-            "k": int(c.horizon),
-            "streams": int(c.streams),
-            "selection": info,
-            "actions": {
-                "a": {**a, "retried": focal in rollout_retries,
-                      "features": self._features(a["payload"], catalog)},
-                "b": {**b, "features": self._features(b["payload"], catalog)},
-            },
-            "headDiffers": head_differences(a["payload"], b["payload"], catalog),
-            "identicalActions": a["payload"] == b["payload"],
-            "root": {
-                "value": self._values(plan.tensors, plan.raw, row),
-                "tensors": tensors_row if c.store_rows else None,
-                "privileged": (
-                    None if plan.raw is None or not c.store_rows else lt._one_row(plan.raw, row)
-                ),
-            },
-            "branches": branches,
-            "targets": targets,
-            "aFirstMatchesRollout": a_first == rollout_digest,
-            "work": {
-                "nativeSteps": self.telemetry.branch_steps - steps_before,
-                "seconds": time.perf_counter() - started,
-            },
-        }
-        self.telemetry.branch_seconds += record["work"]["seconds"]
-        return record
+                first[focal] = self._retained(b)
+                b_runs.append(self._branch(plan, [focal], stream, first, retry0(stream, {focal})))
+            branches = {
+                "a": [run["focals"][focal] for run in shared_a],
+                "b": [run["focals"][focal] for run in b_runs],
+            }
+            targets = branch_targets(branches, int(c.horizon), lam=float(c.lam),
+                                     discount_years=float(c.discount_years))
+            records.append({
+                "world": self.world,
+                "worldIndex": self.world_index,
+                "turn": plan.turn,
+                "camp": focal,
+                "population": int(catalog.population),
+                "continuation": c.continuation,
+                "k": int(c.horizon),
+                "streams": int(c.streams),
+                "selection": info,
+                "actions": {
+                    "a": {**a, "retried": focal in rollout_retries,
+                          "features": self._features(a["payload"], catalog)},
+                    "b": {**b, "features": self._features(b["payload"], catalog)},
+                },
+                "headDiffers": head_differences(a["payload"], b["payload"], catalog),
+                "identicalActions": a["payload"] == b["payload"],
+                "root": {
+                    "value": self._values(plan.tensors, plan.raw, row),
+                    "tensors": tensors_row if c.store_rows else None,
+                    "privileged": (
+                        None if plan.raw is None or not c.store_rows
+                        else lt._one_row(plan.raw, row)
+                    ),
+                },
+                "branches": branches,
+                "targets": targets,
+                "aFirstMatchesRollout": a_first == rollout_digest,
+                "work": {
+                    "b": {"nativeSteps": self.telemetry.branch_steps - steps,
+                          "seconds": time.perf_counter() - clock},
+                    "aShared": dict(a_cost),
+                },
+            })
+        return records
 
     def _second_sample(self, plan: _Plan, focal: int, output_row, tensors_row, a) -> dict:
         """The actor's second, independent sample at the branched state (keyed)."""
@@ -771,9 +798,52 @@ class PairedBranchCollector:
 
         return canonical_action_features(payload, catalog, **self.action_binding).clone()
 
-    def _branch(self, plan: _Plan, focal: int, stream: int, first: Mapping[int, Any],
-                first_retry: Callable, *, digest_first: bool = False) -> dict[str, Any]:
-        """One branch on one stream: decision 0 = ``first``, then the continuation."""
+    def _focal_entry(self, focal, decision, decision_turn, execution, next_step, founded,
+                     rewards, terminal, years, view) -> dict[str, Any]:
+        from . import labor_training as lt
+
+        outcome = {int(v["camp"]): v for v in next_step["villages"]}
+        guard = lt._settlement_guard(outcome[focal], founded[focal], int(next_step["turn"]))
+        retried = focal in (getattr(execution, "retry", {}) or {})
+        feasibility = float(execution.initial_attempts[focal].feasibility_cost) + (
+            float(execution.final_attempts[focal].feasibility_cost) if retried else 0.0
+        )
+        entry: dict[str, Any] = {
+            "decision": decision,
+            "turn": decision_turn,
+            "rewards": [
+                float(rewards[focal]["qol_years"]),
+                float(rewards[focal]["population_years"]),
+                feasibility,
+                float(guard),
+            ],
+            "years": float(years[focal]),
+            "focalRetried": bool(retried),
+            "digest": None,
+            "value": None,
+            "row": None,
+        }
+        if terminal[focal]:
+            entry["status"] = "terminated"
+        elif view is not None and focal in view["rows"]:
+            entry["status"] = "live"
+            r = view["rows"][focal]
+            entry["value"] = self._values(view["tensors"], view["raw"], r)
+            if self.config.store_rows:
+                entry["row"] = {
+                    "tensors": lt._one_row(view["tensors"], r),
+                    "privileged": None if view["raw"] is None else lt._one_row(view["raw"], r),
+                }
+        else:
+            entry["status"] = "inactive"
+        return entry
+
+    def _branch(self, plan: _Plan, focals: Sequence[int], stream: int,
+                first: Mapping[int, Any], first_retry: Callable, *,
+                digest_first: bool = False) -> dict[str, Any]:
+        """One world branch on one stream: decision 0 = ``first``, then the continuation,
+        for up to ``horizon`` decisions while some focal camp is live. Returns, per focal
+        camp, its branch record (its decisions end at its own termination/inactivity)."""
         from . import labor_training as lt
         from .labor_bc import _idle_retry
         from .labor_search import _retained as retain_payload
@@ -781,86 +851,62 @@ class PairedBranchCollector:
 
         c = self.config
         self._restore(plan.pre_fork)
+        self.telemetry.branch_runs += 1
         founded = dict(plan.founded)
         catalogs = dict(plan.catalogs)
         retained, retry_factory = dict(first), first_retry
         decision_turn = plan.turn
-        decisions: list[dict[str, Any]] = []
-        terminated = False
-        with torch.no_grad():
-            for decision in range(int(c.horizon)):
-                execution = self._execute(catalogs, retained, retry_factory)
-                next_step = execution.step
-                rewards, terminal, years = lt._transition_rewards(
-                    next_step, (focal,), founded, world_index=self.world_index,
-                    decision_turn=decision_turn,
+        out = {f: {"stream": stream, "decisions": [], "terminated": False} for f in focals}
+        open_focals = list(focals)
+        digest0 = None
+        for decision in range(int(c.horizon)):
+            execution = self._execute(catalogs, retained, retry_factory)
+            next_step = execution.step
+            rewards, terminal, years = lt._transition_rewards(
+                next_step, tuple(open_focals), founded, world_index=self.world_index,
+                decision_turn=decision_turn,
+            )
+            digest = (
+                physical_digest(next_step)
+                if c.record_digests or (digest_first and decision == 0) else None
+            )
+            if decision == 0:
+                digest0 = digest
+            # Every live camp's catalog/tensors when another decision follows (its payloads
+            # need them); only the open focal camps' rows for V at s_k.
+            last = decision + 1 >= int(c.horizon)
+            view = self._view(next_step, set(open_focals) if last else None)
+            still_open = []
+            for focal in open_focals:
+                entry = self._focal_entry(focal, decision, decision_turn, execution, next_step,
+                                          founded, rewards, terminal, years, view)
+                entry["digest"] = digest
+                out[focal]["decisions"].append(entry)
+                if entry["status"] == "terminated":
+                    out[focal]["terminated"] = True
+                if entry["status"] == "live":
+                    still_open.append(focal)
+            open_focals = still_open
+            if not open_focals or last:
+                break
+            decision_turn = int(next_step["turn"])
+            catalogs = dict(view["catalogs"])
+            if c.continuation == "actor":
+                retained, retry_factory = self._actor_actions(
+                    view, plan.turn, stream, decision + 1
                 )
-                outcome = {int(v["camp"]): v for v in next_step["villages"]}
-                guard = lt._settlement_guard(
-                    outcome[focal], founded[focal], int(next_step["turn"])
-                )
-                retried = focal in (getattr(execution, "retry", {}) or {})
-                feasibility = float(execution.initial_attempts[focal].feasibility_cost) + (
-                    float(execution.final_attempts[focal].feasibility_cost) if retried else 0.0
-                )
-                entry: dict[str, Any] = {
-                    "decision": decision,
-                    "turn": decision_turn,
-                    "rewards": [
-                        float(rewards[focal]["qol_years"]),
-                        float(rewards[focal]["population_years"]),
-                        feasibility,
-                        float(guard),
-                    ],
-                    "years": float(years[focal]),
-                    "focalRetried": bool(retried),
-                    "digest": (
-                        physical_digest(next_step)
-                        if c.record_digests or (digest_first and decision == 0) else None
-                    ),
-                    "value": None,
-                    "row": None,
+            else:
+                labels = self._shadow_labels(next_step, catalogs)
+                retained = {
+                    camp: retain_payload(labels[camp].action, catalogs[camp])
+                    for camp in sorted(catalogs)
                 }
-                # Every live camp's catalog/tensors when another decision follows (its
-                # payloads need them); the focal camp's row alone for V at s_k.
-                last = decision + 1 >= int(c.horizon)
-                view = self._view(next_step, focal if last else None)
-                if terminal[focal]:
-                    entry["status"] = "terminated"
-                    terminated = True
-                elif view is not None and focal in view["rows"]:
-                    entry["status"] = "live"
-                    r = view["rows"][focal]
-                    entry["value"] = self._values(view["tensors"], view["raw"], r)
-                    if c.store_rows:
-                        entry["row"] = {
-                            "tensors": lt._one_row(view["tensors"], r),
-                            "privileged": (
-                                None if view["raw"] is None else lt._one_row(view["raw"], r)
-                            ),
-                        }
-                else:
-                    entry["status"] = "inactive"
-                decisions.append(entry)
-                if entry["status"] != "live" or decision + 1 >= int(c.horizon):
-                    break
-                decision_turn = int(next_step["turn"])
-                catalogs = dict(view["catalogs"])
-                if c.continuation == "actor":
-                    retained, retry_factory = self._actor_actions(
-                        view, plan.turn, focal, stream, decision + 1
-                    )
-                else:
-                    labels = self._shadow_labels(next_step, catalogs)
-                    retained = {
-                        camp: retain_payload(labels[camp].action, catalogs[camp])
-                        for camp in sorted(catalogs)
-                    }
-                    retry_factory = _idle_retry
-        return {"stream": stream, "decisions": decisions, "terminated": terminated}
+                retry_factory = _idle_retry
+        return {"focals": out, "digest0": digest0}
 
-    def _actor_actions(self, view, root_turn: int, focal: int, stream: int, decision: int):
-        """Every live camp samples from the actor with its own keyed generator (B4)."""
+    def _actor_actions(self, view, root_turn: int, stream: int, decision: int):
+        """Every live camp samples from the actor with its own keyed generator (B4). The key
+        names neither the branch nor the focal camp: identical states draw identically."""
         from . import labor_training as lt
 
         c = self.config
@@ -869,15 +915,14 @@ class PairedBranchCollector:
         for camp, row in view["rows"].items():
             if camp not in view["catalogs"]:
                 continue
-            g = keyed_generator(
-                CONTINUATION_TAG, c.seed, self.world, root_turn, focal, stream, decision, camp
-            )
+            g = keyed_generator(CONTINUATION_TAG, c.seed, self.world, root_turn, stream,
+                                decision, camp)
             sample = self._sample(lt._one_row(output, row), lt._one_row(view["tensors"], row), g)
             retained[camp] = self._retained(sample)
         villages = {int(v["camp"]): v for v in view["live"]}
 
         def retry(camp, catalog, attempt):
-            key = (c.seed, self.world, root_turn, focal, stream, decision, camp)
+            key = (c.seed, self.world, root_turn, stream, decision, camp)
             return self._keyed_retry(villages[camp], catalog, attempt, key)
 
         return retained, retry
@@ -897,13 +942,14 @@ class PairedBranchCollector:
                 "secondSample": {"tag": SECOND_SAMPLE_TAG, "key": "[tag, seed, world, turn, camp]"},
                 "continuation": {
                     "tag": CONTINUATION_TAG,
-                    "key": "[tag, seed, world, root turn, focal, stream, decision, camp]",
+                    "key": "[tag, seed, world, root turn, stream, decision, camp]",
                 },
                 "retry": {
                     "tag": RETRY_TAG,
-                    "key": "[tag, seed, world, root turn, focal, stream, decision, camp]",
+                    "key": "[tag, seed, world, root turn, stream, decision, camp]",
                 },
                 "engine": "both branches restore the same pre-decision native fork",
+                "sharedA": "one branch-a run per (decision, stream) serves every focal camp",
             },
             "calibration": None if calibration is None else {
                 **{k: v for k, v in asdict(calibration).items()},

@@ -363,12 +363,24 @@ def test_h12_continuation_uses_the_shadow_after_the_fork(monkeypatch, models):
     )
     _collect(models, collector)
     assert collector.records
-    later = sum(
-        len(b["decisions"]) - 1 for r in collector.records for n in ("a", "b")
-        for b in r["branches"][n]
-    )
-    assert collector.telemetry.shadow_steps == collector.telemetry.decisions + later
+    t = collector.telemetry
+    # One shadow per rollout decision plus one per branch decision after the forked one.
+    assert t.shadow_steps == t.decisions + t.branch_steps - t.branch_runs
+    assert t.branch_steps > t.branch_runs
     assert all(r["continuation"] == "h12" for r in collector.records)
+
+
+def test_branch_a_is_shared_by_the_focal_camps_of_a_decision(monkeypatch, models):
+    install(monkeypatch)
+    collector = _collector(models, bc.BranchConfig(select="uniform", rate=1.0, horizon=2))
+    _collect(models, collector, turns=1)
+    t = collector.telemetry
+    assert len(collector.records) == 3  # every camp of the one decision
+    assert t.branch_runs == 1 + 3  # one shared a + one b per focal camp
+    a_runs = [r["branches"]["a"][0] for r in collector.records]
+    assert len({json.dumps([e["digest"] for e in a["decisions"]]) for a in a_runs}) == 1
+    for record in collector.records:
+        assert record["work"]["aShared"]["sharedBy"] == 3
 
 
 # ---------------------------------------------------------------------------
