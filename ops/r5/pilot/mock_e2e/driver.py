@@ -67,8 +67,10 @@ def main() -> None:
                 normalizer = training._models_from_checkpoint(state)[4]
                 install(patch)
                 patch.setattr(branch, "SHADOW_FACTORY", fake_shadow_factory(actor, normalizer))
+                # Its own generator: the fixture rollout's sampling state stays untouched.
                 original(**{**kw, "bridge_factory": FakeLaborBridge,
-                            "world_seeds": kw["world_seeds"][:1], "turns": 2})
+                            "world_seeds": kw["world_seeds"][:1], "turns": 2,
+                            "generator": torch.Generator().manual_seed(0)})
             return rows, bootstrap
 
         original = training.collect_labor_rollout
