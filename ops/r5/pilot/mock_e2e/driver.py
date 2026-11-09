@@ -35,7 +35,9 @@ def main() -> None:
     if fail and "--worlds" in rest and _arg(rest, "--worlds") == fail:
         sys.exit(f"mock native failure on worlds {fail}")
     patch = MonkeyPatch()
-    if module.endswith("labor_training"):
+    if module.endswith("labor_training") and "--help" in rest:
+        training.main(rest)  # the job's capability probe (collect --help)
+    elif module.endswith("labor_training"):
         from test_labor_ppo_perhead import _collect
 
         state = torch.load(_arg(rest, "--checkpoint"), map_location="cpu", weights_only=True)
@@ -50,7 +52,25 @@ def main() -> None:
             row.turn = turn
             rows.append(row)
             bootstrap[(world, 7)] = tail
-        patch.setattr(training, "collect_labor_rollout", lambda **kw: (rows, bootstrap))
+        def collect(**kw):
+            brancher = kw.get("brancher")
+            if brancher is not None:
+                # WP-B: the real branch collector on the fake multi-camp bridge
+                # (tests/labor_wpb_fake.py; its stand-in H12 shadow is a keyed actor
+                # sample), one world x two decisions; the rollout rows stay the fixture's.
+                from labor_wpb_fake import FakeLaborBridge, fake_shadow_factory, install
+
+                from anthropocene_rl.autonomous_v7 import labor_branch_collect as branch
+
+                normalizer = training._models_from_checkpoint(state)[4]
+                install(patch)
+                patch.setattr(branch, "SHADOW_FACTORY", fake_shadow_factory(actor, normalizer))
+                original(**{**kw, "bridge_factory": FakeLaborBridge,
+                            "world_seeds": kw["world_seeds"][:1], "turns": 2})
+            return rows, bootstrap
+
+        original = training.collect_labor_rollout
+        patch.setattr(training, "collect_labor_rollout", collect)
         training.main(rest)
     elif module.endswith("labor_anchor_producer"):
         from test_labor_anchor_parallel import Bridge, SerialExecutor, _install

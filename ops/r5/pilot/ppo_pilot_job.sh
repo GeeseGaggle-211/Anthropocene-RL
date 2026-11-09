@@ -66,10 +66,25 @@
 # later turns cost more; the critical path is still the anchors, which do not depend on
 # TURNS). An explicit JOB_TIMEOUT always wins. A TERM at the cap is an interruption: rerun.
 #
+# WP-B paired branches (labor_branch_collect; default BRANCH_SELECT=off: collect unchanged):
+#   BRANCH_SELECT off|uniform|adaptive -> collect --branch-select; and, each only when set:
+#   BRANCH_RATE (--branch-rate), BRANCH_FLOOR (--branch-floor), BRANCH_HORIZON 2|3
+#   (--branch-horizon), BRANCH_CONTINUATION actor|h12, BRANCH_SHADOW 1|0 (--branch-shadow /
+#   --no-branch-shadow; unset = only when needed), BRANCH_STREAMS, BRANCH_SEED.
+#   With branching on, the collect stage also writes rollout.branches.pt and
+#   branch-report.json (labor_branch_report, bound to rollout.pt by sha256): both are collect
+#   outputs (marker + upload) and the summary embeds the report as "branches". The default
+#   PILOT_ID gains -b<sha8 of the branch spec>. Branch cost is NOT yet measured: with
+#   branching on, JOB_TIMEOUT must be given explicitly (the TURNS-scaled default is refused).
+#
 # Launch (detached; rerun the same line to resume):
 #   setsid nohup bash $HOME/ppo_pilot_job.sh > $HOME/r5/ppo-pilot.out 2>&1 < /dev/null &
 set -euo pipefail
 
+case "${BRANCH_SELECT:-off}" in off|uniform|adaptive) ;; *) echo "BRANCH_SELECT must be off, uniform or adaptive" >&2; exit 2 ;; esac
+if [ "${BRANCH_SELECT:-off}" != "off" ] && [ -z "${JOB_TIMEOUT:-}" ]; then
+  echo "BRANCH_SELECT=${BRANCH_SELECT} needs an explicit JOB_TIMEOUT (branch cost is not measured yet)" >&2; exit 2
+fi
 if [ -z "${JOB_TIMEOUT:-}" ]; then
   case "${TURNS:-8}" in ''|*[!0-9]*) echo "TURNS must be a positive integer" >&2; exit 2 ;; esac
   if [ "${TURNS:-8}" -le 8 ]; then JOB_TIMEOUT=7h; else JOB_TIMEOUT="$(( (7 * TURNS + 7) / 8 ))h"; fi
@@ -91,13 +106,27 @@ START_CKPT_GCS="${START_CKPT_GCS:-${CKPT_GCS:-$GCS_ROOT/d7-run/checkpoint-start.
 CKPT_SHA256="${CKPT_SHA256:-$D7_START_SHA256}"
 # HEAD_ENTROPY_FLOOR: passed to train --head-entropy-floor ('head=H_min:w[,...]'); empty = off.
 HEAD_ENTROPY_FLOOR="${HEAD_ENTROPY_FLOOR:-}"
+# WP-B branch knobs (see the header); empty values keep collect's defaults.
+BRANCH_SELECT="${BRANCH_SELECT:-off}"
+BRANCH_RATE="${BRANCH_RATE:-}"; BRANCH_FLOOR="${BRANCH_FLOOR:-}"; BRANCH_HORIZON="${BRANCH_HORIZON:-}"
+BRANCH_CONTINUATION="${BRANCH_CONTINUATION:-}"; BRANCH_SHADOW="${BRANCH_SHADOW:-}"
+BRANCH_STREAMS="${BRANCH_STREAMS:-}"; BRANCH_SEED="${BRANCH_SEED:-}"
+case "$BRANCH_SHADOW" in ''|0|1) ;; *) echo "BRANCH_SHADOW must be empty, 0 or 1" >&2; exit 2 ;; esac
+BRANCH_SPEC="off"
+if [ "$BRANCH_SELECT" != "off" ]; then
+  BRANCH_SPEC="select=$BRANCH_SELECT rate=$BRANCH_RATE floor=$BRANCH_FLOOR horizon=$BRANCH_HORIZON continuation=$BRANCH_CONTINUATION shadow=$BRANCH_SHADOW streams=$BRANCH_STREAMS seed=$BRANCH_SEED"
+fi
 # PILOT_ID: pilot-<sha7>, plus -s<start sha8> for a non-D7 start and -f<sha8 of the floor
-# spec> with a floor, so a different start or floor never resumes another run's markers.
+# spec> with a floor (and -b<sha8 of the branch spec> with branching), so a different start,
+# floor or branch setting never resumes another run's markers.
 if [ -z "${PILOT_ID:-}" ]; then
   PILOT_ID="pilot-${SHA:0:7}"
   if [ "$CKPT_SHA256" != "$D7_START_SHA256" ]; then PILOT_ID="$PILOT_ID-s${CKPT_SHA256:0:8}"; fi
   if [ -n "$HEAD_ENTROPY_FLOOR" ]; then
     PILOT_ID="$PILOT_ID-f$(printf %s "$HEAD_ENTROPY_FLOOR" | sha256sum | cut -c1-8)"
+  fi
+  if [ "$BRANCH_SELECT" != "off" ]; then
+    PILOT_ID="$PILOT_ID-b$(printf %s "$BRANCH_SPEC" | sha256sum | cut -c1-8)"
   fi
 fi
 DEST="${DEST:-$GCS_ROOT/ppo-pilot/$PILOT_ID}"
@@ -250,6 +279,12 @@ stage_code() {
     pyrun -c 'import sys; from anthropocene_rl.autonomous_v7.labor_ppo import parse_head_entropy_floor as p; print(p(sys.argv[1]))' "$HEAD_ENTROPY_FLOOR" > /dev/null \
       || die "HEAD_ENTROPY_FLOOR '$HEAD_ENTROPY_FLOOR' does not parse"
   fi
+  if [ "$BRANCH_SELECT" != "off" ]; then
+    case "$(pyrun -m anthropocene_rl.autonomous_v7.labor_training collect --help < /dev/null 2>&1 || true)" in
+      *--branch-select*) ;; *) die "code $SOURCE_COMMIT lacks collect --branch-select" ;; esac
+    case "$(pyrun -m anthropocene_rl.autonomous_v7.labor_pilot summary --help < /dev/null 2>&1 || true)" in
+      *--branch-report*) ;; *) die "code $SOURCE_COMMIT lacks labor_pilot summary --branch-report" ;; esac
+  fi
   pyrun -m anthropocene_rl.autonomous_v7.labor_pilot plan --iteration 0 > /dev/null || die "code $SOURCE_COMMIT lacks labor_pilot"
   log "code $SOURCE_COMMIT; bridge ${BRIDGE_SHA256:0:16}; free mem $(mem_available_gb) GB; free disk $(df -BG --output=avail "$WORK" | tail -1 | tr -d ' '); cpus $(getconf _NPROCESSORS_ONLN)"
 }
@@ -265,6 +300,7 @@ stage_start_checkpoint() {
   # Stage markers bind input checkpoints, not train flags: a rerun of this WORK with another
   # floor (possible only with an explicit PILOT_ID) would skip finished train stages.
   local explore="start=$CKPT_SHA256 floor=${HEAD_ENTROPY_FLOOR:-off}"
+  [ "$BRANCH_SELECT" != "off" ] && explore="$explore branches=[$BRANCH_SPEC]"
   if [ -f "$WORK/explore-config" ] && [ "$(cat "$WORK/explore-config")" != "$explore" ]; then
     die "this WORK ran with '$(cat "$WORK/explore-config")', not '$explore' (use a new PILOT_ID)"
   fi
@@ -366,6 +402,7 @@ run_stage() {  # STAGE FUNCTION: skip / restore / run + mark + upload
 # --- stages (each writes its outputs into ITER_DIR and lists them in .outputs-<stage>) -----
 world_flags=()
 anchor_flags=()
+branch_flags=()
 init_flags() {
   world_flags=(--players "$PLAYERS" --width "$WIDTH" --height "$HEIGHT" --separation "$SEPARATION")
   anchor_flags=(--optimizer-seed "$OPTIMIZER_SEED" --allow-vm-scale --threads "$ANCHOR_THREADS" --progress)
@@ -374,6 +411,18 @@ init_flags() {
   [ -n "$ANCHOR_TAIL_RHO" ] && anchor_flags+=(--tail-rho "$ANCHOR_TAIL_RHO")
   [ -n "$ANCHOR_TAIL_CAP" ] && anchor_flags+=(--tail-cap "$ANCHOR_TAIL_CAP")
   [ -n "$ANCHOR_PATHS" ] && anchor_flags+=(--paths "$ANCHOR_PATHS")
+  branch_flags=()
+  if [ "$BRANCH_SELECT" != "off" ]; then
+    branch_flags=(--branch-select "$BRANCH_SELECT")
+    [ -n "$BRANCH_RATE" ] && branch_flags+=(--branch-rate "$BRANCH_RATE")
+    [ -n "$BRANCH_FLOOR" ] && branch_flags+=(--branch-floor "$BRANCH_FLOOR")
+    [ -n "$BRANCH_HORIZON" ] && branch_flags+=(--branch-horizon "$BRANCH_HORIZON")
+    [ -n "$BRANCH_CONTINUATION" ] && branch_flags+=(--branch-continuation "$BRANCH_CONTINUATION")
+    [ "$BRANCH_SHADOW" = "1" ] && branch_flags+=(--branch-shadow)
+    [ "$BRANCH_SHADOW" = "0" ] && branch_flags+=(--no-branch-shadow)
+    [ -n "$BRANCH_STREAMS" ] && branch_flags+=(--branch-streams "$BRANCH_STREAMS")
+    [ -n "$BRANCH_SEED" ] && branch_flags+=(--branch-seed "$BRANCH_SEED")
+  fi
   return 0
 }
 plan_value() { pyrun -c 'import json,sys; v=json.load(open(sys.argv[1]))[sys.argv[2]]; print(",".join(map(str,v)) if isinstance(v,list) else v)' "$ITER_DIR/plan.json" "$1"; }
@@ -385,15 +434,22 @@ anchor_jobs() {  # WORLD_CSV -> --jobs value
 
 do_collect() {
   local worlds; worlds=$(plan_value rolloutWorlds)
-  rm -f "$ITER_DIR/rollout.pt"
+  rm -f "$ITER_DIR/rollout.pt" "$ITER_DIR/rollout.branches.pt" "$ITER_DIR/branch-report.json"
   nice -n 10 "$PY" -m anthropocene_rl.autonomous_v7.labor_training collect \
     --checkpoint "$IN_CKPT" --worlds "$worlds" --turns "$TURNS" --allow-vm-scale \
-    "${world_flags[@]}" --movement --out "$ITER_DIR/rollout.pt" \
+    "${world_flags[@]}" --movement "${branch_flags[@]}" --out "$ITER_DIR/rollout.pt" \
     >> "$ITER_DIR/logs/collect-$LAUNCH.log" 2>&1 < /dev/null || return 1
   "$PY" -m anthropocene_rl.autonomous_v7.labor_pilot check-rollout --rollout "$ITER_DIR/rollout.pt" \
     --checkpoint "$IN_CKPT" --worlds "$worlds" --turns "$TURNS" "${world_flags[@]}" \
     > "$ITER_DIR/rollout.check.json" 2>> "$ITER_DIR/logs/collect-$LAUNCH.log" || return 1
-  echo "rollout.pt rollout.check.json" > "$ITER_DIR/.outputs-collect"
+  if [ "$BRANCH_SELECT" != "off" ]; then
+    "$PY" -m anthropocene_rl.autonomous_v7.labor_branch_report --branches "$ITER_DIR/rollout.branches.pt" \
+      --rollout "$ITER_DIR/rollout.pt" --out "$ITER_DIR/branch-report.json" \
+      2>> "$ITER_DIR/logs/collect-$LAUNCH.log" || return 1
+    echo "rollout.pt rollout.check.json rollout.branches.pt branch-report.json" > "$ITER_DIR/.outputs-collect"
+  else
+    echo "rollout.pt rollout.check.json" > "$ITER_DIR/.outputs-collect"
+  fi
 }
 do_anchor() {  # ROLE PLAN_WORLDS_KEY PLAN_SEED_KEY NAME
   local role=$1 worlds base name=$4 log
@@ -448,6 +504,7 @@ PY
     extra+=(--gate-anchor "$ITER_DIR/actor-gate.npz" --calibration "$ITER_DIR/calibration.json")
   fi
   [ "$PILOT_BYPASS" = "1" ] && extra+=(--bypass-expected)
+  [ "$BRANCH_SELECT" != "off" ] && extra+=(--branch-report "$ITER_DIR/branch-report.json")
   "$PY" -m anthropocene_rl.autonomous_v7.labor_pilot summary --iteration "$ITER" \
     --checkpoint-in "$IN_CKPT" --checkpoint-out "$ITER_DIR/checkpoint-out.pt" \
     --rollout "$ITER_DIR/rollout.pt" --train-anchor "$ITER_DIR/train-anchor.npz" "${extra[@]}" \
@@ -510,7 +567,7 @@ run_iteration() {
   upload_stage iteration || die "iteration marker upload failed"
 }
 
-log "start launch=$LAUNCH pilot=$PILOT_ID sha=$SHA start=${CKPT_SHA256:0:16} floor=${HEAD_ENTROPY_FLOOR:-off} iterations=$ITERATIONS turns=$TURNS worlds rollout=$ROLLOUT_WORLDS anchor=$TRAIN_ANCHOR_WORLDS gate=$GATE_WORLDS telemetry=$GATE_TELEMETRY bypass=$PILOT_BYPASS anchor_jobs=$ANCHOR_JOBS threads=$ANCHOR_THREADS reset=$PLAYERS/${WIDTH}x$HEIGHT/sep$SEPARATION/movement dest=$DEST cap=$JOB_TIMEOUT"
+log "start launch=$LAUNCH pilot=$PILOT_ID sha=$SHA start=${CKPT_SHA256:0:16} floor=${HEAD_ENTROPY_FLOOR:-off} iterations=$ITERATIONS turns=$TURNS worlds rollout=$ROLLOUT_WORLDS anchor=$TRAIN_ANCHOR_WORLDS gate=$GATE_WORLDS telemetry=$GATE_TELEMETRY bypass=$PILOT_BYPASS anchor_jobs=$ANCHOR_JOBS threads=$ANCHOR_THREADS reset=$PLAYERS/${WIDTH}x$HEIGHT/sep$SEPARATION/movement branches=[$BRANCH_SPEC] dest=$DEST cap=$JOB_TIMEOUT"
 rm -f "$WORK/EXIT_STATUS"
 stage_code
 stage_start_checkpoint

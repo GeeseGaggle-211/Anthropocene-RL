@@ -14,6 +14,11 @@
 # from it (START_CKPT_GCS + CKPT_SHA256) with HEAD_ENTROPY_FLOOR -> its own PILOT_ID
 # (pilot-<sha7>-s<start8>-f<floor8>), train records the floor and per-head entropies, the
 # summaries carry headEntropy in/out; a bad floor spec is refused before any stage.
+# (E) WP-B paired branches: BRANCH_SELECT without an explicit JOB_TIMEOUT is refused; a
+# 2-iteration BRANCH_SELECT=adaptive run (its own PILOT_ID -b<spec8>) writes, marks and
+# uploads rollout.branches.pt + branch-report.json with each rollout (the real branch
+# collector on the fake bridge of tests/labor_wpb_fake.py), and each summary embeds the
+# report. The rollout rows themselves stay the driver's fixture rows.
 #
 # MOCK_TURNS (default 2) is the job's TURNS in every scenario (MOCK_TURNS=16: the next run's
 # rollout length; collect and check-rollout get --turns 16, and D leaves JOB_TIMEOUT unset so
@@ -159,6 +164,44 @@ for k in (0, 1):
         round(s["headEntropy"]["in"]["fission"], 4), round(s["headEntropy"]["out"]["fission"], 4)),
         "shareH": (round(s["headEntropy"]["in"]["trade_share"], 4),
                    round(s["headEntropy"]["out"]["trade_share"], 4))})
+PY
+)
+
+echo "=== E: WP-B paired branches"
+if run_job BRANCH_SELECT=adaptive JOB_TIMEOUT= > "$SCRATCH/E0.out" 2>&1; then
+  echo "E: branching without an explicit JOB_TIMEOUT should be refused"; exit 1
+fi
+grep -q "needs an explicit JOB_TIMEOUT" "$SCRATCH/E0.out"
+BSPEC="select=adaptive rate=0.5 floor=0.25 horizon=2 continuation= shadow= streams= seed="
+BID="pilot-${SHA:0:7}-s${CKPT_SHA:0:8}-b$(printf %s "$BSPEC" | sha256sum | cut -c1-8)"
+run_job BRANCH_SELECT=adaptive BRANCH_RATE=0.5 BRANCH_FLOOR=0.25 BRANCH_HORIZON=2 \
+  > "$SCRATCH/E.out" 2>&1 || { tail -30 "$SCRATCH/E.out"; exit 1; }
+grep -q "pilot=$BID " "$SCRATCH/E.out"
+grep -q "branches=\[$BSPEC\]" "$SCRATCH/E.out"
+[ -e "$BUCKET/ppo-pilot/$BID/EXIT_STATUS" ]
+for k in 000 001; do
+  ls "$BUCKET/ppo-pilot/$BID/iter-$k/"*-rollout.branches.pt "$BUCKET/ppo-pilot/$BID/iter-$k/"*-branch-report.json > /dev/null
+done
+echo "E ok: $(cat "$BUCKET/ppo-pilot/$BID/EXIT_STATUS")"
+(cd "$REPO" && PYTHONPATH=src "$MOCK_VENV_PY" - "$(win "$SCRATCH/home/r5/ppo-pilot/$BID")" <<'PY'
+import json, sys
+from pathlib import Path
+work = Path(sys.argv[1])
+for k in (0, 1):
+    d = work / f"iter-{k:03d}"
+    marker = json.loads((d / "collect.done.json").read_text())
+    assert {"rollout.pt", "rollout.check.json", "rollout.branches.pt",
+            "branch-report.json"} == set(marker["outputs"]), marker["outputs"]
+    report = json.loads((d / "branch-report.json").read_text())
+    assert report["rolloutSha256Matches"] is True
+    assert report["config"]["select"] == "adaptive" and report["config"]["continuation"] == "actor"
+    s = json.loads((d / "summary.json").read_text())
+    b = s["branches"]
+    assert b["kind"] == "model9-labor-paired-branches-v1" and b["branchedStates"] > 0, b
+    assert b["telemetry"]["nativeSteps"]["shadow"] == b["telemetry"]["decisions"]
+    print(k, {"states": b["states"], "branched": b["branchedStates"],
+              "ess": round(b["importanceWeights"]["effectiveSampleSize"], 2),
+              "aMatches": b["aFirstMatchesRollout"], "steps": b["cost"]["nativeSteps"]})
 PY
 )
 echo "MOCK E2E PASSED"
