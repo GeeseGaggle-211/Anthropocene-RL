@@ -35,6 +35,15 @@ import torch
 
 from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
+from .labor_actor_optim import (
+    ActorLrSchedule,
+    actor_group_counts,
+    actor_lr_config,
+    add_actor_lr_arguments,
+    build_actor_optimizer,
+    load_actor_optimizer_state,
+    rebuild_actor_optimizer,
+)
 from .labor_bc import LaborResetOptions, extract_heuristic_labor_action
 from .labor_bridge import (
     LABOR_ACTIVITY_FEATURE_WIDTH,
@@ -1592,7 +1601,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
     run_personality: LaborPersonality | LaborPersonalityAssignment = (
         LaborPersonality() if conditioning.alpha is None else conditioning.assignment(0)
     )
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+    actor_optimizer = build_actor_optimizer(actor, actor_lr_config(args))
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=args.critic_lr
     )
@@ -1620,7 +1629,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
             label_smoothing=getattr(args, "pretrain_bc_label_smoothing", 1e-6),
             inverse_freq_power=getattr(args, "pretrain_bc_inverse_freq_power", 0.5),
         )
-        actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+        actor_optimizer = build_actor_optimizer(actor, actor_lr_config(args))
 
     trainer_state = _trainer_checkpoint(
         actor,
@@ -1741,10 +1750,8 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     if device.type != "cpu":
         bc_summary["device"] = device_record(device)
 
-    actor_lr = float(
-        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
-    )
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
+    # BC changed the actor: fresh Adam moments at the saved rates (two named groups).
+    actor_optimizer = rebuild_actor_optimizer(actor, state.get("actor_optimizer", {}), fresh=True)
 
     trainer_state = _trainer_checkpoint(
         actor,
@@ -2170,11 +2177,8 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             tail=_pretrain_critic_tail(args),
         )
 
-    actor_lr = float(
-        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
-    )
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    # Pass-through (the actor is not stepped): saved moments and rates, two named groups.
+    actor_optimizer = rebuild_actor_optimizer(actor, state["actor_optimizer"])
 
     critic_lr = float(
         state.get("critic_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
@@ -2487,11 +2491,18 @@ def _command_train(args: argparse.Namespace) -> None:
     # WP-A1: None in --a-mode off (the default), which touches nothing below.
     a_run = _a_setup(args, state, batch, rollout_metadata)
 
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+    # Learning rates are configuration, not state: the checkpoint's Adam moments/steps are
+    # restored (a legacy one-group state is re-indexed by parameter), then the configured
+    # per-group rates (and the warm-up factor for the restored step count) replace the
+    # saved ones. Historically load_state_dict silently restored the saved actor lr.
+    actor_lr = actor_lr_config(args)
+    actor_optimizer = build_actor_optimizer(actor, actor_lr)
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=args.critic_lr
     )
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    actor_optimizer_load = load_actor_optimizer_state(
+        actor_optimizer, actor, state["actor_optimizer"], actor_lr
+    )
     critic_optimizer.load_state_dict(state["critic_optimizer"])
     anchor = load_labor_anchor(args.anchor, "train-anchor")
     if (
@@ -2620,6 +2631,7 @@ def _command_train(args: argparse.Namespace) -> None:
             audit_rows=args.audit_rows,
             actor_gate=gate,
             behavior_configuration=behavior,
+            lr_schedule=ActorLrSchedule(actor_lr),
         )
         state["shuffle_rng_state"] = copy.deepcopy(shuffle.bit_generator.state)
 
@@ -2654,6 +2666,11 @@ def _command_train(args: argparse.Namespace) -> None:
             name: float(value.detach()) for name, value in independent_heads.items()
         },
         "actor": actor_stats,
+        "actorOptimizer": {
+            **actor_lr.record(),
+            "groupCounts": actor_group_counts(actor),
+            "load": actor_optimizer_load,
+        },
         "scope": "local-update-validation-not-readiness",
     }
     if warmup is not None:
@@ -2775,10 +2792,36 @@ def _a_dry_run_kl(
 
     The actor, its Adam state and the shuffle stream are copied; nothing is applied
     to the real ones. No rollback (target KL 1e30), so the K-epoch KL is measured as is.
+    The copy's optimizer has the configured per-group rates and warm-up, as train's.
     """
+    stats, _ = _a_dry_run_update(
+        prepared, actor, actor_optimizer, batch, state, args, gate, behavior
+    )
+    kl = list(stats["sampledNonnegativeKL"])
+    per_epoch, cursor = [], 0
+    for epoch in stats["epochCoverage"]:
+        cursor += int(epoch["processed"]["minibatches"])
+        per_epoch.append(float(kl[cursor - 1]))
+    return per_epoch
+
+
+def _a_dry_run_update(
+    prepared: Any,
+    actor: LaborActor,
+    actor_optimizer: torch.optim.Optimizer,
+    batch: LaborAttemptPolicyBatch,
+    state: Mapping[str, Any],
+    args: argparse.Namespace,
+    gate: LaborActorGate,
+    behavior: Mapping[str, object],
+) -> tuple[dict[str, Any], LaborActor]:
+    """The dry run's update on copies; returns its stats and the updated copy."""
     shadow = copy.deepcopy(actor)
-    optimizer = torch.optim.Adam(shadow.parameters(), lr=args.actor_lr)
-    optimizer.load_state_dict(copy.deepcopy(actor_optimizer.state_dict()))
+    lr = actor_lr_config(args)
+    optimizer = build_actor_optimizer(shadow, lr)
+    load_actor_optimizer_state(
+        optimizer, shadow, copy.deepcopy(actor_optimizer.state_dict()), lr
+    )
     rng = np.random.default_rng()
     rng.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
     stats = update_labor_policy(
@@ -2800,13 +2843,9 @@ def _a_dry_run_kl(
         audit_rows=args.audit_rows,
         actor_gate=gate,
         behavior_configuration=behavior,
+        lr_schedule=ActorLrSchedule(lr),
     )
-    kl = list(stats["sampledNonnegativeKL"])
-    per_epoch, cursor = [], 0
-    for epoch in stats["epochCoverage"]:
-        cursor += int(epoch["processed"]["minibatches"])
-        per_epoch.append(float(kl[cursor - 1]))
-    return per_epoch
+    return stats, shadow
 
 
 def _a_finish(
@@ -3113,6 +3152,7 @@ def argument_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--world-seed", type=int, required=True)
     initialize.add_argument("--optimizer-seed", type=int, required=True)
     initialize.add_argument("--actor-lr", type=float, default=3e-4)
+    add_actor_lr_arguments(initialize)
     initialize.add_argument("--critic-lr", type=float, default=3e-4)
     initialize.add_argument("--pretrain-bc-turns", type=int, default=0)
     initialize.add_argument("--pretrain-bc-epochs", type=int, default=25)
@@ -3601,6 +3641,7 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--calibration-report", type=Path)
     train.add_argument("--anchor-weight", type=float, default=1.0)
     train.add_argument("--actor-lr", type=float, default=3e-4)
+    add_actor_lr_arguments(train)
     train.add_argument("--critic-lr", type=float, default=3e-4)
     train.add_argument("--critic-epochs", type=int, default=1)
     train.add_argument("--epochs", type=int, default=4)

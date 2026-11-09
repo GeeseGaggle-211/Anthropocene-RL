@@ -4,8 +4,10 @@ The PPO start checkpoint for the r5 A(s,a) measurement is the stage-1 critic's t
 state (``critic-privileged-e4-seed0/critic.pt``: critics, normalizers, RNG, optimizer
 seed, critic-data history) with its actor replaced by the best BC actor's weights
 (``actor-bc-f1.pt``). Everything except ``actor`` and ``actor_optimizer`` is copied
-from the base unchanged; ``actor_optimizer`` is rebuilt the way the trainer builds one
-(``torch.optim.Adam(actor.parameters(), lr=...)``, fresh moments).
+from the base unchanged; ``actor_optimizer`` is a fresh legacy one-group Adam state
+(``torch.optim.Adam(actor.parameters(), lr=...)``, no moments). ``train`` re-indexes it
+into its two named groups (``labor_actor_optim``) and replaces the saved lr with its own
+configured rates, so ``--actor-lr`` here is only the recorded value.
 
 Refusals (never forced): the actor source must be a labor checkpoint whose model
 contracts (artifact kind, feature/model-input contracts, native producer contract,
@@ -204,8 +206,11 @@ def verify_composed(
         "actorParameters": len(list(actor.parameters())),
         "stateEntries": len(composed["actor_optimizer"]["state"]),
     }
-    optimizer = torch.optim.Adam(actor.parameters(), lr=3e-4)
-    optimizer.load_state_dict(composed["actor_optimizer"])  # what train does
+    from .labor_actor_optim import ActorLrConfig, build_actor_optimizer, load_actor_optimizer_state
+
+    lr = ActorLrConfig(3e-4, 3e-4)
+    optimizer = build_actor_optimizer(actor, lr)
+    load_actor_optimizer_state(optimizer, actor, composed["actor_optimizer"], lr)  # train's load
     sampling = torch.Generator()
     sampling.set_state(composed["sampling_generator_state"])  # what collect does
     report["iteration"] = int(composed["iteration"])

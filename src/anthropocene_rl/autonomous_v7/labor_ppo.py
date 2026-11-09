@@ -70,6 +70,16 @@ HEAD_LOGP_ATOL = 1e-5
 HEAD_LOGP_RTOL = 1e-5
 
 
+class LaborRatioOverflow(FloatingPointError):
+    """A PPO ratio (or a control-variate term) became non-finite although its inputs are
+    finite: ``exp`` of a current-minus-behaviour log-ratio above ~88.7 overflows float32.
+
+    After an optimizer step of the current update this is the update's own doing, and
+    ``update_labor_policy`` handles it as a KL-limit violation (rollback). Before any step
+    the current policy is the behaviour policy, so it re-raises: the data is inconsistent.
+    """
+
+
 def _vector(value: torch.Tensor, length: int, label: str) -> torch.Tensor:
     if (
         not isinstance(value, torch.Tensor)
@@ -762,7 +772,9 @@ def attempt_policy_terms(
     initial_ratio = torch.exp(initial_log_ratio)
     retry_ratio = torch.exp(retry_log_ratio)
     if not bool(torch.isfinite(initial_ratio).all()) or not bool(torch.isfinite(retry_ratio).all()):
-        raise FloatingPointError("non-finite labor PPO ratio")
+        # Every log-prob above passed ``_vector`` (finite), so this is exp overflow of a
+        # finite log-ratio, never a NaN input.
+        raise LaborRatioOverflow("non-finite labor PPO ratio")
 
     if initial_correction is not None and initial_head_advantage is None:
         raise ValueError("an initial control-variate correction requires per-head advantages")
@@ -789,9 +801,19 @@ def attempt_policy_terms(
             sub_heads,
         )
         if initial_correction is not None:
-            correction = _vector(initial_correction.term, n, "initial control-variate term")
+            correction = initial_correction.term
+            if (
+                not isinstance(correction, torch.Tensor)
+                or not correction.is_floating_point()
+                or correction.shape != (n,)
+            ):
+                raise ValueError(
+                    f"initial control-variate term must be a floating vector of length {n}"
+                )
+            # Computed from the current policy (its draws/log-probs), so non-finite values
+            # are the update's overflow, not an input (previously _vector raised ValueError).
             if not bool(torch.isfinite(correction).all()):
-                raise FloatingPointError("non-finite initial control-variate term")
+                raise LaborRatioOverflow("non-finite initial control-variate term")
             parent_surrogate = parent_surrogate + correction
     parent_entropy = initial_labor_entropy + initial_nonlabor_entropy
     if m:
@@ -1387,6 +1409,7 @@ def update_labor_policy(
     per_head_surrogate: bool = False,
     initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
     initial_correction: InitialCorrectionFn | None = None,
+    lr_schedule: Callable[[torch.optim.Optimizer], float] | None = None,
 ) -> dict[str, object]:
     """Run one frozen-behavior PPO update with transactional KL rollback.
 
@@ -1406,6 +1429,22 @@ def update_labor_policy(
     ``initial_correction`` (default None; requires ``per_head_surrogate``) adds the
     A(s,a) control variate's correction to every TRAINING minibatch's initial edge
     (:class:`InitialCorrection`); the fixed KL audit never calls it.
+
+    ``lr_schedule`` (default None: the optimizer's rates are never touched) is called
+    with the optimizer before each minibatch step's rollback snapshot and once after the
+    update; it sets the rates for the next step (e.g. ``labor_actor_optim.ActorLrSchedule``
+    derives a warm-up from the Adam step count) and returns the factor it applied. Because
+    it runs before the snapshot, a rollback restores the rates together with the Adam state
+    they were derived from. The stats then gain ``actorOptimizer`` (its record, the factor
+    used by every attempted step and the rates left on the optimizer).
+
+    A ratio overflow (:class:`LaborRatioOverflow`) after this update's first optimizer step
+    is a KL-limit violation: on the post-step audit the step is rolled back exactly as for
+    an audit KL above ``target_kl``; on a later minibatch (caused by the accepted steps
+    before it) no step is taken and the update stops. Either way the stats record
+    ``ratioOverflow``. Before any step it re-raises (inconsistent behaviour data), as do
+    non-finite inputs (log-probs, advantages, entropies are validated finite) and a
+    non-finite loss.
     """
 
     if not isinstance(per_head_surrogate, bool):
@@ -1449,39 +1488,72 @@ def update_labor_policy(
     rolled_back = False
     attempted_steps = 0
     accepted_steps = 0
-    for _ in range(epochs):
+    lr_factors: list[float] = []
+    overflow: dict[str, object] | None = None
+    for epoch_number in range(epochs):
         partitions = list(epoch_minibatches(batch.parent_count, batch_size, rng))
         processed: list[np.ndarray] = []
         accepted: list[np.ndarray] = []
         for raw_index in partitions:
             processed.append(raw_index)
             parent_index = torch.as_tensor(raw_index, dtype=torch.long)
+            factor = None if lr_schedule is None else float(lr_schedule(optimizer))
             snapshot = capture_step_state(policy_module, optimizer)
-            terms = labor_policy_minibatch_terms(
-                labor_actor,
-                batch,
-                parent_index,
-                nonlabor_scorer,
-                clip=clip,
-                entropy_weight=entropy_weight,
-                initial_head_advantage=head_advantage,
-                initial_correction=initial_correction,
-            )
+            try:
+                terms = labor_policy_minibatch_terms(
+                    labor_actor,
+                    batch,
+                    parent_index,
+                    nonlabor_scorer,
+                    clip=clip,
+                    entropy_weight=entropy_weight,
+                    initial_head_advantage=head_advantage,
+                    initial_correction=initial_correction,
+                )
+            except LaborRatioOverflow as error:
+                if not attempted_steps:
+                    raise
+                # The accepted steps before this minibatch overflowed it (outside the audit
+                # rows): no step; the snapshot is the current state, restored for symmetry.
+                restore_step_state(policy_module, optimizer, snapshot)
+                rolled_back = True
+                overflow = {
+                    "where": "training-minibatch-before-step",
+                    "epoch": epoch_number,
+                    "afterAttemptedSteps": attempted_steps,
+                    "error": str(error),
+                    "handling": "no step taken; update stopped (KL-limit violation)",
+                }
+                break
+            if not bool(torch.isfinite(terms.loss.detach())):
+                raise FloatingPointError("non-finite labor PPO loss")
             optimizer.zero_grad()
             terms.loss.backward()
             torch.nn.utils.clip_grad_norm_(policy_module.parameters(), max_grad_norm)
             optimizer.step()
             attempted_steps += 1
-            with torch.no_grad():
-                audit_terms = labor_policy_minibatch_terms(
-                    labor_actor,
-                    batch,
-                    audit,
-                    nonlabor_scorer,
-                    clip=clip,
-                    entropy_weight=entropy_weight,
-                )
-                kl = float(_audit_nonnegative_kl(audit_terms))
+            if factor is not None:
+                lr_factors.append(factor)
+            try:
+                with torch.no_grad():
+                    audit_terms = labor_policy_minibatch_terms(
+                        labor_actor,
+                        batch,
+                        audit,
+                        nonlabor_scorer,
+                        clip=clip,
+                        entropy_weight=entropy_weight,
+                    )
+                    kl = float(_audit_nonnegative_kl(audit_terms))
+            except LaborRatioOverflow as error:
+                kl = math.inf
+                overflow = {
+                    "where": "post-step-audit",
+                    "epoch": epoch_number,
+                    "afterAttemptedSteps": attempted_steps,
+                    "error": str(error),
+                    "handling": "step rolled back (KL-limit violation)",
+                }
             if not math.isfinite(kl) or kl > target_kl:
                 restore_step_state(policy_module, optimizer, snapshot)
                 rolled_back = True
@@ -1500,6 +1572,11 @@ def update_labor_policy(
         )
         if rolled_back:
             break
+    next_factor = None
+    if lr_schedule is not None:
+        # Leave the rates for the next step on the optimizer (after a rollback the restored
+        # snapshot already holds them, so this re-derives the same values).
+        next_factor = float(lr_schedule(optimizer))
     stats: dict[str, object] = {
         "contract": LABOR_PPO_CONTRACT,
         "registryDigest": batch.registry_digest,
@@ -1520,6 +1597,22 @@ def update_labor_policy(
         },
         "scope": "frozen-behavior-update; sampled-action KL is not full-policy KL",
     }
+    if lr_schedule is not None:  # the default report is unchanged
+        record = getattr(lr_schedule, "record", None)
+        stats["actorOptimizer"] = {
+            **(record() if callable(record) else {}),
+            "lrFactorPerAttemptedStep": lr_factors,
+            "firstLrFactor": lr_factors[0] if lr_factors else None,
+            "lastLrFactor": lr_factors[-1] if lr_factors else None,
+            "nextLrFactor": next_factor,
+            "lrsAfterUpdate": {
+                str(group.get("name", index)): float(group["lr"])
+                for index, group in enumerate(optimizer.param_groups)
+            },
+            "rollbacks": int(rolled_back),
+        }
+    if overflow is not None:
+        stats["ratioOverflow"] = overflow
     if per_head_surrogate:  # the default (joint) report is unchanged
         stats["initialSurrogate"] = {
             "mode": "per-head",

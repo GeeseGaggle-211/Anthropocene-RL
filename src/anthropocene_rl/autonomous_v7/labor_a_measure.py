@@ -90,6 +90,11 @@ def measure(args: argparse.Namespace) -> dict[str, Any]:
 def _measure(args: argparse.Namespace) -> dict[str, Any]:
     from . import labor_a_ppo as ap
     from . import labor_training as training
+    from .labor_actor_optim import (
+        actor_lr_config,
+        build_actor_optimizer,
+        load_actor_optimizer_state,
+    )
     from .labor_model import labor_checkpoint_personality
     from .labor_ppo import LaborActorGate
     from .labor_value_calibration import labor_critic_digest
@@ -132,6 +137,9 @@ def _measure(args: argparse.Namespace) -> dict[str, Any]:
         a_d7_rows=args.d7_rows,
         a_telemetry_dry_run=not args.no_dry_run,
         actor_lr=args.actor_lr,
+        actor_encoder_lr=args.actor_encoder_lr,
+        actor_head_lr=args.actor_head_lr,
+        actor_lr_warmup_steps=args.actor_lr_warmup_steps,
         epochs=args.epochs,
         batch_size=args.batch_size,
         clip=args.clip,
@@ -145,9 +153,11 @@ def _measure(args: argparse.Namespace) -> dict[str, Any]:
     if a_run is None:  # pragma: no cover - a_mode is gae
         raise AssertionError("gae setup returned no A run")
 
-    # train builds the actor optimizer from the checkpoint before anything else.
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    # train builds the actor optimizer from the checkpoint before anything else
+    # (saved moments; the configured per-group rates replace the saved ones).
+    lr_config = actor_lr_config(a_args)
+    actor_optimizer = build_actor_optimizer(actor, lr_config)
+    load_actor_optimizer_state(actor_optimizer, actor, state["actor_optimizer"], lr_config)
     actor_before = {k: v.detach().clone() for k, v in actor.state_dict().items()}
 
     clock = time.perf_counter()
@@ -266,6 +276,7 @@ def _measure(args: argparse.Namespace) -> dict[str, Any]:
                     "entropyWeight": float(args.entropy_weight),
                     "maxGradNorm": float(args.max_grad_norm),
                     "actorLr": float(args.actor_lr),
+                    "actorOptimizer": lr_config.record(),
                     "auditRows": int(args.audit_rows),
                     "targetKL": "1e30 (no rollback; as train's dry run)",
                     **gate_record,
@@ -297,6 +308,8 @@ def _measure(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def argument_parser() -> argparse.ArgumentParser:
+    from .labor_actor_optim import add_actor_lr_arguments
+
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--rollout", type=Path, required=True)
@@ -309,6 +322,7 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-dry-run", action="store_true")
     # train's actor-update defaults (the dry run uses them)
     parser.add_argument("--actor-lr", type=float, default=3e-4)
+    add_actor_lr_arguments(parser)
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--clip", type=float, default=0.2)

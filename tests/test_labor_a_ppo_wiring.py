@@ -850,8 +850,26 @@ def test_train_off_is_bitwise_the_prechange_train_and_refuses_a_arguments(e2e, m
         main(_train_args(checkpoint, rollout, anchor, gate, out, *extra))
         outputs[tag] = torch.load(out, weights_only=True)
     assert outputs["old"]["last_update"]["actor"]["acceptedSteps"] > 0
-    _same(outputs["old"], outputs["default"])
-    _same(outputs["old"], outputs["off"])
+    _same(outputs["default"], outputs["off"])
+    # Since the two-group actor optimizer (labor_actor_optim) the checkpoint's Adam state is
+    # laid out in named encoder/heads groups and train records its optimizer configuration;
+    # the per-parameter moments/steps and everything else are still the pre-change bits.
+    from anthropocene_rl.autonomous_v7.labor_actor_optim import actor_optimizer_state_by_name
+
+    old_state, new_state = outputs["old"], outputs["default"]
+    for key in set(old_state) | set(new_state):
+        if key not in ("actor_optimizer", "last_update"):
+            _same(old_state[key], new_state[key], key)
+    old_update, new_update = dict(old_state["last_update"]), dict(new_state["last_update"])
+    new_update.pop("actorOptimizer")
+    new_update["actor"] = {k: v for k, v in new_update["actor"].items() if k != "actorOptimizer"}
+    _same(old_update, new_update, "last_update")
+    _, actor, *_ = training._models_from_checkpoint(new_state)
+    _same(
+        actor_optimizer_state_by_name(actor, old_state["actor_optimizer"]),
+        actor_optimizer_state_by_name(actor, new_state["actor_optimizer"]),
+        "actor_optimizer.state",
+    )
     assert ap.A_STATE_KEY not in outputs["off"]
     with pytest.raises(ValueError, match="require --a-mode gae"):
         training.main(_train_args(checkpoint, rollout, anchor, gate, tmp / "x.pt",
