@@ -2703,6 +2703,9 @@ def evaluate_fit(
     qol_reference = load_qol_reference_scale(qol_reference_scale)
     target = setup(device)
     state, actor, task, costs, normalizer = _load_models(checkpoint)
+    from .labor_pilot import require_no_pilot_bypass
+
+    require_no_pilot_bypass(state, "r5 acceptance evaluate")
     task.to(target)  # the actor stays on CPU (only its parameter digest is read)
     costs.to(target)
     calibration = run_critic_calibration(

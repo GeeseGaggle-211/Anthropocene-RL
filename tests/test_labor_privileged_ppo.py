@@ -457,7 +457,14 @@ def test_warmup_cli_roundtrip_keeps_actor_and_requires_new_gate(monkeypatch, tmp
     training.main(args)
     updated = torch.load(out, weights_only=True)
     assert all(torch.equal(value, updated["actor"][key]) for key, value in state["actor"].items())
-    assert updated["actor_optimizer"] == state["actor_optimizer"]
+    # The actor's Adam state is untouched (re-laid out in the two named groups; the lr is
+    # train's configured --actor-lr, default 3e-4, not the saved one).
+    from anthropocene_rl.autonomous_v7.labor_actor_optim import actor_optimizer_state_by_name
+
+    assert actor_optimizer_state_by_name(
+        actor, updated["actor_optimizer"]
+    ) == actor_optimizer_state_by_name(actor, state["actor_optimizer"])
+    assert [g["lr"] for g in updated["actor_optimizer"]["param_groups"]] == [3e-4, 3e-4]
     assert any(
         not torch.equal(value, updated["task_critic"][key])
         for key, value in state["task_critic"].items()

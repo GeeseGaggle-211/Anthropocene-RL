@@ -114,6 +114,47 @@ def test_attempt_policy_terms_scores_nonlabor_once_and_uses_parent_denominator()
     assert changed.parent_surrogate.tolist() == pytest.approx([7.2, 3.0])
 
 
+def test_audit_kl_is_finite_when_the_ratio_underflows() -> None:
+    """D7 real-rollout regression: an executed action whose current log-prob fell
+    by thousands of nats (a tight ALR Gaussian after one Adam step) has ratio
+    exp(x) == 0 in float32. The audit must use x itself, not log(0) = -inf."""
+
+    from anthropocene_rl.autonomous_v7.labor_ppo import _audit_nonnegative_kl
+
+    def terms(initial_delta: list[float], retry_delta: list[float]):
+        initial = torch.tensor(initial_delta)
+        retry = torch.tensor(retry_delta)
+        zero_initial, zero_retry = torch.zeros(len(initial)), torch.zeros(len(retry))
+        return attempt_policy_terms(
+            current_initial_labor_logp=initial,
+            behaviour_initial_labor_logp=zero_initial,
+            current_initial_nonlabor_logp=zero_initial,
+            behaviour_initial_nonlabor_logp=zero_initial,
+            initial_advantage=torch.tensor([1.0, -1.0, 0.5]),
+            retry_parent=torch.arange(len(retry)),
+            current_retry_labor_logp=retry,
+            behaviour_retry_labor_logp=zero_retry,
+            retry_advantage=torch.ones(len(retry)),
+            initial_labor_entropy=zero_initial,
+            initial_nonlabor_entropy=zero_initial,
+            retry_labor_entropy=zero_retry,
+            clip=0.2,
+            entropy_weight=0.0,
+        )
+
+    # Before any step the policy is its own behaviour: exactly zero.
+    assert _audit_nonnegative_kl(terms([0.0, 0.0, 0.0], [0.0])).item() == 0.0
+    # The real-rollout pattern: ratios underflow to 0 on the initial and retry edges.
+    underflow = terms([-5635.6, -0.25, 0.1], [-300.0])
+    assert underflow.initial_ratio[0].item() == 0.0 and underflow.retry_ratio[0].item() == 0.0
+    kl = _audit_nonnegative_kl(underflow)
+    expected = [math.expm1(x) - x for x in (-5635.6, -0.25, 0.1, -300.0)]
+    assert math.isfinite(kl.item())
+    assert kl.item() == pytest.approx(sum(expected) / 4, rel=1e-5)
+    # The surrogate still sees the exponentiated (underflowed) ratio.
+    assert math.isfinite(underflow.policy_loss.item())
+
+
 def test_attempt_policy_terms_rejects_retry_pseudoreplication() -> None:
     initial = torch.zeros(2)
     retry = torch.zeros(2)

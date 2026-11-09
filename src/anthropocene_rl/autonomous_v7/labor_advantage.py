@@ -165,6 +165,7 @@ PLAN_ROLES = ("plan", "first-step-control")
 
 # Keyed-stream tags.
 SPLIT_TAG = 0x4153  # "AS": world split
+INNER_SPLIT_TAG = 0x4149  # "AI": stage-1 inner-validation split of the outer fit worlds
 SHUFFLE_TAG = 0x4146  # "AF": fit shuffles
 RANKER_TAG = 0x4152  # "AR": full-evaluation draw
 
@@ -1658,12 +1659,24 @@ class AdvantageFitConfig:
     huber_se_multiplier: float = HUBER_SE_MULTIPLIER
     masked_blocks: tuple[str, ...] = STAGE1_MASKED_BLOCKS
     support_floor: int = BLOCK_SUPPORT_FLOOR
+    # Seed of the fit/held-out world split of the stage-1 source, independent of the
+    # fit ``seed`` so every fit seed trains and is evaluated on the same worlds (seed
+    # agreement and the gate's default held-out set need one common split). The pair
+    # source still splits by ``seed`` and ignores this field.
+    split_seed: int = 0
+    # Stage-1 inner validation (Amendment A, 8 Nov 2026): this fraction of the outer
+    # fit worlds is carved off (split key ``INNER_SPLIT_TAG`` with ``split_seed``) for
+    # early stopping; the head trains on the rest. 0 disables early stopping (train
+    # every epoch, keep the last), the behaviour of payloads written before the field.
+    inner_fraction: float = 0.2
 
     def __post_init__(self) -> None:
         if set(self.horizons) != set(COMPONENTS):
             raise ValueError(f"advantage horizons must name exactly {list(COMPONENTS)}")
         if not 0.0 <= self.holdout_fraction < 1.0:
             raise ValueError("holdout fraction must be in [0, 1)")
+        if not 0.0 <= self.inner_fraction < 1.0:
+            raise ValueError("inner fraction must be in [0, 1)")
         if self.target_source not in TARGET_SOURCES:
             raise ValueError(f"advantage target source must be one of {TARGET_SOURCES}")
         if not self.huber_se_multiplier > 0 or self.support_floor < 0:
@@ -1680,6 +1693,8 @@ class AdvantageFitConfig:
                 huber_se_multiplier=self.huber_se_multiplier,
                 masked_blocks=list(self.masked_blocks),
                 support_floor=self.support_floor,
+                split_seed=self.split_seed,
+                inner_fraction=self.inner_fraction,
             )
         return state
 
@@ -1711,6 +1726,11 @@ class AdvantageFitConfig:
         }
         if "masked_blocks" in data:
             data["masked_blocks"] = tuple(str(b) for b in data["masked_blocks"])
+        if data.get("target_source", PAIR_TARGET_SOURCE) != PAIR_TARGET_SOURCE:
+            # Stage-1 payloads written before ``split_seed`` split by the fit seed.
+            data.setdefault("split_seed", data.get("seed", 0))
+            # Stage-1 payloads written before ``inner_fraction`` had no early stopping.
+            data.setdefault("inner_fraction", 0.0)
         return cls(**data)
 
     @staticmethod
@@ -1746,13 +1766,14 @@ def require_advantage_fit_worlds(worlds: Iterable[int]) -> None:
 
 
 def split_worlds(
-    worlds: Sequence[int], holdout_fraction: float, seed: int
+    worlds: Sequence[int], holdout_fraction: float, seed: int, *, tag: int = SPLIT_TAG
 ) -> tuple[list[int], list[int]]:
-    """Deterministic world-level split (before any pair is built)."""
+    """Deterministic world-level split (before any pair is built); ``tag`` keys the
+    stream (``INNER_SPLIT_TAG`` for the stage-1 inner-validation split)."""
     worlds = sorted({int(w) for w in worlds})
     if holdout_fraction <= 0 or len(worlds) < 2:
         return worlds, []
-    order = np.random.default_rng([SPLIT_TAG, int(seed)]).permutation(len(worlds))
+    order = np.random.default_rng([int(tag), int(seed)]).permutation(len(worlds))
     count = max(1, math.ceil(holdout_fraction * len(worlds)))
     count = min(count, len(worlds) - 1)
     held = sorted(worlds[i] for i in order[:count])
@@ -1812,6 +1833,7 @@ def fit_advantage_head(
     stability: Any = "auto",
     frozen_actor: nn.Module | None = None,
     targets: Any = None,
+    eval_worlds: Iterable[int] | None = None,
 ) -> tuple[LaborAdvantageHead, dict[str, Any]]:
     """Fit A on same-root pairs of fitting worlds; the critic stays frozen.
 
@@ -1820,6 +1842,8 @@ def fit_advantage_head(
     ``labor_a_stage1.StageOneTargets`` built from export-v2 successor rows and a
     critic V) are fitted with the anchored, inverse-noise-variance Huber loss
     ``labor_a_stage1.anchored_huber_loss``; :func:`pairwise_loss` is then not used.
+    ``eval_worlds`` (stage 1 only) names the gate evaluation worlds, checked disjoint
+    from the fit and inner-validation worlds.
 
     Worlds are split (fit / held-out) before pairs are built; the held-out
     worlds' pairs are only scored. Reserved, calibration, development and
@@ -1849,6 +1873,7 @@ def fit_advantage_head(
             config,
             stability=stability,
             frozen_actor=frozen_actor,
+            eval_worlds=eval_worlds,
         )
     if targets is not None:
         raise ValueError("stage-1 targets need target_source=LAMBDA_TARGET_SOURCE")
@@ -2126,8 +2151,12 @@ class AdvantageRanker:
         )
         features = torch.as_tensor(encode_actions(actions, population), dtype=torch.float32)
         root_index = torch.zeros(len(actions), dtype=torch.long)
+        # Score each distinct feature row once: identical rows in one CPU batch are not
+        # guaranteed bitwise-identical outputs (seen on Linux), and a control twin must tie H12.
+        unique, inverse = torch.unique(features, dim=0, return_inverse=True)
         with torch.no_grad():
-            raw = self.head(contexts, features, root_index)
+            scored = self.head(contexts, unique, torch.zeros(len(unique), dtype=torch.long))
+        raw = {name: scored[name][inverse] for name in COMPONENTS}
         advantage = {
             name: centre(raw[name], root_index, 1).double().tolist() for name in COMPONENTS
         }

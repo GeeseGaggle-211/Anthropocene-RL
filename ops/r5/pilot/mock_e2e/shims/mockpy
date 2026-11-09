@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# The job's $PY in the mock: the native stages (collect, anchor producer) go to driver.py,
+# everything else (train, calibration, labor_pilot, embedded snippets) runs for real.
+VENV_PY="${MOCK_VENV_PY:?}"
+if [ "$1" = "-m" ]; then
+  case "$2" in
+    *labor_training) [ "$3" = collect ] && exec "$VENV_PY" "$MOCK_DIR/driver.py" "$@" ;;
+    *labor_anchor_producer) exec "$VENV_PY" "$MOCK_DIR/driver.py" "$@" ;;
+  esac
+fi
+if [ "$1" = "-c" ] && [[ "$2" == *"anthropocene_rl.__file__"* ]]; then
+  out=$("$VENV_PY" "$@") || exit $?
+  cygpath -u "$out"; exit 0
+fi
+exec "$VENV_PY" "$@"

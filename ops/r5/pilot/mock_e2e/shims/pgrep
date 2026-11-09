@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Mock pgrep (Git Bash has none): no matching process.
+exit 1
