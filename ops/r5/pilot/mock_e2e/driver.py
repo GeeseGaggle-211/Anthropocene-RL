@@ -46,6 +46,8 @@ def main() -> None:
         plan = ((False, 71), (True, 72), (False, 73), (False, 74), (True, 75))
         identity = [(worlds[0], 3), (worlds[0], 4), (worlds[1 % len(worlds)], 3),
                     (worlds[1 % len(worlds)], 4), (worlds[2 % len(worlds)], 3)]
+        if len(set(identity)) < len(identity):  # fewer than 3 worlds (branch_cost_probe)
+            identity = [(worlds[i % len(worlds)], 3 + i // len(worlds)) for i in range(5)]
         rows, bootstrap = [], {}
         for (retry, seed), (world, turn) in zip(plan, identity):
             row, tail, *_ = _collect(patch, retry, (actor, task, costs), seed=seed, world=world)
