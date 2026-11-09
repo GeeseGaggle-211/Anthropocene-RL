@@ -142,7 +142,7 @@ def _equal(a, b) -> bool:
     if isinstance(a, dict):
         return isinstance(b, dict) and list(a) == list(b) and all(_equal(a[k], b[k]) for k in a)
     if isinstance(a, (list, tuple)):
-        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b))
+        return len(a) == len(b) and all(_equal(x, y) for x, y in zip(a, b, strict=False))
     return a == b
 
 
@@ -178,7 +178,7 @@ def test_flag_off_is_v1_and_on_keeps_every_v1_field() -> None:
     assert json.dumps(a.table["decisions"]) == json.dumps(b.table["decisions"])
     assert json.dumps(a.table["rounds"]) == json.dumps(b.table["rounds"])
     assert _strip(a.table["work"]) == _strip(b.table["work"])
-    assert all(_equal(x, y) for x, y in zip(a.rows, b.rows))
+    assert all(_equal(x, y) for x, y in zip(a.rows, b.rows, strict=False))
 
 
 def test_successor_streams_rows_and_statuses() -> None:
@@ -201,7 +201,7 @@ def test_successor_streams_rows_and_statuses() -> None:
             decisions = [b["decision"] for b in entry["boundaries"]]
             # per-stream rewards are the branch's raw steps
             assert len(entry["step_rewards"]) == len(decisions) == len(entry["step_years"])
-            for k, reward in enumerate(entry["step_rewards"]):
+            for _k, reward in enumerate(entry["step_rewards"]):
                 assert reward[0] == pytest.approx(v + 0.01 * s)
             for b in entry["boundaries"]:
                 if b["status"] == "terminated":
@@ -304,13 +304,21 @@ def test_successor_rows_store_deduplicates_and_validates() -> None:
     assert store.add({"tensors": {"core": torch.zeros(1, 3)}, "privileged": None}) == 1
     with pytest.raises(ValueError, match="only a live"):
         lsp.successor_stream(
-            0, [[0, 0, 0, 0]], [20.0], True,
-            [{"decision": 1, "turn": 5, "status": "terminated", "row": row}], store,
+            0,
+            [[0, 0, 0, 0]],
+            [20.0],
+            True,
+            [{"decision": 1, "turn": 5, "status": "terminated", "row": row}],
+            store,
         )
     with pytest.raises(ValueError, match="status"):
         lsp.successor_stream(
-            0, [[0, 0, 0, 0]], [20.0], False,
-            [{"decision": 1, "turn": 5, "status": "asleep", "row": None}], store,
+            0,
+            [[0, 0, 0, 0]],
+            [20.0],
+            False,
+            [{"decision": 1, "turn": 5, "status": "asleep", "row": None}],
+            store,
         )
 
 
@@ -323,9 +331,17 @@ def _fake_world(job):
         tables.append(result.table)
         roots.append(result.payload_root)
     return {
-        "world": int(job["world"]), "rows": rows, "tables": tables, "skipped": {},
-        "reset_identity": {}, "root_turn_indices": [4, 5], "restore_checks": [],
-        "work": {}, "main_path_resolves": 0, "wall_seconds": 0.0, "payload_roots": roots,
+        "world": int(job["world"]),
+        "rows": rows,
+        "tables": tables,
+        "skipped": {},
+        "reset_identity": {},
+        "root_turn_indices": [4, 5],
+        "restore_checks": [],
+        "work": {},
+        "main_path_resolves": 0,
+        "wall_seconds": 0.0,
+        "payload_roots": roots,
     }
 
 
@@ -334,16 +350,29 @@ def _publish(tmp_path: Path, monkeypatch, successors: bool) -> Path:
     out = tmp_path / f"search-{int(successors)}"
     out.mkdir()
     config = _config(successors)
-    body = {"schema": 1, "source_kind": labor_search.SOURCE_KIND,
-            "options": {"turns": 8, "reset_options": {}, "partition": "fitting"}}
+    body = {
+        "schema": 1,
+        "source_kind": labor_search.SOURCE_KIND,
+        "options": {"turns": 8, "reset_options": {}, "partition": "fitting"},
+    }
     source = dict(body, source_run=digest(body))
-    job = {"world": 90100, "out": str(out), "source_run": source["source_run"],
-           "config": config.state_dict(), "turns": 8, "reset_options": {},
-           "normalizer_digest": "n", "source": "h12", "partition": "fitting"}
+    job = {
+        "world": 90100,
+        "out": str(out),
+        "source_run": source["source_run"],
+        "config": config.state_dict(),
+        "turns": 8,
+        "reset_options": {},
+        "normalizer_digest": "n",
+        "source": "h12",
+        "partition": "fitting",
+    }
     summary = labor_search.write_search_shard(job)
-    ltd.publish_dataset(out, source, [
-        {k: summary[k] for k in ("path", "world_seed", "meta_sha256", "data_digest", "rows")}
-    ])
+    ltd.publish_dataset(
+        out,
+        source,
+        [{k: summary[k] for k in ("path", "world_seed", "meta_sha256", "data_digest", "rows")}],
+    )
     return out
 
 
@@ -363,7 +392,8 @@ def test_published_shard_label_rows_and_tables_are_identical(tmp_path, monkeypat
     meta_off.pop("candidates_sha256"), meta_on.pop("candidates_sha256")  # wall-clock fields
     assert meta_off == meta_on
     assert b_on["export_schema"] == lsp.EXPORT_SCHEMA_SUCCESSORS and b_on["successor_rows"] > 0
-    assert {k: v for k, v in b_on.items() if k not in ("export_schema", "sha256", "successor_rows")} \
-        == {k: v for k, v in b_off.items() if k not in ("export_schema", "sha256")}
+    assert {
+        k: v for k, v in b_on.items() if k not in ("export_schema", "sha256", "successor_rows")
+    } == {k: v for k, v in b_off.items() if k not in ("export_schema", "sha256")}
     (path,) = lsp.candidate_shard_paths(on.parent)
     assert lsp.has_successors(lsp.read_candidate_shard(path))

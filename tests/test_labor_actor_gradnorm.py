@@ -20,7 +20,9 @@ from anthropocene_rl.autonomous_v7.labor_bc import pretrain_labor_actor_bc
 from anthropocene_rl.autonomous_v7.labor_stability import StabilityConfig
 from tests.test_labor_actor_task_gradients import synthetic_actor_dataset
 
-SCALES = {t: s for t, s in zip(ACTOR_ROLE_TASKS, [0.5, 0.4, 0.01, 0.03] + [0.005] * 9)}
+SCALES = {
+    t: s for t, s in zip(ACTOR_ROLE_TASKS, [0.5, 0.4, 0.01, 0.03] + [0.005] * 9, strict=False)
+}
 
 
 def _fit(loss_balancing=None, stability=None, epochs=2):
@@ -89,8 +91,9 @@ def test_update_renormalises_and_holds_understaffed_roles() -> None:
 
 
 def test_alpha_zero_equalises_the_weighted_ema_norms() -> None:
-    config = ActorGradNorm(alpha=0.0, lr=0.5, ema=0.5, init="share", min_weight=1e-3,
-                           max_weight=1e3, hold_below=0.0)
+    config = ActorGradNorm(
+        alpha=0.0, lr=0.5, ema=0.5, init="share", min_weight=1e-3, max_weight=1e3, hold_below=0.0
+    )
     state = ActorGradNormState(config, SCALES)
     raw = {t: 0.01 * (1 + 3 * i) for i, t in enumerate(ACTOR_BC_TASKS)}
     staffed = {t: 100 for t in ACTOR_ROLE_TASKS}
@@ -123,9 +126,7 @@ def test_negligible_gradient_tasks_are_held_not_inflated() -> None:
 
 
 def test_alpha_favours_slower_tasks() -> None:
-    config = ActorGradNorm(
-        alpha=1.0, lr=1.0, ema=1.0, init="share", max_weight=1e3, hold_below=0.0
-    )
+    config = ActorGradNorm(alpha=1.0, lr=1.0, ema=1.0, init="share", max_weight=1e3, hold_below=0.0)
     state = ActorGradNormState(config, SCALES)
     staffed = {t: 100 for t in ACTOR_ROLE_TASKS}
     raw = {t: 1.0 for t in ACTOR_BC_TASKS}
@@ -155,9 +156,10 @@ def test_gradnorm_fit_logs_weights_and_judges_dominance(tmp_path) -> None:
     assert record["updates"] == 8
     assert record["scale_sum"] == pytest.approx(record["scale_target"], rel=1e-6)
     assert record["task_holds"]["activity:ClayMiner"] == 8  # never staffed
-    assert record["final_weights"]["activity:ClayMiner"] == record["initial_weights"][
-        "activity:ClayMiner"
-    ]
+    assert (
+        record["final_weights"]["activity:ClayMiner"]
+        == record["initial_weights"]["activity:ClayMiner"]
+    )
     steps = [json.loads(line) for line in jsonl.read_text().splitlines()]
     logged = [r for r in steps if r.get("kind") == "step" and "actor_gradnorm" in r]
     assert logged and set(logged[0]["actor_task_weights"]) == set(ACTOR_BC_TASKS)
@@ -182,10 +184,29 @@ def test_checkpoint_round_trip_records_the_config(tmp_path) -> None:
 
 def test_cli_builds_the_controller() -> None:
     args = lt.argument_parser().parse_args(
-        ["pretrain-bc", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
-         "--loss-balancing", "gradnorm", "--gradnorm-alpha", "0.5", "--gradnorm-init", "sqrt",
-         "--gradnorm-min-rows", "8", "--gradnorm-max-weight", "30", "--gradnorm-every", "2",
-         "--gradnorm-shared", "last-layer"]
+        [
+            "pretrain-bc",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o.pt",
+            "--loss-balancing",
+            "gradnorm",
+            "--gradnorm-alpha",
+            "0.5",
+            "--gradnorm-init",
+            "sqrt",
+            "--gradnorm-min-rows",
+            "8",
+            "--gradnorm-max-weight",
+            "30",
+            "--gradnorm-every",
+            "2",
+            "--gradnorm-shared",
+            "last-layer",
+        ]
     )
     config = lt._bc_loss_balancing_kwargs(args)["loss_balancing"]
     assert config == ActorGradNorm(
@@ -289,8 +310,9 @@ def test_grouped_inner_holds_and_inner_none_is_fixed() -> None:
 def test_grouped_fit_logs_groups_roles_and_judges_dominance(tmp_path) -> None:
     jsonl = tmp_path / "stability.jsonl"
     config = ActorGroupedGradNorm(inner="gradnorm", min_rows=2)
-    _, summary = _fit(loss_balancing=config, stability=StabilityConfig(jsonl=str(jsonl),
-                                                                       log_every=2))
+    _, summary = _fit(
+        loss_balancing=config, stability=StabilityConfig(jsonl=str(jsonl), log_every=2)
+    )
     record = summary["loss_balancing"]
     assert record["mode"] == "grouped" and record["groups"] == list(ACTOR_GROUPS)
     assert record["updates"] == 8
@@ -305,25 +327,52 @@ def test_grouped_fit_logs_groups_roles_and_judges_dominance(tmp_path) -> None:
 
 
 def test_grouped_checkpoint_round_trip_and_cli(tmp_path) -> None:
-    config = ActorGroupedGradNorm(alpha=0.5, init="sqrt", inner="gradnorm",
-                                  inner_max_weight=20.0, every=2)
+    config = ActorGroupedGradNorm(
+        alpha=0.5, init="sqrt", inner="gradnorm", inner_max_weight=20.0, every=2
+    )
     _, summary = _fit(loss_balancing=config, epochs=1)
     path = tmp_path / "actor.pt"
     lt._save_checkpoint(path, {"heuristic_bc_pretraining": summary})
-    record = torch.load(path, map_location="cpu", weights_only=True)[
-        "heuristic_bc_pretraining"]["loss_balancing"]
+    record = torch.load(path, map_location="cpu", weights_only=True)["heuristic_bc_pretraining"][
+        "loss_balancing"
+    ]
     for key, value in config.state_dict().items():
         assert record[key] == value
     args = lt.argument_parser().parse_args(
-        ["pretrain-bc", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
-         "--loss-balancing", "grouped", "--gradnorm-inner", "gradnorm",
-         "--gradnorm-inner-max-weight", "20", "--gradnorm-every", "4"]
+        [
+            "pretrain-bc",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o.pt",
+            "--loss-balancing",
+            "grouped",
+            "--gradnorm-inner",
+            "gradnorm",
+            "--gradnorm-inner-max-weight",
+            "20",
+            "--gradnorm-every",
+            "4",
+        ]
     )
     built = lt._bc_loss_balancing_kwargs(args)["loss_balancing"]
     assert built == ActorGroupedGradNorm(inner="gradnorm", inner_max_weight=20.0, every=4)
     bad = lt.argument_parser().parse_args(
-        ["pretrain-bc", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o.pt",
-         "--loss-balancing", "gradnorm", "--gradnorm-inner", "gradnorm"]
+        [
+            "pretrain-bc",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o.pt",
+            "--loss-balancing",
+            "gradnorm",
+            "--gradnorm-inner",
+            "gradnorm",
+        ]
     )
     with pytest.raises(ValueError, match="grouped only"):
         lt._bc_loss_balancing_kwargs(bad)

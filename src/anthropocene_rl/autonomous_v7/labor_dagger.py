@@ -326,7 +326,7 @@ def collect_learner_world(
     the branch's last actor decision; ``all-visited``: after each) also gets
     one teacher continuation (:func:`teacher_continuation`), appended to
     ``continuations``; the actor rows are unchanged by it.
-    """
+    """  # noqa: E501 - docstring/prose line kept verbatim
     from .bridge import Model9Bridge
     from .labor_bridge import LaborModel9Bridge
     from .labor_model import labor_policy_tensors
@@ -372,7 +372,9 @@ def collect_learner_world(
                 contexts, tensors = labor_policy_tensors(
                     live, normalizer, personality=world_personality
                 )
-                step = _teacher_step(labor_bridge, heur_bridge, world, options, live, contexts, tensors)
+                step = _teacher_step(
+                    labor_bridge, heur_bridge, world, options, live, contexts, tensors
+                )
                 for village in step["villages"]:
                     founded.setdefault(int(village["camp"]), int(step["turn"]))
                 if track:
@@ -387,7 +389,9 @@ def collect_learner_world(
             fork, _ = labor_bridge.fork()
             fork_turn = int(step["turn"])
             saved_table = (
-                copy.deepcopy(world_personality.table) if hasattr(world_personality, "table") else None
+                copy.deepcopy(world_personality.table)
+                if hasattr(world_personality, "table")
+                else None
             )
             branch_founded = dict(founded)
             generator = torch.Generator().manual_seed(
@@ -942,7 +946,9 @@ def argument_parser() -> argparse.ArgumentParser:
         "every branch is the actor's own episode from the reset (decision 0; needs "
         "--depth == --horizon, and --starts 1 unless --stochastic)",
     )
-    collect.add_argument("--stochastic", action="store_true", help="sample the actor (default: means)")
+    collect.add_argument(
+        "--stochastic", action="store_true", help="sample the actor (default: means)"
+    )
     collect.add_argument("--policy-seed", type=int, default=0)
     collect.add_argument("--players", type=int, default=16)
     collect.add_argument("--width", type=int, default=None)
@@ -976,7 +982,9 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--tail-rho", type=float, default=tail_defaults.rho)
     collect.add_argument("--tail-cap", type=int, default=tail_defaults.cap)
     collect.add_argument(
-        "--tail-schedule-seed-base", type=int, default=tail_defaults.seed_base,
+        "--tail-schedule-seed-base",
+        type=int,
+        default=tail_defaults.seed_base,
         help="each world's frozen stopping schedule uses seed base + world seed",
     )
     collect.add_argument(
@@ -1009,7 +1017,9 @@ def _branch_starts(args: argparse.Namespace, worlds: Sequence[int]) -> dict[int,
     if getattr(args, "prefix", PREFIX_TEACHER) == PREFIX_ACTOR_FROM_RESET:
         return {world: [0] * int(args.starts) for world in worlds}
     return {
-        world: draw_start_turns(args.start_key, world, args.round, args.starts, args.horizon, args.depth)
+        world: draw_start_turns(
+            args.start_key, world, args.round, args.starts, args.horizon, args.depth
+        )
         for world in worlds
     }
 
@@ -1235,8 +1245,15 @@ def run_collect(args: argparse.Namespace) -> dict[str, Any]:
         if world not in done
     ]
     print(
-        json.dumps({"dagger_round": args.round, "depth": args.depth, "worlds": len(worlds),
-                    "resumed_shards": len(done), "jobs": len(jobs)}),
+        json.dumps(
+            {
+                "dagger_round": args.round,
+                "depth": args.depth,
+                "worlds": len(worlds),
+                "resumed_shards": len(done),
+                "jobs": len(jobs),
+            }
+        ),
         file=sys.stderr,
         flush=True,
     )
@@ -1402,8 +1419,16 @@ def run_rollout_compare(args: argparse.Namespace) -> dict[str, Any]:
     }
     if args.out is not None:
         Path(args.out).write_text(json.dumps(result, indent=1, sort_keys=True))
-    print(json.dumps({"ok": result["ok"], "problems": problems,
-                      "worlds": {w: c["ok"] for w, c in worlds.items()}}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "ok": result["ok"],
+                "problems": problems,
+                "worlds": {w: c["ok"] for w, c in worlds.items()},
+            },
+            sort_keys=True,
+        )
+    )
     return result
 
 

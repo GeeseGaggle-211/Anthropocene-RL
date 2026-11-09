@@ -152,13 +152,22 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "source": "std of the per-row Monte Carlo QoL return on the fitting batches "
         "(qol-reference-scale subcommand); the unit of qol:b and of the qol:c TD residual",
     },
-    "td_residual_abs_bias_max": {"value": 0.05, "status": "approved (user 26 Oct)", "source": "reference scales (3.1)"},
-    "td_residual_mae_max": {"value": 0.20, "status": "approved (user 26 Oct)", "source": "reference scales (3.1)"},
+    "td_residual_abs_bias_max": {
+        "value": 0.05,
+        "status": "approved (user 26 Oct)",
+        "source": "reference scales (3.1)",
+    },
+    "td_residual_mae_max": {
+        "value": 0.20,
+        "status": "approved (user 26 Oct)",
+        "source": "reference scales (3.1)",
+    },
     # Rolling-window n-step residual (r5-b criterion c, replaced one-step TD residual).
     "td_unavailable_max": {
         "value": 0.05,
         "status": "proposed",
-        "source": "windows ending at a living cutoff without a declared tail are excluded; above this share HOLD",
+        "source": "windows ending at a living cutoff without a declared tail are excluded; above "
+        "this share HOLD",
     },
     "td_nstep_k": {
         "value": 5,
@@ -200,7 +209,11 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "status": "approved (user 26 Oct)",
         "source": "user-approved default seed rule",
     },
-    "floor_tolerance": {"value": 0.02, "status": "approved (user 26 Oct)", "source": "mean-with-floor rule"},
+    "floor_tolerance": {
+        "value": 0.02,
+        "status": "approved (user 26 Oct)",
+        "source": "mean-with-floor rule",
+    },
     "determinism_tolerance": {
         "value": 1e-6,
         "status": "approved (user 26 Oct)",
@@ -224,8 +237,13 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
         "a rollback-prone arm across seeds is escalated to the user, not averaged away",
     },
     "stability_dominance": {
-        "value": {"window_points": 16, "steps": 400, "share": 0.90, "persistence": 0.75,
-                  "min_progress": 0.01},
+        "value": {
+            "window_points": 16,
+            "steps": 400,
+            "share": 0.90,
+            "persistence": 0.75,
+            "min_progress": 0.01,
+        },
         "status": "approved (user 26 Oct)",
         "source": "2.2: 16-point window (400 steps)",
     },
@@ -235,9 +253,14 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     # gate); it reuses the dominance window, its stalled_progress computation and
     # min_progress. Fits without gradnorm are judged exactly as before.
     "stability_task_progress_stall": {
-        "value": {"applies": "pretrain-critic --loss-balancing gradnorm", "window_points": 16,
-                  "steps": 400, "min_progress": 0.01, "heads": ["qol_years", "population_years"],
-                  "gradient_dominance": "advisory under gradnorm"},
+        "value": {
+            "applies": "pretrain-critic --loss-balancing gradnorm",
+            "window_points": 16,
+            "steps": 400,
+            "min_progress": 0.01,
+            "heads": ["qol_years", "population_years"],
+            "gradient_dominance": "advisory under gradnorm",
+        },
         "status": "approved (user 29 Oct)",
         "source": "scale-out: fixed QoL weights 30/50 tripped gradient_dominance at 60 worlds "
         "(task_encoder at step 1875; global_clip at step 2225); any task head's relative "
@@ -409,8 +432,7 @@ PREREGISTERED: dict[str, dict[str, Any]] = {
     # Advantage magnitude on the combined reward (user 28 Oct; NON-GATING for now).
     "adv_sign_agreement_min": {
         "value": {"1": 0.55, "5": 0.65},
-        "status": "proposed (NOT recommended for gating: it does not separate an untrained "
-        "critic)",
+        "status": "proposed (NOT recommended for gating: it does not separate an untrained critic)",
         "source": "headline: world-balanced, world-centred sign agreement of the critic's "
         "k-step combined advantage with A_MC = G - V "
         "(labor_pretrain_eval.ADVANTAGE_MAGNITUDE_DEFINITION), all stratum; advisory flag "
@@ -732,7 +754,11 @@ def qol_checks(
             bias = None if metrics is None else metrics.get("bias")
         out.append(
             check(
-                f"qol:b:nmae:{stratum}", "qol", nmae, threshold("qol_nmae_max"), "<=",
+                f"qol:b:nmae:{stratum}",
+                "qol",
+                nmae,
+                threshold("qol_nmae_max"),
+                "<=",
                 detail=detail,
             )
         )
@@ -1040,15 +1066,23 @@ def food_trade_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
         nmae_all, nmae_ft = everything.get("nmae"), mine.get("nmae")
         if nmae_all is not None and nmae_ft is not None:
             flags.append(
-                {"check": f"V:{head}:nmae", "all": nmae_all, "food_trade": nmae_ft,
-                 "flag": nmae_ft > nmae_all + margin}
+                {
+                    "check": f"V:{head}:nmae",
+                    "all": nmae_all,
+                    "food_trade": nmae_ft,
+                    "flag": nmae_ft > nmae_all + margin,
+                }
             )
         rank_all = (everything.get("ranking") or {}).get("accuracy")
         rank_ft = (mine.get("ranking") or {}).get("accuracy")
         if rank_all is not None and rank_ft is not None:
             flags.append(
-                {"check": f"V:{head}:ranking", "all": rank_all, "food_trade": rank_ft,
-                 "flag": rank_ft < rank_all - margin}
+                {
+                    "check": f"V:{head}:ranking",
+                    "all": rank_all,
+                    "food_trade": rank_ft,
+                    "flag": rank_ft < rank_all - margin,
+                }
             )
     advantage = evidence.get("advantage_eval") or {}
     a_family = ((advantage.get("by_scenario_family") or {}).get("food-trade") or {}).get(
@@ -1059,8 +1093,12 @@ def food_trade_advisory(evidence: Mapping[str, Any]) -> dict[str, Any]:
         rank_ft = (a_family.get(head) or {}).get("accuracy")
         if rank_all is not None and rank_ft is not None:
             flags.append(
-                {"check": f"A:{head}:ranking", "all": rank_all, "food_trade": rank_ft,
-                 "flag": rank_ft < rank_all - margin}
+                {
+                    "check": f"A:{head}:ranking",
+                    "all": rank_all,
+                    "food_trade": rank_ft,
+                    "flag": rank_ft < rank_all - margin,
+                }
             )
     if weighting is None:
         status = "NOT-APPLICABLE"
@@ -1227,8 +1265,11 @@ def advantage_magnitude_advisory(calibration: Mapping[str, Any] | None) -> dict[
                     for name, s in strata.items()
                 },
                 "flag": bool(
-                    (sign is not None and sign_min.get(str(k)) is not None
-                     and sign < sign_min[str(k)])
+                    (
+                        sign is not None
+                        and sign_min.get(str(k)) is not None
+                        and sign < sign_min[str(k)]
+                    )
                     or (slope is not None and not slope_lo <= slope <= slope_hi)
                     or (ratio is not None and not ratio_lo <= ratio <= ratio_hi)
                 ),
@@ -1268,9 +1309,7 @@ def relative_diagnostics(
     return {
         "gating": False,
         "relative_heads": relative_head_diagnostics(evidence.get("calibration")),
-        "advantage_magnitude": _get(
-            evidence, "calibration", "calibration", "advantage_magnitude"
-        ),
+        "advantage_magnitude": _get(evidence, "calibration", "calibration", "advantage_magnitude"),
         "constant_reference": {k: constant.get(k) for k in ("value", "source", "definition")},
         "units": "QoL reference scales",
         "qol": table,
@@ -1616,7 +1655,7 @@ def seed_verdict(
         "per_seed_status": per_seed_status,
         "passes_in_every_seed": all(v == "PASS" for v in per_seed_status.values()) and bool(seeds),
         "checks": rows,
-        "status": combine(statuses + [coverage]),
+        "status": combine(statuses + [coverage]),  # noqa: RUF005 - concatenation kept (operand type not guaranteed list)
     }
 
 
@@ -1690,12 +1729,24 @@ def arm_comparison(
         "a:false_improvement": ("advantage_eval", "gates", "false_improvement", "value"),
         "qol:c:td-residual-mae": ("td_residual", "mae"),
         "rel:a:lag-ordering:qol_years": (
-            "calibration", "calibration", "relative", "variants", "qol_years", "lag_ge_min",
-            "all", "accuracy",
+            "calibration",
+            "calibration",
+            "relative",
+            "variants",
+            "qol_years",
+            "lag_ge_min",
+            "all",
+            "accuracy",
         ),
         "rel:a:lag-ordering:combined": (
-            "calibration", "calibration", "relative", "variants", "combined", "lag_ge_min",
-            "all", "accuracy",
+            "calibration",
+            "calibration",
+            "relative",
+            "variants",
+            "combined",
+            "lag_ge_min",
+            "all",
+            "accuracy",
         ),
         "rel:c:td0-mae": ("td_residual", "td0", "mae"),
     }
@@ -1862,17 +1913,13 @@ def with_control_arm_reference(
     judged: dict[str, dict[int, Mapping[str, Any]]] = {}
     used: dict[str, Any] = {}
     for arm in arms:
-        reference = next(
-            (c for c in arms if c.role == "control" and c.epochs == arm.epochs), None
-        )
+        reference = next((c for c in arms if c.role == "control" and c.epochs == arm.epochs), None)
         out: dict[int, Mapping[str, Any]] = {}
         for seed, record in (by_arm.get(arm.name) or {}).items():
             key = f"{arm.name}/seed-{seed}"
             if record.get("aborted") or record.get("control") is not None:
                 out[seed] = record
-                used[key] = (
-                    None if record.get("aborted") else {"kind": "control-report"}
-                )
+                used[key] = None if record.get("aborted") else {"kind": "control-report"}
                 continue
             if arm.role == "control":
                 source = record
@@ -2541,8 +2588,8 @@ def td_residual_report(
         return None if s <= 0 else float((values_ * w).sum() / s)
 
     return {
-        "rows": int(len(rows)),
-        "worlds": int(len(np.unique(worlds[rows]))) if len(rows) else 0,
+        "rows": len(rows),
+        "worlds": len(np.unique(worlds[rows])) if len(rows) else 0,
         "scale": scale,
         "scale_source": "frozen-g0" if qol_reference is None else qol_reference.get("source"),
         "scale_digest": None if qol_reference is None else qol_reference.get("digest"),
@@ -2690,9 +2737,7 @@ def evaluate_fit(
         dataset,
         batch_size,
         qol_reference=qol_reference,
-        constant=_get(
-            calibration, "calibration", "qol_nstep", "constant_reference", "value"
-        ),
+        constant=_get(calibration, "calibration", "qol_nstep", "constant_reference", "value"),
     )
     adv_state: dict[str, Any] = {}
     head = adv_config = reserved = adv_eval = None
@@ -3359,8 +3404,7 @@ def run_determinism(args: argparse.Namespace, arm: ArmSpec, seed: int) -> Path:
             else "determinism_tolerance"
         ),
         "note": (
-            "CUDA; same seed, data, GPU, driver and code; deterministic kernels, "
-            "proposed tolerance"
+            "CUDA; same seed, data, GPU, driver and code; deterministic kernels, proposed tolerance"
             if str(getattr(args, "device", "cpu")).startswith("cuda")
             else "CPU; same seed, data, thread count and code; bitwise expected"
         ),
@@ -3718,10 +3762,7 @@ def critic_stage_summary(receipt: Mapping[str, Any]) -> dict[str, Any]:
             "seed_coverage": gate.get("seed_coverage"),
             "per_seed_status": {
                 seed: combine(
-                    [
-                        (r["per_seed"].get(seed) or {}).get("status", "HOLD")
-                        for r in judged
-                    ]
+                    [(r["per_seed"].get(seed) or {}).get("status", "HOLD") for r in judged]
                 )
                 for seed in sorted({s for r in judged for s in r["per_seed"]})
             },
@@ -4084,7 +4125,8 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     rejudge.add_argument("--stability-log", type=Path, nargs="+", required=True)
     rejudge.add_argument(
-        "--rule", choices=("v1-diminishing", "v2-floor-or-declining"),
+        "--rule",
+        choices=("v1-diminishing", "v2-floor-or-declining"),
         default="v2-floor-or-declining",
     )
     rejudge.add_argument("--out", type=Path, default=None)

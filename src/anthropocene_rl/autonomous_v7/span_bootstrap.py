@@ -6,7 +6,7 @@ The init checkpoint is upgraded to contract 9; the teacher shards are extended w
 commitment features the simulator would show (``span_labels.extend``). The whole actor is then fine-tuned with the
 stage-1 behaviour-cloning loss plus a span cross-entropy, so the existing heads keep their teacher fit while the
 encoder learns to read the commitment block. The critic is carried over unchanged.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -24,8 +24,13 @@ from .train import bc_loss, label_tensors, subset
 from .upgrade import upgrade
 
 
-def loss_with_span(actor: Actor, t: dict[str, torch.Tensor], labels: dict[str, torch.Tensor], span: torch.Tensor,
-                   weight: float) -> tuple[torch.Tensor, dict[str, float]]:
+def loss_with_span(
+    actor: Actor,
+    t: dict[str, torch.Tensor],
+    labels: dict[str, torch.Tensor],
+    span: torch.Tensor,
+    weight: float,
+) -> tuple[torch.Tensor, dict[str, float]]:
     total, parts = bc_loss(actor, t, labels)
     span_loss = nn.functional.cross_entropy(actor(t)["span"], span)
     parts["span"] = float(span_loss.detach())
@@ -57,39 +62,63 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, required=True)
     from .checkpoint import parse
+
     args = parse(parser)
-    torch.manual_seed(args.seed); torch.set_num_threads(6)
+    torch.manual_seed(args.seed)
+    torch.set_num_threads(6)
     state = upgrade(torch.load(args.init, map_location="cpu", weights_only=False))
     normalizer = load_checkpoint_normalizer(state)
     from .evaluate import load
+
     actor, _ = load(args.init)
-    load = lambda root: span_labels.extend(data.load(p for p in sorted(root.iterdir()) if p.is_dir()), args.tolerance)
+    load = lambda root: span_labels.extend(  # noqa: E731 - lambda assignment kept verbatim
+        data.load(p for p in sorted(root.iterdir()) if p.is_dir()), args.tolerance
+    )
     train, dev = load(args.train), load(args.dev)
     dev_t, dev_l, dev_span = to_tensors(dev, normalizer), label_tensors(dev), dev["span_label"]
     log = []
     with torch.no_grad():
         _, before = bc_loss(actor, dev_t, dev_l)
     entry = {"epoch": -1, "dev": before, "span": span_metrics(actor, dev_t, dev_span)}
-    log.append(entry); print(json.dumps(entry), flush=True)
+    log.append(entry)
+    print(json.dumps(entry), flush=True)
     optimizer = torch.optim.Adam(actor.parameters(), lr=args.lr)
     n = len(train["camp"])
     for epoch in range(args.epochs):
         actor.train()
         order = np.random.default_rng(args.seed + epoch).permutation(n)
         for start in range(0, n, args.batch):
-            index = order[start:start + args.batch]
+            index = order[start : start + args.batch]
             b = subset(train, index)
-            loss, _ = loss_with_span(actor, to_tensors(b, normalizer), label_tensors(b),
-                                     torch.as_tensor(b["span_label"]), args.span_weight)
-            optimizer.zero_grad(); loss.backward(); nn.utils.clip_grad_norm_(actor.parameters(), 1.0); optimizer.step()
+            loss, _ = loss_with_span(
+                actor,
+                to_tensors(b, normalizer),
+                label_tensors(b),
+                torch.as_tensor(b["span_label"]),
+                args.span_weight,
+            )
+            optimizer.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(actor.parameters(), 1.0)
+            optimizer.step()
         actor.eval()
         with torch.no_grad():
-            _, parts = loss_with_span(actor, dev_t, dev_l, torch.as_tensor(dev_span), args.span_weight)
+            _, parts = loss_with_span(
+                actor, dev_t, dev_l, torch.as_tensor(dev_span), args.span_weight
+            )
         entry = {"epoch": epoch, "dev": parts, "span": span_metrics(actor, dev_t, dev_span)}
-        log.append(entry); print(json.dumps(entry), flush=True)
+        log.append(entry)
+        print(json.dumps(entry), flush=True)
     state = dict(state)
-    state["actor"] = actor.state_dict(); state["teacher_actor"] = actor.state_dict(); state["commitments"] = True
-    state["span_bootstrap"] = {"tolerance": args.tolerance, "epochs": args.epochs, "lr": args.lr, "log": log}
+    state["actor"] = actor.state_dict()
+    state["teacher_actor"] = actor.state_dict()
+    state["commitments"] = True
+    state["span_bootstrap"] = {
+        "tolerance": args.tolerance,
+        "epochs": args.epochs,
+        "lr": args.lr,
+        "log": log,
+    }
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(state, args.out)
     print(json.dumps({"saved": str(args.out)}), flush=True)

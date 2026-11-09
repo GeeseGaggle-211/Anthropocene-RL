@@ -1,4 +1,4 @@
-"""New-run bounded normalization contract; historical normalizers remain on their exact legacy path."""
+"""New-run bounded normalization contract; historical normalizers remain on their exact legacy path."""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -54,8 +54,9 @@ def test_legacy_normalizer_state_and_tensors_remain_exact() -> None:
     legacy = Normalizer.fit(values, guard=10.0)
     state = legacy.state_dict()
     assert "normalization_contract" not in state
-    assert torch.equal(to_tensors(values, legacy)["core"],
-                       to_tensors(values, Normalizer.from_state(state))["core"])
+    assert torch.equal(
+        to_tensors(values, legacy)["core"], to_tensors(values, Normalizer.from_state(state))["core"]
+    )
     checkpoint = {"normalizer": state}
     assert load_checkpoint_normalizer(checkpoint).normalization_contract is None
 
@@ -70,17 +71,21 @@ def test_initial_bounded_fit_masks_history_but_keeps_physical_movement_flag() ->
     tensors = to_tensors(values, normalizer)["core"]
     width = values["core"].shape[1]
     assert torch.count_nonzero(tensors[:, 40:56]) == 0
-    assert torch.count_nonzero(tensors[:, width + 40:width + 56]) == 0
+    assert torch.count_nonzero(tensors[:, width + 40 : width + 56]) == 0
     assert torch.equal(tensors[:, 144], torch.as_tensor(values["core"][:, 144]))
     assert torch.all(tensors[:, width + 144] == 1)
 
 
 def test_closed_loop_refit_derives_subset_and_fixed_physical_transforms() -> None:
     values = batch()
-    normalizer = Normalizer.fit_bounded(values, closed_loop_provenance=provenance(len(values["core"])))
+    normalizer = Normalizer.fit_bounded(
+        values, closed_loop_provenance=provenance(len(values["core"]))
+    )
     supported = set(normalizer.normalization_contract.supported_history_indices)
     assert supported == {feature.index for feature in HISTORY_FEATURES} - {55}
-    assert normalizer.normalization_contract.support_source["corpusSha256"] == normalization_corpus_sha256(values)
+    assert normalizer.normalization_contract.support_source[
+        "corpusSha256"
+    ] == normalization_corpus_sha256(values)
     normalizer.require_closed_loop_support([40, 41, 53, 54])
     with pytest.raises(ValueError, match=r"\[55\]"):
         normalizer.require_closed_loop_support([55])
@@ -96,14 +101,17 @@ def test_closed_loop_refit_derives_subset_and_fixed_physical_transforms() -> Non
     assert float(tensors[0, 55]) == 0.0
 
 
-@pytest.mark.parametrize(("index", "value", "message"), [
-    (40, 0.5, "exactly 0 or 1"),
-    (41, 1.01, r"in \[0, 1\]"),
-    (53, 1.5, "integer count"),
-    (53, -1, "integer count"),
-    (54, -0.01, "nonnegative duration"),
-    (144, np.inf, "non-finite"),
-])
+@pytest.mark.parametrize(
+    ("index", "value", "message"),
+    [
+        (40, 0.5, "exactly 0 or 1"),
+        (41, 1.01, r"in \[0, 1\]"),
+        (53, 1.5, "integer count"),
+        (53, -1, "integer count"),
+        (54, -0.01, "nonnegative duration"),
+        (144, np.inf, "non-finite"),
+    ],
+)
 def test_bounded_physical_domains_fail_closed(index: int, value: float, message: str) -> None:
     values = batch()
     normalizer = Normalizer.fit_bounded(values)
@@ -129,10 +137,15 @@ def test_support_is_computed_from_rows_not_caller_assertions() -> None:
 
 def test_contract_round_trip_and_tampering_fail_closed() -> None:
     values = batch()
-    normalizer = Normalizer.fit_bounded(values, closed_loop_provenance=provenance(len(values["core"])))
+    normalizer = Normalizer.fit_bounded(
+        values, closed_loop_provenance=provenance(len(values["core"]))
+    )
     state = normalizer.state_dict()
     restored = Normalizer.from_state(state)
-    assert restored.normalization_contract.state_dict() == normalizer.normalization_contract.state_dict()
+    assert (
+        restored.normalization_contract.state_dict()
+        == normalizer.normalization_contract.state_dict()
+    )
     assert torch.equal(to_tensors(values, restored)["core"], to_tensors(values, normalizer)["core"])
 
     forged = copy.deepcopy(state)
@@ -147,10 +160,18 @@ def test_contract_round_trip_and_tampering_fail_closed() -> None:
 
 def test_checkpoint_contract_binding_and_resume_mismatch() -> None:
     values = batch()
-    normalizer = Normalizer.fit_bounded(values, closed_loop_provenance=provenance(len(values["core"])))
-    checkpoint = {"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": normalizer.state_dict()}
+    normalizer = Normalizer.fit_bounded(
+        values, closed_loop_provenance=provenance(len(values["core"]))
+    )
+    checkpoint = {
+        "feature_contract": BOUNDED_FEATURE_CONTRACT,
+        "normalizer": normalizer.state_dict(),
+    }
     loaded = load_checkpoint_normalizer(
-        checkpoint, expected_feature_contract=BOUNDED_FEATURE_CONTRACT, required_history_indices=[40, 53])
+        checkpoint,
+        expected_feature_contract=BOUNDED_FEATURE_CONTRACT,
+        required_history_indices=[40, 53],
+    )
     assert loaded.normalization_contract is not None
 
     for declared in (None, "wrong-contract"):
@@ -161,7 +182,10 @@ def test_checkpoint_contract_binding_and_resume_mismatch() -> None:
             bad["feature_contract"] = declared
         with pytest.raises(ValueError, match="feature contract"):
             load_checkpoint_normalizer(bad)
-    legacy = {"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": Normalizer.fit(values).state_dict()}
+    legacy = {
+        "feature_contract": BOUNDED_FEATURE_CONTRACT,
+        "normalizer": Normalizer.fit(values).state_dict(),
+    }
     with pytest.raises(ValueError, match="legacy normalizer"):
         load_checkpoint_normalizer(legacy)
 

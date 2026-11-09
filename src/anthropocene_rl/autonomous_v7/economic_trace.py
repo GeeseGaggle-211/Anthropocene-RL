@@ -189,9 +189,7 @@ class EconomicTraceWriter:
         if (
             stream == "updates"
             and "batchTransitionIds" in row
-            and any(
-                identity not in current_ids for identity in row["batchTransitionIds"]
-            )
+            and any(identity not in current_ids for identity in row["batchTransitionIds"])
         ):
             raise ValueError("update references a transition outside the current rollout")
         _finite(row)
@@ -276,7 +274,9 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
         affine_core = (transformed_core - normalizer.core_mean) / normalizer.core_std
     bounded_contract = normalizer.normalization_contract
     physical_features = {feature.index: feature for feature in PHYSICAL_CORE_FEATURES}
-    supported_history = (set(bounded_contract.supported_history_indices) if bounded_contract is not None else set())
+    supported_history = (
+        set(bounded_contract.supported_history_indices) if bounded_contract is not None else set()
+    )
 
     def optional_number(value):
         result = float(value)
@@ -322,17 +322,13 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
     identity_groups.append(("personality", personality))
 
     group_health = {
-        name: group_rows(name, value, normalized=True)
-        for name, value in normalized_groups
+        name: group_rows(name, value, normalized=True) for name, value in normalized_groups
     }
     if bounded_contract is not None:
         for row in group_health["core"]:
             row["semantics"] = "registered-physical-or-symlog-affine-actual-actor-input"
     group_health.update(
-        {
-            name: group_rows(name, value, normalized=False)
-            for name, value in identity_groups
-        }
+        {name: group_rows(name, value, normalized=False) for name, value in identity_groups}
     )
 
     outliers: list[list[dict]] = [[] for _ in range(rows)]
@@ -385,9 +381,16 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
             before_guard = transformed
             transform = feature.transform
             reference = feature.reference
-            support_status = ("supported" if index in supported_history else "masked-unsupported"
-                              if 40 <= index <= 55 else "not-gated")
-            mean = std = affine = None  # fitted affine is not executed for registered physical coordinates
+            support_status = (
+                "supported"
+                if index in supported_history
+                else "masked-unsupported"
+                if 40 <= index <= 55
+                else "not-gated"
+            )
+            mean = std = affine = (
+                None  # fitted affine is not executed for registered physical coordinates
+            )
         result = {
             "index": index,
             "label": _KNOWN_CORE_LABELS.get(index, f"core[{index}]"),
@@ -410,31 +413,34 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
                 and np.isfinite(before_guard)
                 and abs(float(before_guard)) > float(normalizer.guard)
             ),
-            # Registered physical coordinates bypass the fitted dead mask. History may instead be zeroed by its
-            # explicit closed-loop support mask; movement 144 remains live even when constant in the fit corpus.
-            "zeroedByDeadMask": (False if feature is not None else bool(is_dead)
-                                  if is_dead is not None else None),
-            "zeroedBySupportMask": bool(feature is not None and support_status == "masked-unsupported"),
+            # Registered physical coordinates bypass the fitted dead mask. History may instead be
+            # zeroed by its
+            # explicit closed-loop support mask; movement 144 remains live even when constant in the
+            # fit corpus.
+            "zeroedByDeadMask": (
+                False if feature is not None else bool(is_dead) if is_dead is not None else None
+            ),
+            "zeroedBySupportMask": bool(
+                feature is not None and support_status == "masked-unsupported"
+            ),
             "zeroedByPresenceMask": bool(present == 0),
         }
         if feature is not None:
-            result.update({
-                "normalizationContract": BOUNDED_FEATURE_CONTRACT,
-                "transform": transform,
-                "transformReference": reference,
-                "beforeGuard": optional_number(before_guard),
-                "supportStatus": support_status,
-            })
+            result.update(
+                {
+                    "normalizationContract": BOUNDED_FEATURE_CONTRACT,
+                    "transform": transform,
+                    "transformReference": reference,
+                    "beforeGuard": optional_number(before_guard),
+                    "supportStatus": support_status,
+                }
+            )
         return result
 
     output = []
     for row_index in range(rows):
-        previous_indices = [
-            index for index in PREVIOUS_DECISION_CORE_INDICES if index < core_width
-        ]
-        previous_absent = [
-            index for index in PREVIOUS_DECISION_CORE_INDICES if index >= core_width
-        ]
+        previous_indices = [index for index in PREVIOUS_DECISION_CORE_INDICES if index < core_width]
+        previous_absent = [index for index in PREVIOUS_DECISION_CORE_INDICES if index >= core_width]
         previous_status = (
             "complete"
             if not previous_absent
@@ -442,50 +448,42 @@ def capture_policy_input_health(batch, tensors, normalizer) -> list[dict]:
             if not previous_indices
             else "partial-legacy-core-width"
         )
-        movement_available = MOVEMENT_CORE_INDEX < core_width
+        movement_available = core_width > MOVEMENT_CORE_INDEX
         groups = [
-            group_health[name][row_index]
-            for name, _value in [*normalized_groups, *identity_groups]
+            group_health[name][row_index] for name, _value in [*normalized_groups, *identity_groups]
         ]
         actor_nonfinite = sum(group["nonfiniteCount"] for group in groups)
         normalized_nonfinite = sum(
-            group_health[name][row_index]["nonfiniteCount"]
-            for name, _value in normalized_groups
+            group_health[name][row_index]["nonfiniteCount"] for name, _value in normalized_groups
         )
         row_output = {
-                "schemaVersion": POLICY_INPUT_HEALTH_SCHEMA_VERSION,
-                "source": "exact-actor-input-tensors",
-                "floatTensorScope": (
-                    "actor-consumed core, entity sets, and personality; boolean masks excluded; "
-                    "critic-only privileged tensor excluded"
+            "schemaVersion": POLICY_INPUT_HEALTH_SCHEMA_VERSION,
+            "source": "exact-actor-input-tensors",
+            "floatTensorScope": (
+                "actor-consumed core, entity sets, and personality; boolean masks excluded; "
+                "critic-only privileged tensor excluded"
+            ),
+            "previousDecision": {
+                "status": previous_status,
+                "expectedIndices": list(PREVIOUS_DECISION_CORE_INDICES),
+                "absentIndices": previous_absent,
+                "coordinates": [core_coordinate(row_index, index) for index in previous_indices],
+            },
+            "movement": {
+                "status": "complete" if movement_available else "absent-legacy-core-width",
+                "expectedIndex": MOVEMENT_CORE_INDEX,
+                "coordinate": (
+                    core_coordinate(row_index, MOVEMENT_CORE_INDEX) if movement_available else None
                 ),
-                "previousDecision": {
-                    "status": previous_status,
-                    "expectedIndices": list(PREVIOUS_DECISION_CORE_INDICES),
-                    "absentIndices": previous_absent,
-                    "coordinates": [
-                        core_coordinate(row_index, index) for index in previous_indices
-                    ],
-                },
-                "movement": {
-                    "status": "complete" if movement_available else "absent-legacy-core-width",
-                    "expectedIndex": MOVEMENT_CORE_INDEX,
-                    "coordinate": (
-                        core_coordinate(row_index, MOVEMENT_CORE_INDEX)
-                        if movement_available
-                        else None
-                    ),
-                },
-                "groups": groups,
-                "actorFloatInputNonfiniteCount": actor_nonfinite,
-                "normalizedInputNonfiniteCount": normalized_nonfinite,
-                "maximumAbsoluteNormalized": (
-                    outliers[row_index][0]["absoluteNormalized"]
-                    if outliers[row_index]
-                    else None
-                ),
-                "topNormalizedOutliers": outliers[row_index],
-            }
+            },
+            "groups": groups,
+            "actorFloatInputNonfiniteCount": actor_nonfinite,
+            "normalizedInputNonfiniteCount": normalized_nonfinite,
+            "maximumAbsoluteNormalized": (
+                outliers[row_index][0]["absoluteNormalized"] if outliers[row_index] else None
+            ),
+            "topNormalizedOutliers": outliers[row_index],
+        }
         if bounded_contract is not None:
             row_output["normalizationContract"] = BOUNDED_FEATURE_CONTRACT
         output.append(row_output)
@@ -624,9 +622,7 @@ def emit_rollout(
         else None
     )
     provenance["normalizerHash"] = (
-        writer.store_normalizer_moments(normalizer_state)
-        if normalizer_state is not None
-        else None
+        writer.store_normalizer_moments(normalizer_state) if normalizer_state is not None else None
     )
     combination = _objective_combination_details(objectives, batch, hyper)
     objective_advantage = combination["total"]
@@ -688,15 +684,11 @@ def emit_rollout(
                 # the applied per-row personality coefficient.
                 "objectiveWeight": float(hyper.objective_weights.get(name, 0.0)),
                 "configuredObjectiveWeight": float(detail["configuredWeight"]),
-                "configuredObjectiveWeightApplied": bool(
-                    combination["configuredWeightsApplied"]
-                ),
+                "configuredObjectiveWeightApplied": bool(combination["configuredWeightsApplied"]),
                 "personalityWeight": float(detail["personalityWeight"][i])
                 if detail["personalityWeight"] is not None
                 else None,
-                "preClipEffectiveCombinationWeight": float(
-                    detail["preClipEffectiveWeight"][i]
-                ),
+                "preClipEffectiveCombinationWeight": float(detail["preClipEffectiveWeight"][i]),
                 "effectiveCombinationWeight": float(detail["effectiveWeight"][i]),
                 "effectiveCombinationWeightSemantics": (
                     "weighted-contribution/advantage; zero-advantage rows use the "
@@ -773,16 +765,12 @@ def emit_rollout(
             "objectiveCombination": {
                 "mode": combination["mode"],
                 "configuredWeightsApplied": bool(combination["configuredWeightsApplied"]),
-                "batchWelfareSpreadMultiplier": combination[
-                    "batchWelfareSpreadMultiplier"
-                ],
+                "batchWelfareSpreadMultiplier": combination["batchWelfareSpreadMultiplier"],
                 "preStandardizationObjectiveAdvantage": float(objective_advantage[i]),
                 "objectiveStandardizationScale": float(objective_scale),
                 "objectiveAfterStandardization": float(objective_standardized[i]),
                 "costAdvantageStandardizationScale": float(constraint_scale),
-                "costConstraintContributionBeforeBalancing": float(
-                    constraint_contribution[i]
-                ),
+                "costConstraintContributionBeforeBalancing": float(constraint_contribution[i]),
                 "preBalanceActorAdvantage": float(pre_balance_advantage[i]),
                 "finalPolicyAdvantage": float(combined[i]),
                 "balanceWeightIsSeparateLossWeight": True,

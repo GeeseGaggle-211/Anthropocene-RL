@@ -5,10 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from test_autonomous_v7 import batch
 
 from anthropocene_rl.autonomous_v7 import contracts, data, ppo
 from anthropocene_rl.autonomous_v7.model import Actor, Normalizer, to_tensors
-from test_autonomous_v7 import batch
 
 
 def setup(fishing: bool = True):
@@ -30,7 +30,11 @@ def test_sampled_draws_recompute_their_log_probability(stage: str) -> None:
         draw = ppo.sample(out, t, s, torch.Generator().manual_seed(3))
         lp1, entropy = ppo.log_prob(out, t, draw, s)
         lp2, _ = ppo.log_prob(actor(t), t, draw, s)
-    assert torch.allclose(lp1, lp2) and torch.all(torch.isfinite(lp1)) and torch.all(torch.isfinite(entropy))
+    assert (
+        torch.allclose(lp1, lp2)
+        and torch.all(torch.isfinite(lp1))
+        and torch.all(torch.isfinite(entropy))
+    )
     actions = ppo.to_bridge_actions(draw, t)
     assert all(len(a["strategic"]) == len(contracts.STRATEGIC) for a in actions)
     assert all((a["movement"] == contracts.NATIVE_MOVEMENT) != s.movement for a in actions)
@@ -51,13 +55,22 @@ def test_teacher_kl_vanishes_for_the_teacher_itself() -> None:
     actor, t = setup()
     with torch.no_grad():
         out = actor(t)
-    assert torch.allclose(ppo.teacher_kl(out, out), torch.zeros(len(out["strategic_mean"])), atol=1e-6)
+    assert torch.allclose(
+        ppo.teacher_kl(out, out), torch.zeros(len(out["strategic_mean"])), atol=1e-6
+    )
 
 
 def test_gae_matches_a_hand_computation() -> None:
-    d = {"world": np.array([1, 1]), "camp": np.array([7, 7]), "turn": np.array([1, 2]),
-         "years": np.full(2, 20.0), "terminated": np.array([False, False])}
-    reward = np.array([10.0, 12.0]); value = np.array([100.0, 110.0]); bootstrap = np.array([0.0, 120.0])
+    d = {
+        "world": np.array([1, 1]),
+        "camp": np.array([7, 7]),
+        "turn": np.array([1, 2]),
+        "years": np.full(2, 20.0),
+        "terminated": np.array([False, False]),
+    }
+    reward = np.array([10.0, 12.0])
+    value = np.array([100.0, 110.0])
+    bootstrap = np.array([0.0, 120.0])
     adv, target = ppo.gae(d, reward, value, bootstrap, lam=0.5)
     gamma = float(data.discount(20.0))
     d1 = 12 + gamma * 120 - 110
@@ -90,8 +103,12 @@ def test_regimes_follow_the_gate_categories() -> None:
 
 
 def test_mix_change_is_total_variation_within_a_village() -> None:
-    batch_ = {"world": np.array([0, 0, 0, 1]), "camp": np.array([5, 5, 5, 5]), "turn": np.array([0, 1, 2, 0]),
-              "economy_mix_mask": np.ones((4, 3), bool)}
+    batch_ = {
+        "world": np.array([0, 0, 0, 1]),
+        "camp": np.array([5, 5, 5, 5]),
+        "turn": np.array([0, 1, 2, 0]),
+        "economy_mix_mask": np.ones((4, 3), bool),
+    }
     z = torch.tensor([[0.0, 0.0, -50.0], [0.0, 0.0, -50.0], [50.0, 0.0, 0.0], [0.0, 50.0, 0.0]])
     change = ppo.mix_changes(batch_, {"mix_z": z})
     assert change[0] == 0 and change[3] == 0 and abs(change[1]) < 1e-6
@@ -110,8 +127,10 @@ def test_expert_adapters_warm_start_identically_and_isolate_regimes() -> None:
     # A fishing-only village's loss reaches only the fishing adapter.
     for adapter in experts.experts.adapters:
         torch.nn.init.normal_(adapter[2].weight, std=0.01)
-    mask = torch.zeros_like(t["economy_mix_mask"]); mask[:, 2] = True
-    t2 = dict(t); t2["economy_mix_mask"] = mask
+    mask = torch.zeros_like(t["economy_mix_mask"])
+    mask[:, 2] = True
+    t2 = dict(t)
+    t2["economy_mix_mask"] = mask
     experts.zero_grad()
     experts(t2)["strategic_mean"].sum().backward()
     grads = [adapter[0].weight.grad for adapter in experts.experts.adapters]
@@ -124,33 +143,65 @@ def test_route_anchor_vanishes_for_the_teacher_and_is_positive_otherwise() -> No
     actor, t = setup()
     with torch.no_grad():
         out = actor(t)
-        assert torch.allclose(ppo.teacher_kl(out, out, True, routes=True), torch.zeros(len(out["clothing"])), atol=1e-5)
-        shifted = dict(out); shifted["clothing"] = out["clothing"] + torch.tensor([3.0, 0.0])
+        assert torch.allclose(
+            ppo.teacher_kl(out, out, True, routes=True),
+            torch.zeros(len(out["clothing"])),
+            atol=1e-5,
+        )
+        shifted = dict(out)
+        shifted["clothing"] = out["clothing"] + torch.tensor([3.0, 0.0])
         assert (ppo.teacher_kl(shifted, out, True, routes=True) >= -1e-6).all()
-        assert ppo.teacher_kl(shifted, out, True, routes=True).sum() > ppo.teacher_kl(shifted, out, True).sum()
+        assert (
+            ppo.teacher_kl(shifted, out, True, routes=True).sum()
+            > ppo.teacher_kl(shifted, out, True).sum()
+        )
 
 
 def test_contract8_checkpoints_upgrade_exactly() -> None:
-    from anthropocene_rl.autonomous_v7.upgrade import upgrade
     from anthropocene_rl.autonomous_v7.model import Critic
+    from anthropocene_rl.autonomous_v7.upgrade import upgrade
+
     b = batch()
     old_width = b["core"].shape[1]
     torch.manual_seed(1)
     actor, critic = Actor(old_width), Critic(old_width)
     normalizer = Normalizer.fit(b)
-    state = {"actor": {k: v for k, v in actor.state_dict().items() if not k.startswith("span.")}, "critic": critic.state_dict(),
-             "normalizer": normalizer.state_dict(), "core_width": old_width, "contract": 8}
+    state = {
+        "actor": {k: v for k, v in actor.state_dict().items() if not k.startswith("span.")},
+        "critic": critic.state_dict(),
+        "normalizer": normalizer.state_dict(),
+        "core_width": old_width,
+        "contract": 8,
+    }
     up = upgrade(state)
-    assert up["core_width"] == old_width + contracts.COMMITMENT_FEATURES and up["contract"] == contracts.NATIVE_CONTRACT
+    assert (
+        up["core_width"] == old_width + contracts.COMMITMENT_FEATURES
+        and up["contract"] == contracts.NATIVE_CONTRACT
+    )
     new_actor, new_critic = Actor(up["core_width"]), Critic(up["core_width"])
-    new_actor.load_state_dict(up["actor"]); new_critic.load_state_dict(up["critic"])
+    new_actor.load_state_dict(up["actor"])
+    new_critic.load_state_dict(up["critic"])
     b9 = dict(b)
     rng = np.random.default_rng(0)
-    b9["core"] = np.concatenate([b["core"], rng.normal(size=(len(b["core"]), contracts.COMMITMENT_FEATURES)).astype(np.float32)], axis=1)
-    b9["core_present"] = np.concatenate([b["core_present"], np.ones((len(b["core"]), contracts.COMMITMENT_FEATURES), bool)], axis=1)
+    b9["core"] = np.concatenate(
+        [
+            b["core"],
+            rng.normal(size=(len(b["core"]), contracts.COMMITMENT_FEATURES)).astype(np.float32),
+        ],
+        axis=1,
+    )
+    b9["core_present"] = np.concatenate(
+        [b["core_present"], np.ones((len(b["core"]), contracts.COMMITMENT_FEATURES), bool)], axis=1
+    )
     with torch.no_grad():
-        a, a9 = actor(to_tensors(b, normalizer)), new_actor(to_tensors(b9, Normalizer.from_state(up["normalizer"])))
-        c, c9 = critic(to_tensors(b, normalizer)), new_critic(to_tensors(b9, Normalizer.from_state(up["normalizer"])))
+        a, a9 = (
+            actor(to_tensors(b, normalizer)),
+            new_actor(to_tensors(b9, Normalizer.from_state(up["normalizer"]))),
+        )
+        c, c9 = (
+            critic(to_tensors(b, normalizer)),
+            new_critic(to_tensors(b9, Normalizer.from_state(up["normalizer"]))),
+        )
     for key in ("strategic_mean", "service_mean", "mix_logits", "clothing", "movement"):
         assert torch.allclose(a[key], a9[key], atol=1e-6)
     assert torch.allclose(c, c9, atol=1e-6)
@@ -158,71 +209,140 @@ def test_contract8_checkpoints_upgrade_exactly() -> None:
 
 
 def test_contract9_checkpoints_upgrade_exactly_to_10() -> None:
-    from anthropocene_rl.autonomous_v7.upgrade import upgrade
     from anthropocene_rl.autonomous_v7.model import Critic
-    b = batch(); normalizer = Normalizer.fit(b)
+    from anthropocene_rl.autonomous_v7.upgrade import upgrade
+
+    b = batch()
+    normalizer = Normalizer.fit(b)
     torch.manual_seed(4)
     actor, critic = Actor(b["core"].shape[1]), Critic(b["core"].shape[1])
-    pooled = 3 * (3 * actor.encoder.set_hidden + 1)  # the regions (10), trade (11) and activities (12) blocks
+    pooled = 3 * (
+        3 * actor.encoder.set_hidden + 1
+    )  # the regions (10), trade (11) and activities (12) blocks
+
     def as_contract9(net: dict) -> dict:
-        net = {k: v for k, v in net.items() if ".sets.regions." not in k and ".sets.trade." not in k and ".sets.activities." not in k
-               and not k.startswith(("region_", "mix_region", "trade_"))}
+        net = {
+            k: v
+            for k, v in net.items()
+            if ".sets.regions." not in k
+            and ".sets.trade." not in k
+            and ".sets.activities." not in k
+            and not k.startswith(("region_", "mix_region", "trade_"))
+        }
         net["encoder.trunk.0.weight"] = net["encoder.trunk.0.weight"][:, :-pooled].clone()
         return net
-    norm9 = {k: v for k, v in normalizer.state_dict().items() if not k.startswith(("regions", "trade", "activities"))}
-    state9 = {"actor": as_contract9(actor.state_dict()), "critic": as_contract9(critic.state_dict()), "normalizer": norm9,
-              "core_width": b["core"].shape[1], "contract": 9}
+
+    norm9 = {
+        k: v
+        for k, v in normalizer.state_dict().items()
+        if not k.startswith(("regions", "trade", "activities"))
+    }
+    state9 = {
+        "actor": as_contract9(actor.state_dict()),
+        "critic": as_contract9(critic.state_dict()),
+        "normalizer": norm9,
+        "core_width": b["core"].shape[1],
+        "contract": 9,
+    }
     up = upgrade(state9)
     assert up["contract"] == contracts.NATIVE_CONTRACT and up["upgraded_from"] == 9
     new_actor, new_critic = Actor(up["core_width"]), Critic(up["core_width"])
-    new_actor.load_state_dict(up["actor"]); new_critic.load_state_dict(up["critic"])
+    new_actor.load_state_dict(up["actor"])
+    new_critic.load_state_dict(up["critic"])
     for key, value in state9["actor"].items():
         if key != "encoder.trunk.0.weight":
             assert torch.equal(up["actor"][key], value), key
     w = up["actor"]["encoder.trunk.0.weight"]
-    assert torch.equal(w[:, :-pooled], state9["actor"]["encoder.trunk.0.weight"]) and torch.all(w[:, -pooled:] == 0)
-    # Region rows, present or absent, change nothing an upgraded policy outputs; its region argmax is native.
+    assert torch.equal(w[:, :-pooled], state9["actor"]["encoder.trunk.0.weight"]) and torch.all(
+        w[:, -pooled:] == 0
+    )
+    # Region rows, present or absent, change nothing an upgraded policy outputs; its region argmax
+    # is native.
     t = to_tensors(b, Normalizer.from_state(up["normalizer"]))
-    absent = dict(t); absent["regions_present"] = torch.zeros_like(t["regions_present"])
+    absent = dict(t)
+    absent["regions_present"] = torch.zeros_like(t["regions_present"])
     absent["trade_present"] = torch.zeros_like(t["trade_present"])
     absent["activities_present"] = torch.zeros_like(t["activities_present"])
     with torch.no_grad():
         a, a0 = new_actor(t), new_actor(absent)
         assert torch.allclose(new_critic(t), new_critic(absent))
-    for key in ("strategic_mean", "service_mean", "mix_logits", "clothing", "movement", "span", "region",
-                "trade_value_mean", "trade_gate", "trade_share_mean"):
+    for key in (
+        "strategic_mean",
+        "service_mean",
+        "mix_logits",
+        "clothing",
+        "movement",
+        "span",
+        "region",
+        "trade_value_mean",
+        "trade_gate",
+        "trade_share_mean",
+    ):
         assert torch.allclose(a[key], a0[key]), key
-    assert torch.all(a["mix_offset"] == 0) and torch.all(a["region"].argmax(dim=1) == contracts.REGION_NATIVE)
-    # The trade heads start at the native posture: values 1, every gate Make, export share 0 (the shipped share).
+    assert torch.all(a["mix_offset"] == 0) and torch.all(
+        a["region"].argmax(dim=1) == contracts.REGION_NATIVE
+    )
+    # The trade heads start at the native posture: values 1, every gate Make, export share 0 (the
+    # shipped share).
     from anthropocene_rl.autonomous_v7.model import act_deterministic
+
     mode = act_deterministic(a)
-    assert np.all(mode["trade_value"] == 1.0) and np.all(mode["trade_gate"] == contracts.TRADE_MAKE) and np.all(mode["trade_share"] == 0.0)
+    assert (
+        np.all(mode["trade_value"] == 1.0)
+        and np.all(mode["trade_gate"] == contracts.TRADE_MAKE)
+        and np.all(mode["trade_share"] == 0.0)
+    )
 
 
 def test_token_model_masks_absent_rows_and_starts_native() -> None:
     from anthropocene_rl.autonomous_v7.model import act_deterministic
-    b = batch(); normalizer = Normalizer.fit(b)
+
+    b = batch()
+    normalizer = Normalizer.fit(b)
     torch.manual_seed(7)
-    actor = Actor(b["core"].shape[1], token=True); actor.eval()
+    actor = Actor(b["core"].shape[1], token=True)
+    actor.eval()
     t = to_tensors(b, normalizer)
     poked = dict(t)
     for name, _, _ in contracts.SETS:  # absent rows' values must never matter
-        x = t[name].clone(); x[~t[name + "_present"]] = 99.0; poked[name] = x
+        x = t[name].clone()
+        x[~t[name + "_present"]] = 99.0
+        poked[name] = x
     with torch.no_grad():
         a, p = actor(t), actor(poked)
-    for key in ("strategic_mean", "service_mean", "mix_logits", "trade_value_mean", "trade_gate", "region", "span", "fission"):
+    for key in (
+        "strategic_mean",
+        "service_mean",
+        "mix_logits",
+        "trade_value_mean",
+        "trade_gate",
+        "region",
+        "span",
+        "fission",
+    ):
         assert torch.allclose(a[key], p[key], atol=1e-5), key
-    assert a["mix_logits"].shape == (6, len(contracts.ECONOMY_MIX)) and a["trade_gate"].shape == (6, len(contracts.TRADE_GROUPS), contracts.TRADE_GATES)
+    assert a["mix_logits"].shape == (6, len(contracts.ECONOMY_MIX)) and a["trade_gate"].shape == (
+        6,
+        len(contracts.TRADE_GROUPS),
+        contracts.TRADE_GATES,
+    )
     mode = act_deterministic(a)
-    assert np.all(mode["trade_value"] == 1.0) and np.all(mode["trade_gate"] == contracts.TRADE_MAKE) and np.all(mode["trade_share"] == 0.0)
+    assert (
+        np.all(mode["trade_value"] == 1.0)
+        and np.all(mode["trade_gate"] == contracts.TRADE_MAKE)
+        and np.all(mode["trade_share"] == 0.0)
+    )
 
 
 @pytest.mark.parametrize("stage", sorted(ppo.STAGES))
 def test_token_model_draws_recompute_their_log_probability(stage: str) -> None:
     import dataclasses
-    b = batch(); normalizer = Normalizer.fit(b)
+
+    b = batch()
+    normalizer = Normalizer.fit(b)
     torch.manual_seed(8)
-    actor = Actor(b["core"].shape[1], token=True); actor.eval()
+    actor = Actor(b["core"].shape[1], token=True)
+    actor.eval()
     t = to_tensors(b, normalizer)
     s = dataclasses.replace(ppo.STAGES[stage], trade=True, fission=True)
     with torch.no_grad():
@@ -230,69 +350,117 @@ def test_token_model_draws_recompute_their_log_probability(stage: str) -> None:
         draw = ppo.sample(out, t, s, torch.Generator().manual_seed(3))
         lp1, entropy = ppo.log_prob(out, t, draw, s)
         lp2, _ = ppo.log_prob(ppo.explore(actor(t), -2.0), t, draw, s)
-    assert torch.allclose(lp1, lp2, atol=1e-5) and torch.all(torch.isfinite(lp1)) and torch.all(torch.isfinite(entropy))
+    assert (
+        torch.allclose(lp1, lp2, atol=1e-5)
+        and torch.all(torch.isfinite(lp1))
+        and torch.all(torch.isfinite(entropy))
+    )
 
 
 def test_personality_conditions_the_token_model_and_weights_advantages() -> None:
-    b = batch(); normalizer = Normalizer.fit(b)
+    b = batch()
+    normalizer = Normalizer.fit(b)
     torch.manual_seed(9)
-    actor = Actor(b["core"].shape[1], token=True); actor.eval()
+    actor = Actor(b["core"].shape[1], token=True)
+    actor.eval()
     t = to_tensors(b, normalizer)
     assert torch.allclose(t["personality"][0], torch.tensor(ppo.default_personality()))
-    qol = dict(t); qol["personality"] = torch.tensor([[0, 0, 0, 1.0]] * len(t["core"]))
+    qol = dict(t)
+    qol["personality"] = torch.tensor([[0, 0, 0, 1.0]] * len(t["core"]))
     with torch.no_grad():
         assert not torch.allclose(actor(t)["strategic_mean"], actor(qol)["strategic_mean"])
     rng = np.random.default_rng(0)
     for spec in ("default", "fixed:1,1,0,2", "dirichlet:1.0"):
         p = ppo.personality_sampler(spec, rng)()
-        assert p.shape == (contracts.PERSONALITY_WIDTH,) and abs(float(p.sum()) - 1) < 1e-5 and (p >= 0).all()
-    advantages = {name: np.random.default_rng(k).normal(scale=10 ** k, size=50) for k, name in enumerate(contracts.OBJECTIVES)}
+        assert (
+            p.shape == (contracts.PERSONALITY_WIDTH,)
+            and abs(float(p.sum()) - 1) < 1e-5
+            and (p >= 0).all()
+        )
+    advantages = {
+        name: np.random.default_rng(k).normal(scale=10**k, size=50)
+        for k, name in enumerate(contracts.OBJECTIVES)
+    }
     welfare_only = np.tile(ppo.default_personality(), (50, 1))
     assert np.allclose(ppo.combine_personal(advantages, welfare_only), advantages["welfare"])
     mixed = np.tile(np.asarray([0.5, 0.5, 0, 0], np.float32), (50, 1))
     scale = {k: np.std(v) for k, v in advantages.items()}
-    expected = (0.5 * advantages["welfare"] / scale["welfare"] + 0.5 * advantages["population_years"] / scale["population_years"]) * scale["welfare"]
+    expected = (
+        0.5 * advantages["welfare"] / scale["welfare"]
+        + 0.5 * advantages["population_years"] / scale["population_years"]
+    ) * scale["welfare"]
     assert np.allclose(ppo.combine_personal(advantages, mixed), expected, rtol=1e-6)
-    d = {"world": np.array([1, 1]), "camp": np.array([1, 2]), "turn": np.array([0, 0]), "society": np.array([5, 6]),
-         "parent_society": np.array([0, 0]), "prior_population": np.array([100, 50]), "qol": np.array([.8, .5]),
-         "years": np.full(2, 20.0), "terminated": np.array([False, True])}
+    d = {
+        "world": np.array([1, 1]),
+        "camp": np.array([1, 2]),
+        "turn": np.array([0, 0]),
+        "society": np.array([5, 6]),
+        "parent_society": np.array([0, 0]),
+        "prior_population": np.array([100, 50]),
+        "qol": np.array([0.8, 0.5]),
+        "years": np.full(2, 20.0),
+        "terminated": np.array([False, True]),
+    }
     parts = data.reward_components(d)
     assert np.allclose(parts["qol_years"], [0.8 * 20, 0.0])
 
 
 def test_film_is_exact_at_init_inert_at_default_and_conditions_otherwise() -> None:
     from anthropocene_rl.autonomous_v7.model import TokenEncoder
-    b = batch(); normalizer = Normalizer.fit(b)
+
+    b = batch()
+    normalizer = Normalizer.fit(b)
     torch.manual_seed(4)
-    encoder = TokenEncoder(b["core"].shape[1]); encoder.eval()
+    encoder = TokenEncoder(b["core"].shape[1])
+    encoder.eval()
     t = to_tensors(b, normalizer)
-    other = dict(t); other["personality"] = torch.tensor([[0.2, 0.3, 0.1, 0.4]] * len(t["core"]))
+    other = dict(t)
+    other["personality"] = torch.tensor([[0.2, 0.3, 0.1, 0.4]] * len(t["core"]))
 
     def legacy(enc, tt):  # the forward pass before FiLM: the whole encoder at once, then the trunk
         core = torch.cat([tt["core"], tt["personality"]], dim=1)
-        tokens, present = [enc.village(core).unsqueeze(1)], [torch.ones(len(core), 1, dtype=torch.bool)]
-        for name, rows, _ in contracts.SETS:
-            tokens.append(enc.project[name](tt[name]) + enc.kind[name] + enc.position[name].weight.unsqueeze(0))
+        tokens, present = (
+            [enc.village(core).unsqueeze(1)],
+            [torch.ones(len(core), 1, dtype=torch.bool)],
+        )
+        for name, _rows, _ in contracts.SETS:
+            tokens.append(
+                enc.project[name](tt[name])
+                + enc.kind[name]
+                + enc.position[name].weight.unsqueeze(0)
+            )
             present.append(tt[name + "_present"])
         mask = torch.cat(present, dim=1)
-        out = enc.norm(enc.attention(torch.cat(tokens, dim=1), src_key_padding_mask=~mask)) * mask.unsqueeze(-1).float()
+        out = (
+            enc.norm(enc.attention(torch.cat(tokens, dim=1), src_key_padding_mask=~mask))
+            * mask.unsqueeze(-1).float()
+        )
         return enc.trunk(out[:, 0])
 
     with torch.no_grad():
-        assert torch.allclose(encoder(other)[0], legacy(encoder, other), atol=1e-5)  # zero FiLM = the old network
+        assert torch.allclose(
+            encoder(other)[0], legacy(encoder, other), atol=1e-5
+        )  # zero FiLM = the old network
         for film in [*encoder.film_tokens, *encoder.film_trunk]:
             film.weight.normal_(std=0.5)
-        assert torch.allclose(encoder(t)[0], legacy(encoder, t), atol=1e-5)  # the default personality is untouched
-        assert not torch.allclose(encoder(other)[0], legacy(encoder, other), atol=1e-3)  # others are conditioned
+        assert torch.allclose(
+            encoder(t)[0], legacy(encoder, t), atol=1e-5
+        )  # the default personality is untouched
+        assert not torch.allclose(
+            encoder(other)[0], legacy(encoder, other), atol=1e-3
+        )  # others are conditioned
     # A checkpoint saved before FiLM loads, with identity FiLM.
     old = {k: v for k, v in encoder.state_dict().items() if not k.startswith("film_")}
-    fresh = TokenEncoder(b["core"].shape[1]); fresh.load_state_dict(old)
+    fresh = TokenEncoder(b["core"].shape[1])
+    fresh.load_state_dict(old)
     assert all(float(f.weight.abs().sum()) == 0 for f in [*fresh.film_tokens, *fresh.film_trunk])
 
 
 def test_grouped_region_slot_moves_when_moving_is_the_likelier_decision() -> None:
     from anthropocene_rl.autonomous_v7.model import grouped_region_slot
-    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: argmax is native, the grouped choice moves to the best row.
+
+    # native 0.30, keep 0, stay 0.05, rows 1-7 share 0.65: argmax is native, the grouped choice
+    # moves to the best row.
     p = torch.tensor([[0.30, 0.0, 0.05, 0.15, 0.10, 0.10, 0.10, 0.10, 0.05, 0.05]])
     logits = torch.log(p.clamp(min=1e-9))
     assert int(logits.argmax(dim=1)) == 0 and int(grouped_region_slot(logits)) == 3
@@ -304,17 +472,25 @@ def test_grouped_region_slot_moves_when_moving_is_the_likelier_decision() -> Non
 
 def test_daughter_drift_stays_near_the_parent_and_film_bound_limits_the_scale() -> None:
     from anthropocene_rl.autonomous_v7.model import TokenEncoder
+
     rng = np.random.default_rng(0)
     parent = np.array([0.1, 0.2, 0.3, 0.4], np.float32)
     assert np.array_equal(ppo.personality_drift(parent, rng, 0), parent)
     kids = np.stack([ppo.personality_drift(parent, rng, 200.0) for _ in range(400)])
-    assert np.allclose(kids.sum(axis=1), 1, atol=1e-5) and np.allclose(kids.mean(axis=0), parent, atol=0.01)
+    assert np.allclose(kids.sum(axis=1), 1, atol=1e-5) and np.allclose(
+        kids.mean(axis=0), parent, atol=0.01
+    )
     assert 0.005 < kids.std(axis=0).mean() < 0.05
-    b = batch(); normalizer = Normalizer.fit(b)
-    encoder = TokenEncoder(b["core"].shape[1]); encoder.eval()
-    t = to_tensors(b, normalizer); t["personality"] = torch.tensor([[0.0, 1.0, 0, 0]] * len(t["core"]))
+    b = batch()
+    normalizer = Normalizer.fit(b)
+    encoder = TokenEncoder(b["core"].shape[1])
+    encoder.eval()
+    t = to_tensors(b, normalizer)
+    t["personality"] = torch.tensor([[0.0, 1.0, 0, 0]] * len(t["core"]))
     torch.manual_seed(1)
-    with torch.no_grad():  # random weights: a personality offset sums to zero, so equal weights would cancel
+    with (
+        torch.no_grad()
+    ):  # random weights: a personality offset sums to zero, so equal weights would cancel
         for film in [*encoder.film_tokens, *encoder.film_trunk]:
             film.weight.normal_(std=3.0)
     assert encoder.film_extent(t) > 2.0
@@ -333,32 +509,56 @@ def test_value_heads_scale_by_residents_except_qol_years() -> None:
 
 
 def test_personality_shaping_costs_reach_every_component() -> None:
-    components = {"welfare": np.array([10.0, 10.0]), "population_years": np.array([200.0, 200.0]),
-                  "trade_utility": np.array([-1.0, 2.0]), "qol_years": np.array([16.0, 16.0])}
+    components = {
+        "welfare": np.array([10.0, 10.0]),
+        "population_years": np.array([200.0, 200.0]),
+        "trade_utility": np.array([-1.0, 2.0]),
+        "qol_years": np.array([16.0, 16.0]),
+    }
     shaped = ppo.shape_components(components, np.array([0.0, 0.1]))
     assert np.allclose(shaped["welfare"], components["welfare"])  # already charged in welfare units
-    assert np.allclose(shaped["population_years"], [200.0, 180.0]) and np.allclose(shaped["qol_years"], [16.0, 14.4])
+    assert np.allclose(shaped["population_years"], [200.0, 180.0]) and np.allclose(
+        shaped["qol_years"], [16.0, 14.4]
+    )
     assert np.allclose(shaped["trade_utility"], [-1.0, 1.8])  # a loss is not made larger
 
 
 def test_spread_selection_needs_both_directions_and_the_guard() -> None:
     def ev(welfare, population, qol, extinctions=0):
         regimes = {"default": {"welfare": welfare}, "farming": {"welfare": welfare}}
-        return {"welfare": 2 * welfare, "population": population, "qol": qol, "extinctions": extinctions, "regimes": regimes}
+        return {
+            "welfare": 2 * welfare,
+            "population": population,
+            "qol": qol,
+            "extinctions": extinctions,
+            "regimes": regimes,
+        }
+
     baseline = ev(100.0, 1000.0, 0.6)
-    points = {"welfare": ev(100.0, 1000.0, 0.6), "population": ev(95.0, 1200.0, 0.5), "qol": ev(90.0, 800.0, 0.7)}
+    points = {
+        "welfare": ev(100.0, 1000.0, 0.6),
+        "population": ev(95.0, 1200.0, 0.5),
+        "qol": ev(90.0, 800.0, 0.7),
+    }
     s = ppo.spread_selection(points, baseline)
     assert s["eligible"] and np.isclose(s["score"], min(np.log(0.7 / 0.5), np.log(1200 / 800)))
     same = {name: ev(100.0, 1000.0, 0.6) for name in points}
     assert np.isclose(ppo.spread_selection(same, baseline)["score"], 0.0)
-    one_way = dict(points, qol=ev(90.0, 800.0, 0.45))  # population separates, QoL goes the wrong way
+    one_way = dict(
+        points, qol=ev(90.0, 800.0, 0.45)
+    )  # population separates, QoL goes the wrong way
     assert ppo.spread_selection(one_way, baseline)["score"] < 0
-    assert not ppo.spread_selection(dict(points, qol=ev(90.0, 800.0, 0.7, extinctions=1)), baseline)["eligible"]
-    assert not ppo.spread_selection(dict(points, welfare=ev(96.0, 1000.0, 0.6)), baseline)["eligible"]
+    assert not ppo.spread_selection(
+        dict(points, qol=ev(90.0, 800.0, 0.7, extinctions=1)), baseline
+    )["eligible"]
+    assert not ppo.spread_selection(dict(points, welfare=ev(96.0, 1000.0, 0.6)), baseline)[
+        "eligible"
+    ]
 
 
 def test_learned_trade_draws_score_anchor_and_reach_the_bridge() -> None:
     import dataclasses
+
     actor, t = setup()
     stage = dataclasses.replace(ppo.STAGES["mixed"], trade=True)
     with torch.no_grad():
@@ -366,76 +566,125 @@ def test_learned_trade_draws_score_anchor_and_reach_the_bridge() -> None:
         draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(6))
         lp1, entropy = ppo.log_prob(out, t, draw, stage)
         lp2, _ = ppo.log_prob(ppo.explore(actor(t), -2.0), t, draw, stage)
-        other = dict(draw); other["trade_gate"] = (draw["trade_gate"] + 1) % contracts.TRADE_GATES
+        other = dict(draw)
+        other["trade_gate"] = (draw["trade_gate"] + 1) % contracts.TRADE_GATES
         lp3, _ = ppo.log_prob(out, t, other, stage)
-        assert torch.allclose(ppo.teacher_kl(out, out, trade=True), ppo.teacher_kl(out, out), atol=1e-6)
-    assert torch.allclose(lp1, lp2) and not torch.allclose(lp1, lp3) and torch.all(torch.isfinite(entropy))
+        assert torch.allclose(
+            ppo.teacher_kl(out, out, trade=True), ppo.teacher_kl(out, out), atol=1e-6
+        )
+    assert (
+        torch.allclose(lp1, lp2)
+        and not torch.allclose(lp1, lp3)
+        and torch.all(torch.isfinite(entropy))
+    )
     lo, hi = contracts.TRADE_VALUE_RANGE
     for a in ppo.to_bridge_actions(draw, t):
-        assert len(a["tradeValue"]) == len(contracts.TRADE_GROUPS) and all(lo <= x <= hi for x in a["tradeValue"])
+        assert len(a["tradeValue"]) == len(contracts.TRADE_GROUPS) and all(
+            lo <= x <= hi for x in a["tradeValue"]
+        )
         assert all(g in (0, 1, 2) for g in a["tradeGate"]) and 0.0 <= a["tradeShare"] <= 1.0
     plain = ppo.sample(out, t, ppo.STAGES["mixed"], torch.Generator().manual_seed(6))
     assert all("tradeValue" not in a for a in ppo.to_bridge_actions(plain, t))
 
 
 def test_trade_utility_is_a_self_interested_reward_component() -> None:
-    d = {"world": np.array([1, 1, 1]), "camp": np.array([1, 2, 1]), "turn": np.array([0, 0, 1]), "society": np.array([5, 5, 5]),
-         "parent_society": np.array([0, 0, 0]), "prior_population": np.array([100, 50, 110]), "qol": np.array([.8, .5, .9]),
-         "years": np.full(3, 20.0), "terminated": np.array([False, False, False]), "trade_utility": np.array([3.0, 0.0, 1.5])}
+    d = {
+        "world": np.array([1, 1, 1]),
+        "camp": np.array([1, 2, 1]),
+        "turn": np.array([0, 0, 1]),
+        "society": np.array([5, 5, 5]),
+        "parent_society": np.array([0, 0, 0]),
+        "prior_population": np.array([100, 50, 110]),
+        "qol": np.array([0.8, 0.5, 0.9]),
+        "years": np.full(3, 20.0),
+        "terminated": np.array([False, False, False]),
+        "trade_utility": np.array([3.0, 0.0, 1.5]),
+    }
     parts = data.reward_components(d)
-    assert np.allclose(parts["trade_utility"], [3.0, 0.0, 1.5])  # each village's own; a same-lineage partner's is not pooled
-    assert "trade_utility" in contracts.OBJECTIVES and contracts.OBJECTIVE_WEIGHTS["trade_utility"] == 0.0
+    assert np.allclose(
+        parts["trade_utility"], [3.0, 0.0, 1.5]
+    )  # each village's own; a same-lineage partner's is not pooled
+    assert (
+        "trade_utility" in contracts.OBJECTIVES
+        and contracts.OBJECTIVE_WEIGHTS["trade_utility"] == 0.0
+    )
 
 
 def test_region_head_starts_native_and_respects_masks() -> None:
     from anthropocene_rl.autonomous_v7.model import NATIVE_START, region_code
+
     actor, t = setup()
-    t = dict(t); mask = torch.ones_like(t["region_movement_mask"]); mask[:, contracts.REGION_KEEP] = False; mask[:, 2 + 5:] = False
+    t = dict(t)
+    mask = torch.ones_like(t["region_movement_mask"])
+    mask[:, contracts.REGION_KEEP] = False
+    mask[:, 2 + 5 :] = False
     t["region_movement_mask"] = mask
     with torch.no_grad():
         p = torch.softmax(actor(t)["region"], dim=1)
-    assert torch.all(p[:, contracts.REGION_KEEP] < 1e-9) and torch.all(p[:, 2 + 5:] < 1e-9)
-    t_all = dict(t); t_all["region_movement_mask"] = torch.ones_like(mask)
+    assert torch.all(p[:, contracts.REGION_KEEP] < 1e-9) and torch.all(p[:, 2 + 5 :] < 1e-9)
+    t_all = dict(t)
+    t_all["region_movement_mask"] = torch.ones_like(mask)
     with torch.no_grad():
         p_all = torch.softmax(actor(t_all)["region"], dim=1)
-    assert torch.allclose(p_all[:, contracts.REGION_NATIVE], torch.full((len(p_all),), NATIVE_START), atol=1e-5)
-    assert [region_code(s) for s in (0, 1, 2, 9)] == [contracts.NATIVE_MOVEMENT, contracts.KEEP_INTENT,
-                                                      contracts.REGION_BASE, contracts.REGION_BASE + 7]
+    assert torch.allclose(
+        p_all[:, contracts.REGION_NATIVE], torch.full((len(p_all),), NATIVE_START), atol=1e-5
+    )
+    assert [region_code(s) for s in (0, 1, 2, 9)] == [
+        contracts.NATIVE_MOVEMENT,
+        contracts.KEEP_INTENT,
+        contracts.REGION_BASE,
+        contracts.REGION_BASE + 7,
+    ]
 
 
 def test_learned_movement_draws_recompute_their_log_probability_with_the_conditioned_mix() -> None:
     import dataclasses
+
     actor, t = setup()
     with torch.no_grad():
-        actor.mix_region.weight.normal_(0, 1.0); actor.region_query.weight.normal_(0, 1.0)  # make conditioning matter
+        actor.mix_region.weight.normal_(0, 1.0)
+        actor.region_query.weight.normal_(0, 1.0)  # make conditioning matter
     stage = dataclasses.replace(ppo.STAGES["mixed"], movement=True, region_movement=True)
     with torch.no_grad():
         out = actor(t)
         draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(9))
         lp1, entropy = ppo.log_prob(out, t, draw, stage)
         lp2, _ = ppo.log_prob(actor(t), t, draw, stage)
-        # The mix density depends on the drawn slot: scoring the same draw under another slot changes it.
-        other = dict(draw); other["region"] = (draw["region"] + 1) % contracts.REGION_MOVEMENT_SLOTS
+        # The mix density depends on the drawn slot: scoring the same draw under another slot
+        # changes it.
+        other = dict(draw)
+        other["region"] = (draw["region"] + 1) % contracts.REGION_MOVEMENT_SLOTS
         lp3, _ = ppo.log_prob(out, t, other, stage)
-    assert torch.allclose(lp1, lp2) and torch.all(torch.isfinite(lp1)) and torch.all(torch.isfinite(entropy))
+    assert (
+        torch.allclose(lp1, lp2)
+        and torch.all(torch.isfinite(lp1))
+        and torch.all(torch.isfinite(entropy))
+    )
     assert not torch.allclose(lp1, lp3)
     codes = {a["movement"] for a in ppo.to_bridge_actions(draw, t)}
-    allowed = {contracts.NATIVE_MOVEMENT, contracts.KEEP_INTENT} | {contracts.REGION_BASE + r for r in range(contracts.REGION_ROWS)}
+    allowed = {contracts.NATIVE_MOVEMENT, contracts.KEEP_INTENT} | {
+        contracts.REGION_BASE + r for r in range(contracts.REGION_ROWS)
+    }
     assert codes <= allowed
 
 
 def test_learned_fission_is_sampled_scored_and_anchored() -> None:
     import dataclasses
+
     actor, t = setup()
     stage = dataclasses.replace(ppo.STAGES["mixed"], fission=True)
     with torch.no_grad():
         out = actor(t)
         draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(4))
         lp1, _ = ppo.log_prob(out, t, draw, stage)
-        other = dict(draw); other["fission"] = (draw["fission"] + 1) % contracts.FISSION_POLICIES
+        other = dict(draw)
+        other["fission"] = (draw["fission"] + 1) % contracts.FISSION_POLICIES
         lp2, _ = ppo.log_prob(out, t, other, stage)
-        shifted = dict(out); shifted["fission"] = out["fission"] + torch.tensor([3.0, 0.0, 0.0])
-        assert torch.allclose(ppo.teacher_kl(out, out, fission=True), ppo.teacher_kl(out, out), atol=1e-6)
+        shifted = dict(out)
+        shifted["fission"] = out["fission"] + torch.tensor([3.0, 0.0, 0.0])
+        assert torch.allclose(
+            ppo.teacher_kl(out, out, fission=True), ppo.teacher_kl(out, out), atol=1e-6
+        )
         assert (ppo.teacher_kl(shifted, out, fission=True) > ppo.teacher_kl(shifted, out)).all()
     assert not torch.allclose(lp1, lp2)
     assert all(a["fission"] in (0, 1, 2) for a in ppo.to_bridge_actions(draw, t))
@@ -445,8 +694,10 @@ def test_learned_fission_is_sampled_scored_and_anchored() -> None:
 
 def test_observed_movement_control_stays_native() -> None:
     import dataclasses
+
     actor, t = setup()
-    t = dict(t); t["region_movement_mask"] = torch.ones_like(t["region_movement_mask"])
+    t = dict(t)
+    t["region_movement_mask"] = torch.ones_like(t["region_movement_mask"])
     stage = dataclasses.replace(ppo.STAGES["mixed"], observe_movement=True)
     assert stage.bridge_movement and not stage.movement
     with torch.no_grad():
@@ -456,9 +707,11 @@ def test_observed_movement_control_stays_native() -> None:
 
 def test_evaluation_honours_the_training_commitments_setting(tmp_path, monkeypatch) -> None:
     from anthropocene_rl.autonomous_v7 import evaluate
+
     actor, t = setup()
     with torch.no_grad():
-        actor.span.bias.zero_(); actor.span.bias[contracts.SPANS.index(6)] = 50.0   # an inherited head that commits
+        actor.span.bias.zero_()
+        actor.span.bias[contracts.SPANS.index(6)] = 50.0  # an inherited head that commits
     monkeypatch.setattr(evaluate, "observation_batch", lambda live: None)
     monkeypatch.setattr(evaluate, "to_tensors", lambda b, normalizer: t)
     villages = [{"camp": i, "observation": {}} for i in range(len(t["core"]))]
@@ -469,52 +722,91 @@ def test_evaluation_honours_the_training_commitments_setting(tmp_path, monkeypat
     normalizer = Normalizer.fit(batch())
     for saved, expected in (({"commitments": False}, False), ({}, True)):
         path = tmp_path / f"c{len(saved)}.pt"
-        torch.save({"actor": actor.state_dict(), "normalizer": normalizer.state_dict(), "core_width": t["core"].shape[1] // 2,
-                    "contract": contracts.NATIVE_CONTRACT, **saved}, path)
+        torch.save(
+            {
+                "actor": actor.state_dict(),
+                "normalizer": normalizer.state_dict(),
+                "core_width": t["core"].shape[1] // 2,
+                "contract": contracts.NATIVE_CONTRACT,
+                **saved,
+            },
+            path,
+        )
         assert evaluate.load(path)[0].commitments is expected
 
 
 def test_paired_compare_and_seed_lists() -> None:
     from anthropocene_rl.autonomous_v7 import paired_compare
     from anthropocene_rl.autonomous_v7.stage_eval import seed_list
+
     assert seed_list("2000-2002,2026,2030-2031") == [2000, 2001, 2002, 2026, 2030, 2031]
     rng = np.random.default_rng(0)
-    difficulty = rng.uniform(1.0, 100.0, 40)                  # shared world difficulty must cancel in the pairing
+    difficulty = rng.uniform(1.0, 100.0, 40)  # shared world difficulty must cancel in the pairing
+
     def row(scale: float, seeds: int) -> dict:
-        return {f"{scale}-{s}": {"worlds": [[i, 0, float(d * scale * (1 + 0.01 * rng.normal())), 0] for i, d in enumerate(difficulty)],
-                                 "ratio_vs_teacher": scale, "extinctions": 0} for s in range(seeds)}
+        return {
+            f"{scale}-{s}": {
+                "worlds": [
+                    [i, 0, float(d * scale * (1 + 0.01 * rng.normal())), 0]
+                    for i, d in enumerate(difficulty)
+                ],
+                "ratio_vs_teacher": scale,
+                "extinctions": 0,
+            }
+            for s in range(seeds)
+        }
+
     candidates = {**row(1.0, 3), **row(1.05, 3)}
     report = {"default": {"candidates": candidates}, "gate": {}}
-    result = paired_compare.compare(report, [k for k in candidates if k.startswith("1.0-")],
-                                    [k for k in candidates if k.startswith("1.05-")], draws=500)
+    result = paired_compare.compare(
+        report,
+        [k for k in candidates if k.startswith("1.0-")],
+        [k for k in candidates if k.startswith("1.05-")],
+        draws=500,
+    )
     r = result["default"]["b_vs_a"]
     assert abs(r["ratio"] - 1.05) < 0.01 and r["lo"] < r["ratio"] < r["hi"] and r["lo"] > 1.03
     # Shards over the same worlds merge into one report.
     teacher = {"worlds": [[i, 0, 1.0, 0] for i in range(len(difficulty))]}
     names = sorted(candidates)
-    shards = [{"default": {"teacher": teacher, "candidates": {k: candidates[k] for k in names[:3]}}, "gate": {}},
-              {"default": {"teacher": teacher, "candidates": {k: candidates[k] for k in names[3:]}}, "gate": {}}]
+    shards = [
+        {
+            "default": {"teacher": teacher, "candidates": {k: candidates[k] for k in names[:3]}},
+            "gate": {},
+        },
+        {
+            "default": {"teacher": teacher, "candidates": {k: candidates[k] for k in names[3:]}},
+            "gate": {},
+        },
+    ]
     assert set(paired_compare.merge(shards)["default"]["candidates"]) == set(candidates)
 
 
 def test_hold_rows_carry_no_capital_probability() -> None:
     import dataclasses
+
     actor, t = setup()
-    t = dict(t); t["commit_hold_mask"] = torch.ones(len(t["core"]), dtype=torch.bool)
+    t = dict(t)
+    t["commit_hold_mask"] = torch.ones(len(t["core"]), dtype=torch.bool)
     stage = dataclasses.replace(ppo.STAGES["mixed"], commitments=True)
     with torch.no_grad():
         out = ppo.explore(actor(t), -2.0)
         draw = ppo.sample(out, t, stage, torch.Generator().manual_seed(5))
-        draw["span"] = torch.zeros_like(draw["span"])           # every row holds
+        draw["span"] = torch.zeros_like(draw["span"])  # every row holds
         lp_hold, _ = ppo.log_prob(out, t, draw, stage)
-        moved = dict(draw); moved["strategic_z"] = draw["strategic_z"] + 3.0; moved["clothing"] = 1 - draw["clothing"].clamp(min=0)
+        moved = dict(draw)
+        moved["strategic_z"] = draw["strategic_z"] + 3.0
+        moved["clothing"] = 1 - draw["clothing"].clamp(min=0)
         lp_moved, _ = ppo.log_prob(out, t, moved, stage)
-    assert torch.allclose(lp_hold, lp_moved), "held capital draws must not change the log-probability"
+    assert torch.allclose(lp_hold, lp_moved), (
+        "held capital draws must not change the log-probability"
+    )
     assert all(a["commit"] == 0 for a in ppo.to_bridge_actions(draw, t))
 
 
 def test_vector_critic_with_default_weights_reproduces_the_scalar_critic() -> None:
     from anthropocene_rl.autonomous_v7.model import Critic, VectorCritic
+
     b = batch()
     normalizer = Normalizer.fit(b)
     torch.manual_seed(2)
@@ -524,15 +816,29 @@ def test_vector_critic_with_default_weights_reproduces_the_scalar_critic() -> No
     with torch.no_grad():
         assert torch.allclose(scalar(t), vector(t)["welfare"])
     # The weighted advantage with the default weights is the welfare advantage itself.
-    advantages = {"welfare": np.array([1.0, -2.0, 3.0]), "population_years": np.array([5.0, 5.0, 5.0])}
+    advantages = {
+        "welfare": np.array([1.0, -2.0, 3.0]),
+        "population_years": np.array([5.0, 5.0, 5.0]),
+    }
     assert np.allclose(ppo.combine(advantages, contracts.OBJECTIVE_WEIGHTS), advantages["welfare"])
-    assert np.allclose(ppo.combine(advantages, {"welfare": 1.0, "population_years": 0.5}), advantages["welfare"] + 2.5)
+    assert np.allclose(
+        ppo.combine(advantages, {"welfare": 1.0, "population_years": 0.5}),
+        advantages["welfare"] + 2.5,
+    )
 
 
 def test_reward_components_split_welfare_from_population_years() -> None:
-    d = {"world": np.array([1, 1, 1]), "camp": np.array([1, 2, 1]), "turn": np.array([0, 0, 1]), "society": np.array([5, 6, 5]),
-         "parent_society": np.array([0, 0, 0]), "prior_population": np.array([100, 50, 110]), "qol": np.array([.8, .5, .9]),
-         "years": np.full(3, 20.0), "terminated": np.array([False, False, False])}
+    d = {
+        "world": np.array([1, 1, 1]),
+        "camp": np.array([1, 2, 1]),
+        "turn": np.array([0, 0, 1]),
+        "society": np.array([5, 6, 5]),
+        "parent_society": np.array([0, 0, 0]),
+        "prior_population": np.array([100, 50, 110]),
+        "qol": np.array([0.8, 0.5, 0.9]),
+        "years": np.full(3, 20.0),
+        "terminated": np.array([False, False, False]),
+    }
     parts = data.reward_components(d)
     assert np.allclose(parts["welfare"], data.lineage_rewards(d))
     assert np.allclose(parts["population_years"], [100 * 20, 50 * 20, 110 * 20])
@@ -540,16 +846,25 @@ def test_reward_components_split_welfare_from_population_years() -> None:
 
 def test_span_labels_follow_the_heuristics_own_persistence() -> None:
     from anthropocene_rl.autonomous_v7 import span_labels
+
     n = 7
     strategic = np.tile(np.array([1.0, 1.0, 0.2, 0.5, 0.0], np.float32), (n, 1))
-    strategic[4:, 2] = 0.6                     # from turn 4 the Development budget changes
-    b = {"world": np.zeros(n, int), "camp": np.full(n, 3), "turn": np.arange(n),
-         "strategic": strategic, "strategic_mask": np.ones((n, 5), bool),
-         "clothing_route": np.zeros(n), "shelter_route": np.zeros(n),
-         "clothing_route_label_mask": np.ones(n, bool), "shelter_route_label_mask": np.ones(n, bool)}
+    strategic[4:, 2] = 0.6  # from turn 4 the Development budget changes
+    b = {
+        "world": np.zeros(n, int),
+        "camp": np.full(n, 3),
+        "turn": np.arange(n),
+        "strategic": strategic,
+        "strategic_mask": np.ones((n, 5), bool),
+        "clothing_route": np.zeros(n),
+        "shelter_route": np.zeros(n),
+        "clothing_route_label_mask": np.ones(n, bool),
+        "shelter_route_label_mask": np.ones(n, bool),
+    }
     d = span_labels.derive(b, 0.05)
     spans = [contracts.SPANS[i] for i in d["span_label"]]
-    # Turns 0-3 repeat: a 4-turn commitment then three holds; turns 4-6 repeat the new budget: a 3-turn commitment.
+    # Turns 0-3 repeat: a 4-turn commitment then three holds; turns 4-6 repeat the new budget: a
+    # 3-turn commitment.
     assert spans == [4, 0, 0, 0, 3, 0, 0]
     assert d["commit_hold_mask"].tolist() == [False, True, True, True, False, True, True]
     assert d["commitment_features"][1, :3].tolist() == [1.0, 3.0, 1.0]

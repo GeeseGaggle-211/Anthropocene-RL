@@ -74,7 +74,7 @@ class SerialExecutor:
         future = Future()
         try:
             future.set_result(fn(*args))
-        except BaseException as error:  # noqa: BLE001 - mirrored into the future
+        except BaseException as error:
             future.set_exception(error)
         return future
 
@@ -83,7 +83,7 @@ class SerialExecutor:
 
 
 def _install(module, monkeypatch, models):
-    layout, actor, task, costs, normalizer = models
+    _layout, _actor, task, costs, normalizer = models
 
     def continuation(**kw):
         seed = kw["initial_seed"]
@@ -218,7 +218,7 @@ def test_unit_job_and_results_pickle(models):
     back = pickle.loads(pickle.dumps(job))
     assert back["schedule"] == schedule and back["bridgeFactory"] is producer.LaborModel9Bridge
     assert back["reset"].state_dict() == job["reset"].state_dict()
-    _, actor, task, costs, normalizer = models["models"]
+    _, _actor, task, costs, normalizer = models["models"]
     parent = producer._world_parent(Bridge(), 50000, job["reset"], normalizer,
                                      LaborPersonality(), task, costs)
     again = pickle.loads(pickle.dumps(parent))

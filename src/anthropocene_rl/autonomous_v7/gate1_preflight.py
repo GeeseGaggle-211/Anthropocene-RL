@@ -6,6 +6,7 @@ checkpoint metadata without upgrading it, and reports which historical
 questions the recovered bytes can actually answer.  A successful preflight is
 only a candidate for the independently reviewed production freeze.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -315,10 +316,7 @@ def _file_ref(value: Any, base: Path, what: str) -> tuple[Path, str]:
         )
     ):
         _fail(f"{what} size or SHA-256 differs: {path}")
-    if (
-        value["local_mtime_ns"] is not None
-        and value["local_mtime_ns"] != metadata.st_mtime_ns
-    ):
+    if value["local_mtime_ns"] is not None and value["local_mtime_ns"] != metadata.st_mtime_ns:
         _fail(f"{what} local modification time differs: {path}")
     if checkpoint_hash(path) != before:
         _fail(f"{what} changed while it was inspected: {path}")
@@ -360,6 +358,7 @@ def file_reference(
 
 def _hash_value(value: Any) -> str:
     """Hash a typed value with unambiguous length-delimited recursive framing."""
+
     def frame(tag: bytes, *parts: bytes) -> bytes:
         return b"".join(
             [len(tag).to_bytes(8, "big"), tag]
@@ -382,18 +381,13 @@ def _hash_value(value: Any) -> str:
             if not all(isinstance(key, str) for key in item):
                 _fail("embedded checkpoint mapping has a non-string key")
             entries = [
-                frame(b"entry", key.encode("utf-8"), encode(item[key]))
-                for key in sorted(item)
+                frame(b"entry", key.encode("utf-8"), encode(item[key])) for key in sorted(item)
             ]
             return frame(b"dict", len(entries).to_bytes(8, "big"), *entries)
         if isinstance(item, list):
-            return frame(
-                b"list", len(item).to_bytes(8, "big"), *(encode(child) for child in item)
-            )
+            return frame(b"list", len(item).to_bytes(8, "big"), *(encode(child) for child in item))
         if isinstance(item, tuple):
-            return frame(
-                b"tuple", len(item).to_bytes(8, "big"), *(encode(child) for child in item)
-            )
+            return frame(b"tuple", len(item).to_bytes(8, "big"), *(encode(child) for child in item))
         if item is None:
             return frame(b"none")
         if isinstance(item, bool):
@@ -447,9 +441,7 @@ def _finite_vector(value: Any, *, positive: bool = False) -> bool:
 def _validate_embedded_slot(name: str, key: str, value: Any, node: dict[str, Any]) -> None:
     expected_key = EMBEDDED_SLOT_KEYS[name]
     if key != expected_key:
-        _fail(
-            f"node {node['id']} slot {name} must bind checkpoint section {expected_key}"
-        )
+        _fail(f"node {node['id']} slot {name} must bind checkpoint section {expected_key}")
     identity = node["run_identity"]
     if name == "normalizer":
         if (
@@ -474,9 +466,7 @@ def _validate_embedded_slot(name: str, key: str, value: Any, node: dict[str, Any
         run_id = identity["producer_run_id"]
         if run_id is not None and value.get("run_id") != run_id:
             _fail(f"node {node['id']} args-config does not bind the producer run")
-        for field, expected in (
-            ("arm", identity["arm_id"]), ("seed", identity["optimizer_seed"])
-        ):
+        for field, expected in (("arm", identity["arm_id"]), ("seed", identity["optimizer_seed"])):
             if value.get(field) != expected:
                 _fail(f"node {node['id']} args-config {field} differs")
     else:
@@ -487,16 +477,17 @@ def _validate_embedded_slot(name: str, key: str, value: Any, node: dict[str, Any
             or not isinstance(value.get("simulator"), dict)
             or not re.fullmatch(r"[0-9a-f]{40}", str(value["code"].get("commit", "")))
             or type(value["code"].get("clean")) is not bool
-            or not re.fullmatch(
-                r"[0-9a-f]{40}", str(value["simulator"].get("commit", ""))
-            )
+            or not re.fullmatch(r"[0-9a-f]{40}", str(value["simulator"].get("commit", "")))
             or not _is_sha(value["simulator"].get("buildHash"))
         ):
             _fail(f"node {node['id']} slot {name} has no producer/run schema")
 
 
 def _missing_slot(
-    slot: dict[str, Any], node_id: str, name: str, base: Path = Path.cwd()
+    slot: dict[str, Any],
+    node_id: str,
+    name: str,
+    base: Path = Path.cwd(),  # noqa: B008 - default evaluated at definition time, kept
 ) -> dict[str, Any]:
     status = slot.get("status")
     if status == "missing":
@@ -514,7 +505,8 @@ def _missing_slot(
         or support.get("slot") != name
         or support.get("status") != "not-applicable"
         or not str(support.get("finding", "")).strip()
-        or set(support) != {
+        or set(support)
+        != {
             "schema",
             "kind",
             "node_id",
@@ -589,7 +581,8 @@ def _trace_present(
     bindings = source.get("bindings")
     if (
         not isinstance(bindings, dict)
-        or set(bindings) != {
+        or set(bindings)
+        != {
             "checkpoint_sha256",
             "endpoint_actor_sha256",
             "normalizer_sha256",
@@ -653,17 +646,24 @@ def _trace_present(
             _fail(f"node {node_id} trace run identity differs")
         if identity["arm_id"] is not None and row.get("arm") != identity["arm_id"]:
             _fail(f"node {node_id} trace arm identity differs")
-        if identity["optimizer_seed"] is not None and row.get("optimizerSeed") != identity["optimizer_seed"]:
+        if (
+            identity["optimizer_seed"] is not None
+            and row.get("optimizerSeed") != identity["optimizer_seed"]
+        ):
             _fail(f"node {node_id} trace optimizer seed differs")
-    return {
-        "status": "present",
-        "source_kind": "economic-trace",
-        "file_sha256s": resolved,
-        "snapshot_sha256s": sorted(snapshot_hashes),
-        "bindings": bindings,
-        "transition_count": len(transitions),
-        "update_count": len(updates),
-    }, transitions, updates
+    return (
+        {
+            "status": "present",
+            "source_kind": "economic-trace",
+            "file_sha256s": resolved,
+            "snapshot_sha256s": sorted(snapshot_hashes),
+            "bindings": bindings,
+            "transition_count": len(transitions),
+            "update_count": len(updates),
+        },
+        transitions,
+        updates,
+    )
 
 
 def _node_identity(node: dict[str, Any]) -> None:
@@ -713,7 +713,7 @@ def _checkpoint_identity(node: dict[str, Any], state: dict[str, Any]) -> None:
         return
     if seed is not None and options.get("seed") is not None and options.get("seed") != seed:
         _fail(f"node {node['id']} checkpoint manifest seed differs")
-    if identity["arm_id"] is not None and options.get("arm") is not None:
+    if identity["arm_id"] is not None and options.get("arm") is not None:  # noqa: SIM102 - nested if kept verbatim
         if options["arm"] != identity["arm_id"]:
             _fail(f"node {node['id']} checkpoint manifest arm differs")
     if (
@@ -744,20 +744,22 @@ def _present_slot(
         _, sha = _file_ref(
             source["artifact"], base, f"node {node['id']} producer artifact inventory"
         )
-        return {
-            "status": "present",
-            "source_kind": "file",
-            "sha256": sha,
-        }, [], []
+        return (
+            {
+                "status": "present",
+                "source_kind": "file",
+                "sha256": sha,
+            },
+            [],
+            [],
+        )
     if name == "transition-update-trace":
         descriptor, transitions, updates = _trace_present(slot["source"], base, node)
         return descriptor, transitions, updates
     return _generic_present(slot["source"], base, state, node, name), [], []
 
 
-def _declared_file_refs(
-    node: dict[str, Any]
-) -> list[tuple[str, str, dict[str, Any]]]:
+def _declared_file_refs(node: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
     refs: list[tuple[str, str, dict[str, Any]]] = []
     for name in SLOTS:
         if name == "producer-artifact-inventory":
@@ -770,12 +772,10 @@ def _declared_file_refs(
             refs.append((name, "artifact", source["artifact"]))
         elif source.get("kind") == "economic-trace":
             refs.extend(
-                (name, f"trace-{role}", ref)
-                for role, ref in sorted(source["files"].items())
+                (name, f"trace-{role}", ref) for role, ref in sorted(source["files"].items())
             )
             refs.extend(
-                (name, f"snapshot-{index}", ref)
-                for index, ref in enumerate(source["snapshots"])
+                (name, f"snapshot-{index}", ref) for index, ref in enumerate(source["snapshots"])
             )
     return refs
 
@@ -789,15 +789,10 @@ def _producer_artifact_inventory(
     if node["run_identity"]["producer_run_id"] is None:
         _fail(f"node {node['id']} producer inventory cannot claim an unknown run identity")
     source = slot.get("source", {})
-    if (
-        source.get("kind") != "file"
-        or set(source) != {"kind", "artifact", "acquisition_receipt"}
-    ):
+    if source.get("kind") != "file" or set(source) != {"kind", "artifact", "acquisition_receipt"}:
         _fail(f"node {node['id']} producer artifact inventory must be a file source")
     inventory_ref = source.get("artifact")
-    path, sha = _file_ref(
-        inventory_ref, base, f"node {node['id']} producer artifact inventory"
-    )
+    path, sha = _file_ref(inventory_ref, base, f"node {node['id']} producer artifact inventory")
     inventory_acquisition = inventory_ref["acquisition"]
     inventory_receipt_sha: str | None = None
     if inventory_acquisition["method"] == "pre-existing-local":
@@ -814,7 +809,8 @@ def _producer_artifact_inventory(
             _fail(f"node {node['id']} producer inventory acquisition receipt hash differs")
         receipt = _sealed_json(receipt_path, kind="gate1_read_only_acquisition_receipt")
         if (
-            set(receipt) != {
+            set(receipt)
+            != {
                 "schema",
                 "kind",
                 "status",
@@ -859,7 +855,8 @@ def _producer_artifact_inventory(
             _fail(f"node {node['id']} producer inventory acquisition receipt is invalid")
     body = _sealed_json(path, kind="gate1_retrieved_artifact_inventory")
     if (
-        set(body) != {
+        set(body)
+        != {
             "schema",
             "kind",
             "node_id",
@@ -935,7 +932,8 @@ def _producer_artifact_inventory(
         receipt_path, _ = receipt_candidates[0]
         receipt = _sealed_json(receipt_path, kind="gate1_read_only_acquisition_receipt")
         if (
-            set(receipt) != {
+            set(receipt)
+            != {
                 "schema",
                 "kind",
                 "status",
@@ -953,9 +951,7 @@ def _producer_artifact_inventory(
                 "generation": acquisition["source_generation"],
                 "size_bytes": acquisition["source_size_bytes"],
                 "mtime": acquisition["source_mtime"],
-                "mtime_unavailable_reason": acquisition[
-                    "source_mtime_unavailable_reason"
-                ],
+                "mtime_unavailable_reason": acquisition["source_mtime_unavailable_reason"],
                 "etag": acquisition["source_etag"],
             }
             or receipt.get("destination")
@@ -977,9 +973,7 @@ def _producer_artifact_inventory(
                 for value in receipt["tool_identity"].values()
             )
         ):
-            _fail(
-                f"node {node['id']} acquisition receipt does not bind {artifact_path}"
-            )
+            _fail(f"node {node['id']} acquisition receipt does not bind {artifact_path}")
     return {
         "inventory_sha256": sha,
         "declared_artifact_count": len(declared),
@@ -1003,7 +997,7 @@ def _critic_complete(transitions: list[dict[str, Any]]) -> tuple[bool, list[str]
         if not isinstance(values, dict) or not values:
             return False, []
         for name, record in values.items():
-            if not isinstance(record, dict) or not CRITIC_FIELDS <= set(record):
+            if not isinstance(record, dict) or not set(record) >= CRITIC_FIELDS:
                 return False, []
             if any(
                 isinstance(record[field], bool)
@@ -1024,8 +1018,10 @@ def _complete_update_receipts(
     pairs: dict[tuple[Any, ...], dict[str, dict[str, Any]]] = {}
     for row in updates:
         event = str(row.get("event", ""))
-        family = "mutation" if event.startswith("mutation-") else (
-            "critic-refit" if event.startswith("critic-refit-") else None
+        family = (
+            "mutation"
+            if event.startswith("mutation-")
+            else ("critic-refit" if event.startswith("critic-refit-") else None)
         )
         if family is None:
             continue
@@ -1069,10 +1065,9 @@ def _complete_update_receipts(
             or after_version - before_version not in {0, 1}
         ):
             return False, ["update receipt policy-version linkage is invalid"], []
-        if (
-            start.get("batchRowDigest") != complete.get("batchRowDigest")
-            or start.get("batchTransitionIds") != complete.get("batchTransitionIds")
-        ):
+        if start.get("batchRowDigest") != complete.get("batchRowDigest") or start.get(
+            "batchTransitionIds"
+        ) != complete.get("batchTransitionIds"):
             return False, ["update receipt batch linkage differs across start/complete"], []
     return True, [], sorted(required_hashes)
 
@@ -1146,8 +1141,7 @@ def _trace_actor_chain(
         if not isinstance(before_hashes, dict) or not isinstance(after_hashes, dict):
             return False, ["update boundary hashes are absent"]
         if previous_after_version is not None and (
-            before_version != previous_after_version
-            or before_hashes != previous_after_hashes
+            before_version != previous_after_version or before_hashes != previous_after_hashes
         ):
             return False, ["adjacent update boundaries are not contiguous"]
         error = bind(before_version, before_hashes.get("actor"), "update start")
@@ -1198,9 +1192,7 @@ def _trace_actor_chain(
                 return False, ["update batch names a missing transition"]
             behavior_version = transition.get("policyVersion")
             if behavior_version > version:
-                return False, [
-                    "update batch transition was produced by a future policy version"
-                ]
+                return False, ["update batch transition was produced by a future policy version"]
     return True, []
 
 
@@ -1253,8 +1245,7 @@ def _resume_answerability(
         or type(python_rng[0]) is not int
         or not isinstance(python_rng[1], tuple)
         or not python_rng[1]
-        or python_rng[2] is not None
-        and not isinstance(python_rng[2], float)
+        or (python_rng[2] is not None and not isinstance(python_rng[2], float))
     ):
         return False, ["resume Python RNG state is absent or malformed"]
     numpy_rng = state.get("numpy_rng")
@@ -1289,7 +1280,9 @@ def _resume_answerability(
         if not explicit_na and (not isinstance(value, dict) or not value):
             return False, [f"resume {name} is absent without explicit not-applicable evidence"]
     for name in ("actor", "critic"):
-        if name not in checkpoint_state or _hash_value(state.get(name)) != _hash_value(checkpoint_state[name]):
+        if name not in checkpoint_state or _hash_value(state.get(name)) != _hash_value(
+            checkpoint_state[name]
+        ):
             return False, [f"resume {name} does not equal the endpoint {name}"]
     if state.get("run_manifest") != checkpoint_state.get("run_manifest"):
         return False, ["resume run manifest does not equal the endpoint run manifest"]
@@ -1309,7 +1302,10 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
     checkpoint_sha: str | None = None
 
     if endpoint_slot.get("status") == "present":
-        if set(endpoint_slot) != {"status", "source"} or endpoint_slot["source"].get("kind") != "file":
+        if (
+            set(endpoint_slot) != {"status", "source"}
+            or endpoint_slot["source"].get("kind") != "file"
+        ):
             _fail(f"node {node_id} evaluation checkpoint must be a file source")
         path, checkpoint_sha = _file_ref(
             endpoint_slot["source"].get("artifact"), base, f"node {node_id} evaluation checkpoint"
@@ -1363,9 +1359,7 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
             "endpoint_actor_sha256": endpoint_actor_sha,
             "normalizer_sha256": descriptors["normalizer"].get("sha256"),
             "run_manifest_sha256": descriptors["run-manifest"].get("sha256"),
-            "producer_provenance_sha256": descriptors["producer-build-provenance"].get(
-                "sha256"
-            ),
+            "producer_provenance_sha256": descriptors["producer-build-provenance"].get("sha256"),
             "transitions_sha256": trace_descriptor["file_sha256s"].get("transitions"),
             "updates_sha256": trace_descriptor["file_sha256s"].get("updates"),
         }
@@ -1377,26 +1371,22 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
     producer_inventory, producer_hashes = _producer_artifact_inventory(node, base)
     if producer_inventory:
         descriptors["producer-artifact-inventory"].update(producer_inventory)
-    identity_bound = bool(producer_inventory) and node["run_identity"][
-        "producer_run_id"
-    ] is not None
+    identity_bound = (
+        bool(producer_inventory) and node["run_identity"]["producer_run_id"] is not None
+    )
     historical_provenance_verified = bool(
-        identity_bound
-        and producer_inventory
-        and producer_inventory["authoritative_completeness"]
+        identity_bound and producer_inventory and producer_inventory["authoritative_completeness"]
     )
 
     holds: list[str] = []
     if node["run_identity"]["producer_run_id"] is None:
         holds.append("exact producer run identity is not yet recovered")
     if producer_inventory and not producer_inventory["authoritative_completeness"]:
-        holds.append(
-            "producer artifact completeness lacks separately reviewed provenance"
-        )
+        holds.append("producer artifact completeness lacks separately reviewed provenance")
     for name in sorted(REQUIRED_ENDPOINT_SLOTS):
         if descriptors[name]["status"] != "present":
             holds.append(f"required slot {name} is {descriptors[name]['status']}")
-    if checkpoint_raw is not None and checkpoint_raw["checkpoint_contract"] < 12:
+    if checkpoint_raw is not None and checkpoint_raw["checkpoint_contract"] < 12:  # noqa: SIM102 - nested if kept verbatim
         if descriptors["adapter-default-migration"]["status"] != "present":
             holds.append("legacy endpoint lacks a bound adapter/default/migration bundle")
 
@@ -1413,9 +1403,7 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
     evidence = [
         value
         for descriptor in descriptors.values()
-        for value in (
-            [descriptor["sha256"]] if _is_sha(descriptor.get("sha256")) else []
-        )
+        for value in ([descriptor["sha256"]] if _is_sha(descriptor.get("sha256")) else [])
     ]
     for descriptor in descriptors.values():
         evidence.extend(descriptor.get("file_sha256s", {}).values())
@@ -1458,7 +1446,9 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
 
     resume = descriptors["resume-state"]
     if resume["status"] == "present" and checkpoint_raw is not None and identity_bound:
-        complete, reasons = _resume_answerability(resume, checkpoint_state, base, slots["resume-state"])
+        complete, reasons = _resume_answerability(
+            resume, checkpoint_state, base, slots["resume-state"]
+        )
         questions["resume_sections_inventoried"] = _question(
             "answerable" if complete else "blocked", reasons, evidence
         )
@@ -1492,11 +1482,16 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
         if isinstance(checkpoint_state.get("actor"), dict)
         else ""
     )
-    actor_chain_complete, actor_chain_reasons = _trace_actor_chain(
-        transitions, updates, endpoint_actor_sha
-    ) if transitions or updates else (False, ["no actor-bound transition/update chain"])
-    structurally_bound_rows = bool(transitions) and identity_bound and actor_chain_complete and all(
-        row.get("evidenceClass") == "original_training_trace" for row in transitions
+    actor_chain_complete, actor_chain_reasons = (
+        _trace_actor_chain(transitions, updates, endpoint_actor_sha)
+        if transitions or updates
+        else (False, ["no actor-bound transition/update chain"])
+    )
+    structurally_bound_rows = (
+        bool(transitions)
+        and identity_bound
+        and actor_chain_complete
+        and all(row.get("evidenceClass") == "original_training_trace" for row in transitions)
     )
     structural_transition_reasons = (
         []
@@ -1523,12 +1518,12 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
         historical_transition_reasons,
         evidence,
     )
-    critic_complete, objectives = _critic_complete(
-        transitions if structurally_bound_rows else []
+    critic_complete, objectives = _critic_complete(transitions if structurally_bound_rows else [])
+    critic_trace_reasons = (
+        []
+        if critic_complete
+        else ["original trace lacks complete finite prediction/target/TD-residual/advantage fields"]
     )
-    critic_trace_reasons = [] if critic_complete else [
-        "original trace lacks complete finite prediction/target/TD-residual/advantage fields"
-    ]
     questions["historical_optimization_target_diagnostics"] = _question(
         "answerable" if historical_rows and critic_complete else "blocked",
         (
@@ -1543,9 +1538,7 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
         evidence,
     )
     if objectives:
-        questions["historical_optimization_target_diagnostics"][
-            "objective_identities"
-        ] = objectives
+        questions["historical_optimization_target_diagnostics"]["objective_identities"] = objectives
     questions["independent_return_critic_accuracy"] = _question(
         "blocked",
         [
@@ -1561,9 +1554,7 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
             joined = economic_diagnostics.optimizer_update_rows(transitions, updates)
         except ValueError as error:
             update_error = str(error)
-    receipts_complete, receipt_reasons, hash_dimensions = _complete_update_receipts(
-        updates, joined
-    )
+    receipts_complete, receipt_reasons, hash_dimensions = _complete_update_receipts(updates, joined)
     structural_update_reasons = (
         []
         if structurally_bound_rows and receipts_complete
@@ -1619,7 +1610,10 @@ def _inspect_node(node: dict[str, Any], base: Path) -> dict[str, Any]:
 
 def _conversion(value: Any, base: Path) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("status") not in {"missing", "not-applicable"}:
-        _fail("conversion must be explicit missing/not-applicable until a reviewed present schema exists")
+        _fail(
+            "conversion must be explicit missing/not-applicable until a reviewed present "
+            "schema exists"
+        )
     return _missing_slot(value, "conversion", "conversion", base)
 
 
@@ -1663,9 +1657,7 @@ def run_preflight(path: str | Path) -> dict[str, Any]:
     if conversion["status"] == "missing":
         holds.append("historical conversion status/artifact remains missing")
     else:
-        holds.append(
-            "historical conversion nonexistence lacks separately reviewed provenance"
-        )
+        holds.append("historical conversion nonexistence lacks separately reviewed provenance")
     for node in reports:
         for question, row in node["answerability"].items():
             if question == "endpoint_artifact_inventory" and row["status"] != "answerable":
@@ -1673,16 +1665,8 @@ def run_preflight(path: str | Path) -> dict[str, Any]:
     artifacts = sorted(
         {
             inventory_sha,
-            *(
-                sha
-                for node in reports
-                for sha in node["artifact_sha256s"]
-            ),
-            *(
-                [conversion["support_sha256"]]
-                if _is_sha(conversion.get("support_sha256"))
-                else []
-            ),
+            *(sha for node in reports for sha in node["artifact_sha256s"]),
+            *([conversion["support_sha256"]] if _is_sha(conversion.get("support_sha256")) else []),
             *conversion.get("support_source_sha256s", []),
         }
     )

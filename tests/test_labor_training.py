@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -7,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE
 from anthropocene_rl.autonomous_v7.labor_model import (
     BOUNDED_FEATURE_CONTRACT,
     LaborPersonality,
@@ -657,6 +659,10 @@ def test_selective_self_destruct_rewind_multivillage() -> None:
     assert camp2_rows[0] is row_c2_retry
 
 
+@pytest.mark.skipif(
+    not Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", str(DEFAULT_BRIDGE))).is_file(),
+    reason="model9 bridge is not built",
+)
 def test_fit_normalizer_cli_and_initialize_e2e(tmp_path: Path) -> None:
     norm_path = tmp_path / "fitted-normalizer.pt"
     # Run fit-normalizer CLI for 1 turn on world 50000

@@ -10,8 +10,7 @@ import numpy as np
 import pytest
 import torch
 
-from anthropocene_rl.autonomous_v7 import contracts
-from anthropocene_rl.autonomous_v7 import labor_bc
+from anthropocene_rl.autonomous_v7 import contracts, labor_bc
 from anthropocene_rl.autonomous_v7.labor_bc import (
     LaborResetOptions,
     _batch_loss_and_l1,
@@ -129,7 +128,9 @@ def test_stable_allocation_ce_ignores_illegal_and_empty_rows() -> None:
 def test_identical_herders_with_different_tools_have_identical_staffing_labels() -> None:
     catalog = _catalog(population=10)
     village = _village(10)
-    well_tooled = convert_heuristic_labor_label(catalog, village, _diag(_herding(3, 60.0, 0.0, 60.0)))
+    well_tooled = convert_heuristic_labor_label(
+        catalog, village, _diag(_herding(3, 60.0, 0.0, 60.0))
+    )
     no_tools = convert_heuristic_labor_label(catalog, village, _diag(_herding(3, 60.0, 0.0, 12.5)))
     assert well_tooled.specialty_valid and no_tools.specialty_valid
     assert np.array_equal(well_tooled.specialty, no_tools.specialty)
@@ -235,7 +236,10 @@ def _synthetic_batch(B: int = 6) -> tuple[LaborActor, dict]:
     torch.manual_seed(3)
     core_dim = 15
     layout = LaborEncoderLayout(
-        core_dim, LABOR_SPECIALTY_FEATURE_WIDTH, LABOR_ACTIVITY_FEATURE_WIDTH, LABOR_RESOURCE_FEATURE_WIDTH
+        core_dim,
+        LABOR_SPECIALTY_FEATURE_WIDTH,
+        LABOR_ACTIVITY_FEATURE_WIDTH,
+        LABOR_RESOURCE_FEATURE_WIDTH,
     )
     actor = LaborActor(layout)
     target_specialty = torch.zeros(B, 14)
@@ -371,25 +375,40 @@ def test_elapsed_field_is_years_and_legacy_days_name_loads_unchanged(tmp_path) -
             elapsed_key: np.full(2, contracts.TURN_YEARS),
         }
 
-    body = {"schema": ltd.SCHEMA, "source_kind": ltd.SOURCE_KIND,
-            "options": {"turns": 2, "reset_options": {}}}
+    body = {
+        "schema": ltd.SCHEMA,
+        "source_kind": ltd.SOURCE_KIND,
+        "options": {"turns": 2, "reset_options": {}},
+    }
     source = dict(body, source_run=digest(body))
     out = tmp_path / "mixed"
     out.mkdir()
     shards = []
     for world, key in ((5000, "transition_elapsed_days"), (5001, "transition_elapsed_years")):
-        meta = {"source_run": source["source_run"], "world_seed": world,
-                "normalizer_digest": "n", "counters": {}, "label_unavailable_reasons": {},
-                "quarantine": []}
+        meta = {
+            "source_run": source["source_run"],
+            "world_seed": world,
+            "normalizer_digest": "n",
+            "counters": {},
+            "label_unavailable_reasons": {},
+            "quarantine": [],
+        }
         record = ltd.write_shard(out / f"world-{world}", arrays(key, world), meta)
-        shards.append({"path": f"world-{world}", "world_seed": world,
-                       "meta_sha256": ltd.checkpoint_hash(out / f"world-{world}" / "meta.json"),
-                       "data_digest": record["data_digest"]})
+        shards.append(
+            {
+                "path": f"world-{world}",
+                "world_seed": world,
+                "meta_sha256": ltd.checkpoint_hash(out / f"world-{world}" / "meta.json"),
+                "data_digest": record["data_digest"],
+            }
+        )
     ltd.publish_dataset(out, source, shards)
     dataset = ltd.load_labor_dataset(out)
     assert "transition_elapsed_days" not in dataset
-    assert torch.equal(dataset["transition_elapsed_years"],
-                       torch.full((4,), contracts.TURN_YEARS, dtype=torch.float64))
+    assert torch.equal(
+        dataset["transition_elapsed_years"],
+        torch.full((4,), contracts.TURN_YEARS, dtype=torch.float64),
+    )
     returns = discounted_returns(dataset)["qol_years"]
     assert math.isclose(float(returns[0]), 1.0 + math.exp(-20.0 / 400.0) * 2.0, rel_tol=1e-6)
     # In-memory legacy datasets still discount, and the migration keeps values unchanged.
@@ -409,8 +428,10 @@ def test_pretrain_critic_rejects_search_dagger_and_aggregated_shards() -> None:
 
     assert labor_bc.CRITIC_TEACHER_SOURCE_KIND == ltd.SOURCE_KIND
     assert ltd.ROW_SOURCES[labor_search.SOURCE_KIND] == 2
-    teacher = {"collection": {"source_kind": ltd.SOURCE_KIND, "actor_only": False},
-               "row_source": torch.zeros(3, dtype=torch.long)}
+    teacher = {
+        "collection": {"source_kind": ltd.SOURCE_KIND, "actor_only": False},
+        "row_source": torch.zeros(3, dtype=torch.long),
+    }
     labor_bc.require_critic_teacher_dataset(teacher)
     labor_bc.require_critic_teacher_dataset({"collection": {}})  # in-process heuristic collection
     search = {"collection": {"source_kind": labor_search.SOURCE_KIND, "actor_only": False}}
@@ -419,7 +440,10 @@ def test_pretrain_critic_rejects_search_dagger_and_aggregated_shards() -> None:
     # The library entry point refuses before computing any target.
     with pytest.raises(ValueError, match="search shards"):
         labor_bc.pretrain_critic_on_dataset(
-            task_critic=None, cost_critics=None, dataset=search, epochs=0  # type: ignore[arg-type]
+            task_critic=None,
+            cost_critics=None,
+            dataset=search,
+            epochs=0,  # type: ignore[arg-type]
         )
     dagger = {"collection": {"source_kind": labor_dagger.DAGGER_SOURCE_KIND, "actor_only": True}}
     with pytest.raises(ValueError, match="actor-only"):
@@ -430,8 +454,10 @@ def test_pretrain_critic_rejects_search_dagger_and_aggregated_shards() -> None:
     with pytest.raises(ValueError, match="aggregated"):
         labor_bc.require_critic_teacher_dataset({"collection": {"source_kind": "aggregated"}})
     # A teacher-labelled dataset smuggling search rows is refused by row_source.
-    mixed = {"collection": {"source_kind": ltd.SOURCE_KIND},
-             "row_source": torch.tensor([0, 2, 0], dtype=torch.long)}
+    mixed = {
+        "collection": {"source_kind": ltd.SOURCE_KIND},
+        "row_source": torch.tensor([0, 2, 0], dtype=torch.long),
+    }
     with pytest.raises(ValueError, match=r"row_source \[2\]"):
         labor_bc.require_critic_teacher_dataset(mixed)
 
@@ -440,7 +466,7 @@ def test_fitting_world_partition_rejects_sealed_and_development_worlds() -> None
     assert validate_fitting_worlds([5000, 5001], "fit") == [5000, 5001]
     with pytest.raises(ValueError, match="development"):
         validate_fitting_worlds([2003], "fit")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - blind Exception assertion kept (test expectation unchanged)
         validate_fitting_worlds([3010], "fit")
     with pytest.raises(ValueError, match="repeats"):
         validate_fitting_worlds([5000, 5000], "fit")
@@ -450,7 +476,10 @@ def test_reset_options_default_to_movement_on() -> None:
     options = LaborResetOptions(players=32, width=192, height=96, separation=9)
     assert options.movement is True
     assert options.reset_kwargs() == {
-        "players": 32, "movement": True, "withheld": 0, "size": (192, 96, 9)
+        "players": 32,
+        "movement": True,
+        "withheld": 0,
+        "size": (192, 96, 9),
     }
     assert LaborResetOptions.from_mapping(options.state_dict()) == options
 
@@ -483,7 +512,13 @@ def test_live_rejected_initial_rows_are_quarantined(monkeypatch, bounded_normali
     camp_row = int(torch.nonzero(dataset["row_camp"] == rejected_camp["camp"])[0])
     assert bool(quarantined[camp_row])
     assert collection["reset_options"]["movement"] is True
-    assert set(dataset) >= {"row_world", "row_camp", "row_turn", "row_attempt", "label_specialty_valid"}
+    assert set(dataset) >= {
+        "row_world",
+        "row_camp",
+        "row_turn",
+        "row_attempt",
+        "label_specialty_valid",
+    }
 
 
 @pytest.fixture(scope="module")
@@ -528,39 +563,111 @@ def test_labor_teacher_cli_shards_feed_bc_and_critic(tmp_path, bounded_normalize
 
     norm = tmp_path / "norm.pt"
     torch.save(
-        {"feature_contract": BOUNDED_FEATURE_CONTRACT, "normalizer": bounded_normalizer.state_dict()},
+        {
+            "feature_contract": BOUNDED_FEATURE_CONTRACT,
+            "normalizer": bounded_normalizer.state_dict(),
+        },
         norm,
     )
     out = tmp_path / "teacher"
-    assert ltd.main([
-        "--normalizer-checkpoint", str(norm), "--worlds", "5000,5002", "--turns", "1",
-        "--players", "8", "--jobs", "2", "--allow-dirty", "--return-tail", "truncated-zero",
-        "--out", str(out),
-    ]) == 0
+    assert (
+        ltd.main(
+            [
+                "--normalizer-checkpoint",
+                str(norm),
+                "--worlds",
+                "5000,5002",
+                "--turns",
+                "1",
+                "--players",
+                "8",
+                "--jobs",
+                "2",
+                "--allow-dirty",
+                "--return-tail",
+                "truncated-zero",
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
+    )
     manifest = ltd.verify_dataset(out)
     assert set(manifest["shards"]) == {"5000", "5002"}
     assert manifest["source_record"]["options"]["reset_options"]["movement"] is True
     dataset = ltd.load_labor_dataset(out)
     weights = dataset["row_weight"]
     for world in (5000, 5002):
-        assert math.isclose(float(weights[dataset["row_world"] == world].sum()), float(weights.sum()) / 2, rel_tol=1e-5)
-    with pytest.raises(Exception):
-        ltd.main(["--normalizer-checkpoint", str(norm), "--worlds", "2001", "--turns", "1",
-                  "--allow-dirty", "--out", str(tmp_path / "dev")])
+        assert math.isclose(
+            float(weights[dataset["row_world"] == world].sum()),
+            float(weights.sum()) / 2,
+            rel_tol=1e-5,
+        )
+    with pytest.raises(Exception):  # noqa: B017 - blind Exception assertion kept (test expectation unchanged)
+        ltd.main(
+            [
+                "--normalizer-checkpoint",
+                str(norm),
+                "--worlds",
+                "2001",
+                "--turns",
+                "1",
+                "--allow-dirty",
+                "--out",
+                str(tmp_path / "dev"),
+            ]
+        )
 
     init = tmp_path / "init.pt"
-    labor_training_main(["initialize", "--normalizer-checkpoint", str(norm), "--world-seed", "5000",
-                         "--optimizer-seed", "1", "--out", str(init)])
+    labor_training_main(
+        [
+            "initialize",
+            "--normalizer-checkpoint",
+            str(norm),
+            "--world-seed",
+            "5000",
+            "--optimizer-seed",
+            "1",
+            "--out",
+            str(init),
+        ]
+    )
     bc = tmp_path / "bc.pt"
-    labor_training_main(["pretrain-bc", "--checkpoint", str(init), "--dataset", str(out),
-                         "--epochs", "2", "--batch-size", "16", "--out", str(bc)])
+    labor_training_main(
+        [
+            "pretrain-bc",
+            "--checkpoint",
+            str(init),
+            "--dataset",
+            str(out),
+            "--epochs",
+            "2",
+            "--batch-size",
+            "16",
+            "--out",
+            str(bc),
+        ]
+    )
     state = torch.load(bc, map_location="cpu", weights_only=True)
     summary = state["heuristic_bc_pretraining"]
     assert summary["collection"]["dataset_digest"] == manifest["dataset_digest"]
     assert summary["components_after"]["count_specialty"] > 0
     critic = tmp_path / "critic.pt"
-    labor_training_main(["pretrain-critic", "--checkpoint", str(bc), "--dataset", str(out),
-                         "--epochs", "2", "--batch-size", "16", "--out", str(critic)])
+    labor_training_main(
+        [
+            "pretrain-critic",
+            "--checkpoint",
+            str(bc),
+            "--dataset",
+            str(out),
+            "--epochs",
+            "2",
+            "--batch-size",
+            "16",
+            "--out",
+            str(critic),
+        ]
+    )
     state = torch.load(critic, map_location="cpu", weights_only=True)
     assert state["heuristic_critic_pretraining"]["dataset_digest"] == manifest["dataset_digest"]
     assert sorted(state["critic_training_world_seeds"]) == [5000, 5002]

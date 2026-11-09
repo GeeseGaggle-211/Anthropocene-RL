@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import pytest
 import torch
 
 from anthropocene_rl.autonomous_v7 import contracts
-from anthropocene_rl.autonomous_v7.bridge import observation_batch
+from anthropocene_rl.autonomous_v7.bridge import DEFAULT_BRIDGE, observation_batch
 from anthropocene_rl.autonomous_v7.labor_bc import (
     LABOR_BC_CONTRACT,
     collect_heuristic_bc_dataset,
@@ -40,6 +41,8 @@ from tests.test_labor_bridge import _catalog_payload
 
 
 def _fit_test_normalizer() -> Normalizer:
+    if not Path(os.environ.get("ANTHROPOCENE_MODEL9_BRIDGE", str(DEFAULT_BRIDGE))).is_file():
+        pytest.skip("model9 bridge is not built")
     with LaborModel9Bridge() as bridge:
         step = bridge.reset(50000)
         live = [

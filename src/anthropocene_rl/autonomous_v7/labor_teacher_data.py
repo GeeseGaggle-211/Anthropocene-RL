@@ -53,7 +53,6 @@ from typing import Any
 import numpy as np
 import torch
 
-from .labor_personality import LaborPersonalityConditioning, personality_for_world
 from .labor_bc import (
     ELAPSED_YEARS_FIELD,
     LABOR_LABEL_CONTRACT,
@@ -67,10 +66,15 @@ from .labor_bc import (
     world_balanced_weights,
 )
 from .labor_model import LaborPersonality
+from .labor_personality import LaborPersonalityConditioning, personality_for_world
 from .labor_privileged import (
     LABOR_PRIVILEGED_LAYOUT_V1,
     is_privileged_key,
+)
+from .labor_privileged import (
     shard_keys as privileged_shard_keys,
+)
+from .labor_privileged import (
     validate_raw as validate_privileged_raw,
 )
 from .labor_worlds import (
@@ -357,15 +361,22 @@ def _collect_shard(job: Mapping[str, Any]) -> dict[str, Any]:
     except ContinuationMismatch as error:
         # The checkpoint cannot reproduce its boundary; the uninterrupted run is the
         # world collected from its reset, so recollect it from scratch (logged).
-        _log_line({"world": int(job["world_seed"]), "resume_refused": str(error),
-                   "action": "recollecting the world from its reset"})
+        _log_line(
+            {
+                "world": int(job["world_seed"]),
+                "resume_refused": str(error),
+                "action": "recollecting the world from its reset",
+            }
+        )
         import shutil
 
         shutil.rmtree(Path(job["out"]) / WORK_DIR / f"world-{int(job['world_seed'])}")
         return _collect_shard_once(dict(job, resume=False), resume_fallback=str(error))
 
 
-def _collect_shard_once(job: Mapping[str, Any], resume_fallback: str | None = None) -> dict[str, Any]:
+def _collect_shard_once(
+    job: Mapping[str, Any], resume_fallback: str | None = None
+) -> dict[str, Any]:
     from .labor_collect_resume import WorldCheckpointer, load_resume_point
 
     torch.set_num_threads(1)
@@ -394,8 +405,14 @@ def _collect_shard_once(job: Mapping[str, Any], resume_fallback: str | None = No
         work, identity, keep=int(job.get("checkpoint_keep", 2)), resume=resume, log=_log_line
     )
     if resume is not None:
-        _log_line({"world": int(job["world_seed"]), "resumed_from_checkpoint": resume.boundary,
-                   "window_done": resume.window_done, "in_tail": resume.state["tail_state"] is not None})
+        _log_line(
+            {
+                "world": int(job["world_seed"]),
+                "resumed_from_checkpoint": resume.boundary,
+                "window_done": resume.window_done,
+                "in_tail": resume.state["tail_state"] is not None,
+            }
+        )
 
     def progress(state: Any) -> None:
         elapsed = time.perf_counter() - started
@@ -474,12 +491,16 @@ def _collect_shard_once(job: Mapping[str, Any], resume_fallback: str | None = No
     return _shard_entry(directory, record)
 
 
-def publish_dataset(directory: Path, source: Mapping[str, Any], shards: Sequence[Mapping[str, Any]]) -> dict:
+def publish_dataset(
+    directory: Path, source: Mapping[str, Any], shards: Sequence[Mapping[str, Any]]
+) -> dict:
     body = {
         "schema": SCHEMA,
         "source_record": dict(source),
         "source_run": source["source_run"],
-        "shards": {str(s["world_seed"]): dict(s) for s in sorted(shards, key=lambda s: s["world_seed"])},
+        "shards": {
+            str(s["world_seed"]): dict(s) for s in sorted(shards, key=lambda s: s["world_seed"])
+        },
     }
     if len(body["shards"]) != len(shards):
         raise ProvenanceError("duplicate labor teacher worlds")
@@ -493,7 +514,9 @@ def verify_dataset(directory: Path) -> dict:
     manifest = json.loads((Path(directory) / "dataset.json").read_text())
     if manifest.get("schema") != SCHEMA or not manifest.get("shards"):
         raise ProvenanceError("labor teacher dataset schema/positive shard coverage missing")
-    if manifest.get("dataset_digest") != digest({k: v for k, v in manifest.items() if k != "dataset_digest"}):
+    if manifest.get("dataset_digest") != digest(
+        {k: v for k, v in manifest.items() if k != "dataset_digest"}
+    ):
         raise ProvenanceError("labor teacher dataset digest mismatch")
     source = manifest["source_record"]
     if source.get("source_run") != digest({k: v for k, v in source.items() if k != "source_run"}):
@@ -592,7 +615,9 @@ def load_labor_dataset(
         raise ProvenanceError("randomized-tail labor teacher shard lacks its tail record")
     digest_value = next(iter(digests))
     if expected_normalizer_digest is not None and digest_value != expected_normalizer_digest:
-        raise ProvenanceError("labor teacher dataset normalizer differs from the checkpoint normalizer")
+        raise ProvenanceError(
+            "labor teacher dataset normalizer differs from the checkpoint normalizer"
+        )
     dataset: dict[str, Any] = {key: torch.cat(values, dim=0) for key, values in tensors.items()}
     keep = ~dataset["row_quarantined"].reshape(-1)
     dataset["row_weight"] = world_balanced_weights(dataset["row_world"], keep)
@@ -601,7 +626,7 @@ def load_labor_dataset(
         "label_contract": LABOR_LABEL_CONTRACT,
         "source_kind": manifest["source_record"].get("source_kind", SOURCE_KIND),
         "actor_only": bool(options.get("actor_only", False)),
-        "rows": int(len(keep)),
+        "rows": len(keep),
         "dataset_digest": manifest["dataset_digest"],
         "source_run": manifest["source_run"],
         "normalizer_digest": digest_value,
@@ -635,8 +660,12 @@ def load_labor_dataset(
     if tail_records:
         dataset["collection"]["return_tail_by_world"] = tail_records
     if keep_privileged:
-        validate_privileged_raw(dataset, LABOR_PRIVILEGED_LAYOUT_V1, context=f"labor dataset {directory}")
-        dataset["collection"]["privileged_schema_version"] = LABOR_PRIVILEGED_LAYOUT_V1.schema_version
+        validate_privileged_raw(
+            dataset, LABOR_PRIVILEGED_LAYOUT_V1, context=f"labor dataset {directory}"
+        )
+        dataset["collection"]["privileged_schema_version"] = (
+            LABOR_PRIVILEGED_LAYOUT_V1.schema_version
+        )
     from .labor_worlds import CALIBRATION_PARTITION, is_calibration_set
 
     dataset["collection"]["partition"] = (
@@ -771,7 +800,13 @@ def merge_labor_datasets(
         raise ProvenanceError("randomized-tail labor teacher shard lacks its tail record")
     if tail_records:
         settings = (
-            "method", "estimator", "draws", "rho", "cap", "schedule_seed_base", "prefix_terms"
+            "method",
+            "estimator",
+            "draws",
+            "rho",
+            "cap",
+            "schedule_seed_base",
+            "prefix_terms",
         )
         shared = {
             json.dumps({k: record.get(k) for k in settings}, sort_keys=True)
@@ -889,7 +924,9 @@ def _training_view(
             continue
         shards[world] = entry
     if not shards:
-        raise ProvenanceError(f"{context}: no training shards remain after the reserved-world guard")
+        raise ProvenanceError(
+            f"{context}: no training shards remain after the reserved-world guard"
+        )
     return dict(manifest, shards=shards, dropped_reserved_worlds=sorted(dropped))
 
 
@@ -937,9 +974,7 @@ def source_world_balanced_weights(
         source_worlds = torch.unique(worlds[in_source]).tolist()
         for world in source_worlds:
             rows = in_source & (worlds == world)
-            weights[rows] = total / (
-                len(kept_sources) * len(source_worlds) * float(rows.sum())
-            )
+            weights[rows] = total / (len(kept_sources) * len(source_worlds) * float(rows.sum()))
     return weights
 
 
@@ -1068,8 +1103,13 @@ def _load_labor_datasets(
             # Source-specific diagnostics (DAgger branch fields, search gains) differ between
             # kinds; training uses only the shared inputs, labels and identity arrays.
             extra = keys ^ set(tensors)
-            if any(k.startswith(("target_", "label_")) or k in AGGREGATE_IDENTITY_DEFAULTS for k in extra):
-                raise ProvenanceError(f"aggregated labor datasets have different arrays: {sorted(extra)}")
+            if any(
+                k.startswith(("target_", "label_")) or k in AGGREGATE_IDENTITY_DEFAULTS
+                for k in extra
+            ):
+                raise ProvenanceError(
+                    f"aggregated labor datasets have different arrays: {sorted(extra)}"
+                )
             if require_privileged and any(is_privileged_key(k) for k in extra):
                 raise ProvenanceError("aggregated labor datasets do not all store privileged data")
             # Privileged arrays absent from one part are dropped for every part, never zero-filled.
@@ -1117,7 +1157,7 @@ def _load_labor_datasets(
         ],
         "normalizer_digest": first["normalizer_digest"],
         "sources": sources,
-        "rows": int(len(keep)),
+        "rows": len(keep),
         "quarantined_rows": int((~keep).sum()),
         "world_seeds": sorted(set(dataset["row_world"].reshape(-1).tolist())),
         "sampling": "equal-source-mass-then-world-balanced-row-weights",
@@ -1134,9 +1174,13 @@ def _load_labor_datasets(
 
 
 def argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--normalizer-checkpoint", type=Path, required=True)
-    parser.add_argument("--worlds", required=True, help="explicit fitting seeds/ranges, e.g. 5000-5031")
+    parser.add_argument(
+        "--worlds", required=True, help="explicit fitting seeds/ranges, e.g. 5000-5031"
+    )
     parser.add_argument("--turns", type=int, default=25, help="decisions per world")
     parser.add_argument("--players", type=int, default=8)
     parser.add_argument("--width", type=int, default=None)
@@ -1175,7 +1219,8 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-dirty",
         action="store_true",
-        help="development only: permit a dirty learner/simulator identity (recorded as non-production)",
+        help="development only: permit a dirty learner/simulator identity (recorded as "
+        "non-production)",
     )
     parser.add_argument(
         "--resume",
@@ -1184,7 +1229,10 @@ def argument_parser() -> argparse.ArgumentParser:
         "verified published shards, resume unfinished worlds from their newest checkpoint",
     )
     parser.add_argument(
-        "--checkpoint-keep", type=int, default=2, help="decision-boundary checkpoints kept per world"
+        "--checkpoint-keep",
+        type=int,
+        default=2,
+        help="decision-boundary checkpoints kept per world",
     )
     parser.add_argument("--out", type=Path, required=True)
     return parser
@@ -1237,8 +1285,10 @@ def _resume_preflight(out: Path, source: Mapping[str, Any], worlds: Sequence[int
     return None
 
 
-def _published_shards(out: Path, source: Mapping[str, Any], worlds: Sequence[int]) -> dict[int, dict]:
-    """Verified published shards of this run; unpublished or invalid shard directories are removed."""
+def _published_shards(
+    out: Path, source: Mapping[str, Any], worlds: Sequence[int]
+) -> dict[int, dict]:
+    """Verified published shards of this run; unpublished or invalid shard directories are removed."""  # noqa: E501 - docstring/prose line kept verbatim
     import shutil
 
     done = {}
@@ -1268,7 +1318,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("turns, jobs and checkpoint-keep must be positive")
     if args.out.exists() and not args.resume:
         raise ProvenanceError(
-            "labor teacher output exists; pass --resume to continue it or regenerate into a new directory"
+            "labor teacher output exists; pass --resume to continue it or regenerate into "
+            "a new directory"
         )
     reset = LaborResetOptions(
         players=args.players,
@@ -1326,8 +1377,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.out.exists():
         manifest = _resume_preflight(args.out, source, worlds)
         if manifest is not None:
-            print(json.dumps({"dataset": str(args.out), "dataset_digest": manifest["dataset_digest"],
-                              "already_published": True}, sort_keys=True))
+            print(
+                json.dumps(
+                    {
+                        "dataset": str(args.out),
+                        "dataset_digest": manifest["dataset_digest"],
+                        "already_published": True,
+                    },
+                    sort_keys=True,
+                )
+            )
             return 0
         done = _published_shards(args.out, source, worlds)
     else:
@@ -1363,7 +1422,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         with ProcessPoolExecutor(max_workers=min(args.jobs, len(jobs))) as pool:
             collected = list(pool.map(_collect_shard, jobs))
     if checkpoint_hash(bridge_path) != bridge_sha or code_commit() != source["learner_commit"]:
-        raise ProvenanceError("labor teacher producer changed during collection; dataset not published")
+        raise ProvenanceError(
+            "labor teacher producer changed during collection; dataset not published"
+        )
     shards = sorted([*done.values(), *collected], key=lambda s: s["world_seed"])
     import shutil
 

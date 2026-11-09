@@ -15,14 +15,32 @@ def _args(worlds: str):
 
 @pytest.mark.parametrize("worlds", ["90154", "90180", "2001", "3000"])
 def test_fit_normalizer_refuses_non_fitting_worlds(worlds: str) -> None:
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017 - blind Exception assertion kept (test expectation unchanged)
         labor_training._command_fit_normalizer(_args(worlds))
 
 
 def test_fit_normalizer_accepts_reset_options() -> None:
     args = labor_training.argument_parser().parse_args(
-        ["fit-normalizer", "--worlds", "90100", "--players", "16", "--width", "128", "--height", "64",
-         "--separation", "9", "--out", "unused.pt"]
+        [
+            "fit-normalizer",
+            "--worlds",
+            "90100",
+            "--players",
+            "16",
+            "--width",
+            "128",
+            "--height",
+            "64",
+            "--separation",
+            "9",
+            "--out",
+            "unused.pt",
+        ]
     )
     options = labor_training._labor_reset_options(args)
-    assert options.players == 16 and options.movement and options.width == 128 and options.separation == 9
+    assert (
+        options.players == 16
+        and options.movement
+        and options.width == 128
+        and options.separation == 9
+    )

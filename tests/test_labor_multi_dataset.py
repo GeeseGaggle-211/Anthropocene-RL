@@ -395,14 +395,19 @@ def test_many_shard_load_survives_a_low_open_file_limit(tmp_path, hard_low) -> N
     env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
     result = subprocess.run(
         [sys.executable, "-c", LOW_LIMIT_RUNNER, str(dataset), "128", str(hard_cap)],
-        capture_output=True, text=True, timeout=600, env=env,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=env,
     )
     assert result.returncode == 0, result.stderr[-3000:]
     report = json.loads(result.stdout.strip().splitlines()[-1])
     assert report["rows"] == int(reference["core"].shape[0])
     assert report["core_sum"] == float(reference["core"].double().sum())
     if not hard_low:
-        assert report["limit"][0] == hard or report["limit"][0] >= arrays_per_world * len(MANY_WORLDS)
+        assert report["limit"][0] == hard or report["limit"][0] >= arrays_per_world * len(
+            MANY_WORLDS
+        )
 
 
 def test_descriptor_exhaustion_falls_back_to_a_plain_read(tmp_path, monkeypatch) -> None:

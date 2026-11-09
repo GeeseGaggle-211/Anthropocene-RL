@@ -31,7 +31,9 @@ def synthetic_actor_dataset(rows: int = 24, seed: int = 0) -> tuple[LaborActor, 
     torch.manual_seed(seed)
     core_dim = 15
     layout = LaborEncoderLayout(
-        core_dim, LABOR_SPECIALTY_FEATURE_WIDTH, LABOR_ACTIVITY_FEATURE_WIDTH,
+        core_dim,
+        LABOR_SPECIALTY_FEATURE_WIDTH,
+        LABOR_ACTIVITY_FEATURE_WIDTH,
         LABOR_RESOURCE_FEATURE_WIDTH,
     )
     actor = LaborActor(layout)
@@ -130,7 +132,9 @@ def test_task_weights_rebuild_the_total() -> None:
     heavier = _batch_loss_and_l1(
         actor, data, target_log_std=-2.0, task_weights=doubled, task_terms=terms
     )[0]
-    assert float(heavier) == pytest.approx(float(base) + float(terms["loss"]["specialty"]), rel=1e-5)
+    assert float(heavier) == pytest.approx(
+        float(base) + float(terms["loss"]["specialty"]), rel=1e-5
+    )
     with pytest.raises(ValueError, match="miss"):
         _batch_loss_and_l1(actor, data, target_log_std=-2.0, task_weights={"specialty": 1.0})
 
@@ -141,7 +145,9 @@ def test_task_gradient_report_shapes_and_shares() -> None:
     data["row_weight"] = torch.ones(16)
     report = task_gradient_report(actor, data, batch_size=8)
     assert report["batches"] == 2 and report["rows"] == 16
-    assert report["parameter_sets"]["trunk"] == sum(p.numel() for p in actor_trunk_parameters(actor))
+    assert report["parameter_sets"]["trunk"] == sum(
+        p.numel() for p in actor_trunk_parameters(actor)
+    )
     assert report["parameter_sets"]["gradnorm_w"] == sum(
         p.numel() for p in actor_gradnorm_parameters(actor)
     )

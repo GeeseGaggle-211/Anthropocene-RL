@@ -45,7 +45,7 @@ def main() -> None:
         identity = [(worlds[0], 3), (worlds[0], 4), (worlds[1 % len(worlds)], 3),
                     (worlds[1 % len(worlds)], 4), (worlds[2 % len(worlds)], 3)]
         rows, bootstrap = [], {}
-        for (retry, seed), (world, turn) in zip(plan, identity):
+        for (retry, seed), (world, turn) in zip(plan, identity, strict=False):
             row, tail, *_ = _collect(patch, retry, (actor, task, costs), seed=seed, world=world)
             row.turn = turn
             rows.append(row)

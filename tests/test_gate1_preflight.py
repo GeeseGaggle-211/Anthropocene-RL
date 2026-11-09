@@ -1,4 +1,5 @@
 """The Gate 1 retrieval preflight is read-only, exact and non-authorizing."""
+
 from __future__ import annotations
 
 import copy
@@ -114,8 +115,9 @@ def install_endpoint(tmp_path: Path, row: dict, *, value: float = 1.0) -> dict:
             {
                 "schema": 1,
                 "kind": "gate1_retrieved_legacy_adapter_bundle",
-                "checkpoint_sha256": row["artifacts"]["evaluation-checkpoint"]["source"]
-                ["artifact"]["sha256"],
+                "checkpoint_sha256": row["artifacts"]["evaluation-checkpoint"]["source"][
+                    "artifact"
+                ]["sha256"],
                 "historical_conversion": False,
             },
         )
@@ -135,9 +137,7 @@ def install_trace(
     update_count: int = 1,
 ) -> None:
     identity = row["run_identity"]
-    checkpoint_path = Path(
-        row["artifacts"]["evaluation-checkpoint"]["source"]["artifact"]["path"]
-    )
+    checkpoint_path = Path(row["artifacts"]["evaluation-checkpoint"]["source"]["artifact"]["path"])
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     endpoint_actor_sha = preflight._hash_value(checkpoint["actor"])
     evidence = transition(
@@ -186,15 +186,15 @@ def install_trace(
     transitions_ref = preflight.file_reference(root / "transitions.jsonl")
     updates_ref = preflight.file_reference(root / "updates.jsonl")
     bindings = {
-        "checkpoint_sha256": row["artifacts"]["evaluation-checkpoint"]["source"][
-            "artifact"
-        ]["sha256"],
+        "checkpoint_sha256": row["artifacts"]["evaluation-checkpoint"]["source"]["artifact"][
+            "sha256"
+        ],
         "endpoint_actor_sha256": endpoint_actor_sha,
         "normalizer_sha256": row["artifacts"]["normalizer"]["source"]["sha256"],
         "run_manifest_sha256": row["artifacts"]["run-manifest"]["source"]["sha256"],
-        "producer_provenance_sha256": row["artifacts"]["producer-build-provenance"][
-            "source"
-        ]["sha256"],
+        "producer_provenance_sha256": row["artifacts"]["producer-build-provenance"]["source"][
+            "sha256"
+        ],
         "transitions_sha256": transitions_ref["sha256"],
         "updates_sha256": updates_ref["sha256"],
     }
@@ -240,9 +240,7 @@ def rewrite_trace_updates(row: dict, updates: list[dict]) -> None:
         "rows": len(updates),
         "sha256": source["files"]["updates"]["sha256"],
     }
-    done["merkleRoot"] = preflight.economic_diagnostics.merkle_root(
-        [*transitions, *updates]
-    )
+    done["merkleRoot"] = preflight.economic_diagnostics.merkle_root([*transitions, *updates])
     done_path.write_text(json.dumps(done, sort_keys=True), encoding="utf-8")
     source["files"]["done"] = preflight.file_reference(done_path)
     manifest_path = Path(source["files"]["manifest"]["path"])
@@ -296,7 +294,9 @@ def test_exact_inventory_and_no_authority_report_are_deterministic(tmp_path: Pat
     assert first["production_gate1"] == "HOLD"
     assert first["inventory_sha256"] in first["artifact_sha256s"]
     assert len(first["nodes"]) == 17
-    assert first["digest"] == digest({key: value for key, value in first.items() if key != "digest"})
+    assert first["digest"] == digest(
+        {key: value for key, value in first.items() if key != "digest"}
+    )
 
     body["nodes"].pop()
     reseal(path, body)
@@ -373,9 +373,7 @@ def test_complete_endpoint_and_trace_classify_exact_historical_answerability(
     resume = {
         "actor": state["actor"],
         "critic": state["critic"],
-        "optimizers": {
-            "actor": {"state": {0: {"step": 1}}, "param_groups": [{"params": [0]}]}
-        },
+        "optimizers": {"actor": {"state": {0: {"step": 1}}, "param_groups": [{"params": [0]}]}},
         "iteration": 1,
         "python_rng": (3, (1, 2, 3), None),
         "numpy_rng": {"bit_generator": "PCG64", "state": {"state": 1, "inc": 1}},
@@ -399,23 +397,20 @@ def test_complete_endpoint_and_trace_classify_exact_historical_answerability(
     node_report = selected(report, "t3per-s70")
     answers = node_report["answerability"]
     assert answers["endpoint_artifact_inventory"]["status"] == "blocked"
-    assert "separately reviewed provenance" in answers["endpoint_artifact_inventory"][
-        "reasons"
-    ][-1]
+    assert "separately reviewed provenance" in answers["endpoint_artifact_inventory"]["reasons"][-1]
     assert answers["strict_evaluator_eligibility"]["status"] == "blocked"
     assert answers["critic_state_identity"]["status"] == "answerable"
     assert answers["resume_sections_inventoried"]["status"] == "answerable"
     assert answers["exact_endpoint_resume_eligibility"]["status"] == "blocked"
-    assert "restoration contract" in answers["exact_endpoint_resume_eligibility"][
-        "reasons"
-    ][0]
+    assert "restoration contract" in answers["exact_endpoint_resume_eligibility"]["reasons"][0]
     assert answers["historical_optimizer_sequence_reconstruction"]["status"] == "blocked"
     assert answers["transition_trace_structural_consistency"]["status"] == "answerable"
     assert answers["update_trace_structural_consistency"]["status"] == "answerable"
     assert answers["historical_transition_diagnostics"]["status"] == "blocked"
-    assert "separately reviewed authority" in answers[
-        "historical_transition_diagnostics"
-    ]["reasons"][0]
+    assert (
+        "separately reviewed authority"
+        in answers["historical_transition_diagnostics"]["reasons"][0]
+    )
     assert answers["historical_optimization_target_diagnostics"]["status"] == "blocked"
     assert answers["historical_optimization_target_diagnostics"]["objective_identities"] == [
         "welfare"
@@ -443,9 +438,7 @@ def test_missing_resume_and_unpaired_update_do_not_overclaim(tmp_path: Path) -> 
     assert answers["historical_optimization_target_diagnostics"]["status"] == "blocked"
     assert answers["update_trace_structural_consistency"]["status"] == "blocked"
     assert answers["historical_update_diagnostics"]["status"] == "blocked"
-    assert "no following completion" in answers[
-        "historical_update_diagnostics"
-    ]["reasons"][0]
+    assert "no following completion" in answers["historical_update_diagnostics"]["reasons"][0]
 
 
 def test_update_answerability_requires_optimizer_pre_and_post_hashes(tmp_path: Path) -> None:
@@ -488,9 +481,9 @@ def test_expected_lost_critic_forces_preflight_hold(tmp_path: Path) -> None:
     report = preflight.run_preflight(path)
     answer = selected(report, "t3per-s70")["answerability"]
     assert answer["endpoint_artifact_inventory"]["status"] == "blocked"
-    assert "expected critic bytes are missing/lost" in answer[
-        "endpoint_artifact_inventory"
-    ]["reasons"]
+    assert (
+        "expected critic bytes are missing/lost" in answer["endpoint_artifact_inventory"]["reasons"]
+    )
     assert report["preflight_status"] == "HOLD"
     assert report["ready_for_protocol_freeze"] is False
 
@@ -516,7 +509,9 @@ def test_producer_inventory_cannot_omit_a_bound_endpoint_artifact(tmp_path: Path
 
 def test_not_applicable_requires_rehashed_content_support(tmp_path: Path) -> None:
     history = tmp_path / "historical-index.txt"
-    history.write_text("no historical conversion entry in reviewed source index\n", encoding="utf-8")
+    history.write_text(
+        "no historical conversion entry in reviewed source index\n", encoding="utf-8"
+    )
     history_ref = preflight.file_reference(history)
     support = seal(
         tmp_path / "conversion-support.json",
@@ -547,7 +542,7 @@ def test_not_applicable_requires_rehashed_content_support(tmp_path: Path) -> Non
 
     history.write_text("mutated after inventory sealing\n", encoding="utf-8")
     with pytest.raises(
-        ProvenanceError, match="pre-existing-local provenance|size or SHA-256 differs"
+        ProvenanceError, match=r"pre-existing-local provenance|size or SHA-256 differs"
     ):
         preflight.run_preflight(path)
 
@@ -557,12 +552,13 @@ def test_trace_identity_and_artifact_hash_conflicts_reject(tmp_path: Path) -> No
     row = next(value for value in body["nodes"] if value["id"] == "t3per-s70")
     install_endpoint(tmp_path, row)
     install_trace(tmp_path, row)
-    trace_path = Path(row["artifacts"]["transition-update-trace"]["source"]["files"]
-                      ["transitions"]["path"])
+    trace_path = Path(
+        row["artifacts"]["transition-update-trace"]["source"]["files"]["transitions"]["path"]
+    )
     trace_path.write_text(trace_path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     reseal(path, body)
     with pytest.raises(
-        ProvenanceError, match="pre-existing-local provenance|size or SHA-256 differs"
+        ProvenanceError, match=r"pre-existing-local provenance|size or SHA-256 differs"
     ):
         preflight.run_preflight(path)
 
@@ -623,7 +619,7 @@ def test_cross_slot_file_alias_is_rejected(tmp_path: Path) -> None:
     )
     install_producer_inventory(tmp_path, row)
     reseal(path, body)
-    with pytest.raises(ProvenanceError, match="repeats a file|aliases one file"):
+    with pytest.raises(ProvenanceError, match=r"repeats a file|aliases one file"):
         preflight.run_preflight(path)
 
 
@@ -653,9 +649,7 @@ def test_incomplete_resume_state_is_never_exactly_answerable(tmp_path: Path) -> 
     reseal(path, body)
     answer = selected(preflight.run_preflight(path), "t3per-s70")["answerability"]
     assert answer["resume_sections_inventoried"]["status"] == "blocked"
-    assert "exact reconstruction sections" in answer["resume_sections_inventoried"][
-        "reasons"
-    ][0]
+    assert "exact reconstruction sections" in answer["resume_sections_inventoried"]["reasons"][0]
     assert answer["exact_endpoint_resume_eligibility"]["status"] == "blocked"
 
     hostile["scheduler"] = {
@@ -664,29 +658,21 @@ def test_incomplete_resume_state_is_never_exactly_answerable(tmp_path: Path) -> 
     }
     hostile["scaler"] = {"status": "not-applicable", "reason": "CPU execution"}
     torch.save(hostile, resume_path)
-    row["artifacts"]["resume-state"]["source"]["artifact"] = preflight.file_reference(
-        resume_path
-    )
+    row["artifacts"]["resume-state"]["source"]["artifact"] = preflight.file_reference(resume_path)
     install_producer_inventory(tmp_path, row)
     reseal(path, body)
     answer = selected(preflight.run_preflight(path), "t3per-s70")["answerability"]
-    assert "structurally incomplete" in answer["resume_sections_inventoried"][
-        "reasons"
-    ][0]
+    assert "structurally incomplete" in answer["resume_sections_inventoried"]["reasons"][0]
 
     hostile["optimizers"] = {
         "actor": {"state": {0: {"step": 1}}, "param_groups": [{"params": [0]}]}
     }
     torch.save(hostile, resume_path)
-    row["artifacts"]["resume-state"]["source"]["artifact"] = preflight.file_reference(
-        resume_path
-    )
+    row["artifacts"]["resume-state"]["source"]["artifact"] = preflight.file_reference(resume_path)
     install_producer_inventory(tmp_path, row)
     reseal(path, body)
     answer = selected(preflight.run_preflight(path), "t3per-s70")["answerability"]
-    assert "iteration is invalid" in answer["resume_sections_inventoried"][
-        "reasons"
-    ][0]
+    assert "iteration is invalid" in answer["resume_sections_inventoried"]["reasons"][0]
 
 
 def test_resealed_trace_bindings_cannot_substitute_endpoint_actor(tmp_path: Path) -> None:
@@ -739,9 +725,7 @@ def test_update_batch_rejects_future_after_policy_transition(tmp_path: Path) -> 
         for line in updates_path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
-    done["merkleRoot"] = preflight.economic_diagnostics.merkle_root(
-        [transition_row, *update_rows]
-    )
+    done["merkleRoot"] = preflight.economic_diagnostics.merkle_root([transition_row, *update_rows])
     done_path.write_text(json.dumps(done, sort_keys=True), encoding="utf-8")
     trace["files"]["done"] = preflight.file_reference(done_path)
     manifest_path = Path(trace["files"]["manifest"]["path"])
@@ -754,9 +738,7 @@ def test_update_batch_rejects_future_after_policy_transition(tmp_path: Path) -> 
 
     answers = selected(preflight.run_preflight(path), "t3per-s70")["answerability"]
     assert answers["historical_transition_diagnostics"]["status"] == "blocked"
-    assert "future policy" in answers["historical_transition_diagnostics"][
-        "reasons"
-    ][0]
+    assert "future policy" in answers["historical_transition_diagnostics"]["reasons"][0]
 
 
 def test_reused_rollout_may_feed_later_updates_without_historical_provenance(
@@ -775,9 +757,7 @@ def test_reused_rollout_may_feed_later_updates_without_historical_provenance(
     assert answers["update_trace_structural_consistency"]["joined_update_count"] == 2
     assert answers["historical_transition_diagnostics"]["status"] == "blocked"
     assert answers["historical_update_diagnostics"]["status"] == "blocked"
-    assert "separately reviewed authority" in answers["historical_update_diagnostics"][
-        "reasons"
-    ][0]
+    assert "separately reviewed authority" in answers["historical_update_diagnostics"]["reasons"][0]
 
 
 @pytest.mark.parametrize(
@@ -850,9 +830,9 @@ def test_remote_acquisition_requires_and_inventories_a_receipt(tmp_path: Path) -
         preflight._file_ref(local_ref, tmp_path, "retrieved artifact")
     missing_local_source_time = preflight.file_reference(artifact)
     missing_local_source_time["acquisition"]["source_mtime"] = None
-    missing_local_source_time["acquisition"][
-        "source_mtime_unavailable_reason"
-    ] = "local time allegedly unavailable"
+    missing_local_source_time["acquisition"]["source_mtime_unavailable_reason"] = (
+        "local time allegedly unavailable"
+    )
     with pytest.raises(ProvenanceError, match="pre-existing-local provenance"):
         preflight._file_ref(missing_local_source_time, tmp_path, "retrieved artifact")
     wrong_local_source_time = preflight.file_reference(artifact)
@@ -966,9 +946,7 @@ def test_remote_acquisition_requires_and_inventories_a_receipt(tmp_path: Path) -
     producer_ref.update(seal(producer_path, record))
     reseal(path, body)
     report = preflight.run_preflight(path)
-    producer = selected(report, "t3per-s70")["artifact_slots"][
-        "producer-artifact-inventory"
-    ]
+    producer = selected(report, "t3per-s70")["artifact_slots"]["producer-artifact-inventory"]
     assert producer["declared_artifact_count"] == 2
 
 
@@ -1046,8 +1024,7 @@ def test_identical_local_bytes_cannot_substitute_for_remote_slot_receipt(
     producer = json.loads(producer_path.read_text(encoding="utf-8"))
     producer.pop("digest")
     producer["artifacts"] = [
-        twin_ref if ref["path"] == checkpoint_ref["path"] else ref
-        for ref in producer["artifacts"]
+        twin_ref if ref["path"] == checkpoint_ref["path"] else ref for ref in producer["artifacts"]
     ]
     producer["artifacts"].append(receipt_ref)
     producer_ref.update(seal(producer_path, producer))

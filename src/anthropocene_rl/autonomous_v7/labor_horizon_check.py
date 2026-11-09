@@ -24,8 +24,6 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from .labor_branches import paired_differences, run_paired_branches
 from .labor_branches_synthetic import SYNTH_FOCAL, SyntheticNative, action_vector
 
@@ -48,9 +46,7 @@ def cost_estimate(states: int, k: int, streams: int = 1) -> dict[str, Any]:
         "forks": 1,
         "restores": branches,
     }
-    total = {
-        key: value * states for key, value in per_state.items() if key not in ("branches",)
-    }
+    total = {key: value * states for key, value in per_state.items() if key not in ("branches",)}
     return {"states": states, "k": k, "streams": streams, "per_state": per_state, "total": total}
 
 

@@ -4,6 +4,7 @@ The functions in this module consume bridge responses. They never provide an
 actor input, change an action, or mutate simulator state. The same validators
 are used after a live rollout and when artifact-backed reports are ingested.
 """
+
 from __future__ import annotations
 
 import copy
@@ -11,8 +12,9 @@ import json
 import math
 import random
 import struct
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Iterator
+from typing import Any
 
 import numpy as np
 import torch
@@ -21,17 +23,37 @@ from . import contracts
 from .provenance import digest
 
 CRAFT_GOODS = (
-    "HandTools", "Pots", "Cloth", "FarmTools", "Housing", "Tools",
-    "AnimalFabric", "LightHousing", "HerdingTools", "HousingMaterial", "FishingTools",
+    "HandTools",
+    "Pots",
+    "Cloth",
+    "FarmTools",
+    "Housing",
+    "Tools",
+    "AnimalFabric",
+    "LightHousing",
+    "HerdingTools",
+    "HousingMaterial",
+    "FishingTools",
 )
 MATERIALS = ("Stone", "Clay", "Wood")
 TRADE_GOODS = (
-    "Cloth", "AnimalFabric", "HousingMaterial", "Food", "LightHousing", "Pots",
-    "HandTools", "FarmTools", "Stone", "Clay", "Wood",
+    "Cloth",
+    "AnimalFabric",
+    "HousingMaterial",
+    "Food",
+    "LightHousing",
+    "Pots",
+    "HandTools",
+    "FarmTools",
+    "Stone",
+    "Clay",
+    "Wood",
 )
 
 CAPTURE_BOUND_FIELDS = {
-    "max_steps", "max_villages_per_boundary", "max_economic_rows_per_step",
+    "max_steps",
+    "max_villages_per_boundary",
+    "max_economic_rows_per_step",
     "max_canonical_bytes",
 }
 HARD_CAPTURE_LIMITS = {
@@ -41,24 +63,61 @@ HARD_CAPTURE_LIMITS = {
     "max_canonical_bytes": 256 * 1024 * 1024,
 }
 ECONOMIC_ROW_FIELDS = {
-    "schemaVersion", "transitionId", "trajectoryId", "decisionTurn", "campId",
-    "societyId", "years", "domains", "units", "unavailable", "goods", "materials",
-    "herds", "requests", "trades", "transfers", "fields", "conservation",
-    "parentTransitionId", "forkId", "branchId",
+    "schemaVersion",
+    "transitionId",
+    "trajectoryId",
+    "decisionTurn",
+    "campId",
+    "societyId",
+    "years",
+    "domains",
+    "units",
+    "unavailable",
+    "goods",
+    "materials",
+    "herds",
+    "requests",
+    "trades",
+    "transfers",
+    "fields",
+    "conservation",
+    "parentTransitionId",
+    "forkId",
+    "branchId",
 }
 GATE2_ADDITIVE_ECONOMIC_ROW_FIELDS = {
-    "controls", "conservationRows", "physicalEvents",
+    "controls",
+    "conservationRows",
+    "physicalEvents",
 }
 ECONOMIC_DOMAINS = {"population", "cultivation", "herding", "manufacturing", "trade"}
 BOUNDARY_VILLAGE_FIELDS = {
-    "camp", "society", "parentSociety", "priorPopulation", "population", "qol", "years",
-    "welfare", "tradeUtility", "terminated", "founded", "observation", "observation_sha256",
+    "camp",
+    "society",
+    "parentSociety",
+    "priorPopulation",
+    "population",
+    "qol",
+    "years",
+    "welfare",
+    "tradeUtility",
+    "terminated",
+    "founded",
+    "observation",
+    "observation_sha256",
 }
 SUPPORTED_TRANSFER_KINDS = {
-    "fission", "founding", "migration", "fission-inventory", "fission-herd",
-    "dispatch", "reintegration", "hunter-logistics",
+    "fission",
+    "founding",
+    "migration",
+    "fission-inventory",
+    "fission-herd",
+    "dispatch",
+    "reintegration",
+    "hunter-logistics",
     # Economic schema 3 typed managed-herd inflows (simulator d976b89).
-    "herd-acquisition", "herd-compatibility-grant",
+    "herd-acquisition",
+    "herd-compatibility-grant",
 }
 
 
@@ -82,9 +141,21 @@ def economic_unit_registry() -> dict[str, str]:
 
 
 _NATIVE_UNIT_NAMES = {
-    "years", "people", "person-years", "qol", "fraction", "food", "animals",
-    "worker-years", "field-capital", "food/worker-year", "planner-native",
-    "transactions", "person-qol-years", "good-units", "material-units",
+    "years",
+    "people",
+    "person-years",
+    "qol",
+    "fraction",
+    "food",
+    "animals",
+    "worker-years",
+    "field-capital",
+    "food/worker-year",
+    "planner-native",
+    "transactions",
+    "person-qol-years",
+    "good-units",
+    "material-units",
 } | {f"{good}-units" for good in TRADE_GOODS}
 
 
@@ -92,9 +163,9 @@ def _unit_path_exists(row: dict, path: str) -> bool:
     if path == "years":
         return "years" in row
     if path == "herds.*.slaughterFood":
-        return (isinstance(row.get("herds"), list)
-                and all(isinstance(item, dict) and "slaughterFood" in item
-                        for item in row["herds"]))
+        return isinstance(row.get("herds"), list) and all(
+            isinstance(item, dict) and "slaughterFood" in item for item in row["herds"]
+        )
     value: Any = row
     for part in path.split("."):
         if not isinstance(value, dict) or part not in value:
@@ -138,30 +209,59 @@ def complete_economic_units(row: dict) -> None:
 def service_outcome_registry() -> list[dict[str, str]]:
     """The complete 41-field Gate-1 service surface in stable native-unit order."""
     rows = [
-        {"name": "cultivation.food-delivered", "unit": "food",
-         "source": "domains.cultivation.foodDelivered"},
-        {"name": "herding.accepted-food", "unit": "food",
-         "source": "domains.herding.acceptedFood"},
-        {"name": "herding.slaughter-food", "unit": "food",
-         "source": "herds.*.slaughterFood"},
+        {
+            "name": "cultivation.food-delivered",
+            "unit": "food",
+            "source": "domains.cultivation.foodDelivered",
+        },
+        {"name": "herding.accepted-food", "unit": "food", "source": "domains.herding.acceptedFood"},
+        {"name": "herding.slaughter-food", "unit": "food", "source": "herds.*.slaughterFood"},
     ]
-    rows.extend({"name": f"manufacturing.{good}.output", "unit": "good-units",
-                 "source": f"goods.{good}.output"} for good in CRAFT_GOODS)
-    rows.extend({"name": f"materials.{material}.received", "unit": "material-units",
-                 "source": f"materials.{material}.received"} for material in MATERIALS)
-    rows.extend([
-        {"name": "trading.settled-trades", "unit": "transactions",
-         "source": "domains.trade.settledTrades"},
-        {"name": "trading.realised-utility", "unit": "person-qol-years",
-         "source": "domains.trade.realisedUtility"},
-    ])
+    rows.extend(
+        {
+            "name": f"manufacturing.{good}.output",
+            "unit": "good-units",
+            "source": f"goods.{good}.output",
+        }
+        for good in CRAFT_GOODS
+    )
+    rows.extend(
+        {
+            "name": f"materials.{material}.received",
+            "unit": "material-units",
+            "source": f"materials.{material}.received",
+        }
+        for material in MATERIALS
+    )
+    rows.extend(
+        [
+            {
+                "name": "trading.settled-trades",
+                "unit": "transactions",
+                "source": "domains.trade.settledTrades",
+            },
+            {
+                "name": "trading.realised-utility",
+                "unit": "person-qol-years",
+                "source": "domains.trade.realisedUtility",
+            },
+        ]
+    )
     for good in TRADE_GOODS:
-        rows.extend((
-            {"name": f"trading.{good}.imported", "unit": f"{good}-units",
-             "source": f"domains.trade.imported{good}"},
-            {"name": f"trading.{good}.exported", "unit": f"{good}-units",
-             "source": f"domains.trade.exported{good}"},
-        ))
+        rows.extend(
+            (
+                {
+                    "name": f"trading.{good}.imported",
+                    "unit": f"{good}-units",
+                    "source": f"domains.trade.imported{good}",
+                },
+                {
+                    "name": f"trading.{good}.exported",
+                    "unit": f"{good}-units",
+                    "source": f"domains.trade.exported{good}",
+                },
+            )
+        )
     if len(rows) != 41:
         raise AssertionError("Gate-1 service registry cardinality changed")
     return rows
@@ -187,8 +287,11 @@ def _count(value: Any, what: str) -> int:
 
 
 def _sha(value: Any, what: str) -> str:
-    if (not isinstance(value, str) or len(value) != 64
-            or any(character not in "0123456789abcdefABCDEF" for character in value)):
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdefABCDEF" for character in value)
+    ):
         raise ValueError(f"{what} is not a SHA-256 digest")
     return value
 
@@ -200,7 +303,9 @@ def _walk_finite(value: Any, path: str = "economic") -> None:
     elif isinstance(value, list):
         for index, child in enumerate(value):
             _walk_finite(child, f"{path}[{index}]")
-    elif isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(value):
+    elif (
+        isinstance(value, (int, float)) and not isinstance(value, bool) and not math.isfinite(value)
+    ):
         raise ValueError(f"{path} is nonfinite")
 
 
@@ -216,8 +321,9 @@ def validate_capture_bounds(bounds: Any, horizon: int) -> dict[str, int]:
     return dict(bounds)
 
 
-def _identity_value(rows: list[dict], collection: str, identity: str,
-                    field: str) -> tuple[float | None, str | None]:
+def _identity_value(
+    rows: list[dict], collection: str, identity: str, field: str
+) -> tuple[float | None, str | None]:
     matches = [row for row in rows if row.get(collection[:-1]) == identity]
     if len(matches) != 1:
         return None, f"expected-one-{collection[:-1]}-{identity}-row"
@@ -286,23 +392,32 @@ def _unique_trade_collection(row: dict, schema: int) -> None:
             record_type = item.get("recordType")
             identity_name = identity_by_type.get(record_type)
             identity = item.get(identity_name) if identity_name is not None else None
-            if (identity_name is None or not isinstance(identity, str)
-                    or not identity.strip()):
+            if identity_name is None or not isinstance(identity, str) or not identity.strip():
                 raise ValueError("economic schema-2 trade identity is missing or malformed")
             identities.append((record_type, identity))
     if any(value is None for value in identities) or len(identities) != len(set(identities)):
         raise ValueError("economic trades identities are missing or duplicated")
 
 
-def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
-                           source_villages: list[dict], successor_villages: list[dict]) -> list[dict]:
+def validate_economic_rows(
+    rows: Any,
+    *,
+    trajectory_id: str,
+    decision_turn: int,
+    source_villages: list[dict],
+    successor_villages: list[dict],
+) -> list[dict]:
     """Validate the one authoritative raw economic envelope used by Gate 1."""
     if not isinstance(rows, list):
         raise ValueError("economic transition rows are not a list")
     source_by_camp = {int(village["camp"]): village for village in source_villages}
-    expected = {camp for camp, village in source_by_camp.items()
-                if not village["terminated"] and village["population"] > 0
-                and village["observation"] is not None}
+    expected = {
+        camp
+        for camp, village in source_by_camp.items()
+        if not village["terminated"]
+        and village["population"] > 0
+        and village["observation"] is not None
+    }
     camps: set[int] = set()
     transitions: set[str] = set()
     by_camp = {int(village["camp"]): village for village in successor_villages}
@@ -310,33 +425,50 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
         if not isinstance(row, dict):
             raise ValueError("economic row does not match the frozen envelope schema")
         schema = row.get("schemaVersion")
-        expected_fields = (ECONOMIC_ROW_FIELDS if schema == 1 else
-                           ECONOMIC_ROW_FIELDS | GATE2_ADDITIVE_ECONOMIC_ROW_FIELDS
-                           if schema in (2, 3) else None)
+        expected_fields = (
+            ECONOMIC_ROW_FIELDS
+            if schema == 1
+            else ECONOMIC_ROW_FIELDS | GATE2_ADDITIVE_ECONOMIC_ROW_FIELDS
+            if schema in (2, 3)
+            else None
+        )
         if expected_fields is None or set(row) != expected_fields:
             raise ValueError("economic row does not match the frozen envelope schema")
         _walk_finite(row)
         if row["trajectoryId"] != trajectory_id:
-            raise ValueError("economic row schema/trajectory identity differs from the opening boundary")
+            raise ValueError(
+                "economic row schema/trajectory identity differs from the opening boundary"
+            )
         if row["decisionTurn"] != decision_turn:
             raise ValueError("economic row decision turn differs from its trajectory step")
         camp = row["campId"]
-        if isinstance(camp, bool) or not isinstance(camp, int) or camp not in expected or camp in camps:
+        if (
+            isinstance(camp, bool)
+            or not isinstance(camp, int)
+            or camp not in expected
+            or camp in camps
+        ):
             raise ValueError("economic camp coverage is missing, duplicated, or unexpected")
         identity = row["transitionId"]
         if not isinstance(identity, str) or not identity or identity in transitions:
             raise ValueError("economic transition identity is missing or duplicated")
-        camps.add(camp); transitions.add(identity)
+        camps.add(camp)
+        transitions.add(identity)
         source = source_by_camp[camp]
-        if (isinstance(row["societyId"], bool) or not isinstance(row["societyId"], int)
-                or row["societyId"] != source["society"]):
+        if (
+            isinstance(row["societyId"], bool)
+            or not isinstance(row["societyId"], int)
+            or row["societyId"] != source["society"]
+        ):
             raise ValueError("economic society identity differs from its decision-bearing source")
         if not isinstance(row["domains"], dict) or set(row["domains"]) != ECONOMIC_DOMAINS:
             raise ValueError("economic domain coverage differs from the frozen schema")
         if not isinstance(row["units"], dict) or not isinstance(row["unavailable"], dict):
             raise ValueError("economic units/missingness declarations are absent")
-        if any(not isinstance(key, str) or not isinstance(reason, str) or not reason.strip()
-               for key, reason in row["unavailable"].items()):
+        if any(
+            not isinstance(key, str) or not isinstance(reason, str) or not reason.strip()
+            for key, reason in row["unavailable"].items()
+        ):
             raise ValueError("economic missingness reason is malformed")
         years = _finite(row["years"], "economic years")
         if years <= 0:
@@ -348,20 +480,26 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
         if not all(isinstance(block, dict) for block in (population, cultivation, herding, trade)):
             raise ValueError("economic service domains are malformed")
         _validate_declared_economic_units(row, require_gate1=True)
-        if any(row["units"].get(path) != unit
-               for path, unit in economic_unit_registry().items()):
+        if any(row["units"].get(path) != unit for path, unit in economic_unit_registry().items()):
             raise ValueError("economic source unit differs from the authoritative native unit")
         _nonnegative(population.get("personYears"), "population.personYears")
         qol = _nonnegative(population.get("qol"), "population.qol")
         ending = _count(population.get("endingResidents"), "population.endingResidents")
         village = by_camp[camp]
-        if (village["society"] != source["society"]
-                or village["priorPopulation"] != source["population"]
-                or ending != village["population"] or qol != float(village["qol"])
-                or years != float(village["years"])):
-            raise ValueError("economic identity/population/QoL/duration conflicts with source/successor state")
-        for path, value in (("cultivation.foodDelivered", cultivation.get("foodDelivered")),
-                            ("herding.acceptedFood", herding.get("acceptedFood"))):
+        if (
+            village["society"] != source["society"]
+            or village["priorPopulation"] != source["population"]
+            or ending != village["population"]
+            or qol != float(village["qol"])
+            or years != float(village["years"])
+        ):
+            raise ValueError(
+                "economic identity/population/QoL/duration conflicts with source/successor state"
+            )
+        for path, value in (
+            ("cultivation.foodDelivered", cultivation.get("foodDelivered")),
+            ("herding.acceptedFood", herding.get("acceptedFood")),
+        ):
             if value is not None:
                 _nonnegative(value, path)
             elif f"domains.{path}" not in row["unavailable"]:
@@ -376,7 +514,9 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
             if item.get("unit") != "material-units":
                 raise ValueError("material receipt has the wrong native unit")
             _nonnegative(item.get("received"), f"materials.{item['material']}.received")
-        if not isinstance(row["herds"], list) or any(not isinstance(item, dict) for item in row["herds"]):
+        if not isinstance(row["herds"], list) or any(
+            not isinstance(item, dict) for item in row["herds"]
+        ):
             raise ValueError("economic herds collection is malformed")
         herd_ids = [item.get("herdId") for item in row["herds"]]
         if any(isinstance(value, bool) or not isinstance(value, int) for value in herd_ids):
@@ -393,7 +533,9 @@ def validate_economic_rows(rows: Any, *, trajectory_id: str, decision_turn: int,
         _unique_optional_collection(row, "fields", "fieldId")
         _unique_optional_collection(row, "requests", "requestId")
         _unique_trade_collection(row, schema)
-        if not isinstance(row["transfers"], list) or any(not isinstance(item, dict) for item in row["transfers"]):
+        if not isinstance(row["transfers"], list) or any(
+            not isinstance(item, dict) for item in row["transfers"]
+        ):
             raise ValueError("economic transfers collection is malformed")
     if camps != expected:
         raise ValueError("economic rows do not exactly cover transition-bearing camps")
@@ -434,8 +576,11 @@ def service_outcomes(rows: list[dict], fields: list[dict]) -> dict[str, dict[str
                 reasons.append(reason)
             else:
                 total += float(value)
-        output[field["name"]] = ({"value": None, "availability_reason": "; ".join(sorted(set(reasons)))}
-                                  if reasons else {"value": total, "availability_reason": None})
+        output[field["name"]] = (
+            {"value": None, "availability_reason": "; ".join(sorted(set(reasons)))}
+            if reasons
+            else {"value": total, "availability_reason": None}
+        )
     return output
 
 
@@ -456,32 +601,65 @@ def compiler_interventions(rows: list[dict]) -> tuple[int, dict]:
                 for reason in reasons:
                     if not isinstance(reason, str) or not reason:
                         raise ValueError("compiler constraint reason is malformed")
-                    raw.append({**identity, "domain": domain, "reason": reason,
-                                "source": f"funnel:{funnel.get('metric')}"})
+                    raw.append(
+                        {
+                            **identity,
+                            "domain": domain,
+                            "reason": reason,
+                            "source": f"funnel:{funnel.get('metric')}",
+                        }
+                    )
         for request in row["requests"]:
             reason = request.get("unmetReason")
             if reason:
                 domain = "materials" if request.get("rawMaterial") is not None else "manufacturing"
-                raw.append({**identity, "domain": domain, "reason": str(reason),
-                            "source": f"request:{request.get('requestId')}"})
-    raw.sort(key=lambda item: (str(item["transitionId"]), int(item["decisionTurn"]),
-                               int(item["campId"]), item["domain"], item["reason"], item["source"]))
+                raw.append(
+                    {
+                        **identity,
+                        "domain": domain,
+                        "reason": str(reason),
+                        "source": f"request:{request.get('requestId')}",
+                    }
+                )
+    raw.sort(
+        key=lambda item: (
+            str(item["transitionId"]),
+            int(item["decisionTurn"]),
+            int(item["campId"]),
+            item["domain"],
+            item["reason"],
+            item["source"],
+        )
+    )
     counts: dict[tuple[str, str], int] = {}
     for item in raw:
         key = (item["domain"], item["reason"])
         counts[key] = counts.get(key, 0) + 1
-    summary = {"schema": 1, "kind": "gate1_compiler_intervention_summary", "total": len(raw),
-               "by_domain_reason": [{"domain": domain, "reason": reason, "count": count}
-                                    for (domain, reason), count in sorted(counts.items())],
-               "raw_rows": raw}
+    summary = {
+        "schema": 1,
+        "kind": "gate1_compiler_intervention_summary",
+        "total": len(raw),
+        "by_domain_reason": [
+            {"domain": domain, "reason": reason, "count": count}
+            for (domain, reason), count in sorted(counts.items())
+        ],
+        "raw_rows": raw,
+    }
     summary["digest"] = digest(summary)
     return len(raw), summary
 
 
 _UNORDERED_IDENTITIES = {
-    "goods": "good", "materials": "material", "herds": "herdId", "fields": "fieldId",
-    "requests": "ordinal", "trades": "transactionId", "transfers": None,
-    "villages": "camp", "actions": "camp", "economic": "campId",
+    "goods": "good",
+    "materials": "material",
+    "herds": "herdId",
+    "fields": "fieldId",
+    "requests": "ordinal",
+    "trades": "transactionId",
+    "transfers": None,
+    "villages": "camp",
+    "actions": "camp",
+    "economic": "campId",
 }
 
 
@@ -505,8 +683,11 @@ def _canonical_semantic(value: Any, key: str | None = None) -> Any:
         values = [_canonical_semantic(item) for item in value]
         if key in _UNORDERED_IDENTITIES:
             identity = _UNORDERED_IDENTITIES[key]
-            values.sort(key=(lambda item: (str(_semantic_identity(item, identity)), digest(item))) if identity
-                        else lambda item: digest(item))
+            values.sort(
+                key=(lambda item: (str(_semantic_identity(item, identity)), digest(item)))
+                if identity
+                else lambda item: digest(item)
+            )
         return values
     if isinstance(value, np.generic):
         return value.item()
@@ -515,97 +696,166 @@ def _canonical_semantic(value: Any, key: str | None = None) -> Any:
 
 def capture_component_bytes(value: Any) -> int:
     """Return the exact retained canonical JSON size without retaining a second representation."""
-    return len(json.dumps(_canonical_semantic(value), sort_keys=True, separators=(",", ":"),
-                          ensure_ascii=False, allow_nan=False).encode("utf-8"))
+    return len(
+        json.dumps(
+            _canonical_semantic(value),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    )
 
 
-def capture_envelope_bytes(reset_bytes: int, opening_bytes: int,
-                           step_bytes: list[int]) -> int:
+def capture_envelope_bytes(reset_bytes: int, opening_bytes: int, step_bytes: list[int]) -> int:
     """Canonical retained bytes for reset/warm-up, opening, and transitions.
 
     The keys are in the same sorted order used by :func:`_canonical_semantic`.
     Counting the reset record is important: its warm-up chain is retained raw
     evidence, not free metadata outside the reviewed capture budget.
     """
-    return (len(b'{"opening":') + opening_bytes + len(b',"reset":') + reset_bytes
-            + len(b',"steps":[') + sum(step_bytes) + max(0, len(step_bytes) - 1)
-            + len(b']}'))
+    return (
+        len(b'{"opening":')
+        + opening_bytes
+        + len(b',"reset":')
+        + reset_bytes
+        + len(b',"steps":[')
+        + sum(step_bytes)
+        + max(0, len(step_bytes) - 1)
+        + len(b"]}")
+    )
 
 
 def boundary(step: dict) -> dict:
     """Capture only the semantic reset/successor boundary required by Gate 1."""
     villages = []
     for village in sorted(step["villages"], key=lambda row: int(row["camp"])):
-        captured = {key: copy.deepcopy(village.get(key))
-                    for key in BOUNDARY_VILLAGE_FIELDS - {"observation_sha256"}}
-        captured["observation_sha256"] = (None if captured["observation"] is None
-                                           else digest(captured["observation"]))
+        captured = {
+            key: copy.deepcopy(village.get(key))
+            for key in BOUNDARY_VILLAGE_FIELDS - {"observation_sha256"}
+        }
+        captured["observation_sha256"] = (
+            None if captured["observation"] is None else digest(captured["observation"])
+        )
         villages.append(captured)
     return {"turn": int(step["turn"]), "fingerprint": step["fingerprint"], "villages": villages}
 
 
 def _validate_observation(value: Any, expected_core_width: int, what: str) -> None:
-    required = {"core", "corePresent", "sets", "rowPresent", "movementMask",
-                "regionMovementMask", "clothingRouteMask", "shelterRouteMask",
-                "economyMixMask", "commitHoldMask"}
+    required = {
+        "core",
+        "corePresent",
+        "sets",
+        "rowPresent",
+        "movementMask",
+        "regionMovementMask",
+        "clothingRouteMask",
+        "shelterRouteMask",
+        "economyMixMask",
+        "commitHoldMask",
+    }
     if not isinstance(value, dict) or set(value) != required:
         raise ValueError(f"{what} observation schema differs from native contract 12")
     core, present = value["core"], value["corePresent"]
-    if (not isinstance(core, list) or len(core) != expected_core_width
-            or any(isinstance(item, bool) or not isinstance(item, (int, float))
-                   or not math.isfinite(item) for item in core)
-            or not isinstance(present, list) or len(present) != expected_core_width
-            or any(type(item) is not bool for item in present)):
+    if (
+        not isinstance(core, list)
+        or len(core) != expected_core_width
+        or any(
+            isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(item)
+            for item in core
+        )
+        or not isinstance(present, list)
+        or len(present) != expected_core_width
+        or any(type(item) is not bool for item in present)
+    ):
         raise ValueError(f"{what} core observation layout is malformed")
     sets, row_present = value["sets"], value["rowPresent"]
-    if (not isinstance(sets, list) or not isinstance(row_present, list)
-            or len(sets) != len(contracts.SETS) or len(row_present) != len(contracts.SETS)):
+    if (
+        not isinstance(sets, list)
+        or not isinstance(row_present, list)
+        or len(sets) != len(contracts.SETS)
+        or len(row_present) != len(contracts.SETS)
+    ):
         raise ValueError(f"{what} entity-set observation coverage is malformed")
     for index, (name, rows, width) in enumerate(contracts.SETS):
         values, masks = sets[index], row_present[index]
-        if (not isinstance(values, list) or len(values) != rows * width
-                or any(isinstance(item, bool) or not isinstance(item, (int, float))
-                       or not math.isfinite(item) for item in values)
-                or not isinstance(masks, list) or len(masks) != rows
-                or any(type(item) is not bool for item in masks)):
+        if (
+            not isinstance(values, list)
+            or len(values) != rows * width
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(item)
+                for item in values
+            )
+            or not isinstance(masks, list)
+            or len(masks) != rows
+            or any(type(item) is not bool for item in masks)
+        ):
             raise ValueError(f"{what} {name} observation layout is malformed")
     masks = {
         "movementMask": contracts.MOVEMENT_SLOTS,
         "regionMovementMask": contracts.REGION_MOVEMENT_SLOTS,
-        "clothingRouteMask": 2, "shelterRouteMask": 2,
+        "clothingRouteMask": 2,
+        "shelterRouteMask": 2,
         "economyMixMask": len(contracts.ECONOMY_MIX),
     }
     for name, width in masks.items():
-        if (not isinstance(value[name], list) or len(value[name]) != width
-                or any(type(item) is not bool for item in value[name])):
+        if (
+            not isinstance(value[name], list)
+            or len(value[name]) != width
+            or any(type(item) is not bool for item in value[name])
+        ):
             raise ValueError(f"{what} {name} observation mask is malformed")
     if type(value["commitHoldMask"]) is not bool:
         raise ValueError(f"{what} commitment observation mask is malformed")
 
 
 _OBSERVATION_MASKS = (
-    "movementMask", "regionMovementMask", "clothingRouteMask",
-    "shelterRouteMask", "economyMixMask", "commitHoldMask",
+    "movementMask",
+    "regionMovementMask",
+    "clothingRouteMask",
+    "shelterRouteMask",
+    "economyMixMask",
+    "commitHoldMask",
 )
 
 
 def _tensor_row(value: torch.Tensor, row: int) -> dict[str, Any]:
     """Canonical JSON representation of one CPU decoder-input row."""
-    if (not isinstance(value, torch.Tensor) or value.layout != torch.strided
-            or value.device.type != "cpu" or value.dtype not in {
-                torch.float32, torch.float64, torch.int64, torch.bool,
-            } or value.ndim < 1 or not 0 <= row < len(value)
-            or value.storage_offset() != 0
-            or any(stride <= 0 for stride in value.stride())):
+    if (
+        not isinstance(value, torch.Tensor)
+        or value.layout != torch.strided
+        or value.device.type != "cpu"
+        or value.dtype
+        not in {
+            torch.float32,
+            torch.float64,
+            torch.int64,
+            torch.bool,
+        }
+        or value.ndim < 1
+        or not 0 <= row < len(value)
+        or value.storage_offset() != 0
+        or any(stride <= 0 for stride in value.stride())
+    ):
         raise ValueError("decoder receipt tensor has an unsupported dtype/device/layout/row")
     selected = value[row].detach().contiguous()
     if selected.dtype in {torch.float32, torch.float64} and not torch.isfinite(selected).all():
         raise ValueError("decoder receipt tensor contains a nonfinite floating value")
-    names = {torch.float32: "float32", torch.float64: "float64",
-             torch.int64: "int64", torch.bool: "bool"}
-    return {"dtype": names[selected.dtype], "shape": list(selected.shape),
-            "stride": list(value.stride()), "storage_offset": 0,
-            "values": selected.tolist()}
+    names = {
+        torch.float32: "float32",
+        torch.float64: "float64",
+        torch.int64: "int64",
+        torch.bool: "bool",
+    }
+    return {
+        "dtype": names[selected.dtype],
+        "shape": list(selected.shape),
+        "stride": list(value.stride()),
+        "storage_offset": 0,
+        "values": selected.tolist(),
+    }
 
 
 def _canonical_tensor_leaf(value: Any, dtype: str, what: str) -> None:
@@ -615,13 +865,13 @@ def _canonical_tensor_leaf(value: Any, dtype: str, what: str) -> None:
             raise ValueError(f"{what} tensor is not canonical bool")
         return
     if dtype == "int64":
-        if type(value) is not int or not -(2 ** 63) <= value < 2 ** 63:
+        if type(value) is not int or not -(2**63) <= value < 2**63:
             raise ValueError(f"{what} tensor is not canonical int64")
         return
     if dtype not in {"float32", "float64"} or type(value) not in {int, float}:
         raise ValueError(f"{what} tensor is not a canonical numeric scalar")
     if type(value) is int:
-        precision, max_exponent = ((24, 127) if dtype == "float32" else (53, 1023))
+        precision, max_exponent = (24, 127) if dtype == "float32" else (53, 1023)
         magnitude = abs(value)
         if magnitude:
             bits = magnitude.bit_length()
@@ -629,9 +879,10 @@ def _canonical_tensor_leaf(value: Any, dtype: str, what: str) -> None:
             if bits - 1 > max_exponent or magnitude % (1 << discarded):
                 raise ValueError(f"{what} tensor integer is not exactly representable as {dtype}")
         try:
-            normalized = struct.unpack(">f" if dtype == "float32" else ">d",
-                                       struct.pack(">f" if dtype == "float32" else ">d",
-                                                   float(value)))[0]
+            normalized = struct.unpack(
+                ">f" if dtype == "float32" else ">d",
+                struct.pack(">f" if dtype == "float32" else ">d", float(value)),
+            )[0]
         except (OverflowError, struct.error):
             raise ValueError(f"{what} tensor integer exceeds the {dtype} range") from None
         if not math.isfinite(normalized) or not normalized.is_integer() or int(normalized) != value:
@@ -640,13 +891,17 @@ def _canonical_tensor_leaf(value: Any, dtype: str, what: str) -> None:
     if not math.isfinite(value):
         raise ValueError(f"{what} tensor is not finite canonical {dtype}")
     try:
-        normalized = struct.unpack(">f" if dtype == "float32" else ">d",
-                                   struct.pack(">f" if dtype == "float32" else ">d", value))[0]
+        normalized = struct.unpack(
+            ">f" if dtype == "float32" else ">d",
+            struct.pack(">f" if dtype == "float32" else ">d", value),
+        )[0]
     except (OverflowError, struct.error):
         raise ValueError(f"{what} tensor exceeds the {dtype} range") from None
-    if (not math.isfinite(normalized) or normalized != value
-            or normalized == 0.0
-            and math.copysign(1.0, normalized) != math.copysign(1.0, value)):
+    if (
+        not math.isfinite(normalized)
+        or normalized != value
+        or (normalized == 0.0 and math.copysign(1.0, normalized) != math.copysign(1.0, value))
+    ):
         raise ValueError(f"{what} tensor is not finite canonical {dtype}")
 
 
@@ -661,29 +916,42 @@ def _validated_tensor_tree(value: Any, dtype: str, what: str) -> tuple[int, ...]
     return ()
 
 
-def _tensor_from_row(value: Any, *, dtype: str, shape: tuple[int, ...],
-                     batch_rows: int, row: int, what: str) -> torch.Tensor:
+def _tensor_from_row(
+    value: Any, *, dtype: str, shape: tuple[int, ...], batch_rows: int, row: int, what: str
+) -> torch.Tensor:
     full_shape = (batch_rows, *shape)
-    if (not isinstance(value, dict)
-            or set(value) != {"dtype", "shape", "stride", "storage_offset", "values"}
-            or value.get("dtype") != dtype):
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"dtype", "shape", "stride", "storage_offset", "values"}
+        or value.get("dtype") != dtype
+    ):
         raise ValueError(f"{what} tensor declaration differs from the decoder contract")
     observed_shape = _validated_tensor_tree(value["values"], dtype, what)
     if observed_shape != shape:
         raise ValueError(f"{what} tensor values differ from the declared shape")
-    if (value.get("shape") != list(shape)
-            or value.get("storage_offset") != 0
-            or not isinstance(value.get("stride"), list)
-            or len(value["stride"]) != len(full_shape)
-            or any(type(stride) is not int or stride <= 0 for stride in value["stride"])):
+    if (
+        value.get("shape") != list(shape)
+        or value.get("storage_offset") != 0
+        or not isinstance(value.get("stride"), list)
+        or len(value["stride"]) != len(full_shape)
+        or any(type(stride) is not int or stride <= 0 for stride in value["stride"])
+    ):
         raise ValueError(f"{what} tensor declaration differs from the decoder contract")
     torch_dtype = {
-        "float32": torch.float32, "float64": torch.float64,
-        "int64": torch.int64, "bool": torch.bool,
+        "float32": torch.float32,
+        "float64": torch.float64,
+        "int64": torch.int64,
+        "bool": torch.bool,
     }[dtype]
-    dimensions = sorted((stride, size) for stride, size in zip(
-        value["stride"], full_shape, strict=True,
-    ) if size > 1)
+    dimensions = sorted(
+        (stride, size)
+        for stride, size in zip(
+            value["stride"],
+            full_shape,
+            strict=True,
+        )
+        if size > 1
+    )
     storage_span = 1
     for stride, size in dimensions:
         if stride < storage_span:
@@ -705,7 +973,8 @@ def _deterministic_shapes(decoder: str, semantics: dict) -> dict[str, tuple[str,
         "strategic_mean": ("float32", (contracts.UNIT_STRATEGIC,)),
         "mix_logits": ("float32", (len(contracts.ECONOMY_MIX),)),
         "service_mean": ("float32", (len(contracts.SERVICES),)),
-        "clothing": ("float32", (2,)), "shelter": ("float32", (2,)),
+        "clothing": ("float32", (2,)),
+        "shelter": ("float32", (2,)),
         "fission": ("float32", (contracts.FISSION_POLICIES,)),
         "movement": ("float32", (contracts.MOVEMENT_SLOTS,)),
     }
@@ -713,19 +982,25 @@ def _deterministic_shapes(decoder: str, semantics: dict) -> dict[str, tuple[str,
         return common
     if decoder != "native-contract-12":
         raise ValueError("decoder receipt names an unsupported implementation")
-    common.update({
-        "span": ("float32", (len(contracts.SPANS),)),
-        "trade_value_mean": ("float32", (len(contracts.TRADE_GROUPS),)),
-        "trade_gate": ("float32", (len(contracts.TRADE_GROUPS), contracts.TRADE_GATES)),
-        "trade_share_mean": ("float32", ()),
-    })
+    common.update(
+        {
+            "span": ("float32", (len(contracts.SPANS),)),
+            "trade_value_mean": ("float32", (len(contracts.TRADE_GROUPS),)),
+            "trade_gate": ("float32", (len(contracts.TRADE_GROUPS), contracts.TRADE_GATES)),
+            "trade_share_mean": ("float32", ()),
+        }
+    )
     if semantics["learned_movement"] and semantics["region_movement"]:
-        common.update({
-            "region": ("float32", (contracts.REGION_MOVEMENT_SLOTS,)),
-            "region_logp": ("float32", (contracts.REGION_MOVEMENT_SLOTS,)),
-            "mix_offset": ("float32", (contracts.REGION_MOVEMENT_SLOTS,
-                                         len(contracts.ECONOMY_MIX))),
-        })
+        common.update(
+            {
+                "region": ("float32", (contracts.REGION_MOVEMENT_SLOTS,)),
+                "region_logp": ("float32", (contracts.REGION_MOVEMENT_SLOTS,)),
+                "mix_offset": (
+                    "float32",
+                    (contracts.REGION_MOVEMENT_SLOTS, len(contracts.ECONOMY_MIX)),
+                ),
+            }
+        )
         if semantics["region_head"] == "hierarchical":
             common["region_group"] = ("float32", (3,))
     return common
@@ -737,26 +1012,43 @@ def _stochastic_shapes(semantics: dict) -> dict[str, tuple[str, tuple[int, ...]]
         "strategic_z": ("float32", (contracts.UNIT_STRATEGIC,)),
         "service_z": ("float32", (len(contracts.SERVICES),)),
         "mix_z": ("float32", (len(contracts.ECONOMY_MIX),)),
-        "clothing": ("int64", ()), "shelter": ("int64", ()),
-        "movement": ("int64", ()), "span": ("int64", ()),
+        "clothing": ("int64", ()),
+        "shelter": ("int64", ()),
+        "movement": ("int64", ()),
+        "span": ("int64", ()),
         "fission": ("int64", ()),
     }
     if semantics["learned_trade"]:
-        shapes.update({
-            "trade_value_z": ("float32", (len(contracts.TRADE_GROUPS),)),
-            "trade_gate": ("int64", (len(contracts.TRADE_GROUPS),)),
-            "trade_share_z": ("float32", ()),
-        })
+        shapes.update(
+            {
+                "trade_value_z": ("float32", (len(contracts.TRADE_GROUPS),)),
+                "trade_gate": ("int64", (len(contracts.TRADE_GROUPS),)),
+                "trade_share_z": ("float32", ()),
+            }
+        )
     return shapes
 
 
-def action_decoder_receipt(*, mode: str, decoder: str, semantics: dict,
-                           observation: dict, emitted_action: dict, camp: int,
-                           raw: dict[str, torch.Tensor], row: int,
-                           economy_mix_mask: torch.Tensor | None = None) -> dict:
+def action_decoder_receipt(
+    *,
+    mode: str,
+    decoder: str,
+    semantics: dict,
+    observation: dict,
+    emitted_action: dict,
+    camp: int,
+    raw: dict[str, torch.Tensor],
+    row: int,
+    economy_mix_mask: torch.Tensor | None = None,
+) -> dict:
     """Seal the exact float32 inputs consumed by the production action decoder."""
-    shapes = (_deterministic_shapes(decoder, semantics) if mode == "deterministic"
-              else _stochastic_shapes(semantics) if mode == "seeded-stochastic" else None)
+    shapes = (
+        _deterministic_shapes(decoder, semantics)
+        if mode == "deterministic"
+        else _stochastic_shapes(semantics)
+        if mode == "seeded-stochastic"
+        else None
+    )
     if shapes is None or set(raw) < set(shapes):
         raise ValueError("decoder receipt lacks an exact active decoder input")
     batch_rows = len(raw[next(iter(shapes))])
@@ -764,13 +1056,20 @@ def action_decoder_receipt(*, mode: str, decoder: str, semantics: dict,
         raise ValueError("decoder receipt inputs do not share an exact batch shape")
     encoded = {name: _tensor_row(raw[name], row) for name in sorted(shapes)}
     payload: dict[str, Any] = {
-        "schema": 2, "kind": "gate1_action_decoder_receipt", "mode": mode,
-        "decoder": decoder, "semantics": copy.deepcopy(semantics),
-        "batch_rows": batch_rows, "row": row, "camp": camp,
+        "schema": 2,
+        "kind": "gate1_action_decoder_receipt",
+        "mode": mode,
+        "decoder": decoder,
+        "semantics": copy.deepcopy(semantics),
+        "batch_rows": batch_rows,
+        "row": row,
+        "camp": camp,
         "observation_sha256": digest(observation),
-        "observation_masks": {name: copy.deepcopy(observation[name])
-                              for name in _OBSERVATION_MASKS},
-        "raw": encoded, "emitted_action": copy.deepcopy(emitted_action),
+        "observation_masks": {
+            name: copy.deepcopy(observation[name]) for name in _OBSERVATION_MASKS
+        },
+        "raw": encoded,
+        "emitted_action": copy.deepcopy(emitted_action),
     }
     if mode == "seeded-stochastic":
         if economy_mix_mask is None:
@@ -782,39 +1081,70 @@ def action_decoder_receipt(*, mode: str, decoder: str, semantics: dict,
     return payload
 
 
-def _validate_decoder_receipt(receipt: Any, action: dict, semantics: dict,
-                              observation: dict, action_mode: str,
-                              expected_decoder: str, expected_camp: int,
-                              what: str) -> np.ndarray:
-    fields = {"schema", "kind", "mode", "decoder", "semantics", "batch_rows", "row", "camp",
-              "observation_sha256", "observation_masks", "raw", "emitted_action",
-              "economy_mix_mask", "digest"}
-    if (not isinstance(receipt, dict) or set(receipt) != fields
-            or receipt.get("schema") != 2
-            or receipt.get("kind") != "gate1_action_decoder_receipt"
-            or receipt.get("mode") != action_mode or receipt.get("decoder") != expected_decoder
-            or receipt.get("semantics") != semantics
-            or type(receipt.get("batch_rows")) is not int or receipt["batch_rows"] <= 0
-            or type(receipt.get("row")) is not int
-            or not 0 <= receipt["row"] < receipt["batch_rows"]
-            or receipt.get("camp") != expected_camp
-            or receipt.get("observation_sha256") != digest(observation)
-            or receipt.get("observation_masks") != {
-                name: observation[name] for name in _OBSERVATION_MASKS
-            }
-            or digest(receipt.get("emitted_action")) != digest(action)
-            or receipt.get("digest") != digest({key: value for key, value in receipt.items()
-                                                 if key != "digest"})):
+def _validate_decoder_receipt(
+    receipt: Any,
+    action: dict,
+    semantics: dict,
+    observation: dict,
+    action_mode: str,
+    expected_decoder: str,
+    expected_camp: int,
+    what: str,
+) -> np.ndarray:
+    fields = {
+        "schema",
+        "kind",
+        "mode",
+        "decoder",
+        "semantics",
+        "batch_rows",
+        "row",
+        "camp",
+        "observation_sha256",
+        "observation_masks",
+        "raw",
+        "emitted_action",
+        "economy_mix_mask",
+        "digest",
+    }
+    if (
+        not isinstance(receipt, dict)
+        or set(receipt) != fields
+        or receipt.get("schema") != 2
+        or receipt.get("kind") != "gate1_action_decoder_receipt"
+        or receipt.get("mode") != action_mode
+        or receipt.get("decoder") != expected_decoder
+        or receipt.get("semantics") != semantics
+        or type(receipt.get("batch_rows")) is not int
+        or receipt["batch_rows"] <= 0
+        or type(receipt.get("row")) is not int
+        or not 0 <= receipt["row"] < receipt["batch_rows"]
+        or receipt.get("camp") != expected_camp
+        or receipt.get("observation_sha256") != digest(observation)
+        or receipt.get("observation_masks")
+        != {name: observation[name] for name in _OBSERVATION_MASKS}
+        or digest(receipt.get("emitted_action")) != digest(action)
+        or receipt.get("digest")
+        != digest({key: value for key, value in receipt.items() if key != "digest"})
+    ):
         raise ValueError(f"{what} decoder receipt is malformed or not bound to its action/input")
-    shapes = (_deterministic_shapes(expected_decoder, semantics)
-              if action_mode == "deterministic" else _stochastic_shapes(semantics))
+    shapes = (
+        _deterministic_shapes(expected_decoder, semantics)
+        if action_mode == "deterministic"
+        else _stochastic_shapes(semantics)
+    )
     raw = receipt["raw"]
     if not isinstance(raw, dict) or set(raw) != set(shapes):
         raise ValueError(f"{what} decoder receipt input set differs from its active heads")
     decoded_raw = {
-        name: _tensor_from_row(raw[name], dtype=dtype, shape=shape,
-                               batch_rows=receipt["batch_rows"], row=receipt["row"],
-                               what=f"{what} {name}")
+        name: _tensor_from_row(
+            raw[name],
+            dtype=dtype,
+            shape=shape,
+            batch_rows=receipt["batch_rows"],
+            row=receipt["row"],
+            what=f"{what} {name}",
+        )
         for name, (dtype, shape) in shapes.items()
     }
     if action_mode == "deterministic":
@@ -822,17 +1152,22 @@ def _validate_decoder_receipt(receipt: Any, action: dict, semantics: dict,
             raise ValueError(f"{what} deterministic receipt carries a stochastic mask tensor")
         if expected_decoder == "pinned-contract-8":
             from .legacy_contract8 import deterministic_mode
+
             decoded_mode = deterministic_mode(decoded_raw)
         else:
             from .model import act_deterministic
+
             decoded_mode = act_deterministic(
                 decoded_raw,
                 region=semantics["learned_movement"] and semantics["region_movement"],
-                grouped=semantics["grouped_region"], selection=semantics["region_selection"],
+                grouped=semantics["grouped_region"],
+                selection=semantics["region_selection"],
             )
         from .model import bridge_actions_from_mode
+
         replayed = bridge_actions_from_mode(
-            decoded_mode, movement=semantics["learned_movement"],
+            decoded_mode,
+            movement=semantics["learned_movement"],
             region_movement=semantics["region_movement"],
             commitments=semantics["commitments"],
             learned_fission=semantics["learned_fission"],
@@ -841,13 +1176,17 @@ def _validate_decoder_receipt(receipt: Any, action: dict, semantics: dict,
         decoded_mix = decoded_mode["mix"][receipt["row"]]
     else:
         mask = _tensor_from_row(
-            receipt["economy_mix_mask"], dtype="bool",
-            shape=(len(contracts.ECONOMY_MIX),), batch_rows=receipt["batch_rows"],
-            row=receipt["row"], what=f"{what} economy mix mask",
+            receipt["economy_mix_mask"],
+            dtype="bool",
+            shape=(len(contracts.ECONOMY_MIX),),
+            batch_rows=receipt["batch_rows"],
+            row=receipt["row"],
+            what=f"{what} economy mix mask",
         )
         if mask[receipt["row"]].tolist() != observation["economyMixMask"]:
             raise ValueError(f"{what} stochastic decoder mask differs from the source observation")
         from .ppo import mix_from_ratios, to_bridge_actions
+
         replayed = to_bridge_actions(decoded_raw, {"economy_mix_mask": mask})
         decoded_mix = mix_from_ratios(decoded_raw["mix_z"], mask)[receipt["row"]].numpy()
     if digest(replayed[receipt["row"]]) != digest(action):
@@ -855,24 +1194,46 @@ def _validate_decoder_receipt(receipt: Any, action: dict, semantics: dict,
     return decoded_mix
 
 
-def _validate_action(value: Any, semantics: dict, what: str,
-                     observation: dict | None = None, *,
-                     action_mode: str = "deterministic",
-                     decoder_receipt: dict | None = None,
-                     expected_decoder: str = "native-contract-12",
-                     expected_camp: int = 1) -> None:
-    required = {"strategic", "service", "clothingRoute", "shelterRoute",
-                "movement", "fission", "commit"}
+def _validate_action(
+    value: Any,
+    semantics: dict,
+    what: str,
+    observation: dict | None = None,
+    *,
+    action_mode: str = "deterministic",
+    decoder_receipt: dict | None = None,
+    expected_decoder: str = "native-contract-12",
+    expected_camp: int = 1,
+) -> None:
+    required = {
+        "strategic",
+        "service",
+        "clothingRoute",
+        "shelterRoute",
+        "movement",
+        "fission",
+        "commit",
+    }
     if semantics["learned_trade"]:
         required |= {"tradeValue", "tradeGate", "tradeShare"}
     if not isinstance(value, dict) or set(value) != required:
         raise ValueError(f"{what} action schema differs from its active checkpoint heads")
-    for name, width in (("strategic", len(contracts.STRATEGIC)),
-                        ("service", len(contracts.SERVICES))):
+    for name, width in (
+        ("strategic", len(contracts.STRATEGIC)),
+        ("service", len(contracts.SERVICES)),
+    ):
         vector = value[name]
-        if (not isinstance(vector, list) or len(vector) != width
-                or any(isinstance(item, bool) or not isinstance(item, (int, float))
-                       or not math.isfinite(item) or not 0 <= item <= 1 for item in vector)):
+        if (
+            not isinstance(vector, list)
+            or len(vector) != width
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(item)
+                or not 0 <= item <= 1
+                for item in vector
+            )
+        ):
             raise ValueError(f"{what} {name} action is malformed")
     if type(value["clothingRoute"]) is not int or value["clothingRoute"] not in (0, 1):
         raise ValueError(f"{what} clothing route is malformed")
@@ -884,43 +1245,68 @@ def _validate_action(value: Any, semantics: dict, what: str,
     if not semantics["learned_movement"] and movement != contracts.NATIVE_MOVEMENT:
         raise ValueError(f"{what} unexpectedly claims learned movement")
     if semantics["learned_movement"] and semantics["region_movement"]:
-        if movement not in {contracts.NATIVE_MOVEMENT, contracts.KEEP_INTENT,
-                            *range(contracts.REGION_BASE,
-                                   contracts.REGION_BASE + contracts.REGION_ROWS)}:
+        if movement not in {
+            contracts.NATIVE_MOVEMENT,
+            contracts.KEEP_INTENT,
+            *range(contracts.REGION_BASE, contracts.REGION_BASE + contracts.REGION_ROWS),
+        }:
             raise ValueError(f"{what} regional movement action is malformed")
     elif semantics["learned_movement"] and not -1 <= movement < contracts.MOVEMENT_SLOTS - 1:
         raise ValueError(f"{what} site movement action is malformed")
     fission = value["fission"]
-    if (type(fission) is not int
-            or (fission not in range(contracts.FISSION_POLICIES)
-                if semantics["learned_fission"] else fission != -1)):
+    if type(fission) is not int or (
+        fission not in range(contracts.FISSION_POLICIES)
+        if semantics["learned_fission"]
+        else fission != -1
+    ):
         raise ValueError(f"{what} fission action is malformed")
     commit = value["commit"]
-    if (type(commit) is not int
-            or (commit not in contracts.SPANS if semantics["commitments"]
-                else commit != contracts.SPAN_SINGLE)):
+    if type(commit) is not int or (
+        commit not in contracts.SPANS
+        if semantics["commitments"]
+        else commit != contracts.SPAN_SINGLE
+    ):
         raise ValueError(f"{what} commitment action is malformed")
     if semantics["learned_trade"]:
         values, gates, share = value["tradeValue"], value["tradeGate"], value["tradeShare"]
         lo, hi = contracts.TRADE_VALUE_RANGE
-        if (not isinstance(values, list) or len(values) != len(contracts.TRADE_GROUPS)
-                or any(isinstance(item, bool) or not isinstance(item, (int, float))
-                       or not math.isfinite(item) or not lo <= item <= hi for item in values)
-                or not isinstance(gates, list) or len(gates) != len(contracts.TRADE_GROUPS)
-                or any(type(item) is not int or item not in range(contracts.TRADE_GATES)
-                       for item in gates)
-                or isinstance(share, bool) or not isinstance(share, (int, float))
-                or not math.isfinite(share) or not 0 <= share <= 1):
+        if (
+            not isinstance(values, list)
+            or len(values) != len(contracts.TRADE_GROUPS)
+            or any(
+                isinstance(item, bool)
+                or not isinstance(item, (int, float))
+                or not math.isfinite(item)
+                or not lo <= item <= hi
+                for item in values
+            )
+            or not isinstance(gates, list)
+            or len(gates) != len(contracts.TRADE_GROUPS)
+            or any(
+                type(item) is not int or item not in range(contracts.TRADE_GATES) for item in gates
+            )
+            or isinstance(share, bool)
+            or not isinstance(share, (int, float))
+            or not math.isfinite(share)
+            or not 0 <= share <= 1
+        ):
             raise ValueError(f"{what} trade action is malformed")
     if action_mode not in {"deterministic", "seeded-stochastic"}:
         raise ValueError(f"{what} has an unsupported action mode")
     if observation is None:
         raise ValueError(f"{what} lacks the source observation required by its decoder receipt")
     decoded_mix = _validate_decoder_receipt(
-        decoder_receipt, value, semantics, observation, action_mode, expected_decoder,
-        expected_camp, what,
+        decoder_receipt,
+        value,
+        semantics,
+        observation,
+        action_mode,
+        expected_decoder,
+        expected_camp,
+        what,
     )
     from .model import validate_deterministic_level_image
+
     if action_mode == "deterministic":
         # Validate the imported representation in the exact float32 image used
         # by ``act_deterministic``; Python-double reconstruction is not faithful
@@ -930,19 +1316,26 @@ def _validate_action(value: Any, semantics: dict, what: str,
                 [*value["strategic"][:-2], *value["service"]],
             )
         except ValueError as exc:
-            raise ValueError(f"{what} is not in the deterministic level decoder image: {exc}") from exc
+            raise ValueError(
+                f"{what} is not in the deterministic level decoder image: {exc}"
+            ) from exc
         if semantics["learned_trade"] and 0.0 < value["tradeShare"] < 0.01:
             raise ValueError(f"{what} is not in the deterministic trade-share decoder image")
-        if (semantics["learned_movement"] and semantics["region_movement"]
-                and semantics.get("region_selection") == "stay"
-                and movement != contracts.REGION_BASE):
+        if (
+            semantics["learned_movement"]
+            and semantics["region_movement"]
+            and semantics.get("region_selection") == "stay"
+            and movement != contracts.REGION_BASE
+        ):
             raise ValueError(f"{what} substitutes the forced deterministic region selection")
     if not observation["clothingRouteMask"][value["clothingRoute"]]:
         raise ValueError(f"{what} clothing route is illegal under its source observation")
     if not observation["shelterRouteMask"][value["shelterRoute"]]:
         raise ValueError(f"{what} shelter route is illegal under its source observation")
-    if any(float(amount) > 0.0 and not legal
-           for amount, legal in zip(decoded_mix, observation["economyMixMask"], strict=True)):
+    if any(
+        float(amount) > 0.0 and not legal
+        for amount, legal in zip(decoded_mix, observation["economyMixMask"], strict=True)
+    ):
         raise ValueError(f"{what} economy mix uses an unavailable source activity")
     if semantics["learned_movement"]:
         if semantics["region_movement"]:
@@ -953,24 +1346,37 @@ def _validate_action(value: Any, semantics: dict, what: str,
             else:
                 movement_slot = movement - contracts.REGION_BASE + 2
             if not observation["regionMovementMask"][movement_slot]:
-                raise ValueError(f"{what} regional movement is illegal under its source observation")
+                raise ValueError(
+                    f"{what} regional movement is illegal under its source observation"
+                )
         else:
             movement_slot = movement + 1
             if not observation["movementMask"][movement_slot]:
                 raise ValueError(f"{what} site movement is illegal under its source observation")
-    if semantics["commitments"] and commit == contracts.SPAN_HOLD and not observation["commitHoldMask"]:
+    if (
+        semantics["commitments"]
+        and commit == contracts.SPAN_HOLD
+        and not observation["commitHoldMask"]
+    ):
         raise ValueError(f"{what} commitment hold is illegal under its source observation")
 
 
 def _validate_boundary(value: Any, what: str, bounds: dict, expected_core_width: int) -> dict:
-    if (not isinstance(value, dict) or set(value) != {"turn", "fingerprint", "villages"}
-            or isinstance(value.get("turn"), bool) or not isinstance(value.get("turn"), int)
-            or value["turn"] < 0):
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"turn", "fingerprint", "villages"}
+        or isinstance(value.get("turn"), bool)
+        or not isinstance(value.get("turn"), int)
+        or value["turn"] < 0
+    ):
         raise ValueError(f"{what} boundary is malformed")
     _sha(value["fingerprint"], f"{what} fingerprint")
     villages = value["villages"]
-    if (not isinstance(villages, list) or not villages
-            or len(villages) > bounds["max_villages_per_boundary"]):
+    if (
+        not isinstance(villages, list)
+        or not villages
+        or len(villages) > bounds["max_villages_per_boundary"]
+    ):
         raise ValueError(f"{what} village boundary is absent or exceeds its reviewed bound")
     camps = []
     for village in villages:
@@ -990,8 +1396,14 @@ def _validate_boundary(value: Any, what: str, bounds: dict, expected_core_width:
             raise ValueError(f"{what} village flags are malformed")
         observation = village["observation"]
         if village["terminated"]:
-            if village["population"] != 0 or observation is not None or village["observation_sha256"] is not None:
-                raise ValueError(f"{what} terminated village retains population or a live observation")
+            if (
+                village["population"] != 0
+                or observation is not None
+                or village["observation_sha256"] is not None
+            ):
+                raise ValueError(
+                    f"{what} terminated village retains population or a live observation"
+                )
         else:
             if village["population"] <= 0:
                 raise ValueError(f"{what} nonterminal village has no live population")
@@ -1004,7 +1416,7 @@ def _validate_boundary(value: Any, what: str, bounds: dict, expected_core_width:
 
 
 def draw_order_from_semantics(semantics: dict) -> list[str]:
-    order = (["region"] if semantics["learned_movement"] and semantics["region_movement"] else [])
+    order = ["region"] if semantics["learned_movement"] and semantics["region_movement"] else []
     order += ["mix", "strategic", "service", "clothing", "shelter"]
     if semantics["learned_movement"] and not semantics["region_movement"]:
         order.append("movement")
@@ -1018,18 +1430,30 @@ def draw_order_from_semantics(semantics: dict) -> list[str]:
 
 
 def _advance_generator(generator: torch.Generator, rows: int, draw_order: list[str]) -> None:
-    normal_widths = {"mix": len(contracts.ECONOMY_MIX), "strategic": contracts.UNIT_STRATEGIC,
-                     "service": len(contracts.SERVICES), "trade-value": len(contracts.TRADE_GROUPS),
-                     "trade-share": 1}
-    categorical = {"region": contracts.REGION_MOVEMENT_SLOTS, "clothing": 2, "shelter": 2,
-                   "movement": contracts.MOVEMENT_SLOTS, "commitment-span": len(contracts.SPANS),
-                   "fission": contracts.FISSION_POLICIES}
+    normal_widths = {
+        "mix": len(contracts.ECONOMY_MIX),
+        "strategic": contracts.UNIT_STRATEGIC,
+        "service": len(contracts.SERVICES),
+        "trade-value": len(contracts.TRADE_GROUPS),
+        "trade-share": 1,
+    }
+    categorical = {
+        "region": contracts.REGION_MOVEMENT_SLOTS,
+        "clothing": 2,
+        "shelter": 2,
+        "movement": contracts.MOVEMENT_SLOTS,
+        "commitment-span": len(contracts.SPANS),
+        "fission": contracts.FISSION_POLICIES,
+    }
     for name in draw_order:
         if name in normal_widths:
             torch.randn((rows, normal_widths[name]), generator=generator)
         elif name == "trade-gate":
-            torch.multinomial(torch.ones((rows * len(contracts.TRADE_GROUPS), contracts.TRADE_GATES)),
-                              1, generator=generator)
+            torch.multinomial(
+                torch.ones((rows * len(contracts.TRADE_GROUPS), contracts.TRADE_GATES)),
+                1,
+                generator=generator,
+            )
         elif name in categorical:
             torch.multinomial(torch.ones((rows, categorical[name])), 1, generator=generator)
         else:
@@ -1042,92 +1466,166 @@ def recompute_rng_receipt(schedule: dict, rows: int) -> dict:
     if before != schedule["state_sha256"]:
         raise ValueError("policy RNG initial state differs from frozen schedule")
     _advance_generator(generator, rows, schedule["draw_order"])
-    return {"step": schedule["step"], "seed": schedule["seed"],
-            "draw_order": schedule["draw_order"], "state_before_sha256": before,
-            "state_after_sha256": generator_state_sha256(generator), "rows": rows}
+    return {
+        "step": schedule["step"],
+        "seed": schedule["seed"],
+        "draw_order": schedule["draw_order"],
+        "state_before_sha256": before,
+        "state_after_sha256": generator_state_sha256(generator),
+        "rows": rows,
+    }
 
 
 def _capture_receipt(reset: dict, opening: dict, steps: list[dict]) -> dict:
     reset_bytes = capture_component_bytes(reset)
     opening_bytes = capture_component_bytes(opening)
     step_bytes = [capture_component_bytes(step) for step in steps]
-    return {"steps": len(steps),
-            "warmup_steps": len(reset["warmup_chain"]),
-            "max_villages_observed": max([len(opening["villages"])]
-                                          + [len(step["successor"]["villages"]) for step in steps]),
-            "max_economic_rows_observed": max([0] + [len(step["economic"]) for step in steps]),
-            "canonical_bytes": capture_envelope_bytes(reset_bytes, opening_bytes, step_bytes)}
+    return {
+        "steps": len(steps),
+        "warmup_steps": len(reset["warmup_chain"]),
+        "max_villages_observed": max(
+            [len(opening["villages"])] + [len(step["successor"]["villages"]) for step in steps]
+        ),
+        "max_economic_rows_observed": max([0] + [len(step["economic"]) for step in steps]),
+        "canonical_bytes": capture_envelope_bytes(reset_bytes, opening_bytes, step_bytes),
+    }
 
 
-def trajectory_evidence(opening: dict, steps: list[dict], bounds: dict, *, world_id: str,
-                        snapshot_sha256: str, reset_turn: int | None = None,
-                        reset_fingerprint: str | None = None,
-                        warmup_chain: list[dict] | None = None) -> dict:
+def trajectory_evidence(
+    opening: dict,
+    steps: list[dict],
+    bounds: dict,
+    *,
+    world_id: str,
+    snapshot_sha256: str,
+    reset_turn: int | None = None,
+    reset_fingerprint: str | None = None,
+    warmup_chain: list[dict] | None = None,
+) -> dict:
     """Build the complete canonical Gate-1 trajectory artifact."""
     reset_turn = opening["turn"] if reset_turn is None else reset_turn
     reset_fingerprint = opening["fingerprint"] if reset_fingerprint is None else reset_fingerprint
-    reset = {"world_id": world_id, "snapshot_sha256": snapshot_sha256,
-             "turn": reset_turn, "fingerprint": reset_fingerprint,
-             "trajectory_id": reset_fingerprint,
-             "warmup_chain": copy.deepcopy(warmup_chain or [])}
-    surface = {"schema": 2, "kind": "gate1_canonical_trajectory",
-               "ordering": "step-order; boundary/action/economic identities canonicalized by registered key",
-               "reset": reset,
-               "bounds": copy.deepcopy(bounds), "opening": _canonical_semantic(opening),
-               "steps": _canonical_semantic(steps)}
+    reset = {
+        "world_id": world_id,
+        "snapshot_sha256": snapshot_sha256,
+        "turn": reset_turn,
+        "fingerprint": reset_fingerprint,
+        "trajectory_id": reset_fingerprint,
+        "warmup_chain": copy.deepcopy(warmup_chain or []),
+    }
+    surface = {
+        "schema": 2,
+        "kind": "gate1_canonical_trajectory",
+        "ordering": "step-order; boundary/action/economic identities canonicalized by registered "
+        "key",
+        "reset": reset,
+        "bounds": copy.deepcopy(bounds),
+        "opening": _canonical_semantic(opening),
+        "steps": _canonical_semantic(steps),
+    }
     surface["capture_receipt"] = _capture_receipt(
-        surface["reset"], surface["opening"], surface["steps"],
+        surface["reset"],
+        surface["opening"],
+        surface["steps"],
     )
     surface["digest"] = digest(surface)
     return surface
 
 
-def trajectory_digest(opening: dict, steps: list[dict], bounds: dict, *, world_id: str,
-                      snapshot_sha256: str) -> str:
-    return trajectory_evidence(opening, steps, bounds, world_id=world_id,
-                               snapshot_sha256=snapshot_sha256)["digest"]
+def trajectory_digest(
+    opening: dict, steps: list[dict], bounds: dict, *, world_id: str, snapshot_sha256: str
+) -> str:
+    return trajectory_evidence(
+        opening, steps, bounds, world_id=world_id, snapshot_sha256=snapshot_sha256
+    )["digest"]
 
 
-def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha256: str,
-                                 horizon: int, bounds: dict, action_mode: str,
-                                 rng_steps: list[dict] | None,
-                                 service_fields: list[dict], expected_opening_turn: int,
-                                 observation_core_width: int, policy_semantics: dict,
-                                 expected_reset_turn: int | None = None,
-                                 expected_decoder: str = "native-contract-12") -> dict[str, Any]:
+def validate_trajectory_evidence(
+    evidence: Any,
+    *,
+    world_id: str,
+    snapshot_sha256: str,
+    horizon: int,
+    bounds: dict,
+    action_mode: str,
+    rng_steps: list[dict] | None,
+    service_fields: list[dict],
+    expected_opening_turn: int,
+    observation_core_width: int,
+    policy_semantics: dict,
+    expected_reset_turn: int | None = None,
+    expected_decoder: str = "native-contract-12",
+) -> dict[str, Any]:
     """Validate continuity and recompute every mandatory Gate-1 outcome."""
-    required = {"schema", "kind", "ordering", "reset", "bounds", "opening", "steps",
-                "capture_receipt", "digest"}
-    if (not isinstance(evidence, dict) or set(evidence) != required
-            or evidence.get("schema") != 2 or evidence.get("kind") != "gate1_canonical_trajectory"
-            or evidence.get("digest") != digest({k: v for k, v in evidence.items() if k != "digest"})):
+    required = {
+        "schema",
+        "kind",
+        "ordering",
+        "reset",
+        "bounds",
+        "opening",
+        "steps",
+        "capture_receipt",
+        "digest",
+    }
+    if (
+        not isinstance(evidence, dict)
+        or set(evidence) != required
+        or evidence.get("schema") != 2
+        or evidence.get("kind") != "gate1_canonical_trajectory"
+        or evidence.get("digest") != digest({k: v for k, v in evidence.items() if k != "digest"})
+    ):
         raise ValueError("trajectory evidence is malformed or not content-addressed")
     reset = evidence["reset"]
-    reset_fields = {"world_id", "snapshot_sha256", "turn", "fingerprint",
-                    "trajectory_id", "warmup_chain"}
-    if (not isinstance(reset, dict) or set(reset) != reset_fields
-            or reset["world_id"] != world_id or reset["snapshot_sha256"] != snapshot_sha256):
+    reset_fields = {
+        "world_id",
+        "snapshot_sha256",
+        "turn",
+        "fingerprint",
+        "trajectory_id",
+        "warmup_chain",
+    }
+    if (
+        not isinstance(reset, dict)
+        or set(reset) != reset_fields
+        or reset["world_id"] != world_id
+        or reset["snapshot_sha256"] != snapshot_sha256
+    ):
         raise ValueError("trajectory opening reset/snapshot identity differs from the frozen world")
-    expected_reset_turn = expected_opening_turn if expected_reset_turn is None else expected_reset_turn
-    if (type(reset["turn"]) is not int or reset["turn"] != expected_reset_turn
-            or reset["turn"] > expected_opening_turn):
+    expected_reset_turn = (
+        expected_opening_turn if expected_reset_turn is None else expected_reset_turn
+    )
+    if (
+        type(reset["turn"]) is not int
+        or reset["turn"] != expected_reset_turn
+        or reset["turn"] > expected_opening_turn
+    ):
         raise ValueError("trajectory reset turn differs from the frozen world")
     _sha(reset["fingerprint"], "trajectory reset fingerprint")
     if reset["trajectory_id"] != reset["fingerprint"]:
         raise ValueError("trajectory reset identity is not bound to the reset fingerprint")
     warmup = reset["warmup_chain"]
-    if (not isinstance(warmup, list)
-            or len(warmup) != expected_opening_turn - expected_reset_turn):
+    if not isinstance(warmup, list) or len(warmup) != expected_opening_turn - expected_reset_turn:
         raise ValueError("trajectory warm-up chain does not cover reset to evaluation opening")
     chain_turn, chain_fingerprint = reset["turn"], reset["fingerprint"]
-    warmup_fields = {"index", "source_turn", "source_fingerprint", "successor_turn",
-                     "successor_fingerprint", "trajectory_id"}
+    warmup_fields = {
+        "index",
+        "source_turn",
+        "source_fingerprint",
+        "successor_turn",
+        "successor_fingerprint",
+        "trajectory_id",
+    }
     for index, link in enumerate(warmup):
-        if (not isinstance(link, dict) or set(link) != warmup_fields or link["index"] != index
-                or link["source_turn"] != chain_turn
-                or link["source_fingerprint"] != chain_fingerprint
-                or link["successor_turn"] != chain_turn + 1
-                or link["trajectory_id"] != reset["trajectory_id"]):
+        if (
+            not isinstance(link, dict)
+            or set(link) != warmup_fields
+            or link["index"] != index
+            or link["source_turn"] != chain_turn
+            or link["source_fingerprint"] != chain_fingerprint
+            or link["successor_turn"] != chain_turn + 1
+            or link["trajectory_id"] != reset["trajectory_id"]
+        ):
             raise ValueError("trajectory warm-up chain is malformed or discontinuous")
         _sha(link["successor_fingerprint"], "trajectory warm-up successor fingerprint")
         if link["successor_fingerprint"] == chain_fingerprint:
@@ -1137,10 +1635,15 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
     if evidence["bounds"] != expected_bounds:
         raise ValueError("trajectory evidence substitutes unreviewed capture bounds")
     opening = _validate_boundary(
-        evidence["opening"], "opening", expected_bounds, observation_core_width,
+        evidence["opening"],
+        "opening",
+        expected_bounds,
+        observation_core_width,
     )
     if opening["turn"] != expected_opening_turn:
-        raise ValueError("trajectory opening turn differs from reviewed reset plus warm-up semantics")
+        raise ValueError(
+            "trajectory opening turn differs from reviewed reset plus warm-up semantics"
+        )
     if opening["turn"] != chain_turn or opening["fingerprint"] != chain_fingerprint:
         raise ValueError("trajectory evaluation opening is not the end of its warm-up chain")
     steps = evidence["steps"]
@@ -1151,9 +1654,11 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
     if evidence["capture_receipt"] != _capture_receipt(reset, opening, steps):
         raise ValueError("trajectory capture receipt does not derive from retained evidence")
     receipt = evidence["capture_receipt"]
-    if (receipt["max_villages_observed"] > expected_bounds["max_villages_per_boundary"]
-            or receipt["max_economic_rows_observed"] > expected_bounds["max_economic_rows_per_step"]
-            or receipt["canonical_bytes"] > expected_bounds["max_canonical_bytes"]):
+    if (
+        receipt["max_villages_observed"] > expected_bounds["max_villages_per_boundary"]
+        or receipt["max_economic_rows_observed"] > expected_bounds["max_economic_rows_per_step"]
+        or receipt["canonical_bytes"] > expected_bounds["max_canonical_bytes"]
+    ):
         raise ValueError("trajectory retained evidence exceeds a reviewed capture bound")
     prior = opening
     transition_ids: set[str] = set()
@@ -1164,22 +1669,44 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
     trade_utility = 0.0
     receipts = []
     for index, step in enumerate(steps):
-        required_step = {"index", "transition_id", "source_turn", "source_fingerprint", "actions",
-                         "policy_rng_receipt", "successor", "terminal", "economic"}
+        required_step = {
+            "index",
+            "transition_id",
+            "source_turn",
+            "source_fingerprint",
+            "actions",
+            "policy_rng_receipt",
+            "successor",
+            "terminal",
+            "economic",
+        }
         if not isinstance(step, dict) or set(step) != required_step or step["index"] != index:
             raise ValueError("trajectory step schema/index is incomplete or noncontiguous")
-        if step["source_turn"] != prior["turn"] or step["source_fingerprint"] != prior["fingerprint"]:
+        if (
+            step["source_turn"] != prior["turn"]
+            or step["source_fingerprint"] != prior["fingerprint"]
+        ):
             raise ValueError("trajectory successor-to-next-source continuity is broken")
         successor = _validate_boundary(
-            step["successor"], f"step-{index}-successor", expected_bounds,
+            step["successor"],
+            f"step-{index}-successor",
+            expected_bounds,
             observation_core_width,
         )
-        if successor["turn"] != prior["turn"] + 1 or successor["fingerprint"] == prior["fingerprint"]:
+        if (
+            successor["turn"] != prior["turn"] + 1
+            or successor["fingerprint"] == prior["fingerprint"]
+        ):
             raise ValueError("trajectory transition did not advance exactly one turn")
-        expected_transition = digest({"index": index, "source_turn": prior["turn"],
-                                      "source_fingerprint": prior["fingerprint"],
-                                      "successor_turn": successor["turn"],
-                                      "successor_fingerprint": successor["fingerprint"]})
+        expected_transition = digest(
+            {
+                "index": index,
+                "source_turn": prior["turn"],
+                "source_fingerprint": prior["fingerprint"],
+                "successor_turn": successor["turn"],
+                "successor_fingerprint": successor["fingerprint"],
+            }
+        )
         if step["transition_id"] != expected_transition or step["transition_id"] in transition_ids:
             raise ValueError("trajectory transition identity is missing, duplicated, or unbound")
         transition_ids.add(step["transition_id"])
@@ -1188,30 +1715,39 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
             raise ValueError("trajectory action rows are absent")
         action_camps = []
         for action in actions:
-            if (not isinstance(action, dict)
-                    or set(action) != {"camp", "action_request", "decoded_action",
-                                           "decoder_receipt"}
-                    or type(action.get("camp")) is not int or action["camp"] < 0
-                    or not isinstance(action.get("decoder_receipt"), dict)
-                    or action["action_request"] != action["decoded_action"]):
-                raise ValueError("trajectory action request/decoded action is malformed or inconsistent")
+            if (
+                not isinstance(action, dict)
+                or set(action) != {"camp", "action_request", "decoded_action", "decoder_receipt"}
+                or type(action.get("camp")) is not int
+                or action["camp"] < 0
+                or not isinstance(action.get("decoder_receipt"), dict)
+                or action["action_request"] != action["decoded_action"]
+            ):
+                raise ValueError(
+                    "trajectory action request/decoded action is malformed or inconsistent"
+                )
             action_camps.append(action["camp"])
             _walk_finite(action["decoded_action"], "decoded action")
         if action_camps != sorted(action_camps) or len(action_camps) != len(set(action_camps)):
             raise ValueError("trajectory action camp identities are duplicated or unstably ordered")
-        if (sorted(action["decoder_receipt"].get("row", -1) for action in actions)
-                != list(range(len(actions)))
-                or any(action["decoder_receipt"].get("batch_rows") != len(actions)
-                       for action in actions)):
+        if sorted(action["decoder_receipt"].get("row", -1) for action in actions) != list(
+            range(len(actions))
+        ) or any(action["decoder_receipt"].get("batch_rows") != len(actions) for action in actions):
             raise ValueError("trajectory decoder receipts do not cover the exact policy batch")
-        active = sorted(int(village["camp"]) for village in prior["villages"]
-                        if not village["terminated"] and village["observation"] is not None)
+        active = sorted(
+            int(village["camp"])
+            for village in prior["villages"]
+            if not village["terminated"] and village["observation"] is not None
+        )
         if action_camps != active:
-            raise ValueError("trajectory actions do not exactly cover the observations that produced them")
+            raise ValueError(
+                "trajectory actions do not exactly cover the observations that produced them"
+            )
         source_by_camp = {int(village["camp"]): village for village in prior["villages"]}
         for action in actions:
             _validate_action(
-                action["action_request"], policy_semantics,
+                action["action_request"],
+                policy_semantics,
                 f"trajectory step {index} camp {action['camp']}",
                 source_by_camp[action["camp"]]["observation"],
                 action_mode=action_mode,
@@ -1226,8 +1762,13 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
             if camp not in successor_by_camp:
                 raise ValueError("source camp disappears without an explicit successor witness")
             target = successor_by_camp[camp]
-            if target["priorPopulation"] != source["population"] or target["society"] != source["society"]:
-                raise ValueError("successor identity/prior population differs from its source boundary")
+            if (
+                target["priorPopulation"] != source["population"]
+                or target["society"] != source["society"]
+            ):
+                raise ValueError(
+                    "successor identity/prior population differs from its source boundary"
+                )
             if source["terminated"] and not target["terminated"]:
                 raise ValueError("terminated source camp reappears as a live successor")
             if target["founded"]:
@@ -1235,13 +1776,23 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
         for camp, target in successor_by_camp.items():
             if camp in source_by_camp:
                 continue
-            if (not target["founded"] or target["priorPopulation"] != 0
-                    or target["years"] != 0
-                    or target["parentSociety"] not in {source_by_camp[item]["society"] for item in active}):
-                raise ValueError("new successor identity lacks an explicit founding lineage witness")
-        validated = validate_economic_rows(step["economic"], trajectory_id=reset["trajectory_id"],
-                                           decision_turn=prior["turn"], source_villages=prior["villages"],
-                                           successor_villages=successor["villages"])
+            if (
+                not target["founded"]
+                or target["priorPopulation"] != 0
+                or target["years"] != 0
+                or target["parentSociety"]
+                not in {source_by_camp[item]["society"] for item in active}
+            ):
+                raise ValueError(
+                    "new successor identity lacks an explicit founding lineage witness"
+                )
+        validated = validate_economic_rows(
+            step["economic"],
+            trajectory_id=reset["trajectory_id"],
+            decision_turn=prior["turn"],
+            source_villages=prior["villages"],
+            successor_villages=successor["villages"],
+        )
         typed_witnesses = []
         migration_copies: dict[tuple[Any, ...], list[tuple[int, dict]]] = {}
         for row in validated:
@@ -1254,41 +1805,68 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
                 if kind not in {"fission", "founding", "migration"}:
                     continue
                 source_camp, destination_camp, people = (
-                    transfer.get("sourceCamp"), transfer.get("destinationCamp"),
+                    transfer.get("sourceCamp"),
+                    transfer.get("destinationCamp"),
                     transfer.get("people"),
                 )
-                if (type(source_camp) is not int or type(destination_camp) is not int
-                        or type(people) is not int or people <= 0
-                        or source_camp == destination_camp
-                        or transfer.get("phase") != "close-after-demography"):
+                if (
+                    type(source_camp) is not int
+                    or type(destination_camp) is not int
+                    or type(people) is not int
+                    or people <= 0
+                    or source_camp == destination_camp
+                    or transfer.get("phase") != "close-after-demography"
+                ):
                     raise ValueError("typed founding/fission/migration witness is malformed")
                 if kind == "migration":
                     if row["campId"] not in {source_camp, destination_camp}:
-                        raise ValueError("migration witness is not attached to one of its endpoints")
-                    stable = tuple((name, transfer[name]) for name in
-                                   ("migrationId", "eventId", "turn") if name in transfer)
+                        raise ValueError(
+                            "migration witness is not attached to one of its endpoints"
+                        )
+                    stable = tuple(
+                        (name, transfer[name])
+                        for name in ("migrationId", "eventId", "turn")
+                        if name in transfer
+                    )
                     event = (source_camp, destination_camp, people, transfer["phase"], stable)
                     migration_copies.setdefault(event, []).append((row["campId"], transfer))
                     continue
                 if source_camp != row["campId"]:
                     raise ValueError("typed founding/fission witness is not attached to its source")
-                typed_witnesses.append({"kind": kind, "source": source_camp,
-                                        "destination": destination_camp, "people": people})
+                typed_witnesses.append(
+                    {
+                        "kind": kind,
+                        "source": source_camp,
+                        "destination": destination_camp,
+                        "people": people,
+                    }
+                )
         migration_witnesses = []
         validated_camps = {row["campId"] for row in validated}
         for event, copies in migration_copies.items():
             source_camp, destination_camp, people, phase, _stable = event
-            if (source_camp not in source_by_camp or destination_camp not in source_by_camp
-                    or source_camp not in successor_by_camp
-                    or destination_camp not in successor_by_camp
-                    or source_camp not in validated_camps or destination_camp not in validated_camps
-                    or sorted(camp for camp, _transfer in copies)
-                    != sorted([source_camp, destination_camp])
-                    or len(copies) != 2 or copies[0][1] != copies[1][1]):
+            if (
+                source_camp not in source_by_camp
+                or destination_camp not in source_by_camp
+                or source_camp not in successor_by_camp
+                or destination_camp not in successor_by_camp
+                or source_camp not in validated_camps
+                or destination_camp not in validated_camps
+                or sorted(camp for camp, _transfer in copies)
+                != sorted([source_camp, destination_camp])
+                or len(copies) != 2
+                or copies[0][1] != copies[1][1]
+            ):
                 raise ValueError("migration witness lacks exact reciprocal endpoint evidence")
-            migration_witnesses.append({"kind": "migration", "source": source_camp,
-                                        "destination": destination_camp, "people": people,
-                                        "phase": phase})
+            migration_witnesses.append(
+                {
+                    "kind": "migration",
+                    "source": source_camp,
+                    "destination": destination_camp,
+                    "people": people,
+                    "phase": phase,
+                }
+            )
         new_camps = set(successor_by_camp) - set(source_by_camp)
         for camp in new_camps:
             target = successor_by_camp[camp]
@@ -1297,52 +1875,77 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
                 raise ValueError("new successor identity lacks exactly one typed transfer witness")
             witness = matches[0]
             source = source_by_camp.get(witness["source"])
-            if (source is None or source["society"] != target["parentSociety"]
-                    or witness["people"] != target["population"]
-                    or witness["kind"] not in {"fission", "founding"}):
-                raise ValueError("typed founding/fission/migration witness conflicts with successor identity")
-        if any(witness["destination"] not in new_camps for witness in typed_witnesses
-               if witness["kind"] in {"fission", "founding"}):
+            if (
+                source is None
+                or source["society"] != target["parentSociety"]
+                or witness["people"] != target["population"]
+                or witness["kind"] not in {"fission", "founding"}
+            ):
+                raise ValueError(
+                    "typed founding/fission/migration witness conflicts with successor identity"
+                )
+        if any(
+            witness["destination"] not in new_camps
+            for witness in typed_witnesses
+            if witness["kind"] in {"fission", "founding"}
+        ):
             raise ValueError("typed founding/fission witness does not identify a new successor")
         for row in validated:
-            witnessed = sum(witness["people"] for witness in typed_witnesses
-                            if witness["source"] == row["campId"]
-                            and witness["kind"] in {"fission", "founding"})
+            witnessed = sum(
+                witness["people"]
+                for witness in typed_witnesses
+                if witness["source"] == row["campId"] and witness["kind"] in {"fission", "founding"}
+            )
             split_off = row["domains"]["population"].get("splitOff", 0)
-            if (type(split_off) is not int or split_off < 0 or split_off != witnessed):
-                raise ValueError("typed founding/fission population differs from the raw split-off receipt")
+            if type(split_off) is not int or split_off < 0 or split_off != witnessed:
+                raise ValueError(
+                    "typed founding/fission population differs from the raw split-off receipt"
+                )
         for row in validated:
             population = row["domains"]["population"]
-            outgoing = sum(witness["people"] for witness in migration_witnesses
-                           if witness["source"] == row["campId"])
-            incoming = sum(witness["people"] for witness in migration_witnesses
-                           if witness["destination"] == row["campId"])
+            outgoing = sum(
+                witness["people"]
+                for witness in migration_witnesses
+                if witness["source"] == row["campId"]
+            )
+            incoming = sum(
+                witness["people"]
+                for witness in migration_witnesses
+                if witness["destination"] == row["campId"]
+            )
             # These equations are unconditional.  In particular, a report may
             # not turn a non-zero migration receipt into "no migration" by
             # deleting or renaming both reciprocal endpoint witnesses.
             emigrated = _count(population.get("emigrated"), "population.emigrated")
             immigrated = _count(population.get("immigrated"), "population.immigrated")
             opening_residents = _count(
-                population.get("openingResidents"), "population.openingResidents",
+                population.get("openingResidents"),
+                "population.openingResidents",
             )
             opening_parties = _count(
-                population.get("openingParties"), "population.openingParties",
+                population.get("openingParties"),
+                "population.openingParties",
             )
             opening_linked = _count(
-                population.get("openingLinked"), "population.openingLinked",
+                population.get("openingLinked"),
+                "population.openingLinked",
             )
             report_starting = _count(
-                population.get("reportStartingLinked"), "population.reportStartingLinked",
+                population.get("reportStartingLinked"),
+                "population.reportStartingLinked",
             )
             linked = _count(
-                population.get("reportEndingLinked"), "population.reportEndingLinked",
+                population.get("reportEndingLinked"),
+                "population.reportEndingLinked",
             )
             ending = _count(population.get("endingResidents"), "population.endingResidents")
             ending_parties = _count(
-                population.get("endingParties"), "population.endingParties",
+                population.get("endingParties"),
+                "population.endingParties",
             )
             ending_linked = _count(
-                population.get("endingLinked"), "population.endingLinked",
+                population.get("endingLinked"),
+                "population.endingLinked",
             )
             after_residents = _count(
                 population.get("afterReintegrationResidents"),
@@ -1354,14 +1957,17 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
             )
             split_off = _count(population.get("splitOff"), "population.splitOff")
             expected_closing = linked - split_off - emigrated + immigrated
-            if (emigrated != outgoing or immigrated != incoming
-                    or opening_residents != source_by_camp[row["campId"]]["population"]
-                    or opening_linked != opening_residents + opening_parties
-                    or report_starting != opening_linked
-                    or linked != after_residents + after_parties
-                    or expected_closing < 0
-                    or ending_linked != expected_closing
-                    or ending_linked != ending + ending_parties):
+            if (
+                emigrated != outgoing
+                or immigrated != incoming
+                or opening_residents != source_by_camp[row["campId"]]["population"]
+                or opening_linked != opening_residents + opening_parties
+                or report_starting != opening_linked
+                or linked != after_residents + after_parties
+                or expected_closing < 0
+                or ending_linked != expected_closing
+                or ending_linked != ending + ending_parties
+            ):
                 raise ValueError(
                     "migration/fission endpoint population receipts do not reconcile "
                     f"for camp {row['campId']}: opening={opening_residents}+{opening_parties}, "
@@ -1375,30 +1981,42 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
             camp_turn = (row["decisionTurn"], row["campId"])
             if identity in economic_ids or camp_turn in camp_turns:
                 raise ValueError("trajectory repeats an economic transition/camp-turn identity")
-            economic_ids.add(identity); camp_turns.add(camp_turn)
+            economic_ids.add(identity)
+            camp_turns.add(camp_turn)
         economic_rows.extend(validated)
         terminal = step["terminal"]
-        if (not isinstance(terminal, dict)
-                or set(terminal) != {"terminated", "truncated", "reason"}
-                or type(terminal["terminated"]) is not bool or type(terminal["truncated"]) is not bool
-                or not isinstance(terminal["reason"], str) or not terminal["reason"]
-                or terminal["terminated"] and terminal["truncated"]):
+        if (
+            not isinstance(terminal, dict)
+            or set(terminal) != {"terminated", "truncated", "reason"}
+            or type(terminal["terminated"]) is not bool
+            or type(terminal["truncated"]) is not bool
+            or not isinstance(terminal["reason"], str)
+            or not terminal["reason"]
+            or (terminal["terminated"] and terminal["truncated"])
+        ):
             raise ValueError("trajectory termination declaration is malformed")
         all_terminal = not any(not village["terminated"] for village in successor["villages"])
         if all_terminal:
-            expected_terminal = {"terminated": True, "truncated": False,
-                                 "reason": "all-villages-terminated"}
+            expected_terminal = {
+                "terminated": True,
+                "truncated": False,
+                "reason": "all-villages-terminated",
+            }
         elif index == horizon - 1:
-            expected_terminal = {"terminated": False, "truncated": True,
-                                 "reason": "evaluation-horizon"}
+            expected_terminal = {
+                "terminated": False,
+                "truncated": True,
+                "reason": "evaluation-horizon",
+            }
         else:
             expected_terminal = {"terminated": False, "truncated": False, "reason": "continuing"}
         if terminal != expected_terminal:
             raise ValueError("trajectory termination reason conflicts with state/horizon")
         if (terminal["terminated"] or terminal["truncated"]) and index != len(steps) - 1:
             raise ValueError("trajectory continues after its terminal/truncation boundary")
-        contribution_rows = [village for village in successor["villages"]
-                             if village["priorPopulation"] > 0]
+        contribution_rows = [
+            village for village in successor["villages"] if village["priorPopulation"] > 0
+        ]
         welfare += sum(float(village["welfare"]) for village in contribution_rows)
         rows_by_camp = {row["campId"]: row for row in validated}
         for village in contribution_rows:
@@ -1407,7 +2025,9 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
                 "trade.realisedUtility",
             )
             if float(village["tradeUtility"]) != raw_trade:
-                raise ValueError("successor trade utility conflicts with its authoritative raw transition")
+                raise ValueError(
+                    "successor trade utility conflicts with its authoritative raw transition"
+                )
             trade_utility += raw_trade
         rng_receipt = step["policy_rng_receipt"]
         if action_mode == "seeded-stochastic":
@@ -1415,7 +2035,9 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
                 raise ValueError("trajectory stochastic step lacks its frozen schedule")
             expected_receipt = recompute_rng_receipt(rng_steps[index], len(actions))
             if rng_receipt != expected_receipt:
-                raise ValueError("trajectory policy RNG receipt does not derive from actual action rows")
+                raise ValueError(
+                    "trajectory policy RNG receipt does not derive from actual action rows"
+                )
             receipts.append(expected_receipt)
         elif rng_receipt is not None:
             raise ValueError("deterministic trajectory carries stochastic RNG evidence")
@@ -1425,34 +2047,53 @@ def validate_trajectory_evidence(evidence: Any, *, world_id: str, snapshot_sha25
         raise ValueError("short trajectory lacks an evidenced terminal boundary")
     if len(steps) == horizon and not (last_terminal["terminated"] or last_terminal["truncated"]):
         raise ValueError("horizon-complete trajectory lacks its truncation/termination boundary")
-    final = [village for village in prior["villages"]
-             if not village["terminated"] and village["population"] > 0]
+    final = [
+        village
+        for village in prior["villages"]
+        if not village["terminated"] and village["population"] > 0
+    ]
     integrated = integrate_economic_rows(economic_rows)
     services = service_outcomes(economic_rows, service_fields)
     compiler_total, compiler_summary = compiler_interventions(economic_rows)
-    return {"welfare": welfare, "population_years": integrated["population_years"],
-            "ending_residents": sum(village["population"] for village in final),
-            "qol_years": integrated["qol_years"], "trade_utility": trade_utility,
-            "extinctions": sum(1 for village in prior["villages"] if village["terminated"]),
-            "settlements": len(final), "service_outcomes": services,
-            "compiler_interventions": compiler_total, "compiler_intervention_summary": compiler_summary,
-            "trajectory_digest": evidence["digest"], "policy_rng_receipts": receipts,
-            "evaluation_steps": len(steps), "capture_receipt": receipt,
-            "world_id": world_id, "snapshot_sha256": snapshot_sha256}
+    return {
+        "welfare": welfare,
+        "population_years": integrated["population_years"],
+        "ending_residents": sum(village["population"] for village in final),
+        "qol_years": integrated["qol_years"],
+        "trade_utility": trade_utility,
+        "extinctions": sum(1 for village in prior["villages"] if village["terminated"]),
+        "settlements": len(final),
+        "service_outcomes": services,
+        "compiler_interventions": compiler_total,
+        "compiler_intervention_summary": compiler_summary,
+        "trajectory_digest": evidence["digest"],
+        "policy_rng_receipts": receipts,
+        "evaluation_steps": len(steps),
+        "capture_receipt": receipt,
+        "world_id": world_id,
+        "snapshot_sha256": snapshot_sha256,
+    }
 
 
 def generator_state_sha256(generator: torch.Generator) -> str:
-    return digest({"bytes": bytes(generator.get_state().contiguous().view(torch.uint8).tolist()).hex()})
+    return digest(
+        {"bytes": bytes(generator.get_state().contiguous().view(torch.uint8).tolist()).hex()}
+    )
 
 
-def validate_rng_schedule(schedule: dict, world_id: str, horizon: int, *, node_id: str,
-                          expected_draw_order: list[str]) -> list[dict]:
+def validate_rng_schedule(
+    schedule: dict, world_id: str, horizon: int, *, node_id: str, expected_draw_order: list[str]
+) -> list[dict]:
     required = {"schema", "kind", "algorithm", "torch_version", "device", "worlds", "digest"}
-    if (set(schedule) != required or schedule.get("schema") != 1
-            or schedule.get("kind") != "gate1_policy_rng_schedule"
-            or schedule.get("algorithm") != "torch.Generator.cpu-default"
-            or schedule.get("torch_version") != torch.__version__ or schedule.get("device") != "cpu"
-            or schedule.get("digest") != digest({k: v for k, v in schedule.items() if k != "digest"})):
+    if (
+        set(schedule) != required
+        or schedule.get("schema") != 1
+        or schedule.get("kind") != "gate1_policy_rng_schedule"
+        or schedule.get("algorithm") != "torch.Generator.cpu-default"
+        or schedule.get("torch_version") != torch.__version__
+        or schedule.get("device") != "cpu"
+        or schedule.get("digest") != digest({k: v for k, v in schedule.items() if k != "digest"})
+    ):
         raise ValueError("policy RNG schedule is malformed or runtime-incompatible")
     matches = [row for row in schedule["worlds"] if row.get("world_id") == world_id]
     if len(matches) != 1 or set(matches[0]) != {"world_id", "nodes"}:
@@ -1468,9 +2109,14 @@ def validate_rng_schedule(schedule: dict, world_id: str, horizon: int, *, node_i
         raise ValueError("policy RNG schedule does not cover the exact horizon")
     output = []
     for index, row in enumerate(steps):
-        if (not isinstance(row, dict) or set(row) != {"step", "seed", "state_sha256"}
-                or row["step"] != index or isinstance(row["seed"], bool) or not isinstance(row["seed"], int)
-                or row["seed"] < 0):
+        if (
+            not isinstance(row, dict)
+            or set(row) != {"step", "seed", "state_sha256"}
+            or row["step"] != index
+            or isinstance(row["seed"], bool)
+            or not isinstance(row["seed"], int)
+            or row["seed"] < 0
+        ):
             raise ValueError("policy RNG schedule has a malformed step")
         generator = torch.Generator(device="cpu").manual_seed(row["seed"])
         if generator_state_sha256(generator) != row["state_sha256"]:

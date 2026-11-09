@@ -24,12 +24,14 @@ import pytest
 import torch
 
 from anthropocene_rl.autonomous_v7 import bridge as bridge_module
-from anthropocene_rl.autonomous_v7 import labor_bridge
-from anthropocene_rl.autonomous_v7 import labor_model
+from anthropocene_rl.autonomous_v7 import (
+    labor_bridge,
+    labor_model,
+    labor_teacher_data,
+    labor_training,
+)
 from anthropocene_rl.autonomous_v7 import labor_search as ls
 from anthropocene_rl.autonomous_v7 import labor_search_resume as lsr
-from anthropocene_rl.autonomous_v7 import labor_teacher_data
-from anthropocene_rl.autonomous_v7 import labor_training
 from anthropocene_rl.autonomous_v7.labor_bc import LaborResetOptions
 
 CAMPS = (3, 7, 11)
@@ -122,21 +124,32 @@ def _install(monkeypatch, *, kill_root=None, kill_execute=None, calls=None):
         "labor_policy_tensors",
         lambda live, normalizer, personality=None: (
             None,
-            {"core": torch.tensor([[float(v["observation"]["t"]), float(v["camp"])] for v in live])},
+            {
+                "core": torch.tensor(
+                    [[float(v["observation"]["t"]), float(v["camp"])] for v in live]
+                )
+            },
         ),
     )
-    monkeypatch.setattr(ls.NativeSearch, "catalogs",
-                        lambda self: {c: SimpleNamespace(population=10) for c in CAMPS})
+    monkeypatch.setattr(
+        ls.NativeSearch, "catalogs", lambda self: {c: SimpleNamespace(population=10) for c in CAMPS}
+    )
 
     def shadow(self, step, catalogs):
         self.work.shadow_steps += 1
         return {c: SimpleNamespace(action={"a": int(step["turn"]) + c}) for c in catalogs}
 
     monkeypatch.setattr(ls.NativeSearch, "shadow_h12", shadow)
-    monkeypatch.setattr(ls.NativeSearch, "fork", lambda self: (self.work.__setattr__("forks", self.work.forks + 1), 1)[1])
+    monkeypatch.setattr(
+        ls.NativeSearch,
+        "fork",
+        lambda self: (self.work.__setattr__("forks", self.work.forks + 1), 1)[1],
+    )
     monkeypatch.setattr(ls.NativeSearch, "restore", lambda self, fork: None)
     monkeypatch.setattr(ls.NativeSearch, "drop", lambda self, fork: None)
-    monkeypatch.setattr(ls, "verify_exact_restore", lambda native, payloads: {"equal": True, "digest": "d"})
+    monkeypatch.setattr(
+        ls, "verify_exact_restore", lambda native, payloads: {"equal": True, "digest": "d"}
+    )
 
     def execute(self, catalogs, payloads):
         counters["execute"] += 1
@@ -170,10 +183,17 @@ def _install(monkeypatch, *, kill_root=None, kill_execute=None, calls=None):
             return ls.RootResult([], {"skipped": "fewer-than-two-valid-candidates", "turn": turn})
         return ls.RootResult(
             [{"row_turn": torch.tensor([turn]), "x": value}],
-            {"turn": turn, "focal": focal, "work": native.work.state_dict(), "wall_seconds": 0.0,
-             "decisions": [{"reason": "search-beat-h12", "label": 1}]},
-            {"record": {"root_id": f"{key[0]}/{turn}/{focal}/h12", "root_index": root_index},
-             "tensors": {"core": value.clone()}},
+            {
+                "turn": turn,
+                "focal": focal,
+                "work": native.work.state_dict(),
+                "wall_seconds": 0.0,
+                "decisions": [{"reason": "search-beat-h12", "label": 1}],
+            },
+            {
+                "record": {"root_id": f"{key[0]}/{turn}/{focal}/h12", "root_index": root_index},
+                "tensors": {"core": value.clone()},
+            },
         )
 
     monkeypatch.setattr(ls, "search_root", search_root)
@@ -209,12 +229,21 @@ def _same(a: dict, b: dict) -> None:
         for k in x:
             assert x[k].dtype == y[k].dtype and torch.equal(x[k], y[k])
             assert x[k].numpy().tobytes() == y[k].numpy().tobytes()
-    for key in ("tables", "skipped", "reset_identity", "root_turn_indices", "restore_checks",
-                "work", "main_path_resolves"):
+    for key in (
+        "tables",
+        "skipped",
+        "reset_identity",
+        "root_turn_indices",
+        "restore_checks",
+        "work",
+        "main_path_resolves",
+    ):
         assert a[key] == b[key], key
     assert len(a["payload_roots"]) == len(b["payload_roots"])
     for x, y in zip(a["payload_roots"], b["payload_roots"], strict=True):
-        assert x["record"] == y["record"] and torch.equal(x["tensors"]["core"], y["tensors"]["core"])
+        assert x["record"] == y["record"] and torch.equal(
+            x["tensors"]["core"], y["tensors"]["core"]
+        )
 
 
 def test_replay_digest_ignores_process_local_branch_identity_only() -> None:
@@ -266,7 +295,7 @@ def test_killed_world_resumes_to_the_uninterrupted_result(tmp_path, monkeypatch,
     assert 0 <= redone <= 2
     if ckpts:
         assert resumed["checkpoints"]["sessions"] == 2
-        assert calls_resumed[0][0] >= int(ckpts[-1][len("ckpt-"):]) - 1
+        assert calls_resumed[0][0] >= int(ckpts[-1][len("ckpt-") :]) - 1
 
 
 def _reference_calls(tmp_path, monkeypatch) -> list:
@@ -276,7 +305,9 @@ def _reference_calls(tmp_path, monkeypatch) -> list:
     return calls
 
 
-def test_twice_killed_and_torn_newest_checkpoint_still_resume_exactly(tmp_path, monkeypatch) -> None:
+def test_twice_killed_and_torn_newest_checkpoint_still_resume_exactly(
+    tmp_path, monkeypatch
+) -> None:
     reference = _reference(tmp_path, monkeypatch)
     out = tmp_path / "run"
     _install(monkeypatch, kill_execute=5)

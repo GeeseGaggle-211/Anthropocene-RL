@@ -1,4 +1,5 @@
-"""Tests for tools/vmqueue (elderq + runner) using a temporary home and fake checkout/execute commands."""
+"""Tests for tools/vmqueue (elderq + runner) using a temporary home and fake checkout/execute commands."""  # noqa: E501 - docstring/prose line kept verbatim
+
 import importlib.machinery
 import importlib.util
 import json
@@ -44,12 +45,18 @@ phases:
       echo one
       echo two
     done: cmp/done.json
-""" % (SHA1, SHA2)
+""" % (SHA1, SHA2)  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
 
 def good(name="j", threads=4, priority=0, phases=None):
-    return {"name": name, "rl_sha": SHA1, "sim_sha": SHA2, "threads": threads, "priority": priority,
-            "phases": phases or [{"name": "p", "run": "go", "done": "p.done"}]}
+    return {
+        "name": name,
+        "rl_sha": SHA1,
+        "sim_sha": SHA2,
+        "threads": threads,
+        "priority": priority,
+        "phases": phases or [{"name": "p", "run": "go", "done": "p.done"}],
+    }
 
 
 # ------------------------------------------------------------ validation
@@ -68,20 +75,31 @@ def test_json_job_file(tmp_path):
     assert rq.load_job_file(f)["name"] == "viajson"
 
 
-@pytest.mark.parametrize("mutate,fragment", [
-    (lambda d: d.update(rl_sha="abc123"), "rl_sha"),
-    (lambda d: d.update(sim_sha="G" * 40), "sim_sha"),
-    (lambda d: d.update(name="bad name!"), "name"),
-    (lambda d: d.update(threads="many"), "threads"),
-    (lambda d: d.update(threads=0), "threads"),
-    (lambda d: d.pop("threads"), "threads"),
-    (lambda d: d.update(phases=[]), "phases"),
-    (lambda d: d.update(phases=[{"name": "p", "run": "x"}]), "done marker"),
-    (lambda d: d.update(phases=[{"name": "p", "run": "x", "done": "../out"}]), "relative"),
-    (lambda d: d.update(phases=[{"name": "p", "run": "x", "done": "/abs"}]), "relative"),
-    (lambda d: d.update(phases=[{"name": "p", "run": "x", "done": "a"}, {"name": "p", "run": "y", "done": "b"}]), "duplicate"),
-    (lambda d: d.update(extra=1), "unknown field"),
-])
+@pytest.mark.parametrize(
+    "mutate,fragment",
+    [
+        (lambda d: d.update(rl_sha="abc123"), "rl_sha"),
+        (lambda d: d.update(sim_sha="G" * 40), "sim_sha"),
+        (lambda d: d.update(name="bad name!"), "name"),
+        (lambda d: d.update(threads="many"), "threads"),
+        (lambda d: d.update(threads=0), "threads"),
+        (lambda d: d.pop("threads"), "threads"),
+        (lambda d: d.update(phases=[]), "phases"),
+        (lambda d: d.update(phases=[{"name": "p", "run": "x"}]), "done marker"),
+        (lambda d: d.update(phases=[{"name": "p", "run": "x", "done": "../out"}]), "relative"),
+        (lambda d: d.update(phases=[{"name": "p", "run": "x", "done": "/abs"}]), "relative"),
+        (
+            lambda d: d.update(
+                phases=[
+                    {"name": "p", "run": "x", "done": "a"},
+                    {"name": "p", "run": "y", "done": "b"},
+                ]
+            ),
+            "duplicate",
+        ),
+        (lambda d: d.update(extra=1), "unknown field"),
+    ],
+)
 def test_validation_rejects(mutate, fragment):
     d = good()
     mutate(d)
@@ -109,13 +127,22 @@ def test_help_states_rules(capsys):
     cli = load_elderq()
     assert cli.main(["help"]) == 0
     text = capsys.readouterr().out
-    for needle in ("pushed commits", "Never edit a running job", "idempotent", "submit", "status", "logs", "cancel", "results"):
+    for needle in (
+        "pushed commits",
+        "Never edit a running job",
+        "idempotent",
+        "submit",
+        "status",
+        "logs",
+        "cancel",
+        "results",
+    ):
         assert needle.lower() in text.lower()
 
 
 # ------------------------------------------------------------ runner harness
 class Fake:
-    """Checkout creates PROVENANCE; execute interprets 'touch <rel>', 'fail', 'hold', 'nomark' commands."""
+    """Checkout creates PROVENANCE; execute interprets 'touch <rel>', 'fail', 'hold', 'nomark' commands."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, home):
         self.home = Path(home)
@@ -132,7 +159,7 @@ class Fake:
         self.checkouts.append(name)
         d = self.home / "code" / name
         (d / "rl").mkdir(parents=True, exist_ok=True)
-        (d / "PROVENANCE").write_text("rl=%s\nsim=%s\n" % (rl, sim))
+        (d / "PROVENANCE").write_text("rl=%s\nsim=%s\n" % (rl, sim))  # noqa: UP031 - printf formatting kept verbatim (output identical)
         return 0
 
     def execute(self, run, cwd, env, logfile, should_cancel, on_start=None):
@@ -161,7 +188,14 @@ class Fake:
 
 def make(tmp_path, cap=56, fake=None):
     fake = fake or Fake(tmp_path)
-    r = rq.Runner(str(tmp_path), cap=cap, checkout=fake.checkout, execute=fake.execute, poll=0.01, log=lambda m: None)
+    r = rq.Runner(
+        str(tmp_path),
+        cap=cap,
+        checkout=fake.checkout,
+        execute=fake.execute,
+        poll=0.01,
+        log=lambda m: None,
+    )
     return r, fake
 
 
@@ -190,8 +224,12 @@ def test_runs_phases_and_writes_status(tmp_path):
     assert all(p["exit_code"] == 0 and p["started"] and p["ended"] for p in st["phases"])
     assert "rl=" + SHA1 in st["provenance"]
     assert st["started"] and st["ended"] and st["threads"] == 6
-    job, run, omp, results, code = fake.runs[0]
-    assert omp == "6" and results == str(tmp_path / "results" / "a") and code == str(tmp_path / "code" / "a")
+    _job, _run, omp, results, code = fake.runs[0]
+    assert (
+        omp == "6"
+        and results == str(tmp_path / "results" / "a")
+        and code == str(tmp_path / "code" / "a")
+    )
     assert (tmp_path / "queue" / "jobs" / "a" / "logs" / "one.log").exists()
     assert [x[1] for x in fake.runs] == ["touch one.done", "touch two.done"]
     assert not (tmp_path / "queue" / "pending" / "a.json").exists()
@@ -200,27 +238,40 @@ def test_runs_phases_and_writes_status(tmp_path):
 def test_priority_order_and_thread_cap(tmp_path):
     r, fake = make(tmp_path, cap=10)
     for name, th, pr in [("low", 5, 0), ("high", 6, 9), ("mid", 5, 5)]:
-        submit(tmp_path, good(name, threads=th, priority=pr, phases=[{"name": "p", "run": "hold", "done": "p.done"}]))
+        submit(
+            tmp_path,
+            good(
+                name,
+                threads=th,
+                priority=pr,
+                phases=[{"name": "p", "run": "hold", "done": "p.done"}],
+            ),
+        )
     r.tick()
     time.sleep(0.2)
-    # strict priority: high (6) starts; mid (5) does not fit with it (11 > 10) and low must not jump ahead.
+    # strict priority: high (6) starts; mid (5) does not fit with it (11 > 10) and low must not jump
+    # ahead.
     assert set(r.active) == {"high"}
     assert status(tmp_path, "high")["state"] == "running"
     assert not (tmp_path / "queue" / "jobs" / "mid").exists()
     fake.release.set()
-    # let held phases finish without a marker -> failures are fine; we only check ordering and the cap
+    # let held phases finish without a marker -> failures are fine; we only check ordering and the
+    # cap
     assert r.drain(10)
-    assert fake.order[0] == "high" and sorted(fake.order[1:]) == ["low", "mid"]  # 5+5 fit together afterwards
+    assert fake.order[0] == "high" and sorted(fake.order[1:]) == [
+        "low",
+        "mid",
+    ]  # 5+5 fit together afterwards
     assert fake.peak <= 10
 
 
 def test_cap_never_exceeded_with_many_jobs(tmp_path):
     r, fake = make(tmp_path, cap=12)
     for i in range(6):
-        submit(tmp_path, good("j%d" % i, threads=5, phases=phases("p")))
+        submit(tmp_path, good("j%d" % i, threads=5, phases=phases("p")))  # noqa: UP031 - printf formatting kept verbatim (output identical)
     assert r.drain(20)
     assert fake.peak <= 12
-    assert all(status(tmp_path, "j%d" % i)["state"] == "done" for i in range(6))
+    assert all(status(tmp_path, "j%d" % i)["state"] == "done" for i in range(6))  # noqa: UP031 - printf formatting kept verbatim (output identical)
 
 
 def test_cap_from_config_file(tmp_path):
@@ -247,7 +298,8 @@ def test_skips_phases_with_done_markers(tmp_path):
 
 
 def test_resume_after_simulated_restart(tmp_path):
-    # First runner: phase one done, phase two "interrupted" (process dies mid-run, status left as running).
+    # First runner: phase one done, phase two "interrupted" (process dies mid-run, status left as
+    # running).
     fake = Fake(tmp_path)
     r1, _ = make(tmp_path, fake=fake)
     submit(tmp_path, good("res", phases=phases("one", "two", "three")))
@@ -257,6 +309,7 @@ def test_resume_after_simulated_restart(tmp_path):
         if run == "touch two.done":
             raise SystemExit  # simulates the VM dying: thread ends without finishing status
         return orig(run, cwd, env, logfile, should_cancel, on_start)
+
     fake.execute = crash_on_two
     r1.execute = crash_on_two
     r1.tick()
@@ -278,8 +331,17 @@ def test_resume_after_simulated_restart(tmp_path):
 
 def test_failure_stops_job_but_others_continue(tmp_path):
     r, fake = make(tmp_path)
-    submit(tmp_path, good("bad", priority=5, phases=[{"name": "boom", "run": "fail", "done": "x"},
-                                                      {"name": "never", "run": "touch n", "done": "n"}]))
+    submit(
+        tmp_path,
+        good(
+            "bad",
+            priority=5,
+            phases=[
+                {"name": "boom", "run": "fail", "done": "x"},
+                {"name": "never", "run": "touch n", "done": "n"},
+            ],
+        ),
+    )
     submit(tmp_path, good("fine", phases=phases("p")))
     assert r.drain(10)
     bad, fine = status(tmp_path, "bad"), status(tmp_path, "fine")
@@ -295,7 +357,11 @@ def test_missing_done_marker_is_failure(tmp_path):
     submit(tmp_path, good("nm", phases=[{"name": "p", "run": "true", "done": "never.json"}]))
     r.drain(5)
     st = status(tmp_path, "nm")
-    assert st["state"] == "failed" and "done marker" in st["error"] and st["phases"][0]["exit_code"] == 0
+    assert (
+        st["state"] == "failed"
+        and "done marker" in st["error"]
+        and st["phases"][0]["exit_code"] == 0
+    )
 
 
 def test_checkout_failure(tmp_path):
@@ -310,7 +376,9 @@ def test_checkout_failure(tmp_path):
 
 def test_cancel_pending_and_running(tmp_path):
     r, fake = make(tmp_path, cap=4)
-    submit(tmp_path, good("run", threads=4, phases=[{"name": "p", "run": "hold", "done": "p.done"}]))
+    submit(
+        tmp_path, good("run", threads=4, phases=[{"name": "p", "run": "hold", "done": "p.done"}])
+    )
     submit(tmp_path, good("wait", threads=4, phases=phases("p")))
     r.tick()
     time.sleep(0.2)
@@ -333,7 +401,11 @@ def test_status_json_and_cli(tmp_path, monkeypatch, capsys):
     cli = load_elderq()
     assert cli.main(["status", "--json"]) == 0
     rows = {s["name"]: s for s in json.loads(capsys.readouterr().out)}
-    assert rows["done1"]["state"] == "done" and rows["later"]["state"] == "failed" and rows["queued1"]["state"] == "pending"
+    assert (
+        rows["done1"]["state"] == "done"
+        and rows["later"]["state"] == "failed"
+        and rows["queued1"]["state"] == "pending"
+    )
     for key in ("phases", "state", "started", "ended", "provenance", "threads", "priority"):
         assert key in rows["done1"]
     assert cli.main(["status", "done1", "--json"]) == 0
@@ -348,13 +420,19 @@ def test_status_json_and_cli(tmp_path, monkeypatch, capsys):
 
 
 def test_real_shell_execution(tmp_path):
-    import shutil
     import os
+    import shutil
+
     if os.name == "nt" or not shutil.which("bash"):
         pytest.skip("needs a POSIX bash")
     logf = tmp_path / "l.log"
-    rc = rq.default_execute('echo "$JOB:$OMP_NUM_THREADS" && exit 7', tmp_path,
-                            dict(os.environ, JOB="j", OMP_NUM_THREADS="4"), logf, lambda: False)
+    rc = rq.default_execute(
+        'echo "$JOB:$OMP_NUM_THREADS" && exit 7',
+        tmp_path,
+        dict(os.environ, JOB="j", OMP_NUM_THREADS="4"),
+        logf,
+        lambda: False,
+    )
     assert rc == 7 and "j:4" in logf.read_text()
 
 
@@ -401,8 +479,15 @@ def stale_running_job(tmp_path, name, boot="boot-1", pid=4242, start=999):
 
 def resume(tmp_path, system):
     fake = Fake(tmp_path)
-    r = rq.Runner(str(tmp_path), cap=56, checkout=fake.checkout, execute=fake.execute, poll=0.01,
-                  log=lambda m: None, system=system)
+    r = rq.Runner(
+        str(tmp_path),
+        cap=56,
+        checkout=fake.checkout,
+        execute=fake.execute,
+        poll=0.01,
+        log=lambda m: None,
+        system=system,
+    )
     return r, fake
 
 
@@ -414,7 +499,9 @@ def test_live_phase_is_adopted_not_relaunched(tmp_path):
     r.tick()
     time.sleep(0.2)
     assert fake.runs == [] and status(tmp_path, "ad")["state"] == "running"
-    (tmp_path / "results" / "ad" / "one.done").write_text("x")  # the adopted process finishes its work
+    (tmp_path / "results" / "ad" / "one.done").write_text(
+        "x"
+    )  # the adopted process finishes its work
     sysm.alive.pop(4242)
     assert r.drain(10)
     st = status(tmp_path, "ad")
@@ -448,13 +535,13 @@ def test_dead_pid_and_reused_pid_relaunch(tmp_path):
     stale_running_job(tmp_path, "dp")
     r, fake = resume(tmp_path, FakeSystem())  # pid not alive
     assert r.drain(10)
-    assert [x[1] for x in fake.runs][0] == "touch one.done"
+    assert [x[1] for x in fake.runs][0] == "touch one.done"  # noqa: RUF015 - IndexError on empty must not become StopIteration
     stale_running_job(tmp_path, "rp")
     sysm = FakeSystem()
     sysm.alive[4242] = 1000  # same pid, different start time -> a different process
     r, fake = resume(tmp_path, sysm)
     assert r.drain(10)
-    assert [x[1] for x in fake.runs][0] == "touch one.done"
+    assert [x[1] for x in fake.runs][0] == "touch one.done"  # noqa: RUF015 - IndexError on empty must not become StopIteration
 
 
 def test_cancel_kills_adopted_group(tmp_path):
@@ -472,6 +559,7 @@ def test_cancel_kills_adopted_group(tmp_path):
 
 def test_start_time_parsing():
     import os
+
     if not os.path.exists("/proc/self/stat"):
         pytest.skip("needs /proc")
     s = rq.System()

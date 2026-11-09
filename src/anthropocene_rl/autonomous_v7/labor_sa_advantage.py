@@ -1272,9 +1272,7 @@ def successor_rows_table(
         preds, keep = [], []
         for c in cands:
             by = {e.stream: e for e in succ[c.index]}
-            targets = [
-                successor_target(by[s], k, v_succ) if s in by else None for s in streams
-            ]
+            targets = [successor_target(by[s], k, v_succ) if s in by else None for s in streams]
             if any(t is None for t in targets):
                 dropped += 1
                 continue
@@ -1325,9 +1323,7 @@ def _subset(rows: Mapping[str, Any], mask: np.ndarray) -> dict[str, Any]:
     return {k: (v[mask] if isinstance(v, np.ndarray) else v) for k, v in rows.items()}
 
 
-def population_only_flips(
-    rows: Mapping[str, Any], scale_sets, *, margin: float
-) -> dict[str, Any]:
+def population_only_flips(rows: Mapping[str, Any], scale_sets, *, margin: float) -> dict[str, Any]:
     """Measured sign flips of same-root pair differences of the combined advantage
     (|realised combined diff| > margin) when only the population head is the critic's
     prediction (every other head realised), and when every head is predicted."""
@@ -1541,8 +1537,8 @@ def successor_section(
                                 }
                             )
                 results[key] = {
-                    "rows": int(len(rows["root"])),
-                    "roots": int(len(np.unique(rows["root"]))),
+                    "rows": len(rows["root"]),
+                    "roots": len(np.unique(rows["root"])),
                     "dropped": rows["dropped"],
                     "metrics": metrics,
                     "field_separation": field,
@@ -1576,9 +1572,7 @@ def successor_section(
             results["k1/all-candidates/stream-0"] = {
                 "rows": len(allrows["root"]),
                 "predicted_within_root_sd": {h: within_root_spread(ar, v) for h, v in ps.items()},
-                "predicted_field_separation": {
-                    h: field_separation(ar, v) for h, v in ps.items()
-                },
+                "predicted_field_separation": {h: field_separation(ar, v) for h, v in ps.items()},
             }
         block["results"] = results
         out["arms"][name_] = block

@@ -1094,7 +1094,9 @@ def plan_step_payload(
     role = spec - 1
     try:
         if template == "shelter-and-clothe":
-            return _shelter_step(step, base, catalog, counts, activity, int(amount), anchor, anchor2)
+            return _shelter_step(
+                step, base, catalog, counts, activity, int(amount), anchor, anchor2
+            )
         if step == 0:
             moved = transfer(counts, activity, catalog, GATHERER, spec, int(amount))
             if moved is None:
@@ -1156,7 +1158,9 @@ def plan_specs(
         spec = SPECIALTIES.index(PLAN_SPECIALTY[template])
         placed = labor_state(payload, catalog)[0]
         anchor = int(placed[spec])
-        anchor2 = int(placed[SPECIALTIES.index("Weaver")]) if template == "shelter-and-clothe" else 0
+        anchor2 = (
+            int(placed[SPECIALTIES.index("Weaver")]) if template == "shelter-and-clothe" else 0
+        )
         out.append(
             PlanSpec(
                 plan_id=f"{template}/P{steps}",
@@ -2398,7 +2402,11 @@ def search_root(
             for s, info in sorted(reeval_info.get(i, {}).items()):
                 streams_out.append(
                     payload_module.successor_stream(
-                        s, info["steps"], info["years"], info["terminated"], info["boundaries"],
+                        s,
+                        info["steps"],
+                        info["years"],
+                        info["terminated"],
+                        info["boundaries"],
                         store,
                     )
                 )
@@ -2675,8 +2683,13 @@ def search_world(job: Mapping[str, Any]) -> dict[str, Any]:
             rows = list(resume_point.rows)
             tables = list(resume_point.tables)
             payload_roots = list(resume_point.payload_roots)
-            _log_json({"world": world, "search_resumed_from_checkpoint": first_index,
-                       "roots_kept": len(payload_roots)})
+            _log_json(
+                {
+                    "world": world,
+                    "search_resumed_from_checkpoint": first_index,
+                    "roots_kept": len(payload_roots),
+                }
+            )
         else:
             step = bridge.reset(world, **options.reset_kwargs())
             identity = bridge.last_reset_identity
@@ -2881,8 +2894,13 @@ def write_search_shard(job: Mapping[str, Any]) -> dict[str, Any]:
         import shutil
 
         fallback = str(error)
-        _log_json({"world": int(job["world"]), "resume_refused": fallback,
-                   "action": "searching the world from its reset"})
+        _log_json(
+            {
+                "world": int(job["world"]),
+                "resume_refused": fallback,
+                "action": "searching the world from its reset",
+            }
+        )
         if job.get("checkpoint_dir"):
             shutil.rmtree(job["checkpoint_dir"], ignore_errors=True)
         result = search_world(dict(job, resume=False))
@@ -3677,9 +3695,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "ranker_checkpoint_sha256": options["advantage_ranker_sha256"],
             # Execution only (not in the source record): where this world checkpoints and
             # whether an existing checkpoint is resumed.
-            "checkpoint_dir": str(
-                Path(args.out) / "_work" / f"world-{int(world)}"
-            ),
+            "checkpoint_dir": str(Path(args.out) / "_work" / f"world-{int(world)}"),
             "resume": bool(args.resume),
             "checkpoint_keep": int(args.checkpoint_keep),
         }

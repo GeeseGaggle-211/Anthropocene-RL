@@ -120,11 +120,11 @@ def load_labor_rows(
         "dataset_digest": manifest["dataset_digest"],
         "normalizer_digest": digest_value,
         "partition": CALIBRATION_PARTITION if is_calibration_set(source) else "fitting",
-        "rows": int(len(keep)),
+        "rows": len(keep),
         "world_seeds": sorted(int(w) for w in manifest["shards"]),
         "row_sample": {"rows_per_world": int(rows_per_world), "seed": int(seed), **sampled},
-        "total_decisions": int(len(keep)),
-        "initial_accepted": int(len(keep)),
+        "total_decisions": len(keep),
+        "initial_accepted": len(keep),
     }
     if is_calibration_set(source):
         dataset["collection"]["calibration_set"] = True
@@ -169,7 +169,10 @@ def task_gradient_report(
     from .labor_bc import _batch_loss_and_l1
 
     actor.eval()  # dropout-free encoder; eval keeps the forward deterministic
-    params = {"trunk": actor_trunk_parameters(actor), "gradnorm_w": actor_gradnorm_parameters(actor)}
+    params = {
+        "trunk": actor_trunk_parameters(actor),
+        "gradnorm_w": actor_gradnorm_parameters(actor),
+    }
     spec_w, act_w = inverse_frequency_weights(dataset, inverse_freq_power)
     keys = [k for k, v in dataset.items() if isinstance(v, torch.Tensor)]
     n = int(dataset["target_specialty"].shape[0])
@@ -315,7 +318,11 @@ def _per_staffed_row(report: Mapping[str, Any], rows: int) -> dict[str, Any]:
     for weighting, entry in report["weightings"].items():
         shares = entry["trunk"]["mean_batch_share"]
         intensity = {
-            t: (shares[t] / (report["staffed_rows"][t] / rows) if report["staffed_rows"][t] else None)
+            t: (
+                shares[t] / (report["staffed_rows"][t] / rows)
+                if report["staffed_rows"][t]
+                else None
+            )
             for t in ACTOR_ROLE_TASKS
         }
         out[weighting] = {"share_per_staffed_fraction": intensity}
@@ -342,11 +349,11 @@ def format_table(report: Mapping[str, Any]) -> str:
         staffed = report["staffed_rows"].get(task, report["rows"])
 
         def pct(entry: Mapping[str, Any], pset: str, key: str) -> str:
-            value = entry.get(pset, {}).get(key, {}).get(task)
+            value = entry.get(pset, {}).get(key, {}).get(task)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
             return "-" if value is None else f"{100 * value:7.2f}"
 
         def relative(weighting: str) -> str:
-            value = rel.get(weighting, {}).get("relative_to_farmer", {}).get(task)
+            value = rel.get(weighting, {}).get("relative_to_farmer", {}).get(task)  # noqa: B023 - late-binding closure kept as written (called within the iteration)
             return "-" if value is None else f"{value:.3g}"
 
         l1 = report.get("role_activity_l1_staffed", {}).get(task)

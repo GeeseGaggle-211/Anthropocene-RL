@@ -42,13 +42,14 @@ from torch import nn
 from . import contracts
 from .bridge import Model9Bridge
 from .labor_bridge import (
+    SIMPLEX_TOLERANCE,
     LaborAttempt,
     LaborCatalog,
     LaborModel9Bridge,
     LaborPolicySample,
-    SIMPLEX_TOLERANCE,
     _simplex,
 )
+from .labor_device import cpu_copy, module_device, to_device
 from .labor_model import (
     LABOR_COSTS,
     LABOR_OBJECTIVE_REFERENCE_SCALES,
@@ -62,21 +63,19 @@ from .labor_model import (
     critic_privileged_batch,
     labor_policy_tensors,
 )
-from .labor_device import cpu_copy, module_device, to_device
 from .labor_personality import personality_for_world
+from .labor_ppo import (
+    RetainedLaborAction,
+    execute_labor_decision,
+    labor_cost_value_loss,
+    labor_cost_value_losses,
+    labor_task_value_losses,
+)
 from .labor_privileged import actor_inputs, privileged_row_tensors, require_critic_training_worlds
 from .labor_worlds import (
     require_held_out_test_worlds,
     require_training_record,
     require_training_worlds,
-)
-from .labor_ppo import (
-    labor_cost_value_losses,
-    labor_task_value_losses,
-    RetainedLaborAction,
-    execute_labor_decision,
-    labor_cost_value_loss,
-    labor_task_value_loss,
 )
 from .protocol import scan
 from .protocol import seeds as checked_seeds
@@ -421,7 +420,7 @@ def convert_heuristic_labor_label(
         if assigned_herders is None or management is None or development is None:
             reasons.append("herder-staffing-unavailable")
         else:
-            whole = int(round(assigned_herders))
+            whole = int(round(assigned_herders))  # noqa: RUF046 - keep int() (input type not guaranteed)
             if whole < 0 or abs(whole - assigned_herders) > LABEL_TOLERANCE:
                 reasons.append("herder-staffing-not-whole-residents")
             assert herder is not None
@@ -467,7 +466,12 @@ def convert_heuristic_labor_label(
             reasons.append("fisher-staffing-unavailable")
         else:
             counts[fisher + 1] = harvest_people + development_people
-            place(fisher, role_activity(fisher, "fishing.harvest"), harvest_people * years, "fishing-harvest")
+            place(
+                fisher,
+                role_activity(fisher, "fishing.harvest"),
+                harvest_people * years,
+                "fishing-harvest",
+            )
             place(
                 fisher,
                 role_activity(fisher, "fishing.development"),
@@ -613,7 +617,10 @@ def convert_heuristic_labor_label(
                 used > 1.0
                 and act_mask[role].any()
                 and not math.isclose(
-                    math.fsum(np.clip(filled, 0.0, 1.0)), 1.0, rel_tol=0.0, abs_tol=SIMPLEX_TOLERANCE
+                    math.fsum(np.clip(filled, 0.0, 1.0)),
+                    1.0,
+                    rel_tol=0.0,
+                    abs_tol=SIMPLEX_TOLERANCE,
                 )
             ):
                 # Work inside the staffing tolerance (LABEL_TOLERANCE) but past the
@@ -657,8 +664,10 @@ def convert_heuristic_labor_label(
     teacher = teacher if isinstance(teacher, Mapping) else None
     if teacher is None:
         reasons.append("teacher-unavailable")
-    observation = pre_observation if pre_observation is not None else (
-        village_heur.get("observation") if isinstance(village_heur, Mapping) else None
+    observation = (
+        pre_observation
+        if pre_observation is not None
+        else (village_heur.get("observation") if isinstance(village_heur, Mapping) else None)
     )
     raw_movement = teacher.get("movement") if teacher is not None else None
     movement_valid = (
@@ -748,7 +757,11 @@ def convert_heuristic_labor_label(
     )
 
 
-_NONLABOR_REASONS = ("movement-label-unavailable", "fission-label-unavailable", "trade-label-unavailable")
+_NONLABOR_REASONS = (
+    "movement-label-unavailable",
+    "fission-label-unavailable",
+    "trade-label-unavailable",
+)
 
 
 def reasons_block_labor(reasons: Sequence[str]) -> bool:
@@ -823,7 +836,7 @@ def _retained_payload_action(
     any complete schema-12 payload, e.g. a head-group merge of a heuristic and an
     actor payload. The payload object itself is submitted; the retained samples are
     derived from it exactly as for a heuristic label."""
-    tv =[math.log(float(np.clip(float(x), 0.25, 4.0))) for x in action["tradeValue"]]
+    tv = [math.log(float(np.clip(float(x), 0.25, 4.0))) for x in action["tradeValue"]]
     ts = float(np.clip(float(action["tradeShare"]), 1e-4, 1.0 - 1e-4))
     executed = LaborPolicySample.from_payload(
         {
@@ -855,9 +868,7 @@ def _retained_payload_action(
             "trade_gate": torch.tensor(
                 [int(x) for x in action["tradeGate"]], dtype=torch.long
             ).unsqueeze(0),
-            "trade_share_latent": torch.tensor(
-                [math.log(ts / (1.0 - ts))], dtype=torch.float32
-            ),
+            "trade_share_latent": torch.tensor([math.log(ts / (1.0 - ts))], dtype=torch.float32),
             "movement_mask": movement_mask,
             "movement_codes": torch.tensor([-1], dtype=torch.long),
         },
@@ -906,18 +917,16 @@ def _label_tensors(label: HeuristicLaborLabel) -> dict[str, torch.Tensor]:
         "target_trade_gate": torch.tensor(
             [int(x) for x in label.action["tradeGate"]], dtype=torch.long
         ).unsqueeze(0),
-        "target_trade_share_latent": torch.tensor(
-            [math.log(ts / (1.0 - ts))], dtype=torch.float32
-        ),
+        "target_trade_share_latent": torch.tensor([math.log(ts / (1.0 - ts))], dtype=torch.float32),
         "label_specialty_valid": torch.tensor([label.specialty_valid], dtype=torch.bool),
         "label_activity_role_valid": torch.tensor(
             label.activity_role_valid, dtype=torch.bool
         ).unsqueeze(0),
         "label_movement_valid": torch.tensor([label.movement_valid], dtype=torch.bool),
         "label_fission_valid": torch.tensor([label.fission_valid], dtype=torch.bool),
-        "label_trade_gate_valid": torch.tensor(
-            label.trade_gate_valid, dtype=torch.bool
-        ).unsqueeze(0),
+        "label_trade_gate_valid": torch.tensor(label.trade_gate_valid, dtype=torch.bool).unsqueeze(
+            0
+        ),
         "label_trade_value_active": torch.tensor(
             label.trade_value_active, dtype=torch.bool
         ).unsqueeze(0),
@@ -1060,7 +1069,9 @@ class RandomizedTailSettings:
         if state.get("method") != RETURN_TAIL_RANDOMIZED:
             raise ValueError("unsupported return tail settings")
         return cls(
-            int(state["draws"]), float(state["rho"]), int(state["cap"]),
+            int(state["draws"]),
+            float(state["rho"]),
+            int(state["cap"]),
             int(state["schedule_seed_base"]),
         )
 
@@ -1233,7 +1244,9 @@ class TeacherTailState:
                 for c, heads in self.path_rewards.items()
             ],
             "path_years": [[int(c), [float(v) for v in vs]] for c, vs in self.path_years.items()],
-            "path_terminal": [[int(c), [bool(v) for v in vs]] for c, vs in self.path_terminal.items()],
+            "path_terminal": [
+                [int(c), [bool(v) for v in vs]] for c, vs in self.path_terminal.items()
+            ],
             "done": int(self.done),
             "seconds": float(self.seconds),
         }
@@ -1491,9 +1504,7 @@ def record_teacher_transition(
     world_seed = int(world_seed)
     decision_turn = transition.decision_turn
     execution = transition.execution
-    for row, (village, label) in enumerate(
-        zip(transition.live, transition.labels, strict=True)
-    ):
+    for row, (village, label) in enumerate(zip(transition.live, transition.labels, strict=True)):
         camp = int(village["camp"])
         if camps is not None and camp not in camps:
             continue
@@ -1542,9 +1553,7 @@ def record_teacher_transition(
                 "reward_population_years": torch.tensor(
                     [transition.rewards[camp]["population_years"]], dtype=torch.float64
                 ),
-                "reward_feasibility": torch.tensor(
-                    [heads["feasibility"]], dtype=torch.float64
-                ),
+                "reward_feasibility": torch.tensor([heads["feasibility"]], dtype=torch.float64),
                 "reward_settlement_guard": torch.tensor(
                     [heads["settlement_guard"]], dtype=torch.float64
                 ),
@@ -1951,8 +1960,10 @@ def normalize_world_tails(
             if key not in dataset:
                 continue
             original = dataset[key]
-            out[key] = (original.reshape(n).double() / row_factor).to(original.dtype).reshape(
-                original.shape
+            out[key] = (
+                (original.reshape(n).double() / row_factor)
+                .to(original.dtype)
+                .reshape(original.shape)
             )
     collection[TAIL_NORMALIZATION_FIELD] = {
         "mode": "world-factor",
@@ -1990,9 +2001,7 @@ def discounted_returns(dataset: Mapping[str, torch.Tensor]) -> dict[str, torch.T
     # Teacher trajectories are (world, camp); rows carrying ``row_trajectory`` >= 0
     # (learner-state teacher continuations) are their own trajectories within it.
     trajectories = (
-        dataset[TRAJECTORY_FIELD].reshape(-1).tolist()
-        if TRAJECTORY_FIELD in dataset
-        else [-1] * n
+        dataset[TRAJECTORY_FIELD].reshape(-1).tolist() if TRAJECTORY_FIELD in dataset else [-1] * n
     )
     groups: dict[tuple[int, int, int], list[int]] = defaultdict(list)
     for index, (world, camp, trajectory) in enumerate(
@@ -2054,7 +2063,9 @@ def _finish_dataset(collections: Sequence[WorldCollection], turns: int) -> dict[
             reasons[key] += int(value)
     valid = dataset["label_specialty_valid"] & keep
     mean_spec = (
-        dataset["target_specialty"][valid].double().mean(dim=0).tolist() if bool(valid.any()) else []
+        dataset["target_specialty"][valid].double().mean(dim=0).tolist()
+        if bool(valid.any())
+        else []
     )
     dataset["collection"] = {
         "label_contract": LABOR_LABEL_CONTRACT,
@@ -2066,10 +2077,10 @@ def _finish_dataset(collections: Sequence[WorldCollection], turns: int) -> dict[
         "full_action_label_valid_rows": int(counters["full_action_label_valid"]),
         "label_unavailable_reasons": dict(sorted(reasons.items())),
         "quarantine": [q for c in collections for q in c.quarantine],
-        "surviving_camps_by_world": {str(c.world_seed): int(c.surviving_camps) for c in collections},
-        "rows_by_world": {
-            str(c.world_seed): len(c.rows) for c in collections
+        "surviving_camps_by_world": {
+            str(c.world_seed): int(c.surviving_camps) for c in collections
         },
+        "rows_by_world": {str(c.world_seed): len(c.rows) for c in collections},
         "decisions_by_world": {str(c.world_seed): int(c.decisions) for c in collections},
         "native_resolves": int(sum(c.native_resolves for c in collections)),
         "mean_specialty_target": mean_spec,
@@ -2308,7 +2319,9 @@ def _batch_loss_and_l1(
 
     # 7. Trade values: valid active groups only.
     value_active = flag("label_trade_value_active", (B, groups)).float()
-    tv_err = (output["trade_value_mean"] - batch_tensors["target_trade_value_latent"].to(device)) ** 2
+    tv_err = (
+        output["trade_value_mean"] - batch_tensors["target_trade_value_latent"].to(device)
+    ) ** 2
     tv_row = (tv_err * value_active).sum(dim=-1) / value_active.sum(dim=-1).clamp(min=1.0)
     tv_w = row_weight * (value_active.sum(dim=-1) > 0).float()
     tv_mean_loss = _weighted_mean(tv_row, tv_w)
@@ -2449,7 +2462,9 @@ def _evaluate_dataset(
             act_l1_sum += act_l1 * count
             total_count += count
             for key, value in components.items():
-                component_sums[key] += value * (1 if key.startswith(("count_", "weight_")) else count)
+                component_sums[key] += value * (
+                    1 if key.startswith(("count_", "weight_")) else count
+                )
 
     denominator = max(1, total_count)
     components = {
@@ -2512,7 +2527,8 @@ def _grad_norm(value: torch.Tensor, params: Sequence[nn.Parameter]) -> float:
     if not value.requires_grad:
         return 0.0
     grads = [
-        g for g in torch.autograd.grad(value, params, retain_graph=True, allow_unused=True)
+        g
+        for g in torch.autograd.grad(value, params, retain_graph=True, allow_unused=True)
         if g is not None
     ]
     if not grads:
@@ -2646,11 +2662,7 @@ def pretrain_labor_actor_bc(
     act_weights: torch.Tensor | None = None
     if inverse_freq_power > 0.0:
         valid = dataset.get("label_specialty_valid")
-        keep = (
-            torch.ones(N, dtype=torch.bool)
-            if valid is None
-            else valid.reshape(N).bool()
-        )
+        keep = torch.ones(N, dtype=torch.bool) if valid is None else valid.reshape(N).bool()
         if "row_quarantined" in dataset:
             keep = keep & ~dataset["row_quarantined"].reshape(N).bool()
         if not bool(keep.any()):
@@ -2961,9 +2973,7 @@ def pretrain_labor_actor_bc(
                     **family_schedule.state_dict(),
                     "epochs_end": float(family_schedule.epoch_offset)
                     + global_step / steps_per_epoch,
-                    "final_multipliers": family_schedule.multipliers(
-                        global_step / steps_per_epoch
-                    ),
+                    "final_multipliers": family_schedule.multipliers(global_step / steps_per_epoch),
                 }
             }
         ),
@@ -3047,9 +3057,7 @@ def require_critic_teacher_dataset(
         admitted.add(SCENARIO_SOURCE_KIND)
         codes_allowed.add(SCENARIO_ROW_SOURCE)
     if (allow_learner_state_continuation or allow_curated_scenarios) and kind == "aggregated":
-        components = {
-            c.get("source_kind") for c in collection.get("component_collections", [])
-        }
+        components = {c.get("source_kind") for c in collection.get("component_collections", [])}
         if not components or not components <= admitted:
             raise ValueError(
                 "pretrain-critic refuses aggregated data with components "
@@ -3283,9 +3291,7 @@ def _critic_validation_set(
     reserved = {int(w) for w in RESERVED_HELDOUT_WORLDS}
     banned = sorted(w for w in worlds if w in SEALED_WORLDS or w in reserved)
     if banned:
-        raise ValueError(
-            f"validation refuses reserved held-out-test or sealed worlds {banned[:5]}"
-        )
+        raise ValueError(f"validation refuses reserved held-out-test or sealed worlds {banned[:5]}")
     returns = discounted_returns(dataset)
     return {
         "dataset": dataset,
@@ -3349,11 +3355,7 @@ class AutoQoLLossWeight:
         q = max(0.0, float(qol_norm))
         p = max(0.0, float(population_weight) * float(population_norm))
         share = (weight * q) / (weight * q + p) if weight * q + p > 0.0 else 0.0
-        ideal = (
-            self.maximum
-            if q <= 0.0
-            else self.target_share / (1.0 - self.target_share) * p / q
-        )
+        ideal = self.maximum if q <= 0.0 else self.target_share / (1.0 - self.target_share) * p / q
         target = self.clamp(ideal) if ideal > 0.0 else self.minimum
         updated = self.clamp(
             math.exp((1.0 - self.ema) * math.log(weight) + self.ema * math.log(target))
@@ -3446,9 +3448,7 @@ class GradNormState:
         g = [max(0.0, float(raw_norms[h])) for h in self.heads]
         big_g = [wi * gi for wi, gi in zip(w, g, strict=True)]
         mean_g = sum(big_g) / len(big_g)
-        ratio = [
-            float(losses[h]) / initial[h] if initial[h] > 0.0 else 1.0 for h in self.heads
-        ]
+        ratio = [float(losses[h]) / initial[h] if initial[h] > 0.0 else 1.0 for h in self.heads]
         mean_ratio = sum(ratio) / len(ratio)
         rate = [r / mean_ratio if mean_ratio > 0.0 else 1.0 for r in ratio]
         target = [mean_g * max(0.0, ri) ** float(self.config.alpha) for ri in rate]
@@ -3691,6 +3691,7 @@ def pretrain_critic_on_dataset(
 
     def privileged_rows(index: torch.Tensor) -> dict[str, torch.Tensor] | None:
         return None if privileged is None else {k: v[index] for k, v in privileged.items()}
+
     task_targets = {name: returns[name][kept] for name in LABOR_OBJECTIVES}
     cost_targets = {name: returns[name][kept] for name in LABOR_COSTS}
     scenario_rows = "row_source" in dataset and bool(
@@ -3702,9 +3703,13 @@ def pretrain_critic_on_dataset(
         # rows the sampling is unchanged (world-balanced).
         from .labor_teacher_data import source_world_balanced_weights
 
-        weights = source_world_balanced_weights(
-            dataset["row_source"].reshape(-1)[kept], dataset["row_world"].reshape(-1)[kept]
-        ).double().numpy()
+        weights = (
+            source_world_balanced_weights(
+                dataset["row_source"].reshape(-1)[kept], dataset["row_world"].reshape(-1)[kept]
+            )
+            .double()
+            .numpy()
+        )
     else:
         weights = world_balanced_weights(dataset["row_world"][kept]).double().numpy()
     family_weighting = (dataset.get("collection") or {}).get("family_weighting")
@@ -3723,7 +3728,10 @@ def pretrain_critic_on_dataset(
         )
         base = weights
         weights = apply_family_weights(
-            base, tags, sources, dataset["row_world"].reshape(-1)[kept].numpy(),
+            base,
+            tags,
+            sources,
+            dataset["row_world"].reshape(-1)[kept].numpy(),
             family_weighting["weights"],
         )
         critic_family_shares = family_share_report(base, weights, tags)
@@ -3732,7 +3740,10 @@ def pretrain_critic_on_dataset(
 
             # Decayed schedule: per-step probabilities from the closed-form weighter.
             critic_weighter = FamilyRowWeighter(
-                base, tags, sources, dataset["row_world"].reshape(-1)[kept].numpy(),
+                base,
+                tags,
+                sources,
+                dataset["row_world"].reshape(-1)[kept].numpy(),
                 family_schedule.weights,
             )
     elif family_schedule is not None:
@@ -3867,10 +3878,7 @@ def pretrain_critic_on_dataset(
             contender_blocks={
                 "global_clip": {
                     "task": task_blocks,
-                    **{
-                        name: [f"cost_encoder:{name}", f"cost_head:{name}"]
-                        for name in LABOR_COSTS
-                    },
+                    **{name: [f"cost_encoder:{name}", f"cost_head:{name}"] for name in LABOR_COSTS},
                 }
             },
             applicable={
@@ -3897,8 +3905,7 @@ def pretrain_critic_on_dataset(
         )
     observed_pop_max = float(
         (
-            task_targets["population_years"]
-            / LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
+            task_targets["population_years"] / LABOR_OBJECTIVE_REFERENCE_SCALES["population_years"]
         ).max()
     )
 
@@ -3911,9 +3918,7 @@ def pretrain_critic_on_dataset(
         sat_early = early_decision_mask(dataset, sat_thresholds.saturation_early_decisions)[kept]
 
     def saturation_summary() -> dict[str, Any]:
-        fraction = task_targets["qol_years"].reshape(-1).double() / float(
-            qol_head.discount_weight
-        )
+        fraction = task_targets["qol_years"].reshape(-1).double() / float(qol_head.discount_weight)
         return _qol_saturation_summary(
             task_critic,
             qol_logits(kept),
@@ -3942,17 +3947,13 @@ def pretrain_critic_on_dataset(
         previous = task_targets["qol_years"]
         every = torch.arange(n)
         values = task_critic.expectation("qol_years", qol_logits(every))
-        task_targets["qol_years"] = qol_td_lambda_targets(dataset, values, qol_head.td_lambda)[
-            kept
-        ]
+        task_targets["qol_years"] = qol_td_lambda_targets(dataset, values, qol_head.td_lambda)[kept]
         replaced_mc = mc_pending[0]
         mc_pending[0] = False
         if monitor is not None:
             # The first refresh replaces the Monte Carlo return; its change is
             # recorded but does not count toward the growth alarm.
-            error = float(
-                (values[kept].double() - task_targets["qol_years"].double()).abs().mean()
-            )
+            error = float((values[kept].double() - task_targets["qol_years"].double()).abs().mean())
             # Per-row admissible bound and the reward / discount / head-range checks
             # (user decision 27 Oct; replaces the flat [0, W] bound).
             admissibility = qol_td_admissibility(
@@ -4012,7 +4013,11 @@ def pretrain_critic_on_dataset(
     epoch_loss_sum: torch.Tensor | None = None
     epoch_loss_steps = 0
     best_validation: dict[str, Any] = {
-        "epoch": None, "step": None, "total": None, "task_state": None, "cost_state": None,
+        "epoch": None,
+        "step": None,
+        "total": None,
+        "task_state": None,
+        "cost_state": None,
         "per_head": {},
     }
 
@@ -4093,11 +4098,7 @@ def pretrain_critic_on_dataset(
                 if k not in ("qol_years_monte_carlo", "qol_excess_bce")
             },
             "qol_target": "td-lambda" if td_lambda else "monte-carlo",
-            **(
-                {"qol_years_monte_carlo": heads_mean["qol_years_monte_carlo"]}
-                if td_lambda
-                else {}
-            ),
+            **({"qol_years_monte_carlo": heads_mean["qol_years_monte_carlo"]} if td_lambda else {}),
             **(
                 {"qol_excess_bce": heads_mean["qol_excess_bce"]}
                 if "qol_excess_bce" in heads_mean
@@ -4120,8 +4121,12 @@ def pretrain_critic_on_dataset(
                 total=float(record["total"]),
                 # Cloned: cpu_copy returns CPU tensors as they are (they would alias the
                 # live parameters).
-                task_state={k: v.detach().cpu().clone() for k, v in task_critic.state_dict().items()},
-                cost_state={k: v.detach().cpu().clone() for k, v in cost_critics.state_dict().items()},
+                task_state={
+                    k: v.detach().cpu().clone() for k, v in task_critic.state_dict().items()
+                },
+                cost_state={
+                    k: v.detach().cpu().clone() for k, v in cost_critics.state_dict().items()
+                },
             )
 
     generator = rng if rng is not None else np.random.default_rng(0)
@@ -4196,6 +4201,7 @@ def pretrain_critic_on_dataset(
 
     def schedule_progress() -> float:
         return steps / steps_per_epoch
+
     resume = None
     if resume_path is not None and os.path.exists(resume_path):
         resume = torch.load(resume_path, map_location="cpu", weights_only=True)
@@ -4229,11 +4235,7 @@ def pretrain_critic_on_dataset(
             mc_pending[0] = True  # Monte Carlo targets until the first scheduled refresh
         elif td_lambda:
             refresh_td_targets(0)
-        saturation_initial = (
-            None
-            if qol_head is None
-            else saturation_summary()
-        )
+        saturation_initial = None if qol_head is None else saturation_summary()
         init_task, init_cost = losses()
         init_excess = excess_sum[0]
         first_epoch, first_start, epoch_state, steps = 0, 0, None, 0
@@ -4270,8 +4272,10 @@ def pretrain_critic_on_dataset(
             monitor.load_state_dict(resume["monitor"])
         if validation is not None and resume.get("validation_epoch") is not None:
             loss_sum, epoch_loss_steps = resume["validation_epoch"]
-            epoch_loss_sum = None if loss_sum is None else torch.tensor(
-                float(loss_sum), dtype=torch.float64, device=device
+            epoch_loss_sum = (
+                None
+                if loss_sum is None
+                else torch.tensor(float(loss_sum), dtype=torch.float64, device=device)
             )
             if validation_history is not None and resume.get("validation_history"):
                 validation_history.load_state_dict(resume["validation_history"])
@@ -4378,7 +4382,9 @@ def pretrain_critic_on_dataset(
                 raw = {}
                 for name in LABOR_OBJECTIVES:
                     grads = torch.autograd.grad(
-                        task_heads[name].mean(), gradnorm_params, retain_graph=True,
+                        task_heads[name].mean(),
+                        gradnorm_params,
+                        retain_graph=True,
                         allow_unused=True,
                     )
                     raw[name] = math.sqrt(
@@ -4396,7 +4402,9 @@ def pretrain_critic_on_dataset(
                     gradnorm_saved = gradnorm.snapshot()
                     next_weights = gradnorm.commit(proposal)
                     gradnorm_entry = {
-                        "step": int(steps) + 1, **proposal, "weights_next": next_weights
+                        "step": int(steps) + 1,
+                        **proposal,
+                        "weights_next": next_weights,
                     }
             if monitor is None:
                 if not torch.isfinite(loss):
@@ -4448,6 +4456,7 @@ def pretrain_critic_on_dataset(
                 head_losses = {name: value.mean() for name, value in task_heads.items()}
                 head_losses["task"] = task_loss
                 head_losses.update({name: value.mean() for name, value in cost_heads.items()})
+
                 def weight_hook(
                     effective: Mapping[str, Mapping[str, float]],
                     raw: Mapping[str, Mapping[str, float]],
@@ -4591,9 +4600,7 @@ def pretrain_critic_on_dataset(
                 if gradnorm is None
                 else {
                     "gradnorm": loss_balancing.state_dict(),
-                    "initial_ratio": {
-                        k: float(v) for k, v in (task_loss_weights or {}).items()
-                    },
+                    "initial_ratio": {k: float(v) for k, v in (task_loss_weights or {}).items()},
                     "shared_layer": "task_encoder.trunk last Linear weight",
                     "initial_losses": None
                     if gradnorm.initial_losses is None

@@ -10,7 +10,7 @@ Held-out partition: whole root worlds, never single entries. Entries whose world
 (``held_out``) are reserved for ``daughter_eval`` and never drawn for training. Daughters of one world and turn share a
 content-addressed snapshot, so an id-based split would put identical states on both sides; a seed split cannot, and
 ``check_partition`` asserts that no snapshot file appears in both partitions.
-"""
+"""  # noqa: E501 - docstring/prose line kept verbatim
 
 from __future__ import annotations
 
@@ -26,12 +26,14 @@ import numpy as np
 
 CAP = 500
 CAPTURES_PER_WORLD = 3  # a reservoir sample over each world rollout's founded daughters
-HOLDOUT_EVERY = 10  # entries from worlds with seed % HOLDOUT_EVERY == 0 are the held-out evaluation family
+HOLDOUT_EVERY = (
+    10  # entries from worlds with seed % HOLDOUT_EVERY == 0 are the held-out evaluation family
+)
 
 
 def held_out(entry: dict[str, Any]) -> bool:
     """The held-out family: the entry's root world seed (bank starts keep their root seed, so a capture made inside a
-    bank world stays in its root's partition)."""
+    bank world stays in its root's partition)."""  # noqa: E501 - docstring/prose line kept verbatim
     return int(entry["seed"]) % HOLDOUT_EVERY == 0
 
 
@@ -40,13 +42,15 @@ def check_partition(entries: list[dict[str, Any]]) -> None:
     train = {e["file"] for e in entries if not held_out(e)}
     shared = train & {e["file"] for e in entries if held_out(e)}
     if shared:
-        raise AssertionError(f"daughter bank leak: snapshots in both partitions: {sorted(shared)[:3]}")
+        raise AssertionError(
+            f"daughter bank leak: snapshots in both partitions: {sorted(shared)[:3]}"
+        )
 
 
 class Reservoir:
     """Reservoir sample (algorithm R) of ``size`` items over a stream of founded daughters, so a world's captures
     spread over the whole episode instead of its first foundings. ``offer`` returns the slot the new item takes (or
-    None: not kept) and the item it evicts (or None). The keyed generator makes it deterministic."""
+    None: not kept) and the item it evicts (or None). The keyed generator makes it deterministic."""  # noqa: E501 - docstring/prose line kept verbatim
 
     def __init__(self, size: int, rng: np.random.Generator) -> None:
         self.size, self.rng, self.seen, self.items = size, rng, 0, []
@@ -75,21 +79,34 @@ class DaughterBank:
             return []
         entries = [json.loads(line) for line in self.index.read_text().splitlines() if line.strip()]
         from .protocol import seeds
+
         seeds([entry["seed"] for entry in entries], "daughter bank index")
         return entries
 
     def training_entries(self) -> list[dict[str, Any]]:
-        entries = self.entries(); check_partition(entries)
+        entries = self.entries()
+        check_partition(entries)
         return [e for e in entries if not held_out(e)]
 
     def evaluation_entries(self) -> list[dict[str, Any]]:
-        entries = self.entries(); check_partition(entries)
+        entries = self.entries()
+        check_partition(entries)
         return [e for e in entries if held_out(e)]
 
-    def add(self, snapshot: str | bytes, seed: int, mask: int, turn: int, society: int, camp: int, parent_society: int,
-            movement: bool = False) -> dict[str, Any]:
-        """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""
+    def add(
+        self,
+        snapshot: str | bytes,
+        seed: int,
+        mask: int,
+        turn: int,
+        society: int,
+        camp: int,
+        parent_society: int,
+        movement: bool = False,
+    ) -> dict[str, Any]:
+        """Store one capture (base64 from the bridge, or raw bytes) and rotate the bank to its cap."""  # noqa: E501 - docstring/prose line kept verbatim
         from .protocol import seeds
+
         seeds([seed], "daughter capture")
         raw = base64.b64decode(snapshot) if isinstance(snapshot, str) else bytes(snapshot)
         entries = self.entries()
@@ -97,33 +114,48 @@ class DaughterBank:
         name = hashlib.sha1(raw).hexdigest()[:20] + ".snap"
         if not (self.directory / name).exists():
             tmp = self.directory / (name + ".tmp")
-            tmp.write_bytes(zlib.compress(raw, 6)); os.replace(tmp, self.directory / name)
-        entry = {"id": next_id, "seed": int(seed), "mask": int(mask), "movement": bool(movement), "turn": int(turn),
-                 "society": int(society), "camp": int(camp), "parent_society": int(parent_society), "file": name,
-                 "snapshot_sha256": hashlib.sha256(raw).hexdigest()}
+            tmp.write_bytes(zlib.compress(raw, 6))
+            os.replace(tmp, self.directory / name)
+        entry = {
+            "id": next_id,
+            "seed": int(seed),
+            "mask": int(mask),
+            "movement": bool(movement),
+            "turn": int(turn),
+            "society": int(society),
+            "camp": int(camp),
+            "parent_society": int(parent_society),
+            "file": name,
+            "snapshot_sha256": hashlib.sha256(raw).hexdigest(),
+        }
         entries.append(entry)
-        dropped, entries = entries[:-self.cap] if len(entries) > self.cap else [], entries[-self.cap:]
+        dropped, entries = (
+            entries[: -self.cap] if len(entries) > self.cap else [],
+            entries[-self.cap :],
+        )
         self._write(entries)
         kept = {e["file"] for e in entries}
-        for e in ([] if getattr(self, "retain_snapshots", False) else dropped):
+        for e in [] if getattr(self, "retain_snapshots", False) else dropped:
             if e["file"] in kept:
                 continue
-            try:
+            try:  # noqa: SIM105 - explicit try/except kept verbatim
                 (self.directory / e["file"]).unlink()
             except FileNotFoundError:
                 pass
         return entry
 
     def remove(self, entry_id: int) -> None:
-        """Drop one entry (a reservoir eviction) and its file unless another entry shares it. Absent ids are ignored."""
+        """Drop one entry (a reservoir eviction) and its file unless another entry shares it. Absent ids are ignored."""  # noqa: E501 - docstring/prose line kept verbatim
         entries = self.entries()
         gone = [e for e in entries if int(e["id"]) == int(entry_id)]
         if not gone:
             return
         entries = [e for e in entries if int(e["id"]) != int(entry_id)]
         self._write(entries)
-        if not getattr(self, "retain_snapshots", False) and gone[0]["file"] not in {e["file"] for e in entries}:
-            try:
+        if not getattr(self, "retain_snapshots", False) and gone[0]["file"] not in {
+            e["file"] for e in entries
+        }:
+            try:  # noqa: SIM105 - explicit try/except kept verbatim
                 (self.directory / gone[0]["file"]).unlink()
             except FileNotFoundError:
                 pass
@@ -137,8 +169,10 @@ class DaughterBank:
                 return e
         raise KeyError(f"daughter bank entry {entry_id} is not in {self.directory}")
 
-    def sample(self, rng: np.random.Generator, masks: set[int] | None = None) -> dict[str, Any] | None:
-        """A uniformly drawn training entry (``masks``: only those withheld masks), or None when there is none."""
+    def sample(
+        self, rng: np.random.Generator, masks: set[int] | None = None
+    ) -> dict[str, Any] | None:
+        """A uniformly drawn training entry (``masks``: only those withheld masks), or None when there is none."""  # noqa: E501 - docstring/prose line kept verbatim
         pool = [e for e in self.training_entries() if masks is None or int(e["mask"]) in masks]
         return pool[int(rng.integers(len(pool)))] if pool else None
 

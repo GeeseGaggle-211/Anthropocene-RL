@@ -26,8 +26,10 @@ def pilot_bypass_history(state: Mapping[str, Any] | None) -> list[dict[str, Any]
     if not isinstance(state, Mapping) or PILOT_BYPASS_KEY not in state:
         return []
     history = state[PILOT_BYPASS_KEY]
-    if not isinstance(history, list) or not history or any(
-        not isinstance(entry, Mapping) for entry in history
+    if (
+        not isinstance(history, list)
+        or not history
+        or any(not isinstance(entry, Mapping) for entry in history)
     ):
         raise ValueError(f"checkpoint {PILOT_BYPASS_KEY} is malformed")
     return [copy.deepcopy(dict(entry)) for entry in history]
@@ -155,7 +157,11 @@ def _load_trainer(path: Any) -> tuple[Any, ...]:
     _, actor, task, costs, normalizer = _models_from_checkpoint(state)
     behavior = labor_behavior_configuration(labor_checkpoint_personality(state))
     return (
-        state, actor, task, costs, normalizer,
+        state,
+        actor,
+        task,
+        costs,
+        normalizer,
         behavior_policy_digest(actor, behavior),
         labor_critic_digest(task, costs),
         _normalization_digest(normalizer),
@@ -237,7 +243,10 @@ def pilot_check_rollout(
         raise ValueError("pilot rollout belongs to another checkpoint")
     if not batch.behavior_policy_digest == meta["behaviorPolicyDigest"] == policy:
         raise ValueError("pilot rollout is not on-policy for the checkpoint")
-    if batch.advantage_critic_digest != critic or batch.normalization_binding_digest != normalization:
+    if (
+        batch.advantage_critic_digest != critic
+        or batch.normalization_binding_digest != normalization
+    ):
         raise ValueError("pilot rollout critic/normalizer binding differs from the checkpoint")
     if meta.get("resetOptions") != dict(reset) or meta.get("resetOptionsSource") != "explicit":
         raise ValueError(f"pilot rollout world options {meta.get('resetOptions')} != {dict(reset)}")
@@ -249,7 +258,7 @@ def pilot_check_rollout(
         raise ValueError(f"pilot rollout worlds {missing} produced no decisions")
     return {
         "parents": int(batch.parent_count),
-        "retries": int(len(batch.retry_parent)),
+        "retries": len(batch.retry_parent),
         "parentsPerWorld": {str(w): per_world[int(w)] for w in worlds},
         "decisionTurnsPerWorld": {
             str(w): len({r["turn"] for r in rows if int(r["world"]) == int(w)}) for w in worlds
@@ -289,8 +298,8 @@ def pilot_check_anchor(
         "role": role,
         "rows": len(data),
         "independentUnits": sorted(set(data.independent_unit_ids.tolist())),
-        "rankRows": 0 if ranking is None else int(len(ranking.group_ids)),
-        "rankGroups": 0 if ranking is None else int(len(set(ranking.group_ids.tolist()))),
+        "rankRows": 0 if ranking is None else len(ranking.group_ids),
+        "rankGroups": 0 if ranking is None else len(set(ranking.group_ids.tolist())),
         "targetsAvailable": {
             head: int(mask.sum()) for head, mask in sorted(data.target_masks.items())
         },
@@ -307,9 +316,15 @@ def calibration_gate_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         heads[name] = {
             key: head.get(key)
             for key in (
-                "pass", "status", "rows", "coveragePass", "magnitudePass",
-                "zeroTargetMagnitudePass", "targetNearZero",
-                "normalizedConservativeMeanAbsoluteError", "normalizedConservativeAbsoluteBias",
+                "pass",
+                "status",
+                "rows",
+                "coveragePass",
+                "magnitudePass",
+                "zeroTargetMagnitudePass",
+                "targetNearZero",
+                "normalizedConservativeMeanAbsoluteError",
+                "normalizedConservativeAbsoluteBias",
                 "normalizedEqualIndependentUnitBias",
             )
             if key in head
@@ -317,8 +332,12 @@ def calibration_gate_summary(report: Mapping[str, Any]) -> dict[str, Any]:
         heads[name]["ranking"] = {
             key: ranking.get(key)
             for key in (
-                "status", "required", "informativeIndependentUnits",
-                "equalIndependentUnitAccuracy", "uncertainTargetPairs", "pairCount",
+                "status",
+                "required",
+                "informativeIndependentUnits",
+                "equalIndependentUnitAccuracy",
+                "uncertainTargetPairs",
+                "pairCount",
             )
             if key in ranking
         }
@@ -345,7 +364,9 @@ def pilot_check_calibration(report_path: Any, checkpoint: Any, anchor: Any) -> d
     report = json.loads(Path(report_path).read_text(encoding="utf-8"))
     if report.get("kind") != "model9-labor-value-calibration-report-v1":
         raise ValueError("not a labor calibration report")
-    if report.get("dataRole") != "actor-gate" or report.get("dataSha256") != checkpoint_hash(anchor):
+    if report.get("dataRole") != "actor-gate" or report.get("dataSha256") != checkpoint_hash(
+        anchor
+    ):
         raise ValueError("pilot calibration report scores another actor-gate anchor")
     if report.get("currentPolicyDigest") != policy or report.get("sourceCriticDigest") != critic:
         raise ValueError("pilot calibration report scores another checkpoint")
@@ -410,13 +431,11 @@ def pilot_summary(
         anchors[label] = {
             "rows": len(data),
             "independentUnits": len(set(data.independent_unit_ids.tolist())),
-            "rankRows": 0 if ranking is None else int(len(ranking.group_ids)),
+            "rankRows": 0 if ranking is None else len(ranking.group_ids),
         }
     gate = None
     if calibration is not None:
-        gate = calibration_gate_summary(
-            json.loads(Path(calibration).read_text(encoding="utf-8"))
-        )
+        gate = calibration_gate_summary(json.loads(Path(calibration).read_text(encoding="utf-8")))
     if "attemptedSteps" not in actor:
         mode = "closed-critic-only"
     else:
@@ -424,7 +443,10 @@ def pilot_summary(
     return {
         "schema": PILOT_SUMMARY_SCHEMA,
         "iteration": int(iteration),
-        "checkpointIteration": {"in": int(state_in["iteration"]), "out": int(state_out["iteration"])},
+        "checkpointIteration": {
+            "in": int(state_in["iteration"]),
+            "out": int(state_out["iteration"]),
+        },
         "sha256": {
             "checkpointIn": checkpoint_hash(checkpoint_in),
             "checkpointOut": checkpoint_hash(checkpoint_out),
@@ -434,7 +456,7 @@ def pilot_summary(
             "calibration": None if calibration is None else checkpoint_hash(calibration),
         },
         "rolloutParents": int(batch.parent_count),
-        "rolloutRetries": int(len(batch.retry_parent)),
+        "rolloutRetries": len(batch.retry_parent),
         "anchors": anchors,
         "gate": gate,
         "actorGateMode": mode,
@@ -526,31 +548,44 @@ def _cli(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "plan":
         result = pilot_plan(
-            args.iteration, rollout_worlds=args.rollout_worlds,
-            train_anchor_worlds=args.train_anchor_worlds, gate_worlds=args.gate_worlds,
+            args.iteration,
+            rollout_worlds=args.rollout_worlds,
+            train_anchor_worlds=args.train_anchor_worlds,
+            gate_worlds=args.gate_worlds,
         )
     elif args.command == "preflight":
         result = pilot_preflight(
-            args.checkpoint, json.loads(args.plan.read_text(encoding="utf-8")),
-            expected_iteration=args.expected_iteration, anchor_paths=args.anchor_paths,
+            args.checkpoint,
+            json.loads(args.plan.read_text(encoding="utf-8")),
+            expected_iteration=args.expected_iteration,
+            anchor_paths=args.anchor_paths,
         )
     elif args.command == "check-rollout":
         result = pilot_check_rollout(
-            args.rollout, args.checkpoint, worlds=worlds(args.worlds), turns=args.turns,
+            args.rollout,
+            args.checkpoint,
+            worlds=worlds(args.worlds),
+            turns=args.turns,
             reset=reset(),
         )
     elif args.command == "check-anchor":
         result = pilot_check_anchor(
-            args.anchor, args.checkpoint, role=args.role, worlds=worlds(args.worlds),
+            args.anchor,
+            args.checkpoint,
+            role=args.role,
+            worlds=worlds(args.worlds),
             reset=reset(),
         )
     elif args.command == "check-calibration":
         result = pilot_check_calibration(args.report, args.checkpoint, args.anchor)
     else:
         result = pilot_summary(
-            iteration=args.iteration, checkpoint_in=args.checkpoint_in,
-            checkpoint_out=args.checkpoint_out, rollout=args.rollout,
-            train_anchor=args.train_anchor, gate_anchor=args.gate_anchor,
+            iteration=args.iteration,
+            checkpoint_in=args.checkpoint_in,
+            checkpoint_out=args.checkpoint_out,
+            rollout=args.rollout,
+            train_anchor=args.train_anchor,
+            gate_anchor=args.gate_anchor,
             calibration=args.calibration,
             stage_seconds=json.loads(args.stage_seconds.read_text(encoding="utf-8")),
             bypass_expected=args.bypass_expected,

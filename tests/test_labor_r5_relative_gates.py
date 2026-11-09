@@ -24,9 +24,8 @@ from test_labor_qol_encoder import _dataset as _fit_dataset
 from test_labor_qol_encoder import _pair
 from test_labor_r5_acceptance import _evidence, _receipt
 
-from anthropocene_rl.autonomous_v7 import contracts
+from anthropocene_rl.autonomous_v7 import contracts, labor_bc
 from anthropocene_rl.autonomous_v7 import labor_advantage as la
-from anthropocene_rl.autonomous_v7 import labor_bc
 from anthropocene_rl.autonomous_v7 import labor_pretrain_eval as pe
 from anthropocene_rl.autonomous_v7 import labor_r5_acceptance as ra
 from anthropocene_rl.autonomous_v7 import labor_training as lt
@@ -135,7 +134,13 @@ def test_ordering_is_world_balanced_and_strata_take_the_earlier_row() -> None:
     traj = worlds.copy()
     position = np.concatenate([np.arange(10), np.arange(10)])
     report = pe.within_trajectory_ordering(
-        values, target, traj, position, worlds, margin=0.0, min_lag=1,
+        values,
+        target,
+        traj,
+        position,
+        worlds,
+        margin=0.0,
+        min_lag=1,
         strata={"all": np.ones(20, bool), "first": position < 2},
     )
     assert report["all"]["accuracy"] == pytest.approx(0.5)
@@ -198,11 +203,12 @@ def test_combined_variant_is_the_ppo_combination() -> None:
 
 def test_relative_report_on_a_dataset_and_combined_ordering() -> None:
     data = _trajectories(
-        [(90100 + w, c, list(range(12)), (), TAIL_RANDOMIZED, 200.0) for w in range(3)
-         for c in (1, 2)],
-        rewards=torch.tensor(
-            np.random.default_rng(1).uniform(0, 20, 72), dtype=torch.float64
-        ),
+        [
+            (90100 + w, c, list(range(12)), (), TAIL_RANDOMIZED, 200.0)
+            for w in range(3)
+            for c in (1, 2)
+        ],
+        rewards=torch.tensor(np.random.default_rng(1).uniform(0, 20, 72), dtype=torch.float64),
     )
     # Population-years on its own scale (the 0.02 W QoL-equivalent margin is ~16,000).
     data["reward_population_years"] = 5000.0 * data["reward_qol_years"]
@@ -227,22 +233,33 @@ def test_relative_report_on_a_dataset_and_combined_ordering() -> None:
     assert v["population_years"]["all_pairs"]["all"]["accuracy"] == 0.0
     assert v["combined"]["all_pairs"]["all"]["accuracy"] == 0.0
     qol_heavy = pe.relative_ordering_report(
-        data, rows, mixed, returns, strata, weight=W,
+        data,
+        rows,
+        mixed,
+        returns,
+        strata,
+        weight=W,
         personality=LaborPersonality(qol_years=0.9, population_years=0.1),
     )
     assert qol_heavy["variants"]["combined"]["all_pairs"]["all"]["accuracy"] == 1.0
 
 
 def test_constant_predictor_reference_matches_a_constant_critic() -> None:
-    data = _trajectories([(90100 + w, 1, list(range(15)), (), TAIL_RANDOMIZED, 300.0)
-                          for w in range(3)])
+    data = _trajectories(
+        [(90100 + w, 1, list(range(15)), (), TAIL_RANDOMIZED, 300.0) for w in range(3)]
+    )
     n = int(data["row_world"].shape[0])
     rows = np.arange(n)
     mc = discounted_returns(data)["qol_years"].double().numpy()
     strata = {"all": np.ones(n, bool)}
     c = 250.0
     with_ref = pe.qol_nstep_calibration(
-        data, rows, np.full(n, 123.0), mc, strata, pe.frozen_qol_reference(),
+        data,
+        rows,
+        np.full(n, 123.0),
+        mc,
+        strata,
+        pe.frozen_qol_reference(),
         constant={"value": c, "source": "test"},
     )
     as_critic = pe.qol_nstep_calibration(
@@ -262,8 +279,9 @@ def test_constant_predictor_reference_matches_a_constant_critic() -> None:
 
 
 def test_td0_residual_is_zero_for_the_exact_critic_and_excludes_the_living_end() -> None:
-    data = _trajectories([(90100 + w, 1, list(range(10)), (), TAIL_RANDOMIZED, 0.0)
-                          for w in range(3)])
+    data = _trajectories(
+        [(90100 + w, 1, list(range(10)), (), TAIL_RANDOMIZED, 0.0) for w in range(3)]
+    )
     n = int(data["row_world"].shape[0])
     v_true = np.full(n, 10.0 / (1.0 - GAMMA))
     keep = np.ones(n, bool)
@@ -277,7 +295,8 @@ def test_td0_residual_is_zero_for_the_exact_critic_and_excludes_the_living_end()
     assert ref["bias"] == pytest.approx((100.0 * (1 - GAMMA) - 10.0) / 43.152)
 
 
-# --- 1b. acceptance: relative-v1 verdicts; old evidence keeps gate v2 ------------------------------
+# --- 1b. acceptance: relative-v1 verdicts; old evidence keeps gate v2
+# ------------------------------
 
 
 def _relative(acc_a=0.75, acc_b=0.70, pairs=5000, worlds=8):
@@ -290,8 +309,12 @@ def _relative(acc_a=0.75, acc_b=0.70, pairs=5000, worlds=8):
     return {
         "min_lag": 5,
         "variants": {
-            v: {"margin": 1.0, "lag_ge_min": section(acc_a), "all_pairs": section(acc_b),
-                "all_pairs_no_margin": {"all": {"accuracy": 0.6}}}
+            v: {
+                "margin": 1.0,
+                "lag_ge_min": section(acc_a),
+                "all_pairs": section(acc_b),
+                "all_pairs_no_margin": {"all": {"accuracy": 0.6}},
+            }
             for v in ra.RELATIVE_VARIANTS
         },
     }
@@ -322,16 +345,23 @@ def test_relative_v1_demotes_absolute_qol_checks_and_gates_relative_ones() -> No
     ids = {c["id"] for c in good["primary"]}
     # Only the combined elder reward gates (a)/(b); the per-head variants are diagnostics.
     assert {"rel:a:lag-ordering:combined", "rel:b:all-pairs-ordering:combined"} <= ids
-    assert not any(i.endswith((":qol_years", ":population_years")) for i in ids if
-                   i.startswith("rel:"))
+    assert not any(
+        i.endswith((":qol_years", ":population_years")) for i in ids if i.startswith("rel:")
+    )
     heads = {d["id"]: d for d in good["diagnostics"]["relative_heads"]}
     assert set(heads) == {
-        f"rel:{g}:{v}" for g in ("a:lag-ordering", "b:all-pairs-ordering")
+        f"rel:{g}:{v}"
+        for g in ("a:lag-ordering", "b:all-pairs-ordering")
         for v in ("qol_years", "population_years")
     }
     assert all(d["gating"] is False for d in heads.values())
-    assert {"rel:c:td0-abs-bias", "rel:c:td0-mae", "qol:a:same-village-ranking",
-            "stability:critic:td_divergence", "a:false_improvement"} <= ids
+    assert {
+        "rel:c:td0-abs-bias",
+        "rel:c:td0-mae",
+        "qol:a:same-village-ranking",
+        "stability:critic:td_divergence",
+        "a:false_improvement",
+    } <= ids
     assert not any(i.startswith(("qol:b:nmae", "qol:b:abs-bias", "qol:c:")) for i in ids)
     assert "gap:qol_years:nmae" not in ids
     demoted = {d["id"] for d in good["diagnostics"]["demoted_gate_v2_checks"]}
@@ -341,19 +371,22 @@ def test_relative_v1_demotes_absolute_qol_checks_and_gates_relative_ones() -> No
     bad_abs["calibration"]["calibration"]["heads"]["qol_years"]["all"]["nmae"] = 0.5
     checks = ra.fit_checks(bad_abs)
     assert checks["primary_status"] == "PASS"
-    row = [d for d in checks["diagnostics"]["demoted_gate_v2_checks"]
-           if d["id"] == "qol:b:nmae:all"][0]
+    row = [  # noqa: RUF015 - IndexError on empty must not become StopIteration
+        d for d in checks["diagnostics"]["demoted_gate_v2_checks"] if d["id"] == "qol:b:nmae:all"
+    ][0]
     assert row["would_have_been"] == "FAIL"
     # Relative failures fail; thin coverage holds; missing relative evidence holds.
     assert ra.fit_checks(_relative_evidence(acc_a=0.69))["primary_status"] == "FAIL"
     # A failing per-head variant alone does not fail the fit.
     head_only = _relative_evidence()
-    head_only["calibration"]["calibration"]["relative"]["variants"]["qol_years"][
-        "lag_ge_min"]["all"]["accuracy"] = 0.5
+    head_only["calibration"]["calibration"]["relative"]["variants"]["qol_years"]["lag_ge_min"][
+        "all"
+    ]["accuracy"] = 0.5
     checks = ra.fit_checks(head_only)
     assert checks["primary_status"] == "PASS"
     assert {d["id"]: d for d in checks["diagnostics"]["relative_heads"]}[
-        "rel:a:lag-ordering:qol_years"]["would_have_been"] == "FAIL"
+        "rel:a:lag-ordering:qol_years"
+    ]["would_have_been"] == "FAIL"
     assert ra.fit_checks(_relative_evidence(td0=(0.005, 0.5)))["primary_status"] == "FAIL"
     thin = _relative_evidence()
     thin["calibration"]["calibration"]["relative"] = _relative(pairs=50)
@@ -373,8 +406,13 @@ def test_relative_thresholds_are_preregistered_and_marked() -> None:
     assert tuple(p["rel_variants"]["value"]) == ra.RELATIVE_GATED_VARIANTS == ("combined",)
     assert p["rel_all_pairs_ordering_min"]["value"] == 0.65
     assert p["rel_all_pairs_ordering_min"]["status"].startswith("approved")
-    for name in ("rel_td0_abs_bias_max", "rel_td0_mae_max", "adv_sign_agreement_min",
-                 "adv_slope_range", "adv_std_ratio_range"):
+    for name in (
+        "rel_td0_abs_bias_max",
+        "rel_td0_mae_max",
+        "adv_sign_agreement_min",
+        "adv_slope_range",
+        "adv_std_ratio_range",
+    ):
         assert p[name]["status"].startswith("proposed")
     assert p["a_ranking_min"]["value"] == 0.70  # (d) unchanged
 
@@ -408,8 +446,9 @@ def _level_world(trajectories=300, length=20, seed=0):
     levels = rng.uniform(2.0, 18.0, trajectories)
     spec, rewards, truth = [], [], []
     for index, m in enumerate(levels):
-        spec.append((90100 + index % 6, index, list(range(length)), (length - 1,),
-                     TAIL_NONE_TERMINAL, 0.0))
+        spec.append(
+            (90100 + index % 6, index, list(range(length)), (length - 1,), TAIL_NONE_TERMINAL, 0.0)
+        )
         rewards.extend(m + rng.normal(0.0, 1.0, length))
         truth.extend(m * sum(GAMMA**j for j in range(length - p)) for p in range(length))
     data = _trajectories(spec, rewards=torch.tensor(rewards, dtype=torch.float64))
@@ -422,8 +461,12 @@ def _level_world(trajectories=300, length=20, seed=0):
 def _magnitude(data, qol_values):
     n = len(qol_values)
     returns = {k: v.double().numpy() for k, v in discounted_returns(data).items()}
-    values = {"qol_years": qol_values, "population_years": np.zeros(n),
-              "feasibility": np.zeros(n), "settlement_guard": np.zeros(n)}
+    values = {
+        "qol_years": qol_values,
+        "population_years": np.zeros(n),
+        "feasibility": np.zeros(n),
+        "settlement_guard": np.zeros(n),
+    }
     turns = data["row_turn"].numpy()
     strata = {"all": np.ones(n, bool), "early_turns": turns < 10, "late_turns": turns >= 10}
     return pe.advantage_magnitude_report(data, np.arange(n), values, returns, strata)
@@ -458,8 +501,10 @@ def test_advantage_magnitude_perfect_scaled_and_constant_critics() -> None:
     # Documented limitation: A_MC = G - V shares the critic's V, so a constant critic (whose
     # A_hat and A_MC both carry the hidden level) still agrees on sign at least as often as
     # the exact critic once centred. The sign check is not a ground-truth advantage test.
-    assert (constant["ks"]["5"]["all"]["sign_agreement_world_centred"]
-            >= perfect["ks"]["5"]["all"]["sign_agreement_world_centred"])
+    assert (
+        constant["ks"]["5"]["all"]["sign_agreement_world_centred"]
+        >= perfect["ks"]["5"]["all"]["sign_agreement_world_centred"]
+    )
     # Only QoL moves: it carries the whole combined spread, predicted and realised.
     heads = perfect["ks"]["5"]["all"]["heads"]
     assert heads["qol_years"]["combined_contribution_share"] == pytest.approx(1.0)
@@ -472,11 +517,10 @@ def test_advantage_magnitude_perfect_scaled_and_constant_critics() -> None:
     assert heads["qol_years"]["advantage_to_value_spread"] == pytest.approx(
         popart["a_hat"]["std"] / popart["value"]["std"]
     )
+
     # The advisory reads the combined k-step numbers; the scaled critic is flagged.
     def advisory(report):
-        return ra.advantage_magnitude_advisory(
-            {"calibration": {"advantage_magnitude": report}}
-        )
+        return ra.advantage_magnitude_advisory({"calibration": {"advantage_magnitude": report}})
 
     assert advisory(scaled)["status"] == "FLAG"
     assert advisory(perfect)["rows"][0]["slope"] == pytest.approx(
@@ -490,14 +534,22 @@ def test_advantage_magnitude_perfect_scaled_and_constant_critics() -> None:
 
 def _fit(task, costs, data, **kwargs):
     return pretrain_critic_on_dataset(
-        task_critic=task, cost_critics=costs, dataset=data, epochs=1, batch_size=2,
-        rng=np.random.default_rng(7), stability=None, **kwargs,
+        task_critic=task,
+        cost_critics=costs,
+        dataset=data,
+        epochs=1,
+        batch_size=2,
+        rng=np.random.default_rng(7),
+        stability=None,
+        **kwargs,
     )
 
 
 def _state(task, costs):
-    return {**{f"t.{k}": v for k, v in task.state_dict().items()},
-            **{f"c.{k}": v for k, v in costs.state_dict().items()}}
+    return {
+        **{f"t.{k}": v for k, v in task.state_dict().items()},
+        **{f"c.{k}": v for k, v in costs.state_dict().items()},
+    }
 
 
 def test_flags_off_is_the_historical_fit() -> None:
@@ -507,8 +559,12 @@ def test_flags_off_is_the_historical_fit() -> None:
     b = _fit(b_task, b_costs, _fit_dataset(), qol_head_bias_init=None, td_step0_targets=None)
     sa, sb = _state(a_task, a_costs), _state(b_task, b_costs)
     assert sa.keys() == sb.keys() and all(torch.equal(sa[k], sb[k]) for k in sa)
-    for key in ("qol_head_bias_init", "td_step0_targets", "tail_normalization",
-                "false_terminal_correction"):
+    for key in (
+        "qol_head_bias_init",
+        "td_step0_targets",
+        "tail_normalization",
+        "false_terminal_correction",
+    ):
         assert key not in a and key not in b
     assert a["final_loss"] == b["final_loss"]
     data = _fit_dataset()
@@ -564,10 +620,18 @@ def test_level_fixes_resume_exactly(tmp_path) -> None:
     def run(path, max_steps=None):
         task, costs = _pair("shared", seed=0, target="td-lambda")
         summary = pretrain_critic_on_dataset(
-            task_critic=task, cost_critics=costs, dataset=_fit_dataset(), epochs=2,
-            batch_size=2, rng=np.random.default_rng(7), stability=None,
-            qol_head_bias_init="mean-target", td_step0_targets="mc", td_refresh_steps=2,
-            resume_path=None if path is None else str(path), resume_every=1,
+            task_critic=task,
+            cost_critics=costs,
+            dataset=_fit_dataset(),
+            epochs=2,
+            batch_size=2,
+            rng=np.random.default_rng(7),
+            stability=None,
+            qol_head_bias_init="mean-target",
+            td_step0_targets="mc",
+            td_refresh_steps=2,
+            resume_path=None if path is None else str(path),
+            resume_every=1,
             max_steps=max_steps,
         )
         return _state(task, costs), summary
@@ -601,11 +665,14 @@ def test_cli_defaults_on_only_under_campaign_r5() -> None:
     assert lt._false_terminal_policy(_cli()) == "none"
     assert _cli().tail_normalize == "none"
     assert kwargs(_cli("--campaign-r5")) == {
-        "qol_head_bias_init": "mean-target", "td_step0_targets": "mc",
+        "qol_head_bias_init": "mean-target",
+        "td_step0_targets": "mc",
     }
     assert lt._false_terminal_policy(_cli("--campaign-r5")) == "mask"
-    assert kwargs(_cli("--campaign-r5", "--qol-head-bias-init", "none",
-                       "--td-step0-targets", "head")) == {}
+    assert (
+        kwargs(_cli("--campaign-r5", "--qol-head-bias-init", "none", "--td-step0-targets", "head"))
+        == {}
+    )
     explicit = _cli("--campaign-r5", "--false-terminal-policy", "none")
     assert lt._false_terminal_policy(explicit) == "none"
     assert kwargs(_cli("--campaign-r5"), trained=True) == {}  # warm start: head trained
@@ -623,24 +690,30 @@ def test_cli_defaults_on_only_under_campaign_r5() -> None:
 def _with_schedules(data, stops):
     data["collection"] = {
         "return_tail": labor_bc.RETURN_TAIL_RANDOMIZED,
-        "return_tail_by_world": {str(w): {"rho": 0.95, "stop_indices": s} for w, s in stops.items()},
+        "return_tail_by_world": {
+            str(w): {"rho": 0.95, "stop_indices": s} for w, s in stops.items()
+        },
     }
     return data
 
 
 def test_tail_normalisation_divides_randomized_tails_by_the_world_factor() -> None:
     data = _with_schedules(
-        _trajectories([
-            (90100, 1, list(range(5)), (), TAIL_RANDOMIZED, 300.0),
-            (90100, 2, list(range(5)), (), TAIL_TERMINAL_EXACT, 50.0),
-            (90101, 1, list(range(5)), (), TAIL_RANDOMIZED, 300.0),
-            (90101, 2, list(range(5)), (4,), TAIL_NONE_TERMINAL, 0.0),
-        ]),
+        _trajectories(
+            [
+                (90100, 1, list(range(5)), (), TAIL_RANDOMIZED, 300.0),
+                (90100, 2, list(range(5)), (), TAIL_TERMINAL_EXACT, 50.0),
+                (90101, 1, list(range(5)), (), TAIL_RANDOMIZED, 300.0),
+                (90101, 2, list(range(5)), (4,), TAIL_NONE_TERMINAL, 0.0),
+            ]
+        ),
         {90100: [3, 40, 7], 90101: [60, 2]},
     )
     out = normalize_world_tails(data, "world-factor")
-    f = {w: pe.tail_schedule_factor(data["collection"]["return_tail_by_world"][str(w)], W)
-         for w in (90100, 90101)}
+    f = {
+        w: pe.tail_schedule_factor(data["collection"]["return_tail_by_world"][str(w)], W)
+        for w in (90100, 90101)
+    }
     record = out["collection"]["tail_normalization"]
     assert record["factors"] == {str(w): pytest.approx(v) for w, v in f.items()}
     assert record["rows_normalized"] == 10
@@ -671,8 +744,9 @@ def test_tail_normalisation_divides_randomized_tails_by_the_world_factor() -> No
 def test_check_support_tolerates_gpu_roundoff_only() -> None:
     from test_labor_privileged_model import _layout
 
-    task = LaborTaskCritic(_layout(False), width=16, token_width=16,
-                           support=LaborValueSupport(-0.5, 2.5, 255))
+    task = LaborTaskCritic(
+        _layout(False), width=16, token_width=16, support=LaborValueSupport(-0.5, 2.5, 255)
+    )
     state = task.state_dict()
     near = dict(state, bins=state["bins"] + 2.4e-7)
     task.load_state_dict(near, strict=True)
@@ -683,14 +757,17 @@ def test_check_support_tolerates_gpu_roundoff_only() -> None:
         task.check_support()
 
 
-# --- 6. false terminals -----------------------------------------------------------------------------
+# --- 6. false terminals
+# -----------------------------------------------------------------------------
 
 
 def test_false_terminal_with_a_gap_masks_the_rows_through_it() -> None:
-    data = _trajectories([
-        (90104, 24, [7, 8, 9, 11, 12, 13], (9,), TAIL_RANDOMIZED, 100.0),
-        (90104, 25, [7, 8, 9], (9,), TAIL_NONE_TERMINAL, 0.0),  # a true terminal
-    ])
+    data = _trajectories(
+        [
+            (90104, 24, [7, 8, 9, 11, 12, 13], (9,), TAIL_RANDOMIZED, 100.0),
+            (90104, 25, [7, 8, 9], (9,), TAIL_NONE_TERMINAL, 0.0),  # a true terminal
+        ]
+    )
     before = discounted_returns(data)["qol_years"].clone()
     out = correct_false_terminals(data, "mask")
     record = out["collection"]["false_terminal_correction"]
@@ -734,8 +811,11 @@ def test_b01_false_terminal_row_is_masked() -> None:
     from anthropocene_rl.autonomous_v7.labor_teacher_data import load_labor_datasets
 
     data = load_labor_datasets(
-        [Path(B01)], expected_normalizer_digest=None, require_privileged=False,
-        drop_reserved=False, merge_teacher=True,
+        [Path(B01)],
+        expected_normalizer_digest=None,
+        require_privileged=False,
+        drop_reserved=False,
+        merge_teacher=True,
     )
     out = correct_false_terminals(data, "mask")
     record = out["collection"]["false_terminal_correction"]
@@ -770,16 +850,44 @@ def test_explicit_loader_corrections_override_the_checkpoint_record() -> None:
         "tail_normalize": "world-factor"
     }
     assert pe.resolve_loader_corrections(recorded, {"tail_normalize": "none"}) == (
-        {}, "explicit-override"
+        {},
+        "explicit-override",
     )
     args = pe.argument_parser().parse_args(
-        ["critic-calibration", "--checkpoint", "c.pt", "--dataset", "d", "--out", "o",
-         "--tail-normalize", "world-factor", "--false-terminal-policy", "mask"]
+        [
+            "critic-calibration",
+            "--checkpoint",
+            "c.pt",
+            "--dataset",
+            "d",
+            "--out",
+            "o",
+            "--tail-normalize",
+            "world-factor",
+            "--false-terminal-policy",
+            "mask",
+        ]
     )
     assert (args.tail_normalize, args.false_terminal_policy) == ("world-factor", "mask")
     evaluate = ra.argument_parser().parse_args(
-        ["evaluate", "--arm", "a", "--seed", "0", "--checkpoint", "c", "--advantage", "a",
-         "--calibration-data", "x", "--reserved-payloads", "p", "--out", "o",
-         "--tail-normalize", "world-factor"]
+        [
+            "evaluate",
+            "--arm",
+            "a",
+            "--seed",
+            "0",
+            "--checkpoint",
+            "c",
+            "--advantage",
+            "a",
+            "--calibration-data",
+            "x",
+            "--reserved-payloads",
+            "p",
+            "--out",
+            "o",
+            "--tail-normalize",
+            "world-factor",
+        ]
     )
     assert evaluate.tail_normalize == "world-factor" and evaluate.false_terminal_policy is None
