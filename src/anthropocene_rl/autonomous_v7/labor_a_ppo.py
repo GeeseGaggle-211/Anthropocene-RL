@@ -525,6 +525,55 @@ def _encode(payload: Mapping[str, Any], population: int) -> np.ndarray:
     return la.action_features(payload, population=int(population))
 
 
+def _block_columns(*names: str) -> np.ndarray:
+    """Column indices of the named ``labor_advantage.ACTION_BLOCKS`` blocks."""
+    columns, start = [], 0
+    for name, width in la.ACTION_BLOCKS:
+        if name in names:
+            columns.extend(range(start, start + width))
+        start += width
+    return np.asarray(columns, dtype=np.int64)
+
+
+# Cross-host float32 tolerance (WP-B item 4). The payload's ``tradeShare`` is a float32
+# ``torch.sigmoid`` of the retained latent and ``tradeValue`` a float32 ``torch.exp``; their
+# last bit can differ between hosts (observed: sigmoid(-9.261749) stored 9.497999417e-05 on
+# one host, re-encoded 9.498000145e-05 on another: adjacent float32 values). Those two blocks
+# may differ by at most one float32 ulp of the payload quantity; every other column stays
+# exact. The trade value block is log(v) / log(4), so one ulp of v (relative <= 2^-23) is
+# at most 2^-23 / log(4) in feature units.
+ULP_TOLERANT_BLOCKS = ("trade_value_log", "trade_share")
+_SHARE_COLUMNS = _block_columns("trade_share")
+_VALUE_COLUMNS = _block_columns("trade_value_log")
+_VALUE_FEATURE_ULP = 2.0**-23 / math.log(4.0)
+
+
+def features_match(executed: torch.Tensor, recorded: torch.Tensor) -> bool:
+    """``executed`` equals ``recorded`` exactly, except up to one float32 ulp on the
+    trade value / trade share columns (``ULP_TOLERANT_BLOCKS``)."""
+    if executed.shape != recorded.shape:
+        return False
+    a = executed.detach().cpu().to(torch.float64).numpy()
+    b = recorded.detach().cpu().to(torch.float64).numpy()
+    if a.ndim != 2 or a.shape[1] != la.ACTION_FEATURE_WIDTH:
+        return bool(np.array_equal(a, b))
+    exact = np.ones(a.shape[1], dtype=bool)
+    exact[_SHARE_COLUMNS] = False
+    exact[_VALUE_COLUMNS] = False
+    if not np.array_equal(a[:, exact], b[:, exact]):
+        return False
+    share_a, share_b = a[:, _SHARE_COLUMNS], b[:, _SHARE_COLUMNS]
+    if not (np.isfinite(share_a).all() and np.isfinite(share_b).all()):
+        return False
+    ulp = np.spacing(np.maximum(np.abs(share_a), np.abs(share_b)).astype(np.float32))
+    if (np.abs(share_a - share_b) > ulp.astype(np.float64) * (1.0 + 1e-9)).any():
+        return False
+    value_a, value_b = a[:, _VALUE_COLUMNS], b[:, _VALUE_COLUMNS]
+    if not (np.isfinite(value_a).all() and np.isfinite(value_b).all()):
+        return False
+    return bool((np.abs(value_a - value_b) <= _VALUE_FEATURE_ULP * (1.0 + 1e-6)).all())
+
+
 def _require_populations(populations: Sequence[int], n: int) -> list[int]:
     if len(populations) != n:
         raise ValueError("parent populations do not align with the batch")
@@ -579,7 +628,7 @@ def prepare_iteration(
         ]
     )
     executed_features = torch.from_numpy(executed)
-    if batch.initial_action_features is not None and not torch.equal(
+    if batch.initial_action_features is not None and not features_match(
         executed_features, batch.initial_action_features["features"]
     ):
         raise ValueError(
