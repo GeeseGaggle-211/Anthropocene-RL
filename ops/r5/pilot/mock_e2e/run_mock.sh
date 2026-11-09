@@ -9,8 +9,17 @@
 # (B) the local work directory wiped (a fresh VM disk) and the same line rerun -> iteration 0
 # and the finished iteration-1 stages restored from the mock bucket, the rest run ->
 # EXIT_STATUS; (C) a rerun -> "already complete". Then it checks the uploaded layout.
+# (D) exploration knobs: labor_head_temper tempers the start checkpoint against the uploaded
+# iteration-0 rollout, the tempered file is uploaded separately, and a 2-iteration run starts
+# from it (START_CKPT_GCS + CKPT_SHA256) with HEAD_ENTROPY_FLOOR -> its own PILOT_ID
+# (pilot-<sha7>-s<start8>-f<floor8>), train records the floor and per-head entropies, the
+# summaries carry headEntropy in/out; a bad floor spec is refused before any stage.
 #
-# Usage: MOCK_VENV_PY=<python with torch> bash run_mock.sh <commit-sha> <scratch-dir>
+# MOCK_TURNS (default 2) is the job's TURNS in every scenario (MOCK_TURNS=16: the next run's
+# rollout length; collect and check-rollout get --turns 16, and D leaves JOB_TIMEOUT unset so
+# the TURNS-scaled default cap, 14h at 16, is exercised and checked in the start log).
+#
+# Usage: MOCK_VENV_PY=<python with torch> [MOCK_TURNS=16] bash run_mock.sh <commit-sha> <scratch-dir>
 set -euo pipefail
 SHA=${1:?commit sha}; SCRATCH=${2:?scratch dir}
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -45,11 +54,13 @@ run_job() {
   env HOME="$SCRATCH/home" SHA="$SHA" GCS_ROOT="$GCS_ROOT" CKPT_SHA256="$CKPT_SHA" \
     PY="$HERE/shims/mockpy" BRIDGE="$SCRATCH/bridge.dll" \
     BRIDGE_SHA256="$(sha256sum "$SCRATCH/bridge.dll" | cut -d' ' -f1)" \
-    ANTHROPOCENE_DOTNET=/usr/bin/true MIN_MEM_GB=0 TURNS=2 ITERATIONS=2 ANCHOR_PATHS=3 \
+    ANTHROPOCENE_DOTNET=/usr/bin/true MIN_MEM_GB=0 TURNS="${MOCK_TURNS:-2}" ITERATIONS=2 ANCHOR_PATHS=3 \
     JOB_TIMEOUT=30m "$@" bash "$HERE/../ppo_pilot_job.sh"
 }
-DEST="$MOCK_GCS/mock-bucket/model9/r5/ppo-pilot/pilot-${SHA:0:7}"
-WORK="$SCRATCH/home/r5/ppo-pilot/pilot-${SHA:0:7}"
+# The synthetic start is not the D7 checkpoint, so the default id carries its sha prefix.
+ID="pilot-${SHA:0:7}-s${CKPT_SHA:0:8}"
+DEST="$MOCK_GCS/mock-bucket/model9/r5/ppo-pilot/$ID"
+WORK="$SCRATCH/home/r5/ppo-pilot/$ID"
 
 echo "=== A: iteration-1 actor-gate fails"
 if run_job MOCK_FAIL_WORLDS=91210,91211 > "$SCRATCH/A.out" 2>&1; then echo "A should fail"; exit 1; fi
@@ -96,4 +107,58 @@ for k in (0, 1):
 PY
 )
 find "$DEST" -type f | sed "s|$DEST/||" | sort
+
+echo "=== D: tempered start checkpoint + head entropy floor"
+win() { cygpath -w "$1" 2>/dev/null || echo "$1"; }
+BUCKET="$MOCK_GCS/mock-bucket/model9/r5"
+REF=$(ls "$DEST"/iter-000/*-rollout.pt | head -1)   # the uploaded iteration-0 rollout
+TEMPERED="$SCRATCH/tempered-start.pt"
+(cd "$REPO" && PYTHONPATH=src "$MOCK_VENV_PY" -m anthropocene_rl.autonomous_v7.labor_head_temper \
+  --checkpoint "$(win "$BUCKET/d7-run/checkpoint-start.pt")" --reference-rollout "$(win "$REF")" \
+  --fission-temperature 2 --trade-share-explore 0.2 --trade-share-log-std -1.5 \
+  --out "$(win "$TEMPERED")" --report "$(win "$SCRATCH/temper.json")" > /dev/null)
+TSHA=$(sha256sum "$TEMPERED" | cut -d' ' -f1)
+mkdir -p "$BUCKET/ppo-pilot/tempered"
+cp "$TEMPERED" "$BUCKET/ppo-pilot/tempered/checkpoint-start-tempered.pt"
+TEMPERED_GCS=gs://mock-bucket/model9/r5/ppo-pilot/tempered/checkpoint-start-tempered.pt
+if run_job CKPT_SHA256="$TSHA" START_CKPT_GCS="$TEMPERED_GCS" HEAD_ENTROPY_FLOOR="specialty=1:1" \
+    > "$SCRATCH/D0.out" 2>&1; then echo "D: a labor-head floor should be refused"; exit 1; fi
+grep -q "does not parse" "$SCRATCH/D0.out"
+FLOOR="fission=1.2:0.05,trade_share=0:0.05"
+FID="pilot-${SHA:0:7}-s${TSHA:0:8}-f$(printf %s "$FLOOR" | sha256sum | cut -c1-8)"
+run_job CKPT_SHA256="$TSHA" START_CKPT_GCS="$TEMPERED_GCS" HEAD_ENTROPY_FLOOR="$FLOOR" JOB_TIMEOUT= \
+  > "$SCRATCH/D.out" 2>&1 || { tail -30 "$SCRATCH/D.out"; exit 1; }
+grep -q "pilot=$FID " "$SCRATCH/D.out"
+TURNS_USED="${MOCK_TURNS:-2}"
+if [ "$TURNS_USED" -le 8 ]; then CAP=7h; else CAP="$(( (7 * TURNS_USED + 7) / 8 ))h"; fi
+grep -q "turns=$TURNS_USED .*cap=$CAP" "$SCRATCH/D.out"
+grep -q "head tempering: \[{" "$SCRATCH/D.out"
+[ -e "$BUCKET/ppo-pilot/$FID/EXIT_STATUS" ]
+echo "D ok: $(cat "$BUCKET/ppo-pilot/$FID/EXIT_STATUS")"
+(cd "$REPO" && PYTHONPATH=src "$MOCK_VENV_PY" - "$(win "$SCRATCH/home/r5/ppo-pilot/$FID")" "$TSHA" \
+  "$(win "$SCRATCH/temper.json")" "$TURNS_USED" <<'PY'
+import json, sys
+from pathlib import Path
+import torch
+work, start_sha, turns = Path(sys.argv[1]), sys.argv[2], int(sys.argv[4])
+for k in (0, 1):
+    rollout = torch.load(work / f"iter-{k:03d}" / "rollout.pt", weights_only=True)
+    assert rollout["metadata"]["turns"] == turns, rollout["metadata"]["turns"]
+temper = json.loads(Path(sys.argv[3]).read_text())
+assert abs(temper["achievedAfter"]["tradeShareExpected"] - 0.2) < 1e-3, temper["achievedAfter"]
+for k in (0, 1):
+    s = json.loads((work / f"iter-{k:03d}" / "summary.json").read_text())
+    floor = s["headEntropyFloor"]
+    assert set(floor["floors"]) == {"fission", "trade_share"}, floor
+    assert set(s["headEntropy"]["in"]) == set(floor["entropyBefore"]), s["headEntropy"]
+    update = torch.load(work / f"iter-{k:03d}" / "checkpoint-out.pt", weights_only=True)["last_update"]
+    assert update["actor"]["headEntropyFloor"]["floorLossPerAttemptedStep"], update["actor"]
+    if k == 0:
+        assert s["sha256"]["checkpointIn"] == start_sha
+    print(k, {"accepted": s["actor"]["acceptedSteps"], "fissionH": (
+        round(s["headEntropy"]["in"]["fission"], 4), round(s["headEntropy"]["out"]["fission"], 4)),
+        "shareH": (round(s["headEntropy"]["in"]["trade_share"], 4),
+                   round(s["headEntropy"]["out"]["trade_share"], 4))})
+PY
+)
 echo "MOCK E2E PASSED"

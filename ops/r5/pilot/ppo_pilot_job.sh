@@ -53,13 +53,27 @@
 #   ANCHOR_TAIL_DRAWS ANCHOR_TAIL_RHO ANCHOR_TAIL_CAP ANCHOR_PATHS OPTIMIZER_SEED
 #   ACTOR_ENCODER_LR ACTOR_HEAD_LR ACTOR_LR_WARMUP_STEPS TARGET_KL EPOCHS BATCH_SIZE CRITIC_LR
 #   CRITIC_EPOCHS ANCHOR_WEIGHT START_ITERATION JOB_TIMEOUT MIN_MEM_GB GCS_ROOT CODE_GCS
-#   CKPT_GCS CKPT_SHA256 DEST WORK CODEROOT PY BRIDGE BRIDGE_SHA256 PLAYERS WIDTH HEIGHT SEPARATION
+#   START_CKPT_GCS (alias CKPT_GCS) CKPT_SHA256 HEAD_ENTROPY_FLOOR DEST WORK CODEROOT PY BRIDGE
+#   BRIDGE_SHA256 PLAYERS WIDTH HEIGHT SEPARATION
+# Exploration knobs: START_CKPT_GCS + CKPT_SHA256 name a (e.g. labor_head_temper) start
+# checkpoint; HEAD_ENTROPY_FLOOR='head=H_min:w[,...]' is passed to train --head-entropy-floor
+# every iteration (empty: off, train unchanged). The default PILOT_ID gains -s<start sha8>
+# and -f<floor sha8> suffixes for them, so the D7/no-floor default id stays pilot-<sha7>.
+#
+# Rollout length: TURNS (default 8; the next run sets TURNS=16 explicitly). No stage has its
+# own collect budget; only the whole-job cap does, and its default scales with TURNS: 7h at
+# TURNS<=8, else ceil(7h x TURNS/8) (14h at 16: camp counts roughly double by turn 8, so
+# later turns cost more; the critical path is still the anchors, which do not depend on
+# TURNS). An explicit JOB_TIMEOUT always wins. A TERM at the cap is an interruption: rerun.
 #
 # Launch (detached; rerun the same line to resume):
 #   setsid nohup bash $HOME/ppo_pilot_job.sh > $HOME/r5/ppo-pilot.out 2>&1 < /dev/null &
 set -euo pipefail
 
-JOB_TIMEOUT="${JOB_TIMEOUT:-7h}"
+if [ -z "${JOB_TIMEOUT:-}" ]; then
+  case "${TURNS:-8}" in ''|*[!0-9]*) echo "TURNS must be a positive integer" >&2; exit 2 ;; esac
+  if [ "${TURNS:-8}" -le 8 ]; then JOB_TIMEOUT=7h; else JOB_TIMEOUT="$(( (7 * TURNS + 7) / 8 ))h"; fi
+fi
 if [ "${PILOT_UNDER_TIMEOUT:-0}" != "1" ]; then
   export PILOT_UNDER_TIMEOUT=1
   exec timeout --signal=TERM --kill-after=180 "$JOB_TIMEOUT" bash "$0" "$@"
@@ -67,11 +81,25 @@ fi
 
 SHA="${SHA:-__FILL_PILOT_SHA__}"
 case "$SHA" in *__*) echo "unfilled SHA (export SHA=<pilot code commit>)" >&2; exit 2 ;; esac
-PILOT_ID="${PILOT_ID:-pilot-${SHA:0:7}}"
 GCS_ROOT="${GCS_ROOT:-gs://anthropocene-rl-datasets-508912/model9/r5}"
 CODE_GCS="${CODE_GCS:-$GCS_ROOT/code/rl-pilot-${SHA:0:7}.tar.gz}"
-CKPT_GCS="${CKPT_GCS:-$GCS_ROOT/d7-run/checkpoint-start.pt}"
-CKPT_SHA256="${CKPT_SHA256:-14e749b0a50415f9f1b95d306bf3d8c19a810a29ef0f2755181d856566ba6483}"
+D7_START_SHA256=14e749b0a50415f9f1b95d306bf3d8c19a810a29ef0f2755181d856566ba6483
+# START_CKPT_GCS: the iteration-0 input checkpoint (CKPT_GCS is its historical name); a
+# tempered start (labor_head_temper) is uploaded separately and named here, with its sha256
+# in CKPT_SHA256 (the job refuses a checkpoint whose sha256 differs).
+START_CKPT_GCS="${START_CKPT_GCS:-${CKPT_GCS:-$GCS_ROOT/d7-run/checkpoint-start.pt}}"
+CKPT_SHA256="${CKPT_SHA256:-$D7_START_SHA256}"
+# HEAD_ENTROPY_FLOOR: passed to train --head-entropy-floor ('head=H_min:w[,...]'); empty = off.
+HEAD_ENTROPY_FLOOR="${HEAD_ENTROPY_FLOOR:-}"
+# PILOT_ID: pilot-<sha7>, plus -s<start sha8> for a non-D7 start and -f<sha8 of the floor
+# spec> with a floor, so a different start or floor never resumes another run's markers.
+if [ -z "${PILOT_ID:-}" ]; then
+  PILOT_ID="pilot-${SHA:0:7}"
+  if [ "$CKPT_SHA256" != "$D7_START_SHA256" ]; then PILOT_ID="$PILOT_ID-s${CKPT_SHA256:0:8}"; fi
+  if [ -n "$HEAD_ENTROPY_FLOOR" ]; then
+    PILOT_ID="$PILOT_ID-f$(printf %s "$HEAD_ENTROPY_FLOOR" | sha256sum | cut -c1-8)"
+  fi
+fi
 DEST="${DEST:-$GCS_ROOT/ppo-pilot/$PILOT_ID}"
 WORK="${WORK:-$HOME/r5/ppo-pilot/$PILOT_ID}"
 CODEROOT="${CODEROOT:-$HOME/code/rl-pilot-${SHA:0:7}}"
@@ -216,6 +244,12 @@ stage_code() {
     *--pilot-ungated-actor*) ;; *) die "code $SOURCE_COMMIT lacks train --pilot-ungated-actor" ;; esac
   case "$(pyrun -m anthropocene_rl.autonomous_v7.labor_anchor_producer --help < /dev/null 2>&1 || true)" in
     *--jobs*--threads*) ;; *) die "code $SOURCE_COMMIT lacks labor_anchor_producer --jobs/--threads" ;; esac
+  if [ -n "$HEAD_ENTROPY_FLOOR" ]; then
+    case "$(pyrun -m anthropocene_rl.autonomous_v7.labor_training train --help < /dev/null 2>&1 || true)" in
+      *--head-entropy-floor*) ;; *) die "code $SOURCE_COMMIT lacks train --head-entropy-floor" ;; esac
+    pyrun -c 'import sys; from anthropocene_rl.autonomous_v7.labor_ppo import parse_head_entropy_floor as p; print(p(sys.argv[1]))' "$HEAD_ENTROPY_FLOOR" > /dev/null \
+      || die "HEAD_ENTROPY_FLOOR '$HEAD_ENTROPY_FLOOR' does not parse"
+  fi
   pyrun -m anthropocene_rl.autonomous_v7.labor_pilot plan --iteration 0 > /dev/null || die "code $SOURCE_COMMIT lacks labor_pilot"
   log "code $SOURCE_COMMIT; bridge ${BRIDGE_SHA256:0:16}; free mem $(mem_available_gb) GB; free disk $(df -BG --output=avail "$WORK" | tail -1 | tr -d ' '); cpus $(getconf _NPROCESSORS_ONLN)"
 }
@@ -225,9 +259,17 @@ stage_start_checkpoint() {
   START_CKPT="$WORK/ckpt/checkpoint-start.pt"
   if [ ! -f "$START_CKPT" ] || [ "$(sha256_of "$START_CKPT")" != "$CKPT_SHA256" ]; then
     rm -f "$START_CKPT"
-    gcs_get "$CKPT_GCS" "$START_CKPT" || die "cannot fetch $CKPT_GCS"
+    gcs_get "$START_CKPT_GCS" "$START_CKPT" || die "cannot fetch $START_CKPT_GCS"
   fi
   [ "$(sha256_of "$START_CKPT")" = "$CKPT_SHA256" ] || die "start checkpoint sha256 != $CKPT_SHA256"
+  # Stage markers bind input checkpoints, not train flags: a rerun of this WORK with another
+  # floor (possible only with an explicit PILOT_ID) would skip finished train stages.
+  local explore="start=$CKPT_SHA256 floor=${HEAD_ENTROPY_FLOOR:-off}"
+  if [ -f "$WORK/explore-config" ] && [ "$(cat "$WORK/explore-config")" != "$explore" ]; then
+    die "this WORK ran with '$(cat "$WORK/explore-config")', not '$explore' (use a new PILOT_ID)"
+  fi
+  echo "$explore" > "$WORK/explore-config"
+  log "start checkpoint ${CKPT_SHA256:0:16} from $START_CKPT_GCS; head tempering: $(pyrun -c 'import json, sys, torch; s = torch.load(sys.argv[1], map_location="cpu", weights_only=True); print(json.dumps([{k: r.get(k) for k in ("targets", "transform")} for r in s.get("headTempering") or []], default=str))' "$START_CKPT" 2>&1 | tail -1)"
 }
 
 # --- stage markers ------------------------------------------------------------------------
@@ -381,6 +423,7 @@ do_train() {
   local log="$ITER_DIR/logs/train-$LAUNCH.log" extra=()
   [ "$GATE_TELEMETRY" = "1" ] && extra+=(--calibration-report "$ITER_DIR/calibration.json")
   [ "$PILOT_BYPASS" = "1" ] && extra+=(--pilot-ungated-actor)
+  [ -n "$HEAD_ENTROPY_FLOOR" ] && extra+=(--head-entropy-floor "$HEAD_ENTROPY_FLOOR")
   rm -f "$ITER_DIR/checkpoint-out.pt"
   nice -n 10 "$PY" -m anthropocene_rl.autonomous_v7.labor_training train \
     --checkpoint "$IN_CKPT" --rollout "$ITER_DIR/rollout.pt" --anchor "$ITER_DIR/train-anchor.npz" \
@@ -467,7 +510,7 @@ run_iteration() {
   upload_stage iteration || die "iteration marker upload failed"
 }
 
-log "start launch=$LAUNCH pilot=$PILOT_ID sha=$SHA iterations=$ITERATIONS turns=$TURNS worlds rollout=$ROLLOUT_WORLDS anchor=$TRAIN_ANCHOR_WORLDS gate=$GATE_WORLDS telemetry=$GATE_TELEMETRY bypass=$PILOT_BYPASS anchor_jobs=$ANCHOR_JOBS threads=$ANCHOR_THREADS reset=$PLAYERS/${WIDTH}x$HEIGHT/sep$SEPARATION/movement dest=$DEST cap=$JOB_TIMEOUT"
+log "start launch=$LAUNCH pilot=$PILOT_ID sha=$SHA start=${CKPT_SHA256:0:16} floor=${HEAD_ENTROPY_FLOOR:-off} iterations=$ITERATIONS turns=$TURNS worlds rollout=$ROLLOUT_WORLDS anchor=$TRAIN_ANCHOR_WORLDS gate=$GATE_WORLDS telemetry=$GATE_TELEMETRY bypass=$PILOT_BYPASS anchor_jobs=$ANCHOR_JOBS threads=$ANCHOR_THREADS reset=$PLAYERS/${WIDTH}x$HEIGHT/sep$SEPARATION/movement dest=$DEST cap=$JOB_TIMEOUT"
 rm -f "$WORK/EXIT_STATUS"
 stage_code
 stage_start_checkpoint
