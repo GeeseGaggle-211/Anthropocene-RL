@@ -89,9 +89,10 @@ for k in (0, 1):
               "epochs": len(s["actor"]["perEpoch"]), "criticLoss": round(s["critic"]["loss"], 4),
               "dlogpJoint": s["meanAbsDeltaLogp"]["initialJoint"],
               "bypassRecords": s["pilotBypassUpdatesInCheckpoint"],
-              "stages": sorted(s["stageSeconds"])})
+              "anchors": s["anchors"], "stages": sorted(s["stageSeconds"])})
     assert s["checkpointIteration"] == {"in": k, "out": k + 1}
     assert s["pilotBypassUpdatesInCheckpoint"] == k + 1
+    assert s["anchors"]["trainAnchor"]["rows"] > 0 and s["anchors"]["gateAnchor"]["rankRows"] > 0
 PY
 )
 find "$DEST" -type f | sed "s|$DEST/||" | sort

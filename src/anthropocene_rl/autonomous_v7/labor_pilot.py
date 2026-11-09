@@ -396,6 +396,22 @@ def pilot_summary(
     moves = log_prob_deltas(after, before)
     sanity = log_prob_deltas(before, behaviour_log_probs(batch))
     epochs = _per_epoch_kl(actor) if "sampledNonnegativeKL" in actor else []
+    from .labor_value_calibration import load_labor_anchor
+
+    anchors = {}
+    for label, path, role in (
+        ("trainAnchor", train_anchor, "train-anchor"),
+        ("gateAnchor", gate_anchor, "actor-gate"),
+    ):
+        if path is None:
+            continue
+        data = load_labor_anchor(path, role)
+        ranking = getattr(data, "ranking", None)
+        anchors[label] = {
+            "rows": len(data),
+            "independentUnits": len(set(data.independent_unit_ids.tolist())),
+            "rankRows": 0 if ranking is None else int(len(ranking.group_ids)),
+        }
     gate = None
     if calibration is not None:
         gate = calibration_gate_summary(
@@ -419,6 +435,7 @@ def pilot_summary(
         },
         "rolloutParents": int(batch.parent_count),
         "rolloutRetries": int(len(batch.retry_parent)),
+        "anchors": anchors,
         "gate": gate,
         "actorGateMode": mode,
         "pilotBypass": update.get("pilotBypass"),

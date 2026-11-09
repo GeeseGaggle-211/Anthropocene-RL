@@ -182,7 +182,9 @@ def test_check_calibration_and_gate_summary(files):
         pilot.pilot_check_calibration(path, files.checkpoint, files.anchor)
 
 
-def test_iteration_summary_after_a_bypass_update(files, capsys):
+def test_iteration_summary_after_a_bypass_update(files, capsys, monkeypatch):
+    # the fixture's synthetic anchor (labor_training's loader is patched by the fixture)
+    monkeypatch.setattr(calibration, "load_labor_anchor", training.load_labor_anchor)
     report = json.loads(files.gate.read_text(encoding="utf-8"))
     report["actorGateOpen"] = False
     closed = files.tmp / "closed.json"
@@ -210,6 +212,10 @@ def test_iteration_summary_after_a_bypass_update(files, capsys):
     assert len(summary["actor"]["perEpoch"]) >= 1
     assert summary["critic"]["loss"] is not None and summary["stageSeconds"]["train"] == 30
     assert summary["sha256"]["checkpointOut"] == checkpoint_hash(out)
+    assert summary["anchors"] == {
+        "trainAnchor": {"rows": 1, "independentUnits": 1, "rankRows": 0},
+        "gateAnchor": {"rows": 1, "independentUnits": 1, "rankRows": 0},
+    }
     with pytest.raises(ValueError, match="another rollout"):
         pilot.pilot_summary(iteration=0, checkpoint_in=files.checkpoint, checkpoint_out=out,
                             rollout=files.checkpoint, train_anchor=files.anchor,
