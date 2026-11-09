@@ -124,7 +124,12 @@ def test_default_off_is_bitwise_and_branching_leaves_the_rollout_unchanged(
     summary = json.loads(out.read_text())
     assert summary["rolloutSha256Matches"] is True
     assert summary["branchedStates"] == len(payload["records"])
-    assert summary["cost"]["nativeSteps"]["rollout"] == payload["telemetry"]["decisions"]
+    cost = summary["cost"]
+    assert cost["nativeSteps"]["rollout"] == payload["telemetry"]["decisions"]
+    assert cost["branchedDecisions"] >= 1 and cost["bNativeStepsPerBranchedState"] > 0
+    assert (cost["branchedDecisions"] * cost["aNativeStepsPerBranchedDecision"]
+            + summary["branchedStates"] * cost["bNativeStepsPerBranchedState"]
+            == pytest.approx(cost["nativeSteps"]["branch"]))
 
 
 # ---------------------------------------------------------------------------

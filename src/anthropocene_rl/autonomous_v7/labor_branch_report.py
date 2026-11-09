@@ -58,6 +58,24 @@ def _target_stats(records: Sequence[Mapping[str, Any]], method: str) -> dict[str
     }
 
 
+def _cost_split(records: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Seconds and native steps of the per-camp b runs and of the shared a runs."""
+    b_seconds = [r["work"]["b"]["seconds"] for r in records]
+    b_steps = [r["work"]["b"]["nativeSteps"] for r in records]
+    decisions: dict[tuple[int, int], Mapping[str, Any]] = {}
+    for r in records:
+        decisions.setdefault((int(r["world"]), int(r["turn"])), r["work"]["aShared"])
+    a = list(decisions.values())
+    return {
+        "branchedDecisions": len(a),
+        "meanCampsPerBranchedDecision": _mean([x["sharedBy"] for x in a]),
+        "bSecondsPerBranchedState": _mean(b_seconds),
+        "bNativeStepsPerBranchedState": _mean(b_steps),
+        "aSecondsPerBranchedDecision": _mean([x["seconds"] for x in a]),
+        "aNativeStepsPerBranchedDecision": _mean([x["nativeSteps"] for x in a]),
+    }
+
+
 def summarize(payload: Mapping[str, Any], *, rollout: Path | None = None) -> dict[str, Any]:
     records = list(payload["records"])
     states = list(payload["states"])
@@ -115,6 +133,9 @@ def summarize(payload: Mapping[str, Any], *, rollout: Path | None = None) -> dic
         },
         "telemetry": telemetry,
         "cost": {
+            # Cost model per collect: decisions x shadow + branched decisions x shared a
+            # + branched states x b (a is one run per (decision, stream) for all its camps).
+            **_cost_split(records),
             "nativeSteps": telemetry["nativeSteps"],
             "branchStepsPerBranchedState": telemetry.get("branchStepsPerBranchedState"),
             "secondsPerBranchedState": telemetry.get("overheadSecondsPerBranchedState"),
