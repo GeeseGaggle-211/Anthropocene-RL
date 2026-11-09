@@ -62,6 +62,7 @@ import numpy as np
 import torch
 from torch import nn
 
+from .labor_actor_optim import rebuild_actor_optimizer
 from .labor_model import (
     LABOR_COSTS,
     LABOR_OBJECTIVE_REFERENCE_SCALES,
@@ -241,8 +242,8 @@ def convert_task_critic_support(
     set_labor_film_bound(contract.conditioning.film_bound, task)
     task.check_support()
 
-    actor_optimizer = torch.optim.Adam(actor.parameters())
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    # Pass-through: the saved actor moments and rates (two named groups).
+    actor_optimizer = rebuild_actor_optimizer(actor, state["actor_optimizer"])
     critic_lr = float(state["critic_optimizer"]["param_groups"][0]["lr"])
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=critic_lr
@@ -357,8 +358,8 @@ def convert_privileged_critics(
     bind_privileged_normalizer(privileged_normalizer, task, costs)
     set_labor_film_bound(contract.conditioning.film_bound, task, costs)
 
-    actor_optimizer = torch.optim.Adam(actor.parameters())
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    # Pass-through: the saved actor moments and rates (two named groups).
+    actor_optimizer = rebuild_actor_optimizer(actor, state["actor_optimizer"])
     critic_lr = float(state["critic_optimizer"]["param_groups"][0]["lr"])
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=critic_lr
@@ -453,8 +454,8 @@ def convert_qol_encoder(
     bind_privileged_normalizer(getattr(old_task, "privileged_normalizer", None), task)
     set_labor_film_bound(contract.conditioning.film_bound, task)
 
-    actor_optimizer = torch.optim.Adam(actor.parameters())
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    # Pass-through: the saved actor moments and rates (two named groups).
+    actor_optimizer = rebuild_actor_optimizer(actor, state["actor_optimizer"])
     critic_lr = float(state["critic_optimizer"]["param_groups"][0]["lr"])
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=critic_lr

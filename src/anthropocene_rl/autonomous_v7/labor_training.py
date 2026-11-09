@@ -22,6 +22,8 @@ import copy
 import json
 import math
 import os
+import sys
+import time
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -33,7 +35,16 @@ import torch
 
 from . import contracts, data
 from .bridge import Model9Bridge, observation_batch
-from .labor_bc import extract_heuristic_labor_action
+from .labor_actor_optim import (
+    ActorLrSchedule,
+    actor_group_counts,
+    actor_lr_config,
+    add_actor_lr_arguments,
+    build_actor_optimizer,
+    load_actor_optimizer_state,
+    rebuild_actor_optimizer,
+)
+from .labor_bc import LaborResetOptions, extract_heuristic_labor_action
 from .labor_bridge import (
     LABOR_ACTIVITY_FEATURE_WIDTH,
     LABOR_REGISTRY_DIGEST,
@@ -84,6 +95,8 @@ from .labor_personality import (
     personality_for_world,
 )
 from .labor_ppo import (
+    LABOR_POLICY_HEADS,
+    NONLABOR_POLICY_HEADS,
     LaborActorGate,
     LaborAttemptPolicyBatch,
     RetainedLaborAction,
@@ -264,6 +277,16 @@ def _score_nonlabor(
     )
 
 
+def _score_nonlabor_heads(
+    actor: LaborActor,
+    tensors: Mapping[str, torch.Tensor],
+    sample: Mapping[str, torch.Tensor],
+) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    """:func:`_score_nonlabor` keeping the per-head mapping (same operations)."""
+    output = actor(tensors)
+    return nonlabor_log_prob(output, sample), nonlabor_entropy(output)["joint"]
+
+
 @dataclass
 class LaborRolloutRow:
     world_seed: int
@@ -294,6 +317,13 @@ class LaborRolloutRow:
     initial_action_features: dict[str, torch.Tensor] | None = None
     retry_action_features: dict[str, torch.Tensor] | None = None
     privileged_normalizer_digest: str | None = None
+    # Behaviour per-head initial-edge log-probs (labor_ppo.LABOR_POLICY_HEADS /
+    # NONLABOR_POLICY_HEADS), retained from the same log_prob calls as the joints.
+    behavior_initial_labor_head_logp: dict[str, float] | None = None
+    behavior_initial_nonlabor_head_logp: dict[str, float] | None = None
+    # Pre-action decision-boundary population of the parent (its root catalog's), the
+    # specialty apportionment input of the A(s,a) action encoding (WP-A1).
+    initial_population: int | None = None
 
 
 def _transition_rewards(
@@ -398,8 +428,18 @@ def _execute_single_step_detailed(
         output = actor(tensors)
         initial_labor = sample_labor_policy(output, tensors, generator=generator)
         initial_nonlabor = sample_nonlabor_policy(output, generator=generator)
-        labor_lp = labor_log_prob(output, initial_labor, tensors)["joint"].detach().cpu()
-        nonlabor_lp = nonlabor_log_prob(output, initial_nonlabor)["joint"].detach().cpu()
+        # One scoring call per edge (no generator use); the per-head split is kept
+        # for the A(s,a) control variate alongside the historical joints.
+        labor_scored = labor_log_prob(output, initial_labor, tensors)
+        nonlabor_scored = nonlabor_log_prob(output, initial_nonlabor)
+        labor_lp = labor_scored["joint"].detach().cpu()
+        nonlabor_lp = nonlabor_scored["joint"].detach().cpu()
+        labor_head_lp = {
+            name: labor_scored[name].detach().cpu() for name in LABOR_POLICY_HEADS
+        }
+        nonlabor_head_lp = {
+            name: nonlabor_scored[name].detach().cpu() for name in NONLABOR_POLICY_HEADS
+        }
         if task_critic is not None:
             initial_task = _task_values(task_critic, tensors, raw)
         else:
@@ -537,6 +577,13 @@ def _execute_single_step_detailed(
                 initial_nonlabor_sample=_one_row(initial_nonlabor, row),
                 behavior_initial_labor_logp=float(labor_lp[row]),
                 behavior_initial_nonlabor_logp=float(nonlabor_lp[row]),
+                behavior_initial_labor_head_logp={
+                    name: float(value[row]) for name, value in labor_head_lp.items()
+                },
+                behavior_initial_nonlabor_head_logp={
+                    name: float(value[row]) for name, value in nonlabor_head_lp.items()
+                },
+                initial_population=int(catalogs[camp].population),
                 initial_task_values={
                     name: float(value[row]) for name, value in initial_task.items()
                 },
@@ -641,6 +688,20 @@ def _sample_world_step(
     return current_step, accumulated_rows
 
 
+def _decision_rewards(row: LaborRolloutRow) -> dict[str, float]:
+    """The decision's total raw reward per value component, over both attempt edges.
+
+    Task objectives: the physical reward (recorded once). Feasibility: initial plus retry
+    cost. Settlement guard: its single value. ``build_labor_training_batch``'s GAE uses
+    exactly these rewards on its initial/execution edges.
+    """
+    return {
+        **{name: float(row.physical_task_rewards[name]) for name in LABOR_OBJECTIVES},
+        "feasibility": float(row.feasibility_initial) + float(row.feasibility_retry),
+        "settlement_guard": float(row.settlement_guard),
+    }
+
+
 def _bootstrap_values(
     step: Mapping[str, Any], normalizer: Any, task_critic: LaborTaskCritic,
     cost_critics: LaborCostCritics, personality: LaborPersonality | WorldPersonalities,
@@ -680,11 +741,17 @@ def collect_labor_rollout(
     allow_vm_scale: bool = False,
     warmup_decisions: int | None = None,
     action_binding: Mapping[str, Any] | None = None,
+    reset_options: LaborResetOptions | None = None,
 ) -> tuple[list[LaborRolloutRow], dict[tuple[int, int], dict[str, float]]]:
     """Collect diagnostic local worlds without performing any optimizer step.
 
     ``action_binding`` (see :func:`_producer_action_binding`) enables the
     diagnostic action-feature rows; without it none are constructed.
+
+    ``reset_options`` (default None) is the native world configuration. None keeps
+    the historical ``bridge.reset(seed)`` call exactly (8 players, movement off, the
+    native Small world: :data:`LEGACY_COLLECT_RESET`); otherwise every world is reset
+    with ``bridge.reset(seed, **reset_options.reset_kwargs())`` as BC/search/DAgger do.
     """
 
     if warmup_decisions is not None:
@@ -708,7 +775,11 @@ def collect_labor_rollout(
             else bridge_factory()
         )
         try:
-            step = bridge.reset(seed)
+            step = (
+                bridge.reset(seed)
+                if reset_options is None
+                else bridge.reset(seed, **reset_options.reset_kwargs())
+            )
             founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
             world_personality = personality_for_world(declared, seed)
             for _ in range(turns):
@@ -961,6 +1032,15 @@ def build_labor_training_batch(
         action_feature_contract=(
             None if rows[0].initial_action_features is None else ACTION_LAYOUT_VERSION
         ),
+        behaviour_initial_labor_head_logp=_optional_head_logp(
+            rows, "behavior_initial_labor_head_logp", LABOR_POLICY_HEADS
+        ),
+        behaviour_initial_nonlabor_head_logp=_optional_head_logp(
+            rows, "behavior_initial_nonlabor_head_logp", NONLABOR_POLICY_HEADS
+        ),
+        # Exactly what combine_labor_advantages used above (it accepts only
+        # finite nonnegative numbers and applies float()).
+        cost_multipliers={name: float(cost_multipliers[name]) for name in LABOR_COSTS},
     )
     task_targets = {
         "initial": dict(initial_targets),
@@ -975,6 +1055,20 @@ def build_labor_training_batch(
         },
     }
     return batch, task_targets, cost_targets
+
+
+def _optional_head_logp(
+    rows: Sequence[LaborRolloutRow], name: str, heads: Sequence[str]
+) -> dict[str, torch.Tensor] | None:
+    """Per-head behaviour log-probs as [N] float32 vectors (the joints' dtype)."""
+    values = [getattr(row, name) for row in rows]
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise ValueError(f"{name} is only present on some rollout rows")
+    if any(set(value) != set(heads) for value in values):
+        raise ValueError(f"{name} must be exactly {list(heads)}")
+    return {head: torch.tensor([value[head] for value in values]) for head in heads}
 
 
 def _row_personality_weights(rows: Sequence[LaborRolloutRow]) -> torch.Tensor:
@@ -1507,7 +1601,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
     run_personality: LaborPersonality | LaborPersonalityAssignment = (
         LaborPersonality() if conditioning.alpha is None else conditioning.assignment(0)
     )
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+    actor_optimizer = build_actor_optimizer(actor, actor_lr_config(args))
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=args.critic_lr
     )
@@ -1535,7 +1629,7 @@ def _command_initialize(args: argparse.Namespace) -> None:
             label_smoothing=getattr(args, "pretrain_bc_label_smoothing", 1e-6),
             inverse_freq_power=getattr(args, "pretrain_bc_inverse_freq_power", 0.5),
         )
-        actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+        actor_optimizer = build_actor_optimizer(actor, actor_lr_config(args))
 
     trainer_state = _trainer_checkpoint(
         actor,
@@ -1656,10 +1750,8 @@ def _command_pretrain_bc(args: argparse.Namespace) -> None:
     if device.type != "cpu":
         bc_summary["device"] = device_record(device)
 
-    actor_lr = float(
-        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
-    )
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
+    # BC changed the actor: fresh Adam moments at the saved rates (two named groups).
+    actor_optimizer = rebuild_actor_optimizer(actor, state.get("actor_optimizer", {}), fresh=True)
 
     trainer_state = _trainer_checkpoint(
         actor,
@@ -2085,11 +2177,8 @@ def _command_pretrain_critic(args: argparse.Namespace) -> None:
             tail=_pretrain_critic_tail(args),
         )
 
-    actor_lr = float(
-        state.get("actor_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
-    )
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=actor_lr)
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    # Pass-through (the actor is not stepped): saved moments and rates, two named groups.
+    actor_optimizer = rebuild_actor_optimizer(actor, state["actor_optimizer"])
 
     critic_lr = float(
         state.get("critic_optimizer", {}).get("param_groups", [{}])[0].get("lr", 3e-4)
@@ -2225,7 +2314,52 @@ def _producer_action_binding() -> tuple[dict[str, Any], dict[str, Any]]:
     return binding, metadata
 
 
+# What collect's historical ``bridge.reset(seed)`` means (Model9Bridge.reset defaults).
+LEGACY_COLLECT_RESET = LaborResetOptions(players=8, movement=False)
+
+
+def _collect_reset_options(args: argparse.Namespace) -> LaborResetOptions | None:
+    """collect's world options, with pretrain-bc's names and meanings.
+
+    None (no option given) keeps the historical ``bridge.reset(seed)`` call, which is
+    movement-off: a named mechanical fixture (``LaborResetOptions``). Any world option
+    (``--players/--width/--height/--separation``) requires an explicit ``--movement``
+    (training worlds) or ``--no-movement`` (fixture), because pretrain-bc's default is
+    movement on and collect's historical default is off: neither is assumed silently.
+    """
+    movement = getattr(args, "movement", None)
+    sizes = {
+        name: getattr(args, name, None) for name in ("players", "width", "height", "separation")
+    }
+    if movement is None and all(value is None for value in sizes.values()):
+        return None
+    if movement is None:
+        raise ValueError(
+            "collect world options need an explicit --movement (training worlds) or "
+            "--no-movement (mechanical fixture)"
+        )
+    return LaborResetOptions(
+        players=8 if sizes["players"] is None else int(sizes["players"]),
+        movement=bool(movement),
+        width=sizes["width"],
+        height=sizes["height"],
+        separation=sizes["separation"],
+    )
+
+
+def _log_rollout_reset(metadata: Mapping[str, Any], context: str) -> dict[str, Any]:
+    """Log (stderr) the rollout's recorded world options; older rollouts lack them."""
+    record = {
+        "context": context,
+        "rolloutResetOptions": metadata.get("resetOptions", "not recorded (older rollout)"),
+        "rolloutResetOptionsSource": metadata.get("resetOptionsSource", "not recorded"),
+    }
+    print(json.dumps(record, sort_keys=True), file=sys.stderr)
+    return record
+
+
 def _command_collect(args: argparse.Namespace) -> None:
+    reset_options = _collect_reset_options(args)  # refuse ambiguous options before any work
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     _, actor, task, costs, normalizer = _models_from_checkpoint(state)
@@ -2263,6 +2397,7 @@ def _command_collect(args: argparse.Namespace) -> None:
         max_self_destruct_rewinds=getattr(args, "max_self_destruct_rewinds", 0),
         allow_vm_scale=getattr(args, "allow_vm_scale", False),
         action_binding=action_binding,
+        reset_options=reset_options,
     )
     behavior = labor_behavior_configuration(personality)
     policy_sha = behavior_policy_digest(actor, behavior)
@@ -2285,6 +2420,13 @@ def _command_collect(args: argparse.Namespace) -> None:
         "sourceCheckpointSha256": checkpoint_hash(args.checkpoint),
         "worldSeeds": worlds,
         "turns": args.turns,
+        # The native world configuration every world was reset with.
+        "resetOptions": (
+            LEGACY_COLLECT_RESET if reset_options is None else reset_options
+        ).state_dict(),
+        "resetOptionsSource": (
+            "legacy-default-bridge.reset(seed)" if reset_options is None else "explicit"
+        ),
         "behaviorConfiguration": behavior,
         "behaviorPolicyDigest": policy_sha,
         "advantageCriticDigest": critic_sha,
@@ -2292,9 +2434,14 @@ def _command_collect(args: argparse.Namespace) -> None:
         "samplingGeneratorStateBefore": before_rng,
         "samplingGeneratorStateAfter": sampling.get_state(),
         "scope": "local-diagnostic-rollout-not-readiness",
+        # Parent order (= batch order). ``population`` and ``rewards`` (per value
+        # component, the decision's total reward over both edges) feed WP-A1's A
+        # encoding and warm-up telemetry; consumers ignore them otherwise.
         "decisionRows": [
             {"world": row.world_seed, "camp": row.camp_id, "turn": row.turn,
-             "years": row.years, "terminated": row.terminated}
+             "years": row.years, "terminated": row.terminated,
+             "population": row.initial_population,
+             "rewards": _decision_rewards(row)}
             for row in rows
         ],
         "tailSemantics": "frozen-source-state-value-bootstrap",
@@ -2329,6 +2476,7 @@ def _command_train(args: argparse.Namespace) -> None:
     layout, actor, task, costs, normalizer = _models_from_checkpoint(state)
     personality = labor_checkpoint_personality(state)
     batch, task_targets, cost_targets, rollout_metadata = _load_rollout(args.rollout)
+    _log_rollout_reset(rollout_metadata, "labor train")
     behavior = labor_behavior_configuration(personality)
     if rollout_metadata.get("sourceCheckpointSha256") != checkpoint_hash(args.checkpoint):
         raise ValueError("labor rollout belongs to another checkpoint")
@@ -2338,12 +2486,23 @@ def _command_train(args: argparse.Namespace) -> None:
         raise ValueError("labor rollout advantages came from other critic weights")
     if batch.normalization_binding_digest != _normalization_digest(normalizer):
         raise ValueError("labor rollout normalization binding is stale")
+    if getattr(args, "per_head_surrogate", False):
+        batch.require_behaviour_head_logp()  # refuse before any critic step
+    # WP-A1: None in --a-mode off (the default), which touches nothing below.
+    a_run = _a_setup(args, state, batch, rollout_metadata)
 
-    actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
+    # Learning rates are configuration, not state: the checkpoint's Adam moments/steps are
+    # restored (a legacy one-group state is re-indexed by parameter), then the configured
+    # per-group rates (and the warm-up factor for the restored step count) replace the
+    # saved ones. Historically load_state_dict silently restored the saved actor lr.
+    actor_lr = actor_lr_config(args)
+    actor_optimizer = build_actor_optimizer(actor, actor_lr)
     critic_optimizer = torch.optim.Adam(
         list(task.parameters()) + list(costs.parameters()), lr=args.critic_lr
     )
-    actor_optimizer.load_state_dict(state["actor_optimizer"])
+    actor_optimizer_load = load_actor_optimizer_state(
+        actor_optimizer, actor, state["actor_optimizer"], actor_lr
+    )
     critic_optimizer.load_state_dict(state["critic_optimizer"])
     anchor = load_labor_anchor(args.anchor, "train-anchor")
     if (
@@ -2412,6 +2571,11 @@ def _command_train(args: argparse.Namespace) -> None:
         not torch.equal(value, actor.state_dict()[name]) for name, value in actor_before.items()
     ):
         raise AssertionError("critic update changed actor parameters")
+    a_prepared = None
+    if a_run is not None:
+        # A from the frozen snapshot, with the pre-update (behaviour) actor; D7 measures
+        # this batch for the NEXT iteration's eta.
+        a_prepared = _a_prepare(a_run, actor, batch, state)
     actor_stats: dict[str, Any]
     if warmup is not None:
         actor_stats = {"actorGateOpen": False, "reason": "critic-warmup-requires-fresh-calibration"}
@@ -2426,12 +2590,37 @@ def _command_train(args: argparse.Namespace) -> None:
     else:
         shuffle = np.random.default_rng()
         shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+        per_head = bool(getattr(args, "per_head_surrogate", False))
+        extra: dict[str, Any] = {}
+        if a_prepared is not None:
+            if getattr(args, "a_telemetry_dry_run", False):
+                a_run["dryRunKL"] = _a_dry_run_kl(
+                    a_prepared, actor, actor_optimizer, batch, state, args, gate, behavior
+                )
+            extra = {
+                "per_head_surrogate": True,
+                "initial_head_advantage": a_prepared.coefficients(),
+                "initial_correction": a_prepared.correction_fn(actor),
+            }
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor_heads(  # noqa: E731
+                actor, tensors, sample
+            )
+        elif per_head:
+            extra = {"per_head_surrogate": True}
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor_heads(  # noqa: E731
+                actor, tensors, sample
+            )
+        else:
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor(  # noqa: E731
+                actor, tensors, sample
+            )
         actor_stats = update_labor_policy(
             policy_module=actor,
             labor_actor=actor,
             optimizer=actor_optimizer,
             batch=batch,
-            nonlabor_scorer=lambda tensors, sample: _score_nonlabor(actor, tensors, sample),
+            nonlabor_scorer=nonlabor_scorer,
+            **extra,
             rng=shuffle,
             epochs=args.epochs,
             batch_size=args.batch_size,
@@ -2442,6 +2631,7 @@ def _command_train(args: argparse.Namespace) -> None:
             audit_rows=args.audit_rows,
             actor_gate=gate,
             behavior_configuration=behavior,
+            lr_schedule=ActorLrSchedule(actor_lr),
         )
         state["shuffle_rng_state"] = copy.deepcopy(shuffle.bit_generator.state)
 
@@ -2476,11 +2666,278 @@ def _command_train(args: argparse.Namespace) -> None:
             name: float(value.detach()) for name, value in independent_heads.items()
         },
         "actor": actor_stats,
+        "actorOptimizer": {
+            **actor_lr.record(),
+            "groupCounts": actor_group_counts(actor),
+            "load": actor_optimizer_load,
+        },
         "scope": "local-update-validation-not-readiness",
     }
     if warmup is not None:
         next_state["last_update"]["criticWarmup"] = dict(warmup)
+    if a_run is not None:
+        assert a_prepared is not None
+        _a_finish(a_run, a_prepared, next_state, state, task, costs, batch, rollout_metadata)
     _save_checkpoint(args.out, next_state)
+
+
+# ---------------------------------------------------------------------------
+# WP-A1: --a-mode gae (labor_a_ppo); --a-mode off never reaches these helpers
+# ---------------------------------------------------------------------------
+
+
+def _a_setup(
+    args: argparse.Namespace,
+    state: Mapping[str, Any],
+    batch: LaborAttemptPolicyBatch,
+    rollout_metadata: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate the A arguments; in gae mode load the frozen A and the lagged eta."""
+    from . import labor_a_ppo as ap
+
+    mode = getattr(args, "a_mode", "off")
+    if mode not in ap.A_MODES:
+        raise ValueError(f"--a-mode must be one of {list(ap.A_MODES)}")
+    a_paths = (getattr(args, "a_warm_start", None), getattr(args, "a_critic", None))
+    if mode == "off":
+        if any(path is not None for path in a_paths) or getattr(
+            args, "a_telemetry_dry_run", False
+        ):
+            raise ValueError(
+                "--a-warm-start/--a-critic/--a-telemetry-dry-run require --a-mode gae"
+            )
+        return None
+    if any(path is None for path in a_paths):
+        raise ValueError("--a-mode gae requires --a-warm-start and --a-critic")
+    draws = int(getattr(args, "a_draws", ap.DEFAULT_DRAWS))
+    d7_rows = int(getattr(args, "a_d7_rows", ap.DEFAULT_D7_ROWS))
+    if draws < 2 or d7_rows < 2:
+        raise ValueError("--a-draws and --a-d7-rows must be >= 2")
+    # Refuse before any critic step: the A path needs WP-A0's plumbing.
+    batch.require_behaviour_head_logp()
+    batch.require_cost_multipliers()
+    decisions = rollout_metadata.get("decisionRows")
+    if (
+        not isinstance(decisions, list)
+        or len(decisions) != batch.parent_count
+        or any(not isinstance(row, Mapping) or row.get("population") is None for row in decisions)
+    ):
+        raise ValueError(
+            "labor rollout predates recorded parent populations (A's action encoding); "
+            "recollect the rollout"
+        )
+    warm_start = torch.load(args.a_warm_start, map_location="cpu", weights_only=True)
+    critic_state = torch.load(args.a_critic, map_location="cpu", weights_only=True)
+    frozen = ap.load_frozen_a(
+        warm_start,
+        critic_state,
+        normalization_binding_digest=batch.normalization_binding_digest,
+    )
+    stored = state.get(ap.A_STATE_KEY)
+    eta, source = ap.eta_for_iteration(stored, iteration=int(state["iteration"]), frozen=frozen)
+    return {
+        "frozen": frozen,
+        "eta": eta,
+        "etaSource": source,
+        "stored": stored,
+        "draws": draws,
+        "d7Rows": d7_rows,
+        "populations": [int(row["population"]) for row in decisions],
+        "warmStartSha256": checkpoint_hash(args.a_warm_start),
+        "criticCheckpointSha256": checkpoint_hash(args.a_critic),
+        "dryRunKL": None,
+        "seconds": {},
+    }
+
+
+def _a_prepare(
+    a_run: dict[str, Any],
+    actor: LaborActor,
+    batch: LaborAttemptPolicyBatch,
+    state: Mapping[str, Any],
+) -> Any:
+    """A's per-iteration quantities and the D7 measurement on this batch."""
+    from . import labor_a_ppo as ap
+
+    clock = time.perf_counter()
+    prepared = ap.prepare_iteration(
+        a_run["frozen"],
+        actor,
+        batch,
+        a_run["populations"],
+        eta=a_run["eta"],
+        key=(int(state["optimizer_seed"]), int(state["iteration"])),
+        draws=a_run["draws"],
+    )
+    a_run["seconds"]["prepare"] = time.perf_counter() - clock
+    a_run["seconds"].update({f"prepare.{k}": v for k, v in prepared.seconds.items()})
+    measurements, seconds = ap.measure_d7(prepared, actor, rows=a_run["d7Rows"])
+    a_run["seconds"]["d7"] = seconds
+    a_run["measurements"] = measurements
+    a_run["nextEta"] = ap.eta_from_measurements(measurements)
+    return prepared
+
+
+def _a_dry_run_kl(
+    prepared: Any,
+    actor: LaborActor,
+    actor_optimizer: torch.optim.Optimizer,
+    batch: LaborAttemptPolicyBatch,
+    state: Mapping[str, Any],
+    args: argparse.Namespace,
+    gate: LaborActorGate,
+    behavior: Mapping[str, object],
+) -> list[float]:
+    """Approx-KL after each of the K epochs of the same update, run on copies.
+
+    The actor, its Adam state and the shuffle stream are copied; nothing is applied
+    to the real ones. No rollback (target KL 1e30), so the K-epoch KL is measured as is.
+    The copy's optimizer has the configured per-group rates and warm-up, as train's.
+    """
+    stats, _ = _a_dry_run_update(
+        prepared, actor, actor_optimizer, batch, state, args, gate, behavior
+    )
+    kl = list(stats["sampledNonnegativeKL"])
+    per_epoch, cursor = [], 0
+    for epoch in stats["epochCoverage"]:
+        cursor += int(epoch["processed"]["minibatches"])
+        per_epoch.append(float(kl[cursor - 1]))
+    return per_epoch
+
+
+def _a_dry_run_update(
+    prepared: Any,
+    actor: LaborActor,
+    actor_optimizer: torch.optim.Optimizer,
+    batch: LaborAttemptPolicyBatch,
+    state: Mapping[str, Any],
+    args: argparse.Namespace,
+    gate: LaborActorGate,
+    behavior: Mapping[str, object],
+) -> tuple[dict[str, Any], LaborActor]:
+    """The dry run's update on copies; returns its stats and the updated copy."""
+    shadow = copy.deepcopy(actor)
+    lr = actor_lr_config(args)
+    optimizer = build_actor_optimizer(shadow, lr)
+    load_actor_optimizer_state(
+        optimizer, shadow, copy.deepcopy(actor_optimizer.state_dict()), lr
+    )
+    rng = np.random.default_rng()
+    rng.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+    stats = update_labor_policy(
+        policy_module=shadow,
+        labor_actor=shadow,
+        optimizer=optimizer,
+        batch=batch,
+        nonlabor_scorer=lambda tensors, sample: _score_nonlabor_heads(shadow, tensors, sample),
+        per_head_surrogate=True,
+        initial_head_advantage=prepared.coefficients(),
+        initial_correction=prepared.correction_fn(shadow),
+        rng=rng,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        clip=args.clip,
+        entropy_weight=args.entropy_weight,
+        max_grad_norm=args.max_grad_norm,
+        target_kl=1e30,
+        audit_rows=args.audit_rows,
+        actor_gate=gate,
+        behavior_configuration=behavior,
+        lr_schedule=ActorLrSchedule(lr),
+    )
+    return stats, shadow
+
+
+def _a_finish(
+    a_run: dict[str, Any],
+    prepared: Any,
+    next_state: dict[str, Any],
+    state: Mapping[str, Any],
+    task: LaborTaskCritic,
+    costs: LaborCostCritics,
+    batch: LaborAttemptPolicyBatch,
+    rollout_metadata: Mapping[str, Any],
+) -> None:
+    """Telemetry, the frozen-A guard and the persisted (lagged) D7 state."""
+    from . import labor_a_ppo as ap
+
+    frozen = a_run["frozen"]
+    frozen.assert_unchanged()
+    online = {
+        **_task_values(task, batch.initial_tensors, batch.initial_privileged_raw),
+        **_cost_values(costs, batch.initial_tensors, batch.initial_privileged_raw),
+    }
+    report, detail = ap.warmup_report(online, rollout_metadata, dry_run_kl=a_run["dryRunKL"])
+    switch = ap.switch_state(a_run["stored"])
+    warmup: dict[str, Any] = {**detail, "effect": "telemetry-only-never-changes-training"}
+    if report is not None:
+        decision = switch.update(report)
+        warmup["decision"] = {
+            "phase": decision.phase,
+            "passed": decision.passed,
+            "gates": dict(decision.gates),
+            "reasons": list(decision.reasons),
+            "streak": decision.streak,
+            "alarm": decision.alarm,
+            "noEvents": list(decision.no_events),
+        }
+    measurements = {
+        head: {key: ap.json_number(value) for key, value in values.items()}
+        for head, values in a_run["measurements"].items()
+    }
+    next_state[ap.A_STATE_KEY] = {
+        "schema": ap.A_STATE_SCHEMA,
+        "mode": "gae",
+        "criticDigest": frozen.critic_digest,
+        "headDigest": frozen.head_digest,
+        "warmStartSha256": a_run["warmStartSha256"],
+        "criticCheckpointSha256": a_run["criticCheckpointSha256"],
+        "draws": int(a_run["draws"]),
+        "d7Rows": int(a_run["d7Rows"]),
+        "threshold": float(ap.D7_MIN_VARIANCE_REDUCTION),
+        "measuredIteration": int(state["iteration"]),
+        "nextEta": dict(a_run["nextEta"]),
+        "measurements": measurements,
+        "warmupSwitch": {"phase": switch.phase, "streak": int(switch.streak)},
+    }
+    next_state["last_update"]["aControlVariate"] = {
+        "mode": "gae",
+        "etaUsed": dict(prepared.eta),
+        "etaSource": a_run["etaSource"],
+        "nextEta": dict(a_run["nextEta"]),
+        "d7": measurements,
+        "frozen": {**frozen.record(), "unchangedAfterIteration": True},
+        "counts": dict(prepared.counts),
+        "draws": int(a_run["draws"]),
+        "warmup": warmup,
+        "scope": "A frozen; eta lagged one iteration; retry edges eta = 0",
+    }
+    # Wall-clock timings are non-authoritative: printed, never written to the checkpoint.
+    print(
+        json.dumps(
+            {
+                "aControlVariate": {
+                    "etaUsed": prepared.eta,
+                    "nextEta": a_run["nextEta"],
+                    "d7": {
+                        head: {
+                            key: values[key]
+                            for key in (
+                                "varianceVOnly",
+                                "varianceControlVariate",
+                                "reduction",
+                                "admit",
+                            )
+                        }
+                        for head, values in measurements.items()
+                    },
+                    "warmup": warmup.get("decision", warmup.get("status")),
+                    "seconds": a_run["seconds"],
+                }
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def _command_fit_privileged_normalizer(args: argparse.Namespace) -> None:
@@ -2695,6 +3152,7 @@ def argument_parser() -> argparse.ArgumentParser:
     initialize.add_argument("--world-seed", type=int, required=True)
     initialize.add_argument("--optimizer-seed", type=int, required=True)
     initialize.add_argument("--actor-lr", type=float, default=3e-4)
+    add_actor_lr_arguments(initialize)
     initialize.add_argument("--critic-lr", type=float, default=3e-4)
     initialize.add_argument("--pretrain-bc-turns", type=int, default=0)
     initialize.add_argument("--pretrain-bc-epochs", type=int, default=25)
@@ -3152,6 +3610,21 @@ def argument_parser() -> argparse.ArgumentParser:
     collect.add_argument("--guard-multiplier", type=float, default=1.0)
     collect.add_argument("--max-self-destruct-rewinds", type=int, default=0)
     collect.add_argument("--allow-vm-scale", action="store_true", default=False)
+    # World options (pretrain-bc's names). None of them: the historical bridge.reset(seed)
+    # (8 players, movement off, Small world). Any of them: an explicit movement switch.
+    collect.add_argument("--players", type=int, default=None)
+    collect.add_argument("--width", type=int, default=None)
+    collect.add_argument("--height", type=int, default=None)
+    collect.add_argument("--separation", type=int, default=None)
+    collect_movement = collect.add_mutually_exclusive_group()
+    collect_movement.add_argument(
+        "--movement", dest="movement", action="store_const", const=True, default=None,
+        help="movement on (the training worlds); required with any world option",
+    )
+    collect_movement.add_argument(
+        "--no-movement", dest="movement", action="store_const", const=False,
+        help="named mechanical fixture only (movement off)",
+    )
     collect.add_argument(
         "--economic-trace",
         type=Path,
@@ -3168,6 +3641,7 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--calibration-report", type=Path)
     train.add_argument("--anchor-weight", type=float, default=1.0)
     train.add_argument("--actor-lr", type=float, default=3e-4)
+    add_actor_lr_arguments(train)
     train.add_argument("--critic-lr", type=float, default=3e-4)
     train.add_argument("--critic-epochs", type=int, default=1)
     train.add_argument("--epochs", type=int, default=4)
@@ -3177,6 +3651,43 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--max-grad-norm", type=float, default=1.0)
     train.add_argument("--target-kl", type=float, default=0.02)
     train.add_argument("--audit-rows", type=int, default=64)
+    train.add_argument(
+        "--per-head-surrogate",
+        action="store_true",
+        help="WP-A0 plumbing (off by default): per-head initial-edge surrogate with every "
+        "head's coefficient = the stored GAE (eta = 0), gradient-equal to the joint path; "
+        "requires a rollout with per-head behaviour log-probs",
+    )
+    train.add_argument(
+        "--a-mode",
+        choices=("off", "gae"),
+        default="off",
+        help="WP-A1: off (default, bitwise today's PPO) or gae = GAE plus the frozen stage-1 "
+        "A(s,a) per-head control variate on the heads D7 admitted on the previous iteration's "
+        "batch (needs --a-warm-start and --a-critic)",
+    )
+    train.add_argument(
+        "--a-warm-start", type=Path, default=None,
+        help="labor_a_stage1 --warm-start-out artifact (A, never trained here)",
+    )
+    train.add_argument(
+        "--a-critic", type=Path, default=None,
+        help="labor checkpoint holding the critic A was fitted on (frozen context provider)",
+    )
+    train.add_argument(
+        "--a-draws", type=int, default=16,
+        help="draws per row for the sampled heads' E_h estimator (default 16)",
+    )
+    train.add_argument(
+        "--a-d7-rows", type=int, default=64,
+        help="rows of the batch used for the D7 per-head variance measurement (default 64)",
+    )
+    train.add_argument(
+        "--a-telemetry-dry-run",
+        action="store_true",
+        help="gae telemetry: run the K-epoch update on copies to report the dry-run KL "
+        "(never applied; default off: 'not measured')",
+    )
     train.add_argument("--out", type=Path, required=True)
     train.set_defaults(handler=_command_train)
 

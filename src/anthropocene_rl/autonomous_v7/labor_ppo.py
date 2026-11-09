@@ -59,6 +59,25 @@ LABOR_ACTION_FIELDS = frozenset(
     }
 )
 LABOR_RETRY_FIELDS = frozenset({"laborSpecialtyAllocation", "laborActivityAllocation"})
+# Per-head log-probability keys, exactly as ``labor_log_prob`` / ``nonlabor_log_prob``
+# return them (each also returns "joint", the sum of its heads in this order).
+LABOR_POLICY_HEADS = ("specialty", "activity")
+NONLABOR_POLICY_HEADS = ("movement", "fission", "trade_value", "trade_gate", "trade_share")
+INITIAL_POLICY_HEADS = (*LABOR_POLICY_HEADS, *NONLABOR_POLICY_HEADS)
+# Stored per-head behaviour log-probs must sum to the stored joint within
+# HEAD_LOGP_ATOL + HEAD_LOGP_RTOL * sum_h |head| (float32 rounding of the sum).
+HEAD_LOGP_ATOL = 1e-5
+HEAD_LOGP_RTOL = 1e-5
+
+
+class LaborRatioOverflow(FloatingPointError):
+    """A PPO ratio (or a control-variate term) became non-finite although its inputs are
+    finite: ``exp`` of a current-minus-behaviour log-ratio above ~88.7 overflows float32.
+
+    After an optimizer step of the current update this is the update's own doing, and
+    ``update_labor_policy`` handles it as a KL-limit violation (rollback). Before any step
+    the current policy is the behaviour policy, so it re-raises: the data is inconsistent.
+    """
 
 
 def _vector(value: torch.Tensor, length: int, label: str) -> torch.Tensor:
@@ -471,9 +490,135 @@ def _clipped_surrogate(ratio: torch.Tensor, advantage: torch.Tensor, clip: float
     return torch.minimum(unclipped, clipped)
 
 
+def check_head_logp_consistency(
+    heads: Mapping[str, torch.Tensor],
+    joint: torch.Tensor,
+    names: Sequence[str],
+    label: str,
+) -> float:
+    """Require per-head log-probs ``names`` to sum to ``joint``; return the max error.
+
+    The tolerance is ``HEAD_LOGP_ATOL + HEAD_LOGP_RTOL * sum_h |head|`` per row
+    (float32 rounding of a differently ordered sum). Rollout-retained values sum
+    to the stored joint bitwise when added in head order in float32.
+    """
+
+    if not isinstance(heads, Mapping) or set(heads) != set(names):
+        raise ValueError(f"{label} per-head log-probs must be exactly {list(names)}")
+    n = len(joint)
+    with torch.no_grad():
+        values = []
+        for name in names:
+            value = heads[name]
+            if (
+                not isinstance(value, torch.Tensor)
+                or not value.is_floating_point()
+                or value.shape != (n,)
+            ):
+                raise ValueError(f"{label} {name} log-prob must be a floating vector of length {n}")
+            if not bool(torch.isfinite(value).all()):
+                raise FloatingPointError(f"{label} {name} log-prob is non-finite")
+            values.append(value.detach().to(torch.float64))
+        if not n:
+            return 0.0
+        stacked = torch.stack(values)
+        error = (stacked.sum(dim=0) - joint.detach().to(torch.float64)).abs()
+        bound = HEAD_LOGP_ATOL + HEAD_LOGP_RTOL * stacked.abs().sum(dim=0)
+        if bool((error > bound).any()):
+            raise ValueError(
+                f"{label} per-head log-probs do not sum to the joint "
+                f"(max error {float(error.max()):.3g})"
+            )
+        return float(error.max())
+
+
+def _per_head_initial_surrogate(
+    initial_ratio: torch.Tensor,
+    current_heads: Mapping[str, torch.Tensor],
+    head_advantage: Mapping[str, torch.Tensor],
+    clip: float,
+    sub_heads: Mapping[str, tuple[torch.Tensor, torch.Tensor]] | None = None,
+    heads: Sequence[str] = INITIAL_POLICY_HEADS,
+) -> torch.Tensor:
+    """Initial-edge clipped surrogate with one advantage coefficient per head [N].
+
+    Head h's term is ``min(r_h c_h, clip(r_h) c_h)`` with
+    ``r_h = stopgrad(r) * exp(logp_h - stopgrad(logp_h))``: its forward value is the
+    joint ratio ``r`` bitwise (exp(0) = 1), so every head is clipped exactly where the
+    joint path clips, and its gradient is ``r * grad logp_h`` only (the other heads are
+    held fixed, as ``labor_a_stage2.per_head_surrogate``). The returned tensor's value
+    is the head MEAN of the per-head terms and its gradient is their SUM:
+    ``mean_h stopgrad(term_h) + sum_h (term_h - stopgrad(term_h))``. With one shared
+    coefficient c_h = A the value equals the joint surrogate value up to float rounding
+    of the mean and the gradient equals the joint surrogate's gradient (same per-row
+    upstream factor into every head log-prob; only autograd accumulation order differs).
+
+    ``sub_heads`` (default None: unchanged) splits a factored head into independent
+    factors with their own coefficients: ``sub_heads[h] = (logp [N, G], coef [N, G])``
+    where ``logp[:, g]`` is factor g's current log-prob (the factors sum to logp_h, e.g.
+    the seven trade groups of ``trade_gate``). Head h's term is then the factor terms
+    ``min(r_g c_g, clip(r_g) c_g)``, ``r_g = stopgrad(r) exp(logp_g - stopgrad(logp_g))``,
+    with value their mean over factors and gradient their sum; with every c_g = c_h it
+    has head h's gradient (sum_g grad logp_g = grad logp_h).
+
+    ``heads`` (default ``INITIAL_POLICY_HEADS``) names the heads summed over; the stage-2
+    library's ``labor_a_stage2.per_head_surrogate`` calls through with its own head names.
+    """
+
+    ratio_value = initial_ratio.detach()
+    value_sum: torch.Tensor | None = None
+    carrier: torch.Tensor | None = None
+    for name in heads:
+        if sub_heads is not None and name in sub_heads:
+            logp, coefficient = sub_heads[name]
+            factor_ratio = ratio_value[:, None] * torch.exp(logp - logp.detach())
+            factor_term = _clipped_surrogate(factor_ratio, coefficient.detach(), clip)
+            factor_detached = factor_term.detach()
+            detached = factor_detached.mean(dim=1)
+            head_carrier = (factor_term - factor_detached).sum(dim=1)
+            value_sum = detached if value_sum is None else value_sum + detached
+            carrier = head_carrier if carrier is None else carrier + head_carrier
+            continue
+        logp = current_heads[name]
+        head_ratio = ratio_value * torch.exp(logp - logp.detach())
+        term = _clipped_surrogate(head_ratio, head_advantage[name].detach(), clip)
+        detached = term.detach()
+        value_sum = detached if value_sum is None else value_sum + detached
+        carrier = term - detached if carrier is None else carrier + (term - detached)
+    assert value_sum is not None and carrier is not None
+    return value_sum / len(heads) + carrier
+
+
+@dataclass(frozen=True)
+class InitialCorrection:
+    """The A(s,a) control variate's initial-edge additions for one parent minibatch.
+
+    ``term`` [n]: per-parent ``sum_h eta_h E_h(s_i)``-type term ADDED to the initial-edge
+    surrogate (maximised, averaged over parents with the rest of the objective); its
+    gradient is the per-head correction ``sum_h eta_h grad E_h``. ``sub_heads``: factored
+    heads' per-factor current log-probs and coefficients for
+    :func:`_per_head_initial_surrogate` (None: no factored head is split).
+    """
+
+    term: torch.Tensor
+    sub_heads: Mapping[str, tuple[torch.Tensor, torch.Tensor]] | None = None
+
+
+# Called with the minibatch's parent indices (into the batch).
+InitialCorrectionFn = Callable[[torch.Tensor], InitialCorrection]
+
+
 @dataclass(frozen=True)
 class AttemptPolicyTerms:
-    """Loss and transparent edge accounting for one parent minibatch."""
+    """Loss and transparent edge accounting for one parent minibatch.
+
+    ``current_initial_labor_head_logp`` / ``current_initial_nonlabor_head_logp``
+    expose the current policy's per-head initial-edge log-probs (keys
+    ``LABOR_POLICY_HEADS`` / ``NONLABOR_POLICY_HEADS``) when the caller supplied
+    them; the non-labor split is present only when the non-labor scorer returns
+    its per-head mapping. ``initial_surrogate`` is "joint" (default, historical)
+    or "per-head" (see :func:`_per_head_initial_surrogate`).
+    """
 
     loss: torch.Tensor
     policy_loss: torch.Tensor
@@ -483,6 +628,14 @@ class AttemptPolicyTerms:
     parent_surrogate: torch.Tensor
     initial_joint_logp: torch.Tensor
     retry_labor_logp: torch.Tensor
+    current_initial_labor_head_logp: Mapping[str, torch.Tensor] | None = None
+    current_initial_nonlabor_head_logp: Mapping[str, torch.Tensor] | None = None
+    initial_surrogate: str = "joint"
+    # Exact current-minus-behaviour log-ratios (``initial_ratio``/``retry_ratio`` are
+    # their exponentials). The KL audit falls back to these where the ratio
+    # underflowed to 0: log(0) = -inf turned a large but finite KL into inf.
+    initial_log_ratio: torch.Tensor | None = None
+    retry_log_ratio: torch.Tensor | None = None
 
 
 def attempt_policy_terms(
@@ -501,6 +654,12 @@ def attempt_policy_terms(
     retry_labor_entropy: torch.Tensor,
     clip: float,
     entropy_weight: float,
+    current_initial_labor_head_logp: Mapping[str, torch.Tensor] | None = None,
+    current_initial_nonlabor_head_logp: Mapping[str, torch.Tensor] | None = None,
+    behaviour_initial_labor_head_logp: Mapping[str, torch.Tensor] | None = None,
+    behaviour_initial_nonlabor_head_logp: Mapping[str, torch.Tensor] | None = None,
+    initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
+    initial_correction: InitialCorrection | None = None,
 ) -> AttemptPolicyTerms:
     """Build the actual two-edge PPO objective with a parent denominator.
 
@@ -509,6 +668,20 @@ def attempt_policy_terms(
     rows contain labor likelihood only.  Surrogates and entropies are summed
     within parent and then averaged over initial parents, so retried parents do
     not turn into extra pseudo-independent rows.
+
+    Per-head options (all default None: the historical joint objective, unchanged):
+    ``current_initial_*_head_logp`` are checked against the current joints and
+    exposed on the returned terms. ``initial_head_advantage`` (one [N] coefficient
+    per ``INITIAL_POLICY_HEADS`` key) selects the per-head initial-edge surrogate
+    (:func:`_per_head_initial_surrogate`) and then requires all four head mappings;
+    ``initial_advantage`` is still validated but not used on the initial edge.
+    The retry edge, the ratios, the entropy and the parent denominator are the
+    same in both modes.
+
+    ``initial_correction`` (default None; per-head mode only) is the A(s,a) control
+    variate's minibatch addition (:class:`InitialCorrection`): its factored-head split
+    goes into the per-head surrogate and its ``term`` is added to each parent's
+    initial-edge surrogate before the retry edge is accumulated.
     """
 
     n = len(current_initial_labor_logp)
@@ -549,14 +722,99 @@ def attempt_policy_terms(
     ):
         raise ValueError("retry_parent must contain distinct valid parent indices")
 
+    # Joint mode only exposes the current heads (key check; values are not
+    # inspected, so the historical objective cannot newly raise). Per-head mode
+    # requires all four mappings and checks each against its joint.
+    for heads, names, label in (
+        (current_initial_labor_head_logp, LABOR_POLICY_HEADS, "current initial labor"),
+        (current_initial_nonlabor_head_logp, NONLABOR_POLICY_HEADS, "current initial non-labor"),
+    ):
+        if heads is not None and (not isinstance(heads, Mapping) or set(heads) != set(names)):
+            raise ValueError(f"{label} per-head log-probs must be exactly {list(names)}")
+    if initial_head_advantage is not None:
+        if any(
+            heads is None
+            for heads in (
+                current_initial_labor_head_logp,
+                current_initial_nonlabor_head_logp,
+                behaviour_initial_labor_head_logp,
+                behaviour_initial_nonlabor_head_logp,
+            )
+        ):
+            raise ValueError(
+                "per-head initial surrogate requires current and behaviour per-head "
+                "log-probs for every initial head"
+            )
+        if not isinstance(initial_head_advantage, Mapping) or set(initial_head_advantage) != set(
+            INITIAL_POLICY_HEADS
+        ):
+            raise ValueError(
+                f"per-head advantages must name exactly {list(INITIAL_POLICY_HEADS)}"
+            )
+        for name in INITIAL_POLICY_HEADS:
+            _vector(initial_head_advantage[name], n, f"{name} head advantage")
+        for heads, joint, names, label in (
+            (current_initial_labor_head_logp, current_initial_labor_logp, LABOR_POLICY_HEADS,
+             "current initial labor"),
+            (current_initial_nonlabor_head_logp, current_initial_nonlabor_logp,
+             NONLABOR_POLICY_HEADS, "current initial non-labor"),
+            (behaviour_initial_labor_head_logp, behaviour_initial_labor_logp,
+             LABOR_POLICY_HEADS, "behaviour initial labor"),
+            (behaviour_initial_nonlabor_head_logp, behaviour_initial_nonlabor_logp,
+             NONLABOR_POLICY_HEADS, "behaviour initial non-labor"),
+        ):
+            check_head_logp_consistency(heads, joint, names, label)  # type: ignore[arg-type]
+
     initial_joint = current_initial_labor_logp + current_initial_nonlabor_logp
     behaviour_initial_joint = behaviour_initial_labor_logp + behaviour_initial_nonlabor_logp
-    initial_ratio = torch.exp(initial_joint - behaviour_initial_joint)
-    retry_ratio = torch.exp(current_retry_labor_logp - behaviour_retry_labor_logp)
+    initial_log_ratio = initial_joint - behaviour_initial_joint
+    retry_log_ratio = current_retry_labor_logp - behaviour_retry_labor_logp
+    initial_ratio = torch.exp(initial_log_ratio)
+    retry_ratio = torch.exp(retry_log_ratio)
     if not bool(torch.isfinite(initial_ratio).all()) or not bool(torch.isfinite(retry_ratio).all()):
-        raise FloatingPointError("non-finite labor PPO ratio")
+        # Every log-prob above passed ``_vector`` (finite), so this is exp overflow of a
+        # finite log-ratio, never a NaN input.
+        raise LaborRatioOverflow("non-finite labor PPO ratio")
 
-    parent_surrogate = _clipped_surrogate(initial_ratio, initial_advantage, clip)
+    if initial_correction is not None and initial_head_advantage is None:
+        raise ValueError("an initial control-variate correction requires per-head advantages")
+    if initial_head_advantage is None:
+        parent_surrogate = _clipped_surrogate(initial_ratio, initial_advantage, clip)
+    else:
+        assert current_initial_labor_head_logp is not None
+        assert current_initial_nonlabor_head_logp is not None
+        sub_heads = None if initial_correction is None else initial_correction.sub_heads
+        if sub_heads is not None:
+            for name, (logp, coefficient) in sub_heads.items():
+                if (
+                    name not in INITIAL_POLICY_HEADS
+                    or logp.ndim != 2
+                    or len(logp) != n
+                    or coefficient.shape != logp.shape
+                ):
+                    raise ValueError(f"{name} factor log-probs/coefficients must be [N, G]")
+        parent_surrogate = _per_head_initial_surrogate(
+            initial_ratio,
+            {**current_initial_labor_head_logp, **current_initial_nonlabor_head_logp},
+            initial_head_advantage,
+            clip,
+            sub_heads,
+        )
+        if initial_correction is not None:
+            correction = initial_correction.term
+            if (
+                not isinstance(correction, torch.Tensor)
+                or not correction.is_floating_point()
+                or correction.shape != (n,)
+            ):
+                raise ValueError(
+                    f"initial control-variate term must be a floating vector of length {n}"
+                )
+            # Computed from the current policy (its draws/log-probs), so non-finite values
+            # are the update's overflow, not an input (previously _vector raised ValueError).
+            if not bool(torch.isfinite(correction).all()):
+                raise LaborRatioOverflow("non-finite initial control-variate term")
+            parent_surrogate = parent_surrogate + correction
     parent_entropy = initial_labor_entropy + initial_nonlabor_entropy
     if m:
         retry_surrogate = _clipped_surrogate(retry_ratio, retry_advantage, clip)
@@ -573,6 +831,13 @@ def attempt_policy_terms(
         parent_surrogate,
         initial_joint,
         current_retry_labor_logp,
+        None if current_initial_labor_head_logp is None else dict(current_initial_labor_head_logp),
+        None
+        if current_initial_nonlabor_head_logp is None
+        else dict(current_initial_nonlabor_head_logp),
+        "joint" if initial_head_advantage is None else "per-head",
+        initial_log_ratio,
+        retry_log_ratio,
     )
 
 
@@ -605,6 +870,21 @@ def score_labor_sample(
     return labor_log_prob(output, sample, tensors)["joint"], labor_entropy(output, tensors)["joint"]
 
 
+def score_labor_sample_heads(
+    actor: torch.nn.Module,
+    tensors: Mapping[str, torch.Tensor],
+    sample: Mapping[str, torch.Tensor],
+) -> tuple[dict[str, torch.Tensor], torch.Tensor]:
+    """:func:`score_labor_sample` keeping ``labor_log_prob``'s per-head dict.
+
+    Same operations in the same order; ``result[0]["joint"]`` is the tensor
+    :func:`score_labor_sample` returns.
+    """
+
+    output = actor(tensors)
+    return labor_log_prob(output, sample, tensors), labor_entropy(output, tensors)["joint"]
+
+
 def _rows(value: Mapping[str, torch.Tensor], index: torch.Tensor) -> dict[str, torch.Tensor]:
     result = {}
     for name, tensor in value.items():
@@ -617,9 +897,12 @@ def _rows(value: Mapping[str, torch.Tensor], index: torch.Tensor) -> dict[str, t
     return result
 
 
+# A non-labor scorer returns (joint log-prob [N], or ``nonlabor_log_prob``'s
+# per-head mapping including "joint"; joint entropy [N]). Only the mapping form
+# exposes current non-labor heads and can feed the per-head surrogate.
 NonlaborScorer = Callable[
     [Mapping[str, torch.Tensor], Mapping[str, torch.Tensor]],
-    tuple[torch.Tensor, torch.Tensor],
+    tuple[torch.Tensor | Mapping[str, torch.Tensor], torch.Tensor],
 ]
 
 
@@ -715,6 +998,18 @@ class LaborAttemptPolicyBatch:
     ``initial_nonlabor_sample`` exists only for initial rows.  Retry rows have
     no corresponding field, making duplicate non-labor likelihood structurally
     unavailable to the update routine.
+
+    Optional A(s,a) plumbing (absent = None in rollouts that predate it; nothing in
+    the default joint update reads these):
+
+    * ``behaviour_initial_labor_head_logp`` / ``behaviour_initial_nonlabor_head_logp``:
+      the behaviour policy's per-head initial-edge log-probs retained at rollout
+      (keys ``LABOR_POLICY_HEADS`` / ``NONLABOR_POLICY_HEADS``), checked to sum to
+      the stored joints. Required by the per-head surrogate.
+    * ``cost_multipliers``: the exact cost multipliers ``combine_labor_advantages``
+      used for this batch's GAE (python floats keyed by ``LABOR_COSTS``). The per-row
+      personality weights it used are ``initial_tensors["labor_personality"]``
+      (:meth:`row_personality_weights`); a retry row uses its parent's row.
     """
 
     initial_tensors: Mapping[str, torch.Tensor]
@@ -740,12 +1035,46 @@ class LaborAttemptPolicyBatch:
     initial_action_features: Mapping[str, torch.Tensor] | None = None
     retry_action_features: Mapping[str, torch.Tensor] | None = None
     action_feature_contract: str | None = None
+    behaviour_initial_labor_head_logp: Mapping[str, torch.Tensor] | None = None
+    behaviour_initial_nonlabor_head_logp: Mapping[str, torch.Tensor] | None = None
+    cost_multipliers: Mapping[str, float] | None = None
 
     def __post_init__(self) -> None:
         n = len(self.behaviour_initial_labor_logp)
         _vector(self.behaviour_initial_labor_logp, n, "behaviour_initial_labor_logp")
         _vector(self.behaviour_initial_nonlabor_logp, n, "behaviour_initial_nonlabor_logp")
         _vector(self.initial_advantage, n, "initial_advantage")
+        if (self.behaviour_initial_labor_head_logp is None) != (
+            self.behaviour_initial_nonlabor_head_logp is None
+        ):
+            raise ValueError("per-head behaviour log-probs require both labor and non-labor heads")
+        for heads, joint, names, label in (
+            (self.behaviour_initial_labor_head_logp, self.behaviour_initial_labor_logp,
+             LABOR_POLICY_HEADS, "behaviour initial labor"),
+            (self.behaviour_initial_nonlabor_head_logp, self.behaviour_initial_nonlabor_logp,
+             NONLABOR_POLICY_HEADS, "behaviour initial non-labor"),
+        ):
+            if heads is None:
+                continue
+            if any(
+                not isinstance(value, torch.Tensor) or value.requires_grad
+                for value in (heads.values() if isinstance(heads, Mapping) else ())
+            ):
+                raise ValueError(f"{label} per-head log-probs must be detached tensors")
+            check_head_logp_consistency(heads, joint, names, label)
+        if self.cost_multipliers is not None:
+            if not isinstance(self.cost_multipliers, Mapping) or set(self.cost_multipliers) != set(
+                LABOR_COSTS
+            ):
+                raise ValueError(f"cost_multipliers must be exactly {list(LABOR_COSTS)}")
+            for name, value in self.cost_multipliers.items():
+                if (
+                    isinstance(value, bool)
+                    or not isinstance(value, float)
+                    or not math.isfinite(value)
+                    or value < 0
+                ):
+                    raise ValueError(f"{name} cost multiplier must be a finite nonnegative float")
         for label, value in (
             ("registry_digest", self.registry_digest),
             ("behavior_policy_digest", self.behavior_policy_digest),
@@ -863,6 +1192,50 @@ class LaborAttemptPolicyBatch:
     def parent_count(self) -> int:
         return len(self.initial_advantage)
 
+    def require_behaviour_head_logp(
+        self,
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+        """Per-head behaviour log-probs (labor, non-labor), or refuse for older rollouts."""
+
+        if (
+            self.behaviour_initial_labor_head_logp is None
+            or self.behaviour_initial_nonlabor_head_logp is None
+        ):
+            raise ValueError(
+                "labor rollout predates per-head behaviour log-probs; the split cannot be "
+                "recovered from the joint, recollect the rollout"
+            )
+        return (
+            dict(self.behaviour_initial_labor_head_logp),
+            dict(self.behaviour_initial_nonlabor_head_logp),
+        )
+
+    def require_cost_multipliers(self) -> dict[str, float]:
+        """The cost multipliers this batch's GAE was combined with, or refuse."""
+
+        if self.cost_multipliers is None:
+            raise ValueError(
+                "labor rollout predates persisted cost multipliers; its GAE combination "
+                "weights are unknown, recollect the rollout"
+            )
+        return dict(self.cost_multipliers)
+
+    def row_personality_weights(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Per-row personality weights (initial [N, 2], retry [M, 2]) the GAE used.
+
+        Initial rows read ``initial_tensors["labor_personality"]``; a retry row uses
+        its parent's weights, as ``build_labor_training_batch`` does.
+        """
+
+        value = self.initial_tensors.get("labor_personality")
+        if (
+            not isinstance(value, torch.Tensor)
+            or not value.is_floating_point()
+            or value.shape != (self.parent_count, len(LABOR_OBJECTIVES))
+        ):
+            raise ValueError("labor batch does not record per-row personality weights")
+        return value, value.index_select(0, self.retry_parent)
+
 
 def _retry_rows_for_parents(
     retry_parent: torch.Tensor, parent_index: torch.Tensor
@@ -883,8 +1256,23 @@ def labor_policy_minibatch_terms(
     *,
     clip: float,
     entropy_weight: float,
+    initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
+    initial_correction: InitialCorrectionFn | None = None,
 ) -> AttemptPolicyTerms:
-    """Recompute one parent minibatch under the current policy."""
+    """Recompute one parent minibatch under the current policy.
+
+    The returned terms always expose the current per-head labor log-probs and,
+    when ``nonlabor_scorer`` returns ``nonlabor_log_prob``'s mapping, the
+    non-labor heads; the joint objective uses the same joint tensors as before.
+    ``initial_head_advantage`` (batch-aligned [parent_count] coefficients keyed by
+    ``INITIAL_POLICY_HEADS``; default None) selects the per-head initial-edge
+    surrogate, which needs the batch's retained behaviour heads and a mapping-form
+    non-labor scorer. The retry edge is unchanged.
+
+    ``initial_correction`` (default None) is called once with ``parent_index`` and
+    returns the A(s,a) control variate's :class:`InitialCorrection` for these parents;
+    it requires ``initial_head_advantage``.
+    """
 
     if (
         not isinstance(parent_index, torch.Tensor)
@@ -899,12 +1287,44 @@ def labor_policy_minibatch_terms(
     initial_tensors = _rows(batch.initial_tensors, parent_index)
     initial_labor_sample = _rows(batch.initial_labor_sample, parent_index)
     initial_nonlabor_sample = _rows(batch.initial_nonlabor_sample, parent_index)
-    initial_labor_logp, initial_labor_entropy = score_labor_sample(
+    behaviour_labor_heads = behaviour_nonlabor_heads = head_advantage = None
+    if initial_correction is not None and initial_head_advantage is None:
+        raise ValueError("an initial control-variate correction requires per-head advantages")
+    if initial_head_advantage is not None:
+        labor_heads, nonlabor_heads = batch.require_behaviour_head_logp()
+        behaviour_labor_heads = {
+            name: value.index_select(0, parent_index) for name, value in labor_heads.items()
+        }
+        behaviour_nonlabor_heads = {
+            name: value.index_select(0, parent_index) for name, value in nonlabor_heads.items()
+        }
+        if not isinstance(initial_head_advantage, Mapping) or set(initial_head_advantage) != set(
+            INITIAL_POLICY_HEADS
+        ):
+            raise ValueError(f"per-head advantages must name exactly {list(INITIAL_POLICY_HEADS)}")
+        head_advantage = {}
+        for name in INITIAL_POLICY_HEADS:
+            value = _vector(initial_head_advantage[name], batch.parent_count, f"{name} advantage")
+            head_advantage[name] = value.index_select(0, parent_index)
+    initial_labor_scored, initial_labor_entropy = score_labor_sample_heads(
         actor, initial_tensors, initial_labor_sample
     )
-    initial_nonlabor_logp, initial_nonlabor_entropy = nonlabor_scorer(
+    initial_labor_logp = initial_labor_scored["joint"]
+    nonlabor_scored, initial_nonlabor_entropy = nonlabor_scorer(
         initial_tensors, initial_nonlabor_sample
     )
+    current_nonlabor_heads = None
+    if isinstance(nonlabor_scored, Mapping):
+        if not set(NONLABOR_POLICY_HEADS) | {"joint"} <= set(nonlabor_scored):
+            raise ValueError("non-labor scorer mapping lacks a declared head or its joint")
+        initial_nonlabor_logp = nonlabor_scored["joint"]
+        current_nonlabor_heads = {name: nonlabor_scored[name] for name in NONLABOR_POLICY_HEADS}
+    else:
+        initial_nonlabor_logp = nonlabor_scored
+        if head_advantage is not None:
+            raise ValueError(
+                "per-head surrogate requires a non-labor scorer that returns per-head log-probs"
+            )
     retry_rows, local_parent = _retry_rows_for_parents(batch.retry_parent, parent_index)
     if len(retry_rows):
         retry_tensors = _rows(batch.retry_tensors, retry_rows)
@@ -932,14 +1352,35 @@ def labor_policy_minibatch_terms(
         retry_labor_entropy=retry_entropy,
         clip=clip,
         entropy_weight=entropy_weight,
+        current_initial_labor_head_logp={
+            name: initial_labor_scored[name] for name in LABOR_POLICY_HEADS
+        },
+        current_initial_nonlabor_head_logp=current_nonlabor_heads,
+        behaviour_initial_labor_head_logp=behaviour_labor_heads,
+        behaviour_initial_nonlabor_head_logp=behaviour_nonlabor_heads,
+        initial_head_advantage=head_advantage,
+        initial_correction=(
+            None if initial_correction is None else initial_correction(parent_index)
+        ),
     )
 
 
+def _audit_log_ratio(ratio: torch.Tensor, log_ratio: torch.Tensor | None) -> torch.Tensor:
+    """``log(ratio)``, except where the ratio underflowed to 0 (log-ratio below ~-104
+    in float32): there the exact log-ratio, so k3 stays finite instead of inf. Every
+    positive ratio keeps its historical ``log(ratio)`` value bit for bit."""
+
+    logged = torch.log(ratio)
+    if log_ratio is None:
+        return logged
+    return torch.where(ratio > 0, logged, log_ratio)
+
+
 def _audit_nonnegative_kl(terms: AttemptPolicyTerms) -> torch.Tensor:
-    initial_log_ratio = torch.log(terms.initial_ratio)
+    initial_log_ratio = _audit_log_ratio(terms.initial_ratio, terms.initial_log_ratio)
     parent = torch.expm1(initial_log_ratio) - initial_log_ratio
     if len(terms.retry_ratio):
-        retry_log_ratio = torch.log(terms.retry_ratio)
+        retry_log_ratio = _audit_log_ratio(terms.retry_ratio, terms.retry_log_ratio)
         retry = torch.expm1(retry_log_ratio) - retry_log_ratio
         # This audit receives already-local retry parent mappings only inside
         # AttemptPolicyTerms' parent surrogate.  The mean of edge estimates is
@@ -965,6 +1406,10 @@ def update_labor_policy(
     audit_rows: int,
     actor_gate: LaborActorGate,
     behavior_configuration: Mapping[str, object],
+    per_head_surrogate: bool = False,
+    initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
+    initial_correction: InitialCorrectionFn | None = None,
+    lr_schedule: Callable[[torch.optim.Optimizer], float] | None = None,
 ) -> dict[str, object]:
     """Run one frozen-behavior PPO update with transactional KL rollback.
 
@@ -972,7 +1417,50 @@ def update_labor_policy(
     minibatch step restores both policy tensors/buffers and Adam state.  The
     fixed audit is deterministically spread across the full parent rollout;
     its sampled-action estimate is step control, not full-policy KL evidence.
+
+    ``per_head_surrogate`` (default False: the historical joint objective) uses
+    the per-head initial-edge surrogate with ``initial_head_advantage``
+    (batch-aligned coefficients per ``INITIAL_POLICY_HEADS`` key). Without
+    explicit coefficients every head gets ``batch.initial_advantage`` (eta = 0 on
+    every head), whose gradient equals the joint path's. The KL audit and the
+    retry edge are the same in both modes; the reported loss is the head-mean
+    value (see :func:`_per_head_initial_surrogate`).
+
+    ``initial_correction`` (default None; requires ``per_head_surrogate``) adds the
+    A(s,a) control variate's correction to every TRAINING minibatch's initial edge
+    (:class:`InitialCorrection`); the fixed KL audit never calls it.
+
+    ``lr_schedule`` (default None: the optimizer's rates are never touched) is called
+    with the optimizer before each minibatch step's rollback snapshot and once after the
+    update; it sets the rates for the next step (e.g. ``labor_actor_optim.ActorLrSchedule``
+    derives a warm-up from the Adam step count) and returns the factor it applied. Because
+    it runs before the snapshot, a rollback restores the rates together with the Adam state
+    they were derived from. The stats then gain ``actorOptimizer`` (its record, the factor
+    used by every attempted step and the rates left on the optimizer).
+
+    A ratio overflow (:class:`LaborRatioOverflow`) after this update's first optimizer step
+    is a KL-limit violation: on the post-step audit the step is rolled back exactly as for
+    an audit KL above ``target_kl``; on a later minibatch (caused by the accepted steps
+    before it) no step is taken and the update stops. Either way the stats record
+    ``ratioOverflow``. Before any step it re-raises (inconsistent behaviour data), as do
+    non-finite inputs (log-probs, advantages, entropies are validated finite) and a
+    non-finite loss.
     """
+
+    if not isinstance(per_head_surrogate, bool):
+        raise ValueError("per_head_surrogate must be a boolean")
+    if initial_head_advantage is not None and not per_head_surrogate:
+        raise ValueError("per-head advantages were supplied but per_head_surrogate is off")
+    if initial_correction is not None and not per_head_surrogate:
+        raise ValueError("a control-variate correction was supplied but per_head_surrogate is off")
+    head_advantage = None
+    if per_head_surrogate:
+        head_advantage = (
+            {name: batch.initial_advantage for name in INITIAL_POLICY_HEADS}
+            if initial_head_advantage is None
+            else dict(initial_head_advantage)
+        )
+        batch.require_behaviour_head_logp()
 
     gate_policy_digest = actor_gate.require_current(
         policy_module,
@@ -1000,37 +1488,72 @@ def update_labor_policy(
     rolled_back = False
     attempted_steps = 0
     accepted_steps = 0
-    for _ in range(epochs):
+    lr_factors: list[float] = []
+    overflow: dict[str, object] | None = None
+    for epoch_number in range(epochs):
         partitions = list(epoch_minibatches(batch.parent_count, batch_size, rng))
         processed: list[np.ndarray] = []
         accepted: list[np.ndarray] = []
         for raw_index in partitions:
             processed.append(raw_index)
             parent_index = torch.as_tensor(raw_index, dtype=torch.long)
+            factor = None if lr_schedule is None else float(lr_schedule(optimizer))
             snapshot = capture_step_state(policy_module, optimizer)
-            terms = labor_policy_minibatch_terms(
-                labor_actor,
-                batch,
-                parent_index,
-                nonlabor_scorer,
-                clip=clip,
-                entropy_weight=entropy_weight,
-            )
+            try:
+                terms = labor_policy_minibatch_terms(
+                    labor_actor,
+                    batch,
+                    parent_index,
+                    nonlabor_scorer,
+                    clip=clip,
+                    entropy_weight=entropy_weight,
+                    initial_head_advantage=head_advantage,
+                    initial_correction=initial_correction,
+                )
+            except LaborRatioOverflow as error:
+                if not attempted_steps:
+                    raise
+                # The accepted steps before this minibatch overflowed it (outside the audit
+                # rows): no step; the snapshot is the current state, restored for symmetry.
+                restore_step_state(policy_module, optimizer, snapshot)
+                rolled_back = True
+                overflow = {
+                    "where": "training-minibatch-before-step",
+                    "epoch": epoch_number,
+                    "afterAttemptedSteps": attempted_steps,
+                    "error": str(error),
+                    "handling": "no step taken; update stopped (KL-limit violation)",
+                }
+                break
+            if not bool(torch.isfinite(terms.loss.detach())):
+                raise FloatingPointError("non-finite labor PPO loss")
             optimizer.zero_grad()
             terms.loss.backward()
             torch.nn.utils.clip_grad_norm_(policy_module.parameters(), max_grad_norm)
             optimizer.step()
             attempted_steps += 1
-            with torch.no_grad():
-                audit_terms = labor_policy_minibatch_terms(
-                    labor_actor,
-                    batch,
-                    audit,
-                    nonlabor_scorer,
-                    clip=clip,
-                    entropy_weight=entropy_weight,
-                )
-                kl = float(_audit_nonnegative_kl(audit_terms))
+            if factor is not None:
+                lr_factors.append(factor)
+            try:
+                with torch.no_grad():
+                    audit_terms = labor_policy_minibatch_terms(
+                        labor_actor,
+                        batch,
+                        audit,
+                        nonlabor_scorer,
+                        clip=clip,
+                        entropy_weight=entropy_weight,
+                    )
+                    kl = float(_audit_nonnegative_kl(audit_terms))
+            except LaborRatioOverflow as error:
+                kl = math.inf
+                overflow = {
+                    "where": "post-step-audit",
+                    "epoch": epoch_number,
+                    "afterAttemptedSteps": attempted_steps,
+                    "error": str(error),
+                    "handling": "step rolled back (KL-limit violation)",
+                }
             if not math.isfinite(kl) or kl > target_kl:
                 restore_step_state(policy_module, optimizer, snapshot)
                 rolled_back = True
@@ -1049,7 +1572,12 @@ def update_labor_policy(
         )
         if rolled_back:
             break
-    return {
+    next_factor = None
+    if lr_schedule is not None:
+        # Leave the rates for the next step on the optimizer (after a rollback the restored
+        # snapshot already holds them, so this re-derives the same values).
+        next_factor = float(lr_schedule(optimizer))
+    stats: dict[str, object] = {
         "contract": LABOR_PPO_CONTRACT,
         "registryDigest": batch.registry_digest,
         "parentRows": batch.parent_count,
@@ -1069,6 +1597,34 @@ def update_labor_policy(
         },
         "scope": "frozen-behavior-update; sampled-action KL is not full-policy KL",
     }
+    if lr_schedule is not None:  # the default report is unchanged
+        record = getattr(lr_schedule, "record", None)
+        stats["actorOptimizer"] = {
+            **(record() if callable(record) else {}),
+            "lrFactorPerAttemptedStep": lr_factors,
+            "firstLrFactor": lr_factors[0] if lr_factors else None,
+            "lastLrFactor": lr_factors[-1] if lr_factors else None,
+            "nextLrFactor": next_factor,
+            "lrsAfterUpdate": {
+                str(group.get("name", index)): float(group["lr"])
+                for index, group in enumerate(optimizer.param_groups)
+            },
+            "rollbacks": int(rolled_back),
+        }
+    if overflow is not None:
+        stats["ratioOverflow"] = overflow
+    if per_head_surrogate:  # the default (joint) report is unchanged
+        stats["initialSurrogate"] = {
+            "mode": "per-head",
+            "heads": list(INITIAL_POLICY_HEADS),
+            "coefficients": "explicit" if initial_head_advantage is not None else "gae-all-heads",
+            "lossValue": "head-mean of per-head initial terms; gradient is their sum",
+        }
+        if initial_correction is not None:
+            stats["initialSurrogate"]["controlVariateCorrection"] = (
+                "added to each training minibatch's initial edge; not to the KL audit"
+            )
+    return stats
 
 
 def labor_task_value_loss(
