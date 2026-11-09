@@ -630,13 +630,31 @@ def _apply(args: argparse.Namespace) -> dict[str, Any]:
     # --- the update: train --a-mode off's update_labor_policy call -----------------------
     shuffle = np.random.default_rng()
     shuffle.bit_generator.state = copy.deepcopy(state["shuffle_rng_state"])
+    from .labor_ppo import initial_head_entropy_means, parse_head_entropy_floor
+
+    head_floors = parse_head_entropy_floor(getattr(args, "head_entropy_floor", None))
+    def nonlabor_scorer(tensors: Any, sample: Any) -> Any:
+        return training._score_nonlabor(actor, tensors, sample)
+
+    floor_kwargs: dict[str, Any] = {}
+    entropy_before = None
+    if head_floors is not None:  # default off: the call below is train --a-mode off's
+        entropy_before = initial_head_entropy_means(actor, batch)
+        floor_kwargs = {"head_entropy_floor": head_floors}
+
+        def nonlabor_scorer(tensors: Any, sample: Any) -> Any:
+            return training._score_nonlabor_entropy_heads(
+                actor, tensors, sample, per_head_logp=False
+            )
+
     clock = time.perf_counter()
     stats = update_labor_policy(
         policy_module=actor,
         labor_actor=actor,
         optimizer=actor_optimizer,
         batch=batch,
-        nonlabor_scorer=lambda tensors, sample: training._score_nonlabor(actor, tensors, sample),
+        nonlabor_scorer=nonlabor_scorer,
+        **floor_kwargs,
         rng=shuffle,
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -728,6 +746,16 @@ def _apply(args: argparse.Namespace) -> dict[str, Any]:
         "scope": "actor-only step check (labor_a_measure --apply): train --a-mode off's actor "
         "update; critic not updated; not readiness",
     }
+    if head_floors is not None:  # absent by default
+        flags["headEntropyFloor"] = {
+            h: {"hMin": a, "weight": w} for h, (a, w) in head_floors.items()
+        }
+        next_state["last_update"]["headEntropyFloor"] = {
+            "floors": flags["headEntropyFloor"],
+            "actorUpdated": bool(stats.get("acceptedSteps", 0)),
+            "entropyBefore": entropy_before,
+            "entropyAfter": initial_head_entropy_means(actor, batch),
+        }
     next_state[STEP_CHECKS_KEY] = [*state.get(STEP_CHECKS_KEY, []), provenance]
     clock = time.perf_counter()
     training._save_checkpoint(out_checkpoint, next_state)
@@ -908,6 +936,10 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--entropy-weight", type=float, default=0.0)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--audit-rows", type=int, default=64)
+    parser.add_argument(
+        "--head-entropy-floor", default=None,
+        help="apply mode: train's per-head entropy floors 'head=H_min:w[,...]' (default off)",
+    )
     parser.add_argument(
         "--threads", type=int, default=max(1, torch.get_num_threads()),
         help="torch intra-op threads (default: torch's current count)",

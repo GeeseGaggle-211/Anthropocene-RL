@@ -12,6 +12,7 @@ scarcity, low utilisation, or low production as feasibility failures.
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -35,6 +36,7 @@ from .labor_model import (
     LaborPersonality,
     labor_entropy,
     labor_log_prob,
+    nonlabor_entropy,
 )
 from .ppo_correctness import (
     capture_step_state,
@@ -68,6 +70,71 @@ INITIAL_POLICY_HEADS = (*LABOR_POLICY_HEADS, *NONLABOR_POLICY_HEADS)
 # HEAD_LOGP_ATOL + HEAD_LOGP_RTOL * sum_h |head| (float32 rounding of the sum).
 HEAD_LOGP_ATOL = 1e-5
 HEAD_LOGP_RTOL = 1e-5
+# Heads an optional per-head entropy floor may name (``--head-entropy-floor``): the
+# initial edge's non-labor heads, whose per-row entropies ``nonlabor_entropy`` returns.
+HEAD_ENTROPY_FLOOR_HEADS = NONLABOR_POLICY_HEADS
+HeadEntropyFloor = Mapping[str, tuple[float, float]]
+
+
+def parse_head_entropy_floor(text: str | None) -> dict[str, tuple[float, float]] | None:
+    """``head=H_min:w[,head=H_min:w...]`` -> {head: (H_min, w)}; None/empty -> None (off).
+
+    Heads are non-labor initial-edge heads (``HEAD_ENTROPY_FLOOR_HEADS``). ``H_min`` is any
+    finite entropy in nats (Gaussian heads use differential entropy summed over their
+    dimensions, which may be negative); ``w`` is finite and nonnegative; each head once.
+    """
+    if text is None or not str(text).strip():
+        return None
+    floors: dict[str, tuple[float, float]] = {}
+    for item in str(text).split(","):
+        item = item.strip()
+        if not item:
+            continue
+        head, eq, rest = item.partition("=")
+        floor, colon, weight = rest.partition(":")
+        if not eq or not colon:
+            raise ValueError(f"head entropy floor {item!r} must be head=H_min:w")
+        head = head.strip()
+        if head in floors:
+            raise ValueError(f"head entropy floor names {head!r} twice")
+        floors[head] = (float(floor), float(weight))
+    return validate_head_entropy_floor(floors) if floors else None
+
+
+def validate_head_entropy_floor(
+    floors: HeadEntropyFloor | None,
+) -> dict[str, tuple[float, float]] | None:
+    if floors is None:
+        return None
+    if not isinstance(floors, Mapping) or not floors:
+        raise ValueError("head_entropy_floor must be a nonempty {head: (H_min, w)} mapping")
+    out = {}
+    for head, value in floors.items():
+        if head not in HEAD_ENTROPY_FLOOR_HEADS:
+            raise ValueError(
+                f"head entropy floor head {head!r} must be one of {list(HEAD_ENTROPY_FLOOR_HEADS)}"
+            )
+        h_min, w = (float(v) for v in value)
+        if not math.isfinite(h_min) or not math.isfinite(w) or w < 0:
+            raise ValueError(f"head entropy floor {head}: H_min finite, w finite and >= 0")
+        out[head] = (h_min, w)
+    return out
+
+
+def head_entropy_floor_loss(
+    head_entropy: Mapping[str, torch.Tensor], floors: HeadEntropyFloor
+) -> torch.Tensor:
+    """sum_h w_h * mean_rows(relu(H_min,h - H_h(s))), heads in canonical order."""
+    total = None
+    for head in HEAD_ENTROPY_FLOOR_HEADS:
+        if head not in floors:
+            continue
+        h_min, w = floors[head]
+        term = float(w) * torch.relu(float(h_min) - head_entropy[head]).mean()
+        total = term if total is None else total + term
+    if total is None:
+        raise ValueError("head entropy floor names no head")
+    return total
 
 
 class LaborRatioOverflow(FloatingPointError):
@@ -636,6 +703,10 @@ class AttemptPolicyTerms:
     # underflowed to 0: log(0) = -inf turned a large but finite KL into inf.
     initial_log_ratio: torch.Tensor | None = None
     retry_log_ratio: torch.Tensor | None = None
+    # Optional per-head entropy floor (``head_entropy_floor``; default None: absent): the
+    # term added to ``loss`` and the current per-row non-labor head entropies it used.
+    head_entropy_floor_loss: torch.Tensor | None = None
+    initial_nonlabor_head_entropy: Mapping[str, torch.Tensor] | None = None
 
 
 def attempt_policy_terms(
@@ -1258,6 +1329,7 @@ def labor_policy_minibatch_terms(
     entropy_weight: float,
     initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
     initial_correction: InitialCorrectionFn | None = None,
+    head_entropy_floor: HeadEntropyFloor | None = None,
 ) -> AttemptPolicyTerms:
     """Recompute one parent minibatch under the current policy.
 
@@ -1272,6 +1344,11 @@ def labor_policy_minibatch_terms(
     ``initial_correction`` (default None) is called once with ``parent_index`` and
     returns the A(s,a) control variate's :class:`InitialCorrection` for these parents;
     it requires ``initial_head_advantage``.
+
+    ``head_entropy_floor`` (default None: off, nothing below changes) adds
+    ``sum_h w_h * mean_parents(relu(H_min,h - H_h(s)))`` over the named non-labor heads to
+    the minimised loss. It needs a scorer whose entropy is ``nonlabor_entropy``'s per-head
+    mapping (its "joint" is then the joint entropy, used exactly as before).
     """
 
     if (
@@ -1313,6 +1390,18 @@ def labor_policy_minibatch_terms(
     nonlabor_scored, initial_nonlabor_entropy = nonlabor_scorer(
         initial_tensors, initial_nonlabor_sample
     )
+    nonlabor_head_entropy = None
+    if isinstance(initial_nonlabor_entropy, Mapping):
+        if not set(NONLABOR_POLICY_HEADS) | {"joint"} <= set(initial_nonlabor_entropy):
+            raise ValueError("non-labor scorer entropy mapping lacks a head or its joint")
+        nonlabor_head_entropy = {
+            name: initial_nonlabor_entropy[name] for name in NONLABOR_POLICY_HEADS
+        }
+        initial_nonlabor_entropy = initial_nonlabor_entropy["joint"]
+    if head_entropy_floor is not None and nonlabor_head_entropy is None:
+        raise ValueError(
+            "a head entropy floor needs a non-labor scorer that returns per-head entropies"
+        )
     current_nonlabor_heads = None
     if isinstance(nonlabor_scored, Mapping):
         if not set(NONLABOR_POLICY_HEADS) | {"joint"} <= set(nonlabor_scored):
@@ -1333,7 +1422,7 @@ def labor_policy_minibatch_terms(
     else:
         retry_logp = batch.behaviour_retry_labor_logp.new_empty(0)
         retry_entropy = retry_logp.clone()
-    return attempt_policy_terms(
+    terms = attempt_policy_terms(
         current_initial_labor_logp=initial_labor_logp,
         behaviour_initial_labor_logp=batch.behaviour_initial_labor_logp.index_select(
             0, parent_index
@@ -1363,6 +1452,42 @@ def labor_policy_minibatch_terms(
             None if initial_correction is None else initial_correction(parent_index)
         ),
     )
+    if head_entropy_floor is None:
+        return terms
+    assert nonlabor_head_entropy is not None
+    for name, value in nonlabor_head_entropy.items():
+        _vector(value, len(parent_index), f"{name} entropy")
+    floor = head_entropy_floor_loss(nonlabor_head_entropy, head_entropy_floor)
+    return dataclasses.replace(
+        terms,
+        loss=terms.loss + floor,
+        head_entropy_floor_loss=floor,
+        initial_nonlabor_head_entropy=nonlabor_head_entropy,
+    )
+
+
+def initial_head_entropy_means(
+    actor: torch.nn.Module,
+    batch: LaborAttemptPolicyBatch,
+    *,
+    chunk: int = 64,
+) -> dict[str, float]:
+    """Mean (over the batch's initial parents) per-head entropy of the current policy:
+    labor ``specialty``/``activity`` (``labor_entropy``) and every non-labor head
+    (``nonlabor_entropy``), float64 sums, under no_grad in fixed chunks. Diagnostic only."""
+    sums: dict[str, float] = {name: 0.0 for name in INITIAL_POLICY_HEADS}
+    with torch.no_grad():
+        for start in range(0, batch.parent_count, chunk):
+            index = torch.arange(start, min(batch.parent_count, start + chunk), dtype=torch.long)
+            tensors = _rows(batch.initial_tensors, index)
+            output = actor(tensors)
+            labor = labor_entropy(output, tensors)
+            nonlabor = nonlabor_entropy(output)
+            for name in LABOR_POLICY_HEADS:
+                sums[name] += float(labor[name].double().sum())
+            for name in NONLABOR_POLICY_HEADS:
+                sums[name] += float(nonlabor[name].double().sum())
+    return {name: value / batch.parent_count for name, value in sums.items()}
 
 
 def _audit_log_ratio(ratio: torch.Tensor, log_ratio: torch.Tensor | None) -> torch.Tensor:
@@ -1410,6 +1535,7 @@ def update_labor_policy(
     initial_head_advantage: Mapping[str, torch.Tensor] | None = None,
     initial_correction: InitialCorrectionFn | None = None,
     lr_schedule: Callable[[torch.optim.Optimizer], float] | None = None,
+    head_entropy_floor: HeadEntropyFloor | None = None,
 ) -> dict[str, object]:
     """Run one frozen-behavior PPO update with transactional KL rollback.
 
@@ -1445,6 +1571,13 @@ def update_labor_policy(
     ``ratioOverflow``. Before any step it re-raises (inconsistent behaviour data), as do
     non-finite inputs (log-probs, advantages, entropies are validated finite) and a
     non-finite loss.
+
+    ``head_entropy_floor`` (default None: off; the update is then the historical one bit
+    for bit) adds the per-head entropy floor of :func:`labor_policy_minibatch_terms` to
+    every TRAINING minibatch's loss (the same minibatch loss as the surrogate, so the KL
+    audit, rollback and ratio-overflow handling bound the step as before; the fixed audit
+    never includes it). The nonlabor scorer must then return per-head entropies. The
+    stats gain ``headEntropyFloor``.
     """
 
     if not isinstance(per_head_surrogate, bool):
@@ -1453,6 +1586,8 @@ def update_labor_policy(
         raise ValueError("per-head advantages were supplied but per_head_surrogate is off")
     if initial_correction is not None and not per_head_surrogate:
         raise ValueError("a control-variate correction was supplied but per_head_surrogate is off")
+    floors = validate_head_entropy_floor(head_entropy_floor)
+    floor_losses: list[float] = []
     head_advantage = None
     if per_head_surrogate:
         head_advantage = (
@@ -1509,6 +1644,7 @@ def update_labor_policy(
                     entropy_weight=entropy_weight,
                     initial_head_advantage=head_advantage,
                     initial_correction=initial_correction,
+                    **({} if floors is None else {"head_entropy_floor": floors}),
                 )
             except LaborRatioOverflow as error:
                 if not attempted_steps:
@@ -1532,6 +1668,9 @@ def update_labor_policy(
             torch.nn.utils.clip_grad_norm_(policy_module.parameters(), max_grad_norm)
             optimizer.step()
             attempted_steps += 1
+            if floors is not None:
+                assert terms.head_entropy_floor_loss is not None
+                floor_losses.append(float(terms.head_entropy_floor_loss.detach()))
             if factor is not None:
                 lr_factors.append(factor)
             try:
@@ -1613,6 +1752,13 @@ def update_labor_policy(
         }
     if overflow is not None:
         stats["ratioOverflow"] = overflow
+    if floors is not None:  # the default report is unchanged
+        stats["headEntropyFloor"] = {
+            "floors": {head: {"hMin": h, "weight": w} for head, (h, w) in floors.items()},
+            "term": "w * mean_parents(relu(H_min - H_head(s))) per head, added to each "
+                    "training minibatch's minimised loss; not to the KL audit",
+            "floorLossPerAttemptedStep": floor_losses,
+        }
     if per_head_surrogate:  # the default (joint) report is unchanged
         stats["initialSurrogate"] = {
             "mode": "per-head",

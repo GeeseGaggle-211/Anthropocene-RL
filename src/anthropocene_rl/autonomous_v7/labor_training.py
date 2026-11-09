@@ -102,8 +102,10 @@ from .labor_ppo import (
     RetainedLaborAction,
     combine_labor_advantages,
     execute_labor_decision,
+    initial_head_entropy_means,
     labor_cost_value_loss,
     labor_task_value_loss,
+    parse_head_entropy_floor,
     two_attempt_gae,
     update_labor_policy,
 )
@@ -120,7 +122,7 @@ from .labor_pilot import (
     calibration_report_status,
     pilot_bypass_history,
 )
-from .labor_worlds import require_training_worlds
+from .labor_worlds import refuse_diagnostic_posture, require_training_worlds
 from .model import BOUNDED_FEATURE_CONTRACT, load_checkpoint_normalizer
 from .ppo import SMALL_SETTLEMENT, YOUNG_DAUGHTER_TURNS
 from .protocol import scan
@@ -292,6 +294,21 @@ def _score_nonlabor_heads(
     """:func:`_score_nonlabor` keeping the per-head mapping (same operations)."""
     output = actor(tensors)
     return nonlabor_log_prob(output, sample), nonlabor_entropy(output)["joint"]
+
+
+def _score_nonlabor_entropy_heads(
+    actor: LaborActor,
+    tensors: Mapping[str, torch.Tensor],
+    sample: Mapping[str, torch.Tensor],
+    *,
+    per_head_logp: bool,
+) -> tuple[torch.Tensor | dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    """The head-entropy-floor scorer: :func:`_score_nonlabor` (or its per-head form) with
+    ``nonlabor_entropy``'s full per-head mapping; same operations, so its "joint" and the
+    log-probs are the other scorers' values bit for bit."""
+    output = actor(tensors)
+    scored = nonlabor_log_prob(output, sample)
+    return (scored if per_head_logp else scored["joint"]), nonlabor_entropy(output)
 
 
 @dataclass
@@ -1127,6 +1144,7 @@ def _load_rollout(path: Path) -> tuple[
     batch_state = state.get("batch")
     if not isinstance(metadata, dict) or not isinstance(batch_state, dict):
         raise ValueError("labor rollout metadata/batch is missing")
+    refuse_diagnostic_posture(state, "labor rollout loader")
     # Load-time check of the producer binding (_producer_action_binding):
     # recorded action features are consumable only by the adapter that wrote
     # them. A rollout carrying features must record the binding; one without
@@ -1160,6 +1178,7 @@ def _load_rollout(path: Path) -> tuple[
 def _models_from_checkpoint(state: Mapping[str, Any]) -> tuple[
     LaborEncoderLayout, LaborActor, LaborTaskCritic, LaborCostCritics, Any
 ]:
+    refuse_diagnostic_posture(state, "labor checkpoint loader")
     layout = LaborEncoderLayout.from_state(state.get("labor_encoder_layout"))
     actor = LaborActor(layout)
     task = LaborTaskCritic(
@@ -1230,6 +1249,7 @@ def _require_trainer_checkpoint(state: Mapping[str, Any]) -> None:
         "critic_training_world_seeds",
         "critic_training_independent_unit_ids",
     }
+    refuse_diagnostic_posture(state, "labor trainer checkpoint loader")
     if not isinstance(state, Mapping) or not required.issubset(state):
         raise ValueError("labor trainer checkpoint lacks optimizer/RNG/order metadata")
     if state["labor_training_contract"] != LABOR_TRAINING_CONTRACT:
@@ -1268,6 +1288,7 @@ def _load_json(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(value, dict):
         raise ValueError(f"{path} must contain a JSON object")
+    refuse_diagnostic_posture(value, f"labor JSON input {path.name}")
     return value
 
 
@@ -2495,6 +2516,8 @@ def _command_train(args: argparse.Namespace) -> None:
         raise ValueError("labor rollout normalization binding is stale")
     if getattr(args, "per_head_surrogate", False):
         batch.require_behaviour_head_logp()  # refuse before any critic step
+    # Optional per-head entropy floors (default off: nothing below changes).
+    head_floors = parse_head_entropy_floor(getattr(args, "head_entropy_floor", None))
     # WP-A1: None in --a-mode off (the default), which touches nothing below.
     pilot_requested = bool(getattr(args, "pilot_ungated_actor", False))
     if pilot_requested and getattr(args, "a_mode", "off") != "off":
@@ -2612,6 +2635,7 @@ def _command_train(args: argparse.Namespace) -> None:
         not torch.equal(value, actor.state_dict()[name]) for name, value in actor_before.items()
     ):
         raise AssertionError("critic update changed actor parameters")
+    entropy_before = None if head_floors is None else initial_head_entropy_means(actor, batch)
     a_prepared = None
     if a_run is not None:
         # A from the frozen snapshot, with the pre-update (behaviour) actor; D7 measures
@@ -2655,6 +2679,12 @@ def _command_train(args: argparse.Namespace) -> None:
             nonlabor_scorer = lambda tensors, sample: _score_nonlabor(  # noqa: E731
                 actor, tensors, sample
             )
+        if head_floors is not None:
+            per_head_logp = a_prepared is not None or per_head
+            nonlabor_scorer = lambda tensors, sample: _score_nonlabor_entropy_heads(  # noqa: E731
+                actor, tensors, sample, per_head_logp=per_head_logp
+            )
+            extra = {**extra, "head_entropy_floor": head_floors}
         actor_stats = update_labor_policy(
             policy_module=actor,
             labor_actor=actor,
@@ -2716,6 +2746,15 @@ def _command_train(args: argparse.Namespace) -> None:
     }
     if warmup is not None:
         next_state["last_update"]["criticWarmup"] = dict(warmup)
+    if head_floors is not None:  # absent by default
+        next_state["last_update"]["headEntropyFloor"] = {
+            "floors": {head: {"hMin": h, "weight": w} for head, (h, w) in head_floors.items()},
+            "actorUpdated": bool(actor_stats.get("acceptedSteps", 0)),
+            "entropyBefore": entropy_before,
+            "entropyAfter": initial_head_entropy_means(actor, batch),
+            "entropy": "mean over the rollout's initial parents per head (nats; Gaussian "
+                       "heads: differential entropy summed over dimensions)",
+        }
     # The pilot-bypass record is persistent: carried from the input checkpoint whether
     # or not this update uses the flag (absent on every checkpoint that never used it).
     pilot_history = list(prior_pilot_history)
@@ -3715,6 +3754,14 @@ def argument_parser() -> argparse.ArgumentParser:
     train.add_argument("--max-grad-norm", type=float, default=1.0)
     train.add_argument("--target-kl", type=float, default=0.02)
     train.add_argument("--audit-rows", type=int, default=64)
+    train.add_argument(
+        "--head-entropy-floor",
+        default=None,
+        help="optional per-head entropy floors 'head=H_min:w[,head=H_min:w]' over the non-labor "
+        "heads (movement, fission, trade_gate, trade_share, trade_value): adds w * "
+        "mean_parents(relu(H_min - H_head(s))) to each training minibatch's actor loss "
+        "(default off: the update is unchanged bit for bit)",
+    )
     train.add_argument(
         "--per-head-surrogate",
         action="store_true",

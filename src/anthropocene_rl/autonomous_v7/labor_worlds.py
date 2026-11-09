@@ -96,3 +96,32 @@ def require_training_record(record: Mapping[str, Any] | None, context: str) -> N
             f"{context} refuses held-out-test data (partition {HELD_OUT_TEST_PARTITION!r}); "
             "test shards from the reserved worlds never train any network"
         )
+
+
+# Diagnostic posture-override outputs (labor_posture_probe): the probe forces the actor's
+# non-labor posture (fission policy, trade share/gate/value) for every camp before
+# submission, so its decisions were never sampled by any policy. Its outputs carry this
+# scope and every training/anchor/calibration loader refuses them.
+DIAGNOSTIC_POSTURE_SCOPE = "diagnostic-posture-override"
+
+
+def is_diagnostic_posture(record: Any) -> bool:
+    """Whether a loaded record (or its ``metadata``/``source``/``options``) carries the scope."""
+    if not isinstance(record, Mapping):
+        return False
+    if record.get("scope") == DIAGNOSTIC_POSTURE_SCOPE:
+        return True
+    return any(
+        isinstance(record.get(key), Mapping)
+        and record[key].get("scope") == DIAGNOSTIC_POSTURE_SCOPE
+        for key in ("metadata", "source", "options")
+    )
+
+
+def refuse_diagnostic_posture(record: Any, context: str) -> None:
+    """Refuse a posture-override probe output wherever training data/inputs are loaded."""
+    if is_diagnostic_posture(record):
+        raise ValueError(
+            f"{context} refuses {DIAGNOSTIC_POSTURE_SCOPE!r} data: posture-probe decisions "
+            "were forced, not sampled by a policy, and never train or calibrate anything"
+        )

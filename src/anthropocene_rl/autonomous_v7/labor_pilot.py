@@ -394,6 +394,10 @@ def pilot_summary(
     before = policy_log_probs(actor_in, batch)
     after = policy_log_probs(actor_out, batch)
     moves = log_prob_deltas(after, before)
+    from .labor_ppo import initial_head_entropy_means
+
+    entropy_in = initial_head_entropy_means(actor_in, batch)
+    entropy_out = initial_head_entropy_means(actor_out, batch)
     sanity = log_prob_deltas(before, behaviour_log_probs(batch))
     epochs = _per_epoch_kl(actor) if "sampledNonnegativeKL" in actor else []
     from .labor_value_calibration import load_labor_anchor
@@ -461,6 +465,12 @@ def pilot_summary(
         "meanAbsDeltaLogp": {name: value["meanAbs"] for name, value in moves.items()},
         "maxAbsDeltaLogp": {name: value["maxAbs"] for name, value in moves.items()},
         "inputVsBehaviourMaxAbsLogp": {name: value["maxAbs"] for name, value in sanity.items()},
+        "headEntropy": {
+            "in": entropy_in,
+            "out": entropy_out,
+            "scope": "mean over the rollout's initial parents per head (nats)",
+        },
+        "headEntropyFloor": update.get("headEntropyFloor"),
         "stageSeconds": dict(stage_seconds),
         "scope": PILOT_BYPASS_SCOPE if bypass_expected else "pilot-not-readiness",
     }

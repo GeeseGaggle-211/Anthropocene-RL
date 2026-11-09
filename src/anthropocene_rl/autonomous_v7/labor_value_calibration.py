@@ -285,6 +285,9 @@ def load_labor_anchor(path: Path, role: str) -> LaborObservedReturnData:
         raise ValueError(f"labor anchor role must be one of {sorted(LABOR_ANCHOR_ROLES)}")
     arrays = _source_arrays(path)
     metadata = _metadata(arrays)
+    from .labor_worlds import refuse_diagnostic_posture
+
+    refuse_diagnostic_posture(metadata, "labor anchor loader")
     expected = {
         "schemaVersion": 1,
         "kind": LABOR_ANCHOR_KIND,
