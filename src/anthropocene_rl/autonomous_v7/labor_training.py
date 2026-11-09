@@ -113,6 +113,13 @@ from .labor_value_calibration import (
     labor_critic_digest,
     load_labor_anchor,
 )
+from .labor_pilot import (
+    PILOT_BYPASS_GATE,
+    PILOT_BYPASS_KEY,
+    PILOT_BYPASS_SCOPE,
+    calibration_report_status,
+    pilot_bypass_history,
+)
 from .labor_worlds import require_training_worlds
 from .model import BOUNDED_FEATURE_CONTRACT, load_checkpoint_normalizer
 from .ppo import SMALL_SETTLEMENT, YOUNG_DAUGHTER_TURNS
@@ -2489,7 +2496,16 @@ def _command_train(args: argparse.Namespace) -> None:
     if getattr(args, "per_head_surrogate", False):
         batch.require_behaviour_head_logp()  # refuse before any critic step
     # WP-A1: None in --a-mode off (the default), which touches nothing below.
+    pilot_requested = bool(getattr(args, "pilot_ungated_actor", False))
+    if pilot_requested and getattr(args, "a_mode", "off") != "off":
+        raise ValueError("--pilot-ungated-actor is a plain-GAE pilot flag (--a-mode off)")
     a_run = _a_setup(args, state, batch, rollout_metadata)
+    prior_pilot_history = pilot_bypass_history(state)  # validates a carried record
+    if pilot_requested:
+        if rollout_metadata.get("criticWarmup") is not None:
+            raise ValueError(
+                "--pilot-ungated-actor cannot update the actor from a critic-warmup rollout"
+            )
 
     # Learning rates are configuration, not state: the checkpoint's Adam moments/steps are
     # restored (a legacy one-group state is re-indexed by parameter), then the configured
@@ -2541,6 +2557,31 @@ def _command_train(args: argparse.Namespace) -> None:
     current_training_worlds, current_training_units = _validate_training_data_separation(
         anchor, batch, rollout_metadata, state, gate_report
     )
+    pilot_bypass: dict[str, Any] | None = None
+    if pilot_requested:
+        report_status = calibration_report_status(
+            gate_report,
+            None if args.calibration_report is None else checkpoint_hash(args.calibration_report),
+        )
+        pilot_bypass = {
+            "requested": True,
+            "used": gate is None,
+            "calibrationReport": report_status,
+            "scope": PILOT_BYPASS_SCOPE,
+        }
+        if gate is None:
+            # Binds the current sampled policy, the rollout's advantage critic and its
+            # normalizer exactly as an open report would; no calibration claim.
+            gate = LaborActorGate(
+                behavior_policy_digest(actor, behavior),
+                batch.advantage_critic_digest,
+                batch.normalization_binding_digest,
+                (
+                    gate_report["dataSha256"]
+                    if gate_report is not None
+                    else checkpoint_hash(args.rollout)
+                ),
+            )
     if gate is not None:
         gate.require_current(
             actor,
@@ -2579,7 +2620,7 @@ def _command_train(args: argparse.Namespace) -> None:
     actor_stats: dict[str, Any]
     if warmup is not None:
         actor_stats = {"actorGateOpen": False, "reason": "critic-warmup-requires-fresh-calibration"}
-    elif args.calibration_report is None:
+    elif args.calibration_report is None and not (pilot_bypass and pilot_bypass["used"]):
         actor_stats = {"actorGateOpen": False, "reason": "calibration-report-not-supplied"}
     elif gate is None:
         actor_stats = {
@@ -2675,6 +2716,29 @@ def _command_train(args: argparse.Namespace) -> None:
     }
     if warmup is not None:
         next_state["last_update"]["criticWarmup"] = dict(warmup)
+    # The pilot-bypass record is persistent: carried from the input checkpoint whether
+    # or not this update uses the flag (absent on every checkpoint that never used it).
+    pilot_history = list(prior_pilot_history)
+    if pilot_bypass is not None:
+        next_state["last_update"]["pilotBypass"] = pilot_bypass
+        if pilot_bypass["used"]:
+            next_state["last_update"]["actorGate"] = PILOT_BYPASS_GATE
+            actor_stats["actorGate"]["mode"] = PILOT_BYPASS_GATE
+            pilot_history.append(
+                {
+                    "iteration": int(state["iteration"]),
+                    "inputCheckpointSha256": checkpoint_hash(args.checkpoint),
+                    "rolloutSha256": checkpoint_hash(args.rollout),
+                    "attemptedSteps": int(actor_stats["attemptedSteps"]),
+                    "acceptedSteps": int(actor_stats["acceptedSteps"]),
+                    "calibrationReport": pilot_bypass["calibrationReport"],
+                    "actorGate": PILOT_BYPASS_GATE,
+                }
+            )
+        else:
+            next_state["last_update"]["actorGate"] = "calibration-report"
+    if pilot_history:
+        next_state[PILOT_BYPASS_KEY] = pilot_history
     if a_run is not None:
         assert a_prepared is not None
         _a_finish(a_run, a_prepared, next_state, state, task, costs, batch, rollout_metadata)
@@ -3687,6 +3751,16 @@ def argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="gae telemetry: run the K-epoch update on copies to report the dry-run KL "
         "(never applied; default off: 'not measured')",
+    )
+    train.add_argument(
+        "--pilot-ungated-actor",
+        action="store_true",
+        default=False,
+        help="PILOT ONLY (default off): update the actor even when the actor-gate "
+        "calibration report is closed or absent. Records last_update.actorGate = "
+        "'pilot-bypass' with the report's actual status and the persistent checkpoint "
+        f"field {PILOT_BYPASS_KEY}; readiness/acceptance tooling refuses such checkpoints. "
+        "--a-mode off only",
     )
     train.add_argument("--out", type=Path, required=True)
     train.set_defaults(handler=_command_train)

@@ -17,6 +17,8 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,6 +70,7 @@ DEFAULT_TAIL_DRAWS = 16
 DEFAULT_TAIL_RHO = 0.95
 DEFAULT_TAIL_CAP = 200
 DEFAULT_PATHS = 4
+PROGRESS_EVERY_TERMS = 5
 
 
 @dataclass(frozen=True)
@@ -268,7 +271,9 @@ def _run_continuation(
     path_index: int,
     alternative: str,
     prefix_terms: int,
+    progress_every: int = 0,
 ) -> LaborContinuationPath:
+    clock = time.perf_counter()
     initial_generator = torch.Generator().manual_seed(initial_seed)
     future_generator = torch.Generator().manual_seed(future_seed)
     founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
@@ -318,6 +323,25 @@ def _run_continuation(
                         "input": None if row is None else _input_digest(row),
                     }
                 )
+        if progress_every and (term + 1) % progress_every == 0:
+            # wall-clock telemetry on stderr only; never in the payload
+            print(
+                json.dumps(
+                    {
+                        "anchorTerm": {
+                            "world": world_seed,
+                            "path": path_index,
+                            "alternative": alternative,
+                            "terms": term + 1,
+                            "maximumTerms": maximum_terms,
+                            "seconds": round(time.perf_counter() - clock, 3),
+                        }
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
         if all(terminal[camp] and terminal[camp][-1] for camp in opening_camps):
             break
     return LaborContinuationPath(
@@ -348,6 +372,247 @@ def _path_rng_seeds(base: int, world_index: int, path_index: int) -> tuple[int, 
     return (schedule, schedule * 100, schedule * 100 + 1, schedule * 100 + 99)
 
 
+@dataclass(frozen=True)
+class _WorldParent:
+    """The reset decision of one world: the parent rows every path starts from."""
+
+    runtime_identity: Mapping[str, Any]
+    world_personality: Any
+    opening: tuple[int, ...]
+    parent_by_camp: Mapping[int, Mapping[str, np.ndarray]]
+    privileged_by_camp: Mapping[int, Mapping[str, np.ndarray]]
+    parent_digest: str
+
+
+def _world_parent(bridge, world, reset, normalizer, personality, task, costs) -> _WorldParent:
+    parent_step = bridge.reset(world, **reset.reset_kwargs())
+    identity = bridge.runtime_identity()
+    live = [
+        village for village in parent_step["villages"]
+        if village.get("observation") is not None and not village.get("terminated")
+    ]
+    world_personality = personality_for_world(personality, world)
+    contexts, parent_tensors = labor_policy_tensors(
+        live, normalizer, personality=world_personality
+    )
+    opening = [context[0].camp_id for context in contexts]
+    if len(opening) != len(set(opening)):
+        raise ValueError("labor anchor parent repeats a camp")
+    privileged_by_camp = _privileged_inputs(parent_step, task, costs)
+    parent_by_camp = {
+        camp: _tensor_row(parent_tensors, row) for row, camp in enumerate(opening)
+    }
+    parent_digest = digest(
+        {
+            "fingerprint": parent_step.get("fingerprint"),
+            "inputs": {camp: _input_digest(row) for camp, row in parent_by_camp.items()},
+        }
+    )
+    return _WorldParent(
+        identity, world_personality, tuple(opening), parent_by_camp, privileged_by_camp,
+        parent_digest,
+    )
+
+
+def _path_pair(
+    bridge, fork, *, actor, task, costs, normalizer, parent: _WorldParent, world: int,
+    world_index: int, schedule: FrozenGeometricSchedule, path_index: int, prefix_terms: int,
+    progress: bool = False,
+) -> list[LaborContinuationPath]:
+    """One path's sampled-policy and paired-sample continuations, each from the fork."""
+
+    continuation_seed = schedule.rng_seed
+    assert continuation_seed is not None
+    paths = []
+    for alternative_index, alternative in enumerate(("sampled-policy", "paired-sample")):
+        clock = time.perf_counter()
+        restored = bridge.restore(fork)
+        telemetry = {"progress_every": PROGRESS_EVERY_TERMS} if progress else {}
+        path = _run_continuation(
+            **telemetry,
+            bridge=bridge,
+            step=restored,
+            actor=actor,
+            task_critic=task,
+            cost_critics=costs,
+            normalizer=normalizer,
+            personality=parent.world_personality,
+            initial_seed=continuation_seed * 100 + alternative_index,
+            future_seed=continuation_seed * 100 + 99,
+            world_seed=world,
+            world_index=world_index,
+            opening_camps=list(parent.opening),
+            schedule=schedule,
+            path_index=path_index,
+            alternative=alternative,
+            prefix_terms=prefix_terms,
+        )
+        paths.append(path)
+        if progress:  # wall-clock telemetry on stderr only; never in the payload
+            terms = max((len(values) for values in path.years.values()), default=0)
+            print(
+                json.dumps(
+                    {
+                        "anchorProgress": {
+                            "world": world,
+                            "path": path_index,
+                            "alternative": alternative,
+                            "terms": terms,
+                            "maximumTerms": prefix_terms + schedule.required_terms,
+                            "seconds": round(time.perf_counter() - clock, 3),
+                        }
+                    },
+                    sort_keys=True,
+                ),
+                file=sys.stderr,
+                flush=True,
+            )
+    return paths
+
+
+def _worker_init(threads: int | None) -> None:
+    """Pool worker setup: die with the parent (Linux) and pin the torch thread count."""
+
+    if sys.platform.startswith("linux"):
+        try:
+            import ctypes
+            import signal
+
+            ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)  # PDEATHSIG
+        except Exception:  # best effort: the job script's cap still bounds the run
+            pass
+    if threads is not None:
+        torch.set_num_threads(int(threads))
+
+
+def _anchor_unit(job: Mapping[str, Any]) -> dict[str, Any]:
+    """One (world, path) unit in a pool worker: fresh reset, fork, both continuations.
+
+    Loads the exact checkpoint by path (sha-checked) and refuses another sampled policy;
+    the parent compares every unit's reset decision for its world before assembly.
+    """
+
+    clock = time.perf_counter()
+    path = Path(job["checkpointPath"])
+    if checkpoint_hash(path) != job["checkpointSha256"]:
+        raise ValueError("labor anchor worker: checkpoint changed during collection")
+    state = torch.load(path, map_location="cpu", weights_only=True)
+    _, actor, task, costs, normalizer = _models_from_checkpoint(state)
+    personality = labor_checkpoint_personality(state)
+    behavior = labor_behavior_configuration(personality)
+    if behavior_policy_digest(actor, behavior) != job["policyDigest"]:
+        raise ValueError("labor anchor worker loaded another sampled policy")
+    bridge = job["bridgeFactory"]()
+    try:
+        parent = _world_parent(
+            bridge, job["world"], job["reset"], normalizer, personality, task, costs
+        )
+        fork, _ = bridge.fork()
+        try:
+            paths = _path_pair(
+                bridge, fork, actor=actor, task=task, costs=costs, normalizer=normalizer,
+                parent=parent, world=job["world"], world_index=job["worldIndex"],
+                schedule=job["schedule"], path_index=job["pathIndex"],
+                prefix_terms=job["prefixTerms"], progress=job["progress"],
+            )
+        finally:
+            bridge.restore(fork)
+            bridge.drop(fork)
+    finally:
+        bridge.close()
+    return {
+        "world": job["world"],
+        "pathIndex": job["pathIndex"],
+        "parent": parent,
+        "paths": paths,
+        "seconds": time.perf_counter() - clock,
+    }
+
+
+def _default_executor(max_workers: int, threads: int | None) -> Any:
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+
+    return ProcessPoolExecutor(
+        max_workers=max_workers,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=_worker_init,
+        initargs=(threads,),
+    )
+
+
+def _parallel_units(
+    *, checkpoint_path, worlds, schedules, path_count, prefix_terms, reset, bridge_factory,
+    jobs, threads, progress, policy_digest, executor_factory,
+) -> dict[int, list[dict[str, Any]]]:
+    sha = checkpoint_hash(checkpoint_path)
+    jobs_list = [
+        {
+            "checkpointPath": str(checkpoint_path),
+            "checkpointSha256": sha,
+            "policyDigest": policy_digest,
+            "bridgeFactory": bridge_factory,
+            "world": world,
+            "worldIndex": world_index,
+            "pathIndex": path_index,
+            "schedule": schedules[(world, path_index)],
+            "prefixTerms": prefix_terms,
+            "reset": reset,
+            "progress": progress,
+        }
+        for world_index, world in enumerate(worlds)
+        for path_index in range(path_count)
+    ]
+    factory = executor_factory if executor_factory is not None else _default_executor
+    executor = factory(min(jobs, len(jobs_list)), threads)
+    try:
+        futures = [executor.submit(_anchor_unit, job) for job in jobs_list]
+        results = [future.result() for future in futures]  # canonical (world, path) order
+    except BaseException:
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    executor.shutdown(wait=True)
+    by_world: dict[int, list[dict[str, Any]]] = {world: [] for world in worlds}
+    for result in results:
+        by_world[result["world"]].append(result)
+    return by_world
+
+
+def _same_privileged(left: Mapping[int, Any], right: Mapping[int, Any]) -> bool:
+    if set(left) != set(right):
+        return False
+    for camp, rows in left.items():
+        if set(rows) != set(right[camp]) or any(
+            not np.array_equal(value, right[camp][key]) for key, value in rows.items()
+        ):
+            return False
+    return True
+
+
+def _merge_world_units(
+    world: int, units: Sequence[Mapping[str, Any]], path_count: int
+) -> tuple[_WorldParent, Mapping[str, Any], list[LaborContinuationPath]]:
+    """Refuse a world whose units did not start from the identical reset decision."""
+
+    if [unit["pathIndex"] for unit in units] != list(range(path_count)):
+        raise ValueError(f"labor anchor world {world} lacks a path unit")
+    first = units[0]["parent"]
+    for unit in units[1:]:
+        other = unit["parent"]
+        if (
+            other.parent_digest != first.parent_digest
+            or other.opening != first.opening
+            or dict(other.runtime_identity) != dict(first.runtime_identity)
+            or not _same_privileged(first.privileged_by_camp, other.privileged_by_camp)
+        ):
+            raise ValueError(
+                f"labor anchor world {world}: parallel units saw different reset decisions "
+                "(native reset is not reproducible across processes); use --jobs 1"
+            )
+    paths = [path for unit in units for path in unit["paths"]]
+    return first, first.runtime_identity, paths
+
+
 def collect_labor_anchor_arrays(
     *,
     checkpoint_path: Path,
@@ -364,15 +629,29 @@ def collect_labor_anchor_arrays(
     bridge_factory: Any = LaborModel9Bridge,
     allow_vm_scale: bool = False,
     reset_options: Any = None,
+    jobs: int = 1,
+    threads: int | None = None,
+    progress: bool = False,
+    executor_factory: Any = None,
 ) -> dict[str, np.ndarray]:
     """Collect a strict NPZ payload without using any critic value as a target.
 
     ``reset_options`` (a :class:`labor_bc.LaborResetOptions`) is the manifest's
     native reset contract; its default enables movement.
+
+    ``jobs`` (default 1: one bridge, worlds and paths in sequence) > 1 runs every
+    (world, path) unit in its own spawned process with its own bridge: a fresh reset of
+    the world, a fork, then the same two continuations from the restored fork. Every
+    seed, schedule and row order is the sequential one; each world's units must report
+    the identical reset decision (fingerprint, inputs, privileged rows, runtime identity)
+    or the collection is refused. ``threads`` pins each worker's torch threads.
+    ``progress`` prints per-continuation wall-clock lines on stderr (never in the payload).
     """
     from .labor_bc import LaborResetOptions
 
     reset = reset_options if reset_options is not None else LaborResetOptions()
+    if isinstance(jobs, bool) or not isinstance(jobs, int) or jobs < 1:
+        raise ValueError("labor anchor jobs must be a positive integer")
 
     worlds = checked_seeds(list(world_seeds), "labor anchor worlds")
     continuations = checked_seeds(
@@ -425,6 +704,28 @@ def collect_labor_anchor_arrays(
                     "the schedule was retained and must not be redrawn"
                 )
             schedules[(world, path_index)] = schedule
+    if progress:  # the frozen work plan, for wall-clock extrapolation (stderr only)
+        print(
+            json.dumps(
+                {
+                    "anchorPlan": {
+                        "role": role,
+                        "worlds": list(worlds),
+                        "paths": path_count,
+                        "continuationsPerPath": 2,
+                        "jobs": jobs,
+                        "threads": threads,
+                        "maximumTerms": {
+                            f"{world}/{path}": prefix_terms + schedule.required_terms
+                            for (world, path), schedule in sorted(schedules.items())
+                        },
+                    }
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+            flush=True,
+        )
 
     parent_privileged = []
     rank_privileged = []
@@ -448,69 +749,11 @@ def collect_labor_anchor_arrays(
     rank_masks = {head: [] for head in LABOR_VALUE_HEADS}
     runtime_identities: dict[str, Mapping[str, Any]] = {}
 
-    for world_index, world in enumerate(worlds):
-        bridge = bridge_factory()
-        try:
-            parent_step = bridge.reset(world, **reset.reset_kwargs())
-            runtime_identities[str(world)] = bridge.runtime_identity()
-            live = [
-                village for village in parent_step["villages"]
-                if village.get("observation") is not None and not village.get("terminated")
-            ]
-            world_personality = personality_for_world(personality, world)
-            contexts, parent_tensors = labor_policy_tensors(
-                live, normalizer, personality=world_personality
-            )
-            opening = [context[0].camp_id for context in contexts]
-            if len(opening) != len(set(opening)):
-                raise ValueError("labor anchor parent repeats a camp")
-            privileged_by_camp = _privileged_inputs(parent_step, task, costs)
-            parent_by_camp = {
-                camp: _tensor_row(parent_tensors, row) for row, camp in enumerate(opening)
-            }
-            parent_digest = digest(
-                {
-                    "fingerprint": parent_step.get("fingerprint"),
-                    "inputs": {camp: _input_digest(row) for camp, row in parent_by_camp.items()},
-                }
-            )
-            fork, _ = bridge.fork()
-            paths: list[LaborContinuationPath] = []
-            try:
-                for path_index in range(path_count):
-                    schedule = schedules[(world, path_index)]
-                    continuation_seed = schedule.rng_seed
-                    assert continuation_seed is not None
-                    for alternative_index, alternative in enumerate(
-                        ("sampled-policy", "paired-sample")
-                    ):
-                        restored = bridge.restore(fork)
-                        paths.append(
-                            _run_continuation(
-                                bridge=bridge,
-                                step=restored,
-                                actor=actor,
-                                task_critic=task,
-                                cost_critics=costs,
-                                normalizer=normalizer,
-                                personality=world_personality,
-                                initial_seed=continuation_seed * 100 + alternative_index,
-                                future_seed=continuation_seed * 100 + 99,
-                                world_seed=world,
-                                world_index=world_index,
-                                opening_camps=opening,
-                                schedule=schedule,
-                                path_index=path_index,
-                                alternative=alternative,
-                                prefix_terms=prefix_terms,
-                            )
-                        )
-            finally:
-                bridge.restore(fork)
-                bridge.drop(fork)
-        finally:
-            bridge.close()
-
+    def assemble(world: int, parent: _WorldParent, paths: Sequence[LaborContinuationPath]) -> None:
+        opening = parent.opening
+        parent_by_camp = parent.parent_by_camp
+        privileged_by_camp = parent.privileged_by_camp
+        parent_digest = parent.parent_digest
         unit = f"world-{world}"
         by_path = {(path.path_index, path.alternative): path for path in paths}
         baseline = [by_path[(index, "sampled-policy")] for index in range(path_count)]
@@ -578,6 +821,52 @@ def collect_labor_anchor_arrays(
                             0.0 if summary.standard_error is None else summary.standard_error
                         )
                         rank_masks[head].append(summary.available)
+
+
+    if jobs == 1:
+        for world_index, world in enumerate(worlds):
+            bridge = bridge_factory()
+            try:
+                parent = _world_parent(bridge, world, reset, normalizer, personality, task, costs)
+                runtime_identities[str(world)] = parent.runtime_identity
+                fork, _ = bridge.fork()
+                paths: list[LaborContinuationPath] = []
+                try:
+                    for path_index in range(path_count):
+                        paths.extend(
+                            _path_pair(
+                                bridge, fork, actor=actor, task=task, costs=costs,
+                                normalizer=normalizer, parent=parent, world=world,
+                                world_index=world_index, schedule=schedules[(world, path_index)],
+                                path_index=path_index, prefix_terms=prefix_terms,
+                                progress=progress,
+                            )
+                        )
+                finally:
+                    bridge.restore(fork)
+                    bridge.drop(fork)
+            finally:
+                bridge.close()
+            assemble(world, parent, paths)
+    else:
+        units = _parallel_units(
+            checkpoint_path=checkpoint_path,
+            worlds=worlds,
+            schedules=schedules,
+            path_count=path_count,
+            prefix_terms=prefix_terms,
+            reset=reset,
+            bridge_factory=bridge_factory,
+            jobs=jobs,
+            threads=threads,
+            progress=progress,
+            policy_digest=policy_digest,
+            executor_factory=executor_factory,
+        )
+        for world in worlds:
+            parent, identity, paths = _merge_world_units(world, units[world], path_count)
+            runtime_identities[str(world)] = identity
+            assemble(world, parent, paths)
 
     schedule_digest = digest(
         {
@@ -740,6 +1029,19 @@ def argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--height", type=int, default=None)
     parser.add_argument("--separation", type=int, default=None)
     parser.add_argument("--no-movement", action="store_true", default=False)
+    parser.add_argument(
+        "--jobs", type=int, default=1,
+        help="parallel (world, path) units, one spawned process + bridge each "
+        "(default 1: sequential, one bridge)",
+    )
+    parser.add_argument(
+        "--threads", type=int, default=4,
+        help="torch threads in this process and in every --jobs worker (default 4)",
+    )
+    parser.add_argument(
+        "--progress", action="store_true", default=False,
+        help="per-continuation wall-clock lines on stderr (telemetry only)",
+    )
     parser.add_argument("--out", type=Path, required=True)
     return parser
 
@@ -747,8 +1049,10 @@ def argument_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> None:
     from .labor_bc import LaborResetOptions
 
-    torch.set_num_threads(4)
     args = argument_parser().parse_args(argv)
+    if args.threads < 1:
+        raise ValueError("--threads must be >= 1")
+    torch.set_num_threads(args.threads)
     worlds = [int(value) for value in args.worlds.split(",") if value]
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     arrays = collect_labor_anchor_arrays(
@@ -771,6 +1075,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             height=args.height,
             separation=args.separation,
         ),
+        jobs=args.jobs,
+        threads=args.threads,
+        progress=args.progress,
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(args.out, **arrays)

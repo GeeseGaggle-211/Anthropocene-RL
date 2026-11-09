@@ -138,6 +138,12 @@ def compose_trainer_checkpoint(
         "actorOptimizer": f"fresh torch.optim.Adam(actor.parameters(), lr={float(actor_lr)!r})",
         **({} if provenance is None else dict(provenance)),
     }
+    # A pilot-bypass actor (or critic) never loses its record by being composed.
+    from .labor_pilot import PILOT_BYPASS_KEY, merged_pilot_bypass_history
+
+    pilot_history = merged_pilot_bypass_history(base, actor_source)
+    if pilot_history:
+        composed[PILOT_BYPASS_KEY] = pilot_history
     _require_trainer_checkpoint(composed)
     return composed
 
@@ -195,8 +201,14 @@ def verify_composed(
     report["behaviorPolicyDigestEqualsSource"] = report[
         "behaviorPolicyDigest"
     ] == behavior_policy_digest(source_actor, source_behavior)
-    unchanged = [k for k in base if k not in ("actor", "actor_optimizer")]
+    from .labor_pilot import PILOT_BYPASS_KEY, merged_pilot_bypass_history, pilot_bypass_history
+
+    unchanged = [k for k in base if k not in ("actor", "actor_optimizer", PILOT_BYPASS_KEY)]
     report["otherKeysUnchanged"] = all(_equal(composed[k], base[k]) for k in unchanged)
+    if pilot_bypass_history(composed) != merged_pilot_bypass_history(base, actor_source):
+        raise ValueError("composed checkpoint lost or altered a pilot-bypass record")
+    if pilot_bypass_history(composed):  # reported only when present (default report unchanged)
+        report["pilotBypassUpdates"] = len(pilot_bypass_history(composed))
     report["actorOptimizer"] = {
         "paramGroups": [
             {k: v for k, v in group.items() if k != "params"}
