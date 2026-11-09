@@ -427,6 +427,7 @@ def _execute_single_step_detailed(
     world_index: int,
     founded_turns: dict[int, int],
     action_binding: Mapping[str, Any] | None = None,
+    brancher: Any | None = None,
 ) -> tuple[Mapping[str, Any], list[LaborRolloutRow], dict[int, bool]]:
     """Resolve one world decision; ``action_binding`` gates action-feature rows.
 
@@ -434,6 +435,12 @@ def _execute_single_step_detailed(
     pair the canonical adapter checks (see :func:`_producer_action_binding`).
     It is passed in by the artifact producer, never rebuilt here. Without it no
     action features are constructed and the rows carry none.
+
+    ``brancher`` (WP-B, default None: this function is unchanged) is a
+    ``labor_branch_collect.PairedBranchCollector``: after the actor has sampled and
+    before execution it may select camps and fork the pre-decision world; after
+    execution it runs the paired branches and returns the bridge to this decision's
+    successor. It never uses ``generator``.
     """
     live = [
         village
@@ -542,7 +549,15 @@ def _execute_single_step_detailed(
             None,
         )
 
+    plan = None
+    if brancher is not None:
+        plan = brancher.before_decision(
+            step=step, live=live, contexts=contexts, tensors=tensors, raw=raw, output=output,
+            retained=retained, founded=founded_turns,
+        )
     execution = execute_labor_decision(bridge, catalogs, retained, retry_factory)
+    if plan is not None:
+        brancher.after_decision(plan, execution)
     next_step = execution.step
     rewards, terminal, elapsed = _transition_rewards(
         next_step,
@@ -647,8 +662,12 @@ def _sample_world_step(
     founded_turns: dict[int, int],
     max_self_destruct_rewinds: int = 0,
     action_binding: Mapping[str, Any] | None = None,
+    brancher: Any | None = None,
 ) -> tuple[Mapping[str, Any], list[LaborRolloutRow]]:
+    if brancher is not None and max_self_destruct_rewinds > 0:
+        raise ValueError("paired branching does not combine with self-destruct rewinds")
     if max_self_destruct_rewinds <= 0:
+        extra = {} if brancher is None else {"brancher": brancher}
         next_step, rows, _ = _execute_single_step_detailed(
             bridge=bridge,
             step=step,
@@ -662,6 +681,7 @@ def _sample_world_step(
             world_index=world_index,
             founded_turns=founded_turns,
             action_binding=action_binding,
+            **extra,
         )
         return next_step, rows
 
@@ -766,6 +786,7 @@ def collect_labor_rollout(
     warmup_decisions: int | None = None,
     action_binding: Mapping[str, Any] | None = None,
     reset_options: LaborResetOptions | None = None,
+    brancher: Any | None = None,
 ) -> tuple[list[LaborRolloutRow], dict[tuple[int, int], dict[str, float]]]:
     """Collect diagnostic local worlds without performing any optimizer step.
 
@@ -778,6 +799,10 @@ def collect_labor_rollout(
     with ``bridge.reset(seed, **reset_options.reset_kwargs())`` as BC/search/DAgger do.
     """
 
+    if brancher is not None and (economic_trace is not None or max_self_destruct_rewinds):
+        raise ValueError(
+            "paired branching (WP-B) does not combine with --economic-trace or rewinds"
+        )
     if warmup_decisions is not None:
         turns = _warmup_limit(warmup_decisions)
         if max_self_destruct_rewinds:
@@ -806,6 +831,12 @@ def collect_labor_rollout(
             )
             founded = {int(row["camp"]): int(step["turn"]) for row in step["villages"]}
             world_personality = personality_for_world(declared, seed)
+            branching = {}
+            if brancher is not None:
+                brancher.begin_world(
+                    bridge, seed=seed, world_index=world_index, personality=world_personality
+                )
+                branching = {"brancher": brancher}
             for _ in range(turns):
                 step, rows = _sample_world_step(
                     bridge=bridge,
@@ -821,6 +852,7 @@ def collect_labor_rollout(
                     founded_turns=founded,
                     max_self_destruct_rewinds=max_self_destruct_rewinds,
                     action_binding=action_binding,
+                    **branching,
                 )
                 if (
                     economic_trace is not None
@@ -852,6 +884,8 @@ def collect_labor_rollout(
             ).items():
                 bootstrap[(seed, camp)] = values
         finally:
+            if brancher is not None and brancher.bridge is bridge:
+                brancher.end_world()
             bridge.close()
     if economic_trace is not None:
         economic_trace.close()
@@ -2386,8 +2420,73 @@ def _log_rollout_reset(metadata: Mapping[str, Any], context: str) -> dict[str, A
     return record
 
 
+def _branch_config(args: argparse.Namespace) -> Any | None:
+    """collect's WP-B paired-branch configuration; None when ``--branch-select off``."""
+    select = getattr(args, "branch_select", "off") or "off"
+    if select == "off":
+        return None
+    from .labor_branch_collect import HEADS, BranchConfig
+
+    thresholds = None
+    if getattr(args, "branch_thresholds", None) is not None:
+        loaded = _load_json(args.branch_thresholds)
+        loaded = loaded.get("calibration", loaded) or {}
+        thresholds = {str(k): float(v) for k, v in loaded["thresholds"].items()}
+    heads = tuple(h for h in (args.branch_heads or ",".join(HEADS)).split(",") if h)
+    if getattr(args, "economic_trace", None) is not None or getattr(
+        args, "max_self_destruct_rewinds", 0
+    ):
+        raise ValueError("--branch-select does not combine with --economic-trace or rewinds")
+    return BranchConfig(
+        select=select,
+        rate=args.branch_rate,
+        floor=args.branch_floor,
+        horizon=args.branch_horizon,
+        continuation=args.branch_continuation,
+        shadow=args.branch_shadow,
+        heads=heads,
+        thresholds=thresholds,
+        calibration_min_states=args.branch_calibration_states,
+        streams=args.branch_streams,
+        seed=args.branch_seed,
+        store_rows=not args.branch_no_rows,
+    )
+
+
+def _write_branch_file(
+    args: argparse.Namespace, brancher: Any, metadata: Mapping[str, Any]
+) -> Path:
+    """Write ``<rollout>.branches.pt`` (WP-B) bound to the rollout file just written."""
+    import hashlib
+
+    from .labor_branch_collect import branch_path_for
+
+    rollout_sha = hashlib.sha256(Path(args.out).read_bytes()).hexdigest()
+    path = Path(args.branch_out) if args.branch_out is not None else branch_path_for(args.out)
+    provenance = {
+        "rolloutFile": Path(args.out).name,
+        "rolloutSha256": rollout_sha,
+        "sourceCheckpointSha256": metadata["sourceCheckpointSha256"],
+        "behaviorPolicyDigest": metadata["behaviorPolicyDigest"],
+        "bootstrapCriticDigest": metadata["advantageCriticDigest"],
+        "bootstrap": "the collect checkpoint's task/cost critics (the rollout's online V)",
+        "normalizationBindingDigest": metadata["normalizationBindingDigest"],
+        "actionAdapterDigest": metadata.get("actionAdapterDigest"),
+        "worldSeeds": list(metadata["worldSeeds"]),
+        "turns": metadata["turns"],
+        "resetOptions": metadata["resetOptions"],
+        "rolloutSamplingGenerator": "untouched by branching (keyed generators only)",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    torch.save(brancher.payload(provenance), tmp)
+    os.replace(tmp, path)
+    return path
+
+
 def _command_collect(args: argparse.Namespace) -> None:
     reset_options = _collect_reset_options(args)  # refuse ambiguous options before any work
+    branch_config = _branch_config(args)  # likewise
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     _require_trainer_checkpoint(state)
     _, actor, task, costs, normalizer = _models_from_checkpoint(state)
@@ -2411,6 +2510,19 @@ def _command_collect(args: argparse.Namespace) -> None:
             },
         )
     action_binding, action_metadata = _producer_action_binding()
+    branching: dict[str, Any] = {}
+    if branch_config is not None:
+        from .labor_branch_collect import PairedBranchCollector
+
+        branching["brancher"] = PairedBranchCollector(
+            branch_config,
+            actor=actor,
+            task_critic=task,
+            cost_critics=costs,
+            normalizer=normalizer,
+            reset_options=LEGACY_COLLECT_RESET if reset_options is None else reset_options,
+            action_binding=action_binding,
+        )
     rows, bootstrap = collect_labor_rollout(
         actor=actor,
         task_critic=task,
@@ -2426,6 +2538,7 @@ def _command_collect(args: argparse.Namespace) -> None:
         allow_vm_scale=getattr(args, "allow_vm_scale", False),
         action_binding=action_binding,
         reset_options=reset_options,
+        **branching,
     )
     behavior = labor_behavior_configuration(personality)
     policy_sha = behavior_policy_digest(actor, behavior)
@@ -2494,6 +2607,8 @@ def _command_collect(args: argparse.Namespace) -> None:
         metadata["economicTraceDir"] = str(args.economic_trace)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     torch.save(_state_dict_rollout(batch, task_targets, cost_targets, metadata), args.out)
+    if branching:
+        _write_branch_file(args, branching["brancher"], metadata)
 
 
 def _command_train(args: argparse.Namespace) -> None:
@@ -3734,6 +3849,43 @@ def argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="opt-in directory to stream prospective economic diagnostics trace",
     )
+    # WP-B paired branches (labor_branch_collect); off by default (collect unchanged).
+    collect.add_argument(
+        "--branch-select", choices=("off", "uniform", "adaptive"), default="off",
+        help="paired actor branches at selected decision states, written to "
+             "<rollout stem>.branches.pt (off: no branching, the rollout is unchanged)",
+    )
+    collect.add_argument(
+        "--branch-rate", type=float, default=0.25,
+        help="uniform: the selection rate; adaptive: the expected rate including the floor",
+    )
+    collect.add_argument("--branch-floor", type=float, default=1.0 / 16.0,
+                         help="adaptive: selection probability of states near H12")
+    collect.add_argument("--branch-horizon", type=int, choices=(2, 3), default=3)
+    collect.add_argument("--branch-continuation", choices=("actor", "h12"), default="actor",
+                         help="who plays after the forked decision (actor: on-policy, B4)")
+    branch_shadow = collect.add_mutually_exclusive_group()
+    branch_shadow.add_argument(
+        "--branch-shadow", dest="branch_shadow", action="store_const", const=True, default=None,
+        help="H12 shadow action at every rollout decision (default: only when needed, i.e. "
+             "adaptive or an H12 continuation); one heuristic resolve per world decision",
+    )
+    branch_shadow.add_argument("--no-branch-shadow", dest="branch_shadow",
+                               action="store_const", const=False)
+    collect.add_argument("--branch-heads", default=None,
+                         help="comma-separated D6 distance heads (default all seven)")
+    collect.add_argument("--branch-thresholds", type=Path, default=None,
+                         help="JSON with fixed per-head D6 thresholds ('thresholds' or "
+                              "'calibration.thresholds', e.g. a previous branch report)")
+    collect.add_argument("--branch-calibration-states", type=int, default=32,
+                         help="adaptive: states seen before online calibration (uniform rate "
+                              "until then)")
+    collect.add_argument("--branch-streams", type=int, default=1)
+    collect.add_argument("--branch-seed", type=int, default=0)
+    collect.add_argument("--branch-no-rows", action="store_true", default=False,
+                         help="do not store successor critic-input rows (values only)")
+    collect.add_argument("--branch-out", type=Path, default=None,
+                         help="default <rollout stem>.branches.pt next to --out")
     collect.add_argument("--out", type=Path, required=True)
     collect.set_defaults(handler=_command_collect)
 

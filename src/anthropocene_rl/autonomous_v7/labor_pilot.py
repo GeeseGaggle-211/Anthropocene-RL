@@ -524,6 +524,10 @@ def _cli(argv: Sequence[str] | None = None) -> int:
     summary.add_argument("--calibration", type=Path, default=None)
     summary.add_argument("--stage-seconds", type=Path, required=True)
     summary.add_argument("--bypass-expected", action="store_true", default=False)
+    summary.add_argument(
+        "--branch-report", type=Path, default=None,
+        help="WP-B labor_branch_report JSON, embedded as 'branches' (absent: key absent)",
+    )
     args = parser.parse_args(argv)
 
     def worlds(text: str) -> list[int]:
@@ -565,6 +569,8 @@ def _cli(argv: Sequence[str] | None = None) -> int:
             stage_seconds=json.loads(args.stage_seconds.read_text(encoding="utf-8")),
             bypass_expected=args.bypass_expected,
         )
+        if getattr(args, "branch_report", None) is not None:
+            result["branches"] = json.loads(args.branch_report.read_text(encoding="utf-8"))
     json.dump(result, sys.stdout, indent=1, sort_keys=True, default=str)
     sys.stdout.write("\n")
     return 0

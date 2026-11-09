@@ -52,7 +52,9 @@ def test_one_ulp_of_trade_value_is_accepted_and_more_is_refused():
     scale = math.log(4.0)
     feature = lambda x: math.log(float(x)) / scale  # noqa: E731
     assert ap.features_match(_row(value=feature(up)), _row(value=feature(v)))
-    far = np.nextafter(np.nextafter(np.nextafter(up, np.float32(10)), np.float32(10)), np.float32(10))
+    far = up
+    for _ in range(3):
+        far = np.nextafter(far, np.float32(10.0))
     assert not ap.features_match(_row(value=feature(far)), _row(value=feature(v)))
 
 
