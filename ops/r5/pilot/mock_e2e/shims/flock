@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Mock flock (Git Bash has none): the mock runs one job at a time.
+exit 0

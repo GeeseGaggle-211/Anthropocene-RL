@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Mock `gcloud storage cp|ls|cat` over the local directory $MOCK_GCS; objects are
+# write-once like the VM service account's (cp onto an existing object fails).
+args=()
+for a in "$@"; do case "$a" in --no-user-output-enabled) ;; *) args+=("$a") ;; esac; done
+[ "${args[0]}" = storage ] || { echo "mock gcloud: only 'storage' is mocked" >&2; exit 2; }
+map() { case "$1" in gs://*) echo "$MOCK_GCS/${1#gs://}" ;; *) echo "$1" ;; esac; }
+case "${args[1]}" in
+  cp)
+    src=$(map "${args[2]}"); dst="${args[3]}"
+    [ -e "$src" ] || { echo "mock gcloud: no such object ${args[2]}" >&2; exit 1; }
+    case "$dst" in
+      gs://*) d=$(map "$dst")
+              [ -e "$d" ] && { echo "mock gcloud: write-once, $dst exists" >&2; exit 1; }
+              mkdir -p "$(dirname "$d")" && cp "$src" "$d.tmp" && mv "$d.tmp" "$d" ;;
+      *) mkdir -p "$(dirname "$dst")" && cp "$src" "$dst" ;;
+    esac ;;
+  ls) [ -e "$(map "${args[2]}")" ] ;;
+  cat) cat "$(map "${args[2]}")" ;;
+  *) echo "mock gcloud: unsupported ${args[1]}" >&2; exit 2 ;;
+esac
